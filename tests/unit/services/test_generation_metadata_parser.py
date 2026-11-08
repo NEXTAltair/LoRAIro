@@ -202,6 +202,16 @@ class TestExtractFromImage:
         assert source.raw_bytes == comment
         assert source.raw_text == A1111_TEXT
 
+    @pytest.mark.parametrize("encoding", ["utf-16-be", "utf-16-le"])
+    def test_bomless_user_comment_starting_with_non_ascii(self, tmp_path: Path, encoding: str) -> None:
+        text = "猫\nSteps: 20, Sampler: Euler a, CFG scale: 7, Seed: 1"
+        path = _jpeg_with_user_comment(tmp_path / "jp.jpg", b"UNICODE\x00" + text.encode(encoding))
+
+        result = extract_generation_metadata(path)
+
+        assert result.status is GenerationMetadataStatus.PARSED
+        assert result.sources[0].raw_text == text
+
     def test_camera_user_comment_is_unsupported(self, tmp_path: Path) -> None:
         path = _jpeg_with_user_comment(tmp_path / "cam.jpg", b"ASCII\x00\x00\x00holiday")
 

@@ -109,9 +109,11 @@ def _decode_user_comment(data: bytes) -> str | None:
         if prefix == b"UNICODE\x00":
             if body.startswith((b"\xff\xfe", b"\xfe\xff")):
                 return body.decode("utf-16")
-            # BOM が無い場合、ASCII 範囲の文字の上位バイトが先頭にあれば big endian
-            big_endian = len(body) >= 2 and body[0] == 0 and body[1] != 0
-            return body.decode("utf-16-be" if big_endian else "utf-16-le")
+            # BOM が無い場合は、ASCII 範囲の文字 (生成情報の key: value 行は ASCII) の上位バイト 0 が
+            # 偶数位置と奇数位置のどちらに多いかで決める。同数なら piexif の既定の big endian。
+            zeros_even = body[0::2].count(0)
+            zeros_odd = body[1::2].count(0)
+            return body.decode("utf-16-le" if zeros_odd > zeros_even else "utf-16-be")
         if prefix == b"ASCII\x00\x00\x00":
             return body.decode("ascii")
         if prefix == b"\x00" * 8:

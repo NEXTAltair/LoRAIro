@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 
 import pytest
@@ -163,3 +164,22 @@ def test_one_result_row_per_image(db_session_factory) -> None:
             )
         with pytest.raises(IntegrityError):
             session.commit()
+
+
+def test_resave_refreshes_analyzed_at(repo, db_session_factory) -> None:
+    from lorairo.database.schema import GenerationMetadata
+
+    image_id = _insert_image(db_session_factory)
+    repo.save_result(image_id, _parsed_result())
+    old = datetime.datetime(2000, 1, 1)
+    with db_session_factory() as session:
+        row = session.query(GenerationMetadata).filter_by(image_id=image_id).one()
+        row.analyzed_at = old
+        session.commit()
+
+    repo.save_result(image_id, _parsed_result())
+
+    row = repo.get_by_image_id(image_id)
+    assert row is not None
+    # SQLite の datetime は naive で返る
+    assert row.analyzed_at.replace(tzinfo=None) > old

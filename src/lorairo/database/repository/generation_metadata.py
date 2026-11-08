@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 from dataclasses import asdict
 
@@ -91,6 +92,8 @@ class GenerationMetadataRepository(BaseRepository):
         row.parser_version = result.parser_version
         row.input_sha256 = result.input_sha256
         row.error_message = result.error_message
+        # server_default は INSERT 時だけ効くため、置き換えのたびに解析日時を更新する
+        row.analyzed_at = datetime.datetime.now(datetime.UTC)
         row.positive_prompt = params.positive_prompt if params else None
         row.negative_prompt = params.negative_prompt if params else None
         row.model_name = params.model_name if params else None
