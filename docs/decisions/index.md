@@ -104,3 +104,4 @@
 * [Kohya データセットの学習テキストをライブラリの Tag へ写す (擬似モデル KOHYA_DATASET)](0104-kohya-learning-text-to-library-tags.md)
 * [生成メタデータを原データと解析結果に分けて保存する](0105-generation-metadata-raw-and-parsed.md)
 * [生成メタデータを登録時に読み取り、再取り込みと再解析では原データとアノテーションを保つ](0106-generation-metadata-registration-and-reanalysis.md)
+* [生成メタデータを根拠に、登録時に ai generated タグを自動で付ける (擬似モデル GENERATION_METADATA)](0107-ai-generated-tag-from-generation-metadata.md)

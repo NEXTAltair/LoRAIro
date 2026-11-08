@@ -110,6 +110,8 @@ class TestUnifiedEntrySideEffectDefinition:
         mgr = ImageDatabaseManager(config_service=ConfigurationService(), image_repo=Mock())
         mgr.save_tags = Mock()
         mgr.save_captions = Mock()
+        # ai generated の自動付与 (ADR 0107) は別テストで実 DB を使って確かめる
+        mgr.apply_ai_generated_tag = Mock(return_value=False)
         return mgr
 
     @pytest.mark.parametrize(
@@ -137,5 +139,7 @@ class TestUnifiedEntrySideEffectDefinition:
         # 関連ファイルは分類結果が解決した image_id (42) へ取り込まれる
         manager.save_tags.assert_called_once()
         assert manager.save_tags.call_args[0][0] == 42
+        # ai generated は関連ファイルの取り込みの後に、同じ image_id へ付ける (ADR 0107)
+        manager.apply_ai_generated_tag.assert_called_once_with(42)
         # filename alias は重複時のみ
         assert manager.image_repo.add_filename_alias.called is alias_expected

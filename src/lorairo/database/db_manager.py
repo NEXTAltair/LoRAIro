@@ -291,6 +291,8 @@ class ImageDatabaseManager:
         self,
         image_path: Path,
         fsm: FileSystemManager,
+        *,
+        apply_ai_generated_tag: bool = True,
     ) -> tuple[int, dict[str, Any]] | None:
         """オリジナル画像をDBに登録する（オーケストレータ）。
 
@@ -313,6 +315,10 @@ class ImageDatabaseManager:
             OSError には PIL の UnidentifiedImageError や PermissionError 等の
             ファイル読み取り / デコード失敗が含まれる (1 ファイル不正で worker 全体を
             止めないための per-file tolerance)。
+
+        ``apply_ai_generated_tag`` が True なら、生成メタデータを保存した後に ``ai generated`` を
+        付ける (ADR 0107)。関連ファイルの取り込みを後で行う呼び出し元は False にして、取り込みの後に
+        ``apply_ai_generated_tag()`` を呼ぶ (同じタグの重複を避けるため)。
 
         Raises:
             SQLAlchemyError: DB 操作に失敗した場合は呼び出し元 (Worker boundary)
@@ -350,6 +356,8 @@ class ImageDatabaseManager:
             image_id, metadata = result
             is_duplicate = metadata.get("phash_classification") == PhashClassification.DUPLICATE.value
             self.record_generation_metadata(image_id, image_path, only_if_unanalyzed=is_duplicate)
+            if apply_ai_generated_tag:
+                self.apply_ai_generated_tag(image_id)
         return result
 
     def register_image_with_side_effects(
@@ -394,7 +402,8 @@ class ImageDatabaseManager:
                 伝播させる。
 
         """
-        result = self.register_original_image(image_path, fsm)
+        # ai generated は関連 .txt の取り込みの後に付ける (同じタグがあれば足さないため, ADR 0107)
+        result = self.register_original_image(image_path, fsm, apply_ai_generated_tag=False)
         if result is None:
             logger.error(f"画像登録失敗: {image_path}")
             return RegistrationSideEffectResult(RegistrationOutcome.FAILED, None, None)
@@ -420,6 +429,7 @@ class ImageDatabaseManager:
         if outcome is RegistrationOutcome.DUPLICATE:
             self._register_filename_alias(image_id, image_path.stem)
 
+        self.apply_ai_generated_tag(image_id)
         return confirmed
 
     @staticmethod
@@ -2010,6 +2020,26 @@ class ImageDatabaseManager:
             )
             return None
         return result
+
+    def apply_ai_generated_tag(self, image_id: int) -> bool:
+        """保存済みの生成メタデータが AI 生成の根拠になるとき `ai generated` を付ける (ADR 0107)。
+
+        未解析・根拠にならない画像には何もしない (メタデータが無いことを非 AI 生成の証明にしない)。
+        既に同じタグがあれば足さない。DB エラーは警告に留め、呼び出し元 (画像登録) を止めない。
+
+        Returns:
+            タグを足したら True。
+        """
+        try:
+            evidence = self.get_generation_evidence(image_id)
+            if evidence is None or not evidence.is_ai_generated:
+                return False
+            return self.generation_metadata_repo.add_ai_generated_tag(image_id)
+        except SQLAlchemyError:
+            logger.opt(exception=True).warning(
+                f"ai generated タグの付与に失敗 (画像登録は継続): image_id={image_id}"
+            )
+            return False
 
     def get_generation_evidence(self, image_id: int) -> GenerationEvidence | None:
         """AI 生成の判定に使う解析結果の要約を返す (#1396 向け, ADR 0106)。

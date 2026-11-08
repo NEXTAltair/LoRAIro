@@ -18,6 +18,9 @@ from sqlalchemy.orm import Session, selectinload
 
 from ...utils.log import logger
 from ..schema import (
+    GENERATION_METADATA_LITELLM_ID,
+    GENERATION_METADATA_NAME,
+    GENERATION_METADATA_PROVIDER,
     KOHYA_DATASET_LITELLM_ID,
     KOHYA_DATASET_NAME,
     KOHYA_DATASET_PROVIDER,
@@ -246,6 +249,40 @@ class ModelRepository(BaseRepository):
         logger.debug(f"KOHYA_DATASET モデルを作成: ID={model.id}")
         model_id: int = model.id
         return model_id
+
+    @staticmethod
+    def get_or_create_generation_metadata_model(session: Session) -> int:
+        """生成メタデータを根拠に付けたタグ用の擬似モデル ID を取得または作成する (ADR 0107)。
+
+        `KOHYA_DATASET` と同じく sentinel `__generation_metadata__` で lookup・作成し、
+        model_types には関連付けない (推論の対象にしない)。呼び出し元のセッションで動き、
+        commit はしない。
+
+        Args:
+            session: データベースセッション。
+
+        Returns:
+            `GENERATION_METADATA` モデルの ID。
+
+        Raises:
+            SQLAlchemyError: データベース操作中にエラーが発生した場合。
+        """
+        existing_id = session.execute(
+            select(Model.id).where(Model.litellm_model_id == GENERATION_METADATA_LITELLM_ID)
+        ).scalar_one_or_none()
+        if existing_id is not None:
+            return existing_id
+        model = Model(
+            name=GENERATION_METADATA_NAME,
+            provider=GENERATION_METADATA_PROVIDER,
+            litellm_model_id=GENERATION_METADATA_LITELLM_ID,
+            requires_api_key=False,
+        )
+        session.add(model)
+        session.flush()
+        logger.debug(f"GENERATION_METADATA モデルを作成: ID={model.id}")
+        new_id: int = model.id
+        return new_id
 
     def insert_model(
         self,
