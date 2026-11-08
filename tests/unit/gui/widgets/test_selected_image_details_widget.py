@@ -921,6 +921,26 @@ class TestTagMetadataRefreshTriggers:
 
         assert len(triggered) == 1
 
+    def test_late_reader_injection_refetches_current_image_metadata(self, widget, monkeypatch):
+        """tag DB 背景準備後に reader が届いたら表示中画像のメタデータを取り直す (#1438)。"""
+        triggered: list = []
+        monkeypatch.setattr(widget, "_trigger_tag_metadata_fetch", triggered.append)
+
+        widget.set_merged_reader(FakeMergedReader({"cat": "猫"}, languages=["japanese"]))
+
+        assert triggered == [[{"tag": "cat", "tag_id": 1}]]
+
+    def test_reader_injection_without_image_does_not_fetch(self, widget, monkeypatch):
+        """画像未選択時の reader 注入では再取得しない。None 注入でも再取得しない。"""
+        triggered: list = []
+        monkeypatch.setattr(widget, "_trigger_tag_metadata_fetch", triggered.append)
+
+        widget.set_merged_reader(None)
+        widget.current_image_id = None
+        widget.set_merged_reader(FakeMergedReader({"cat": "猫"}, languages=["japanese"]))
+
+        assert triggered == []
+
     def test_refresh_skipped_without_image(self, widget, monkeypatch):
         """画像未選択・タグ無しでは何もしない。"""
         triggered: list = []
