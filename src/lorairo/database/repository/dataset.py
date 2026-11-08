@@ -361,6 +361,10 @@ class DatasetRepository(BaseRepository):
     def update_learning_text_elements(self, text_id: int, elements: list[str]) -> None:
         """学習テキストの要素を更新し、編集済みにする。`raw_text` は変更しない。
 
+        既存の行を直接書き換えるため、確定した版に対して呼ぶと ADR 0098 の「版は後から書き換えない」
+        に反する。現在 service・CLI・GUI からは呼ばれていない (Issue #1455 で外部編集 + 取り込み直しを採用)。
+        LoRAIro 内での編集 (作業中の版を編集して確定する案) を実装するときは、確定前の版にだけ使う。
+
         Args:
             text_id: `dataset_learning_texts.id`。
             elements: 新しい要素のリスト。

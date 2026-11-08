@@ -1,8 +1,8 @@
-"""Kohya-ss 形式の学習データセットの取り込み・書き出しコマンド (Issue #1420)。
+"""Kohya-ss 形式の学習データセットの取り込み・書き出し・版の比較コマンド (Issue #1420 / #1455)。
 
 設計書: ``docs/superpowers/specs/2026-11-05-kohya-dataset-roundtrip-design.md``。
 サービスの組み立てだけを行い、処理本体は ``DatasetImportService`` /
-``KohyaDatasetExportService`` に委譲する。
+``KohyaDatasetExportService`` / ``DatasetVersionDiffService`` に委譲する。
 """
 
 from dataclasses import replace
@@ -21,6 +21,13 @@ from lorairo.services.dataset_import_service import (
     DatasetImportPlan,
     DatasetImportService,
     FolderImportPlan,
+)
+from lorairo.services.dataset_version_diff import (
+    DatasetVersionDiffService,
+    FolderChange,
+    ImageChange,
+    TextChange,
+    VersionDiff,
 )
 from lorairo.services.kohya_dataset_export_service import KohyaDatasetExportService
 from lorairo.services.service_container import get_service_container
@@ -313,3 +320,143 @@ def show_dataset(
                 f"images={len(folder.images)}  trigger={trigger}"
             )
         console.print(f"total: {len(snapshot.folders)} folder(s), {total_images} image(s)")
+
+
+def _image_change_item(dir_name: str, change: ImageChange) -> dict[str, object]:
+    return {
+        "scope": "image",
+        "dir_name": dir_name,
+        "file_stem": change.file_stem,
+        "status": change.status,
+        "base_image_id": change.base_image_id,
+        "target_image_id": change.target_image_id,
+        "texts": [
+            {
+                "extension": text.extension,
+                "status": text.status,
+                "added_elements": text.added_elements,
+                "removed_elements": text.removed_elements,
+                "reordered": text.reordered,
+            }
+            for text in change.texts
+        ],
+    }
+
+
+def _folder_change_item(change: FolderChange) -> dict[str, object]:
+    return {
+        "scope": "folder",
+        "dir_name": change.dir_name,
+        "status": change.status,
+        "base_image_count": change.base_image_count,
+        "target_image_count": change.target_image_count,
+        "num_repeats": list(change.num_repeats) if change.num_repeats else None,
+        "trigger_word": list(change.trigger_word) if change.trigger_word else None,
+    }
+
+
+_DIFF_MARKS = {"added": "+", "removed": "-", "changed": "~", "replaced": "!"}
+
+
+def _folder_diff_line(folder: FolderChange) -> str:
+    line = (
+        f"{_DIFF_MARKS[folder.status]} {folder.dir_name}/  "
+        f"images={folder.base_image_count}->{folder.target_image_count}"
+    )
+    if folder.num_repeats:
+        line += f"  repeats={folder.num_repeats[0]}->{folder.num_repeats[1]}"
+    if folder.trigger_word:
+        before, after = (word if word else "-" for word in folder.trigger_word)
+        line += f"  trigger={before}->{after}"
+    return line
+
+
+def _text_diff_line(text: TextChange) -> str:
+    parts = [f"    {_DIFF_MARKS[text.status]} {text.extension}"]
+    if text.added_elements:
+        parts.append("+[" + ", ".join(text.added_elements) + "]")
+    if text.removed_elements:
+        parts.append("-[" + ", ".join(text.removed_elements) + "]")
+    if text.reordered:
+        parts.append("(reordered)")
+    if len(parts) == 1 and text.status == "changed":
+        parts.append("(whitespace only)")
+    return "  ".join(parts)
+
+
+def _print_diff(diff: VersionDiff) -> None:
+    """版の差分を人間向けに表示する。"""
+    # データセット名・要素に [] が入りうるため Rich の markup は解釈させない
+    console.print(
+        f"base: {diff.base_dataset_name} / {diff.base_version_name} (id={diff.base_version_id})",
+        markup=False,
+    )
+    console.print(
+        f"target: {diff.target_dataset_name} / {diff.target_version_name} (id={diff.target_version_id})",
+        markup=False,
+    )
+    for folder in diff.folders:
+        console.print(_folder_diff_line(folder), markup=False)
+        for image in folder.images:
+            console.print(
+                f"  {_DIFF_MARKS[image.status]} {image.file_stem}  ({image.status})", markup=False
+            )
+            for text in image.texts:
+                console.print(_text_diff_line(text), markup=False)
+    summary = diff.summary
+    console.print(
+        f"folders: +{summary.folders_added} -{summary.folders_removed} ~{summary.folders_changed}  "
+        f"images: +{summary.images_added} -{summary.images_removed} "
+        f"!{summary.images_replaced} ~{summary.images_changed}  "
+        f"texts: +{summary.texts_added} -{summary.texts_removed} ~{summary.texts_changed}"
+    )
+    if not diff.has_changes:
+        console.print("no changes")
+
+
+@app.command("diff")
+def diff_dataset(
+    base_version_id: int = typer.Argument(..., help="Base (older) dataset version ID"),
+    target_version_id: int = typer.Argument(..., help="Target (newer) dataset version ID"),
+    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+) -> None:
+    """Show added / removed / changed folders, images and learning texts between two versions.
+
+    Folders are matched by folder name, images by file name (without extension) and learning
+    texts by extension. An image whose file name stays but whose image differs is "replaced".
+    Learning texts are compared by the exported content; element additions / removals are
+    counted per element, and an order-only change is marked as reordered. Nothing is written.
+    """
+    with command_boundary():
+        repository = _build_repository(project)
+        try:
+            diff = DatasetVersionDiffService(repository).diff_versions(base_version_id, target_version_id)
+        except LookupError as e:
+            raise typer.BadParameter(f"Version not found: {e}") from e
+
+        if not is_json_mode():
+            _print_diff(diff)
+            return
+        for folder in diff.folders:
+            emit_item(_folder_change_item(folder))
+            for image in folder.images:
+                emit_item(_image_change_item(folder.dir_name, image))
+        summary = diff.summary
+        emit_result(
+            f"Diff {base_version_id} -> {target_version_id}: {len(diff.folders)} folder change(s)",
+            base_version_id=base_version_id,
+            target_version_id=target_version_id,
+            base_version=diff.base_version_name,
+            target_version=diff.target_version_name,
+            has_changes=diff.has_changes,
+            folders_added=summary.folders_added,
+            folders_removed=summary.folders_removed,
+            folders_changed=summary.folders_changed,
+            images_added=summary.images_added,
+            images_removed=summary.images_removed,
+            images_replaced=summary.images_replaced,
+            images_changed=summary.images_changed,
+            texts_added=summary.texts_added,
+            texts_removed=summary.texts_removed,
+            texts_changed=summary.texts_changed,
+        )

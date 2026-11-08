@@ -3271,6 +3271,7 @@ INTROSPECTION_EXCLUSIONS = {
     "dataset import": "Kohya dataset command; ToolSpec catalog entry pending (Issue #1410).",
     "dataset export": "Kohya dataset command; ToolSpec catalog entry pending (Issue #1410).",
     "dataset show": "Kohya dataset command; ToolSpec catalog entry pending (Issue #1410).",
+    "dataset diff": "Kohya dataset command; ToolSpec catalog entry pending (Issue #1410).",
 }
 
 
