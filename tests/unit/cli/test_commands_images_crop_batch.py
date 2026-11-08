@@ -164,6 +164,21 @@ def test_dry_run_writes_nothing(
     assert test_db_manager.get_crop_children(parent_id) == []
 
 
+def test_dry_run_activates_project_read_only(parent_id: int, tmp_path: Path) -> None:
+    """dry-run はプロジェクトを read-only で開き、出力ディレクトリを初期化しない (PR #1480 Codex P2)。"""
+    from lorairo.cli.commands import images
+    from lorairo.database.access_policy import is_read_only
+
+    container = images.get_service_container()
+    observed: list[bool] = []
+    container.set_active_project.side_effect = lambda _project: observed.append(is_read_only())
+    rects = _rects(tmp_path, _row(parent_id, 0, 0, 100, 100))
+
+    assert _invoke(rects, "--dry-run").exit_code == 0
+    assert _invoke(rects).exit_code == 0
+    assert observed == [True, False]
+
+
 def test_more_than_500_rows_is_rejected_before_writing(
     parent_id: int, tmp_path: Path, test_db_manager: ImageDatabaseManager
 ) -> None:

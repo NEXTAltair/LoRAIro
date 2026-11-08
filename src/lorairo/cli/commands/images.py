@@ -10,6 +10,7 @@ API層（lorairo.public_api）を経由してService層を利用する。
 
 import json
 import sys
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Literal
 
@@ -28,6 +29,7 @@ from lorairo.cli._image_ids import MAX_IMAGE_IDS, parse_image_ids, validate_imag
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.cli.commands.duplicates import report as report_duplicates_command
 from lorairo.cli.commands.processing import process as process_images_command
+from lorairo.database.access_policy import read_only_scope
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.repository.annotation_record import AnnotationRepository
 from lorairo.domain.crop_request import DEFAULT_CROP_ORIGIN, CropCreateRequest, CropRect
@@ -38,7 +40,7 @@ from lorairo.public_api.types import RegistrationResult
 from lorairo.services.crop_batch_service import CropBatchOutcome, run_crop_batch
 from lorairo.services.crop_rect_jsonl_provider import CropRectLineError, JsonlCropRectProvider
 from lorairo.services.crop_service import create_crop_image, get_crop_source_info, normalize_crop_tags
-from lorairo.services.service_container import get_service_container
+from lorairo.services.service_container import get_service_container, service_container_scope
 
 # サブコマンドアプリ定義
 app = typer.Typer(help="Image management commands")
@@ -908,6 +910,86 @@ def _print_crop_batch_item(item: ImagesCropBatchItem) -> None:
     )
 
 
+def _enter_dry_run_scope(stack: ExitStack) -> None:
+    """dry-run 用に runtime 設定を固定し、read-only かつ分離した service container へ入る。"""
+    from lorairo.utils.config import (
+        DEFAULT_CONFIG_PATH,
+        RuntimeConfiguration,
+        get_config,
+        get_runtime_configuration,
+        runtime_configuration_scope,
+    )
+
+    configuration = get_runtime_configuration() or RuntimeConfiguration(
+        Path.cwd(), DEFAULT_CONFIG_PATH, get_config()
+    )
+    stack.enter_context(runtime_configuration_scope(configuration))
+    stack.enter_context(read_only_scope())
+    stack.enter_context(service_container_scope())
+
+
+def _load_crop_rect_provider(rects: str, origin: str) -> JsonlCropRectProvider:
+    """--rects / --origin を検証して JSONL provider を読み込む (入力不正は UsageError)。"""
+    if not origin.strip():
+        raise click.UsageError("--origin must not be empty.")
+    rects_path = Path(rects)
+    if not rects_path.is_file():
+        raise click.UsageError(f"--rects file not found: {rects}")
+    try:
+        return JsonlCropRectProvider.from_path(rects_path, default_origin=origin, max_rows=MAX_IMAGE_IDS)
+    except UnicodeDecodeError as exc:
+        raise click.UsageError(f"--rects must be UTF-8 JSONL: {exc.reason}") from exc
+
+
+def _report_crop_batch_summary(
+    items: list[ImagesCropBatchItem], *, project: str, dry_run: bool, json_mode: bool
+) -> Literal["success", "partial_success", "failed"]:
+    """件数サマリーを出力し、終了コード判定用の status を返す (skipped は成功扱い)。"""
+    counts = {
+        status: sum(item.status == status for item in items)
+        for status in ("created", "would_create", "skipped", "failed")
+    }
+    succeeded = counts["created"] + counts["would_create"] + counts["skipped"]
+    status: Literal["success", "partial_success", "failed"]
+    if counts["failed"] == 0:
+        status = "success"
+    else:
+        status = "partial_success" if succeeded else "failed"
+    message = (
+        f"{'Would create' if dry_run else 'Created'} "
+        f"{counts['would_create'] if dry_run else counts['created']} crop(s) from {len(items)} row(s)"
+    )
+    if not json_mode:
+        prefix = "[dry-run] " if dry_run else ""
+        console.print(
+            f"{prefix}{message}: skipped={counts['skipped']}, failed={counts['failed']}",
+            highlight=False,
+        )
+        return status
+    summary = ImagesCropBatchResult(
+        ok=status == "success",
+        status=status,
+        message=message,
+        project=project,
+        dry_run=dry_run,
+        total=len(items),
+        created=counts["created"],
+        would_create=counts["would_create"],
+        skipped=counts["skipped"],
+        failed=counts["failed"],
+        created_ids=[
+            item.child_image_id
+            for item in items
+            if item.status == "created" and item.child_image_id is not None
+        ],
+        failed_lines=sorted(
+            item.line for item in items if item.status == "failed" and item.line is not None
+        ),
+    )
+    emit_result(**summary.model_dump(mode="json", exclude={"kind"}))
+    return status
+
+
 @app.command("crop-batch")
 def crop_batch(
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
@@ -939,18 +1021,12 @@ def crop_batch(
     Example:
         lorairo-cli --json images crop-batch --project proj --rects rects.jsonl --dry-run
     """
-    with command_boundary():
-        if not origin.strip():
-            raise click.UsageError("--origin must not be empty.")
-        rects_path = Path(rects)
-        if not rects_path.is_file():
-            raise click.UsageError(f"--rects file not found: {rects}")
-        try:
-            provider = JsonlCropRectProvider.from_path(
-                rects_path, default_origin=origin, max_rows=MAX_IMAGE_IDS
-            )
-        except UnicodeDecodeError as exc:
-            raise click.UsageError(f"--rects must be UTF-8 JSONL: {exc.reason}") from exc
+    with command_boundary(), ExitStack() as stack:
+        if dry_run:
+            # export create --dry-run と同じく、プロジェクト解決より前に read-only へ入り、
+            # 出力ディレクトリの初期化 (FileSystemManager.initialize) も DB 準備もさせない。
+            _enter_dry_run_scope(stack)
+        provider = _load_crop_rect_provider(rects, origin)
 
         api_get_project(project)
         container = get_service_container()
@@ -977,47 +1053,7 @@ def crop_batch(
             on_outcome=lambda outcome: report(_crop_batch_item_from_outcome(outcome)),
         )
 
-        counts = {
-            status: sum(item.status == status for item in items)
-            for status in ("created", "would_create", "skipped", "failed")
-        }
-        succeeded = counts["created"] + counts["would_create"] + counts["skipped"]
-        if counts["failed"] == 0:
-            status: Literal["success", "partial_success", "failed"] = "success"
-        else:
-            status = "partial_success" if succeeded else "failed"
-        message = (
-            f"{'Would create' if dry_run else 'Created'} "
-            f"{counts['would_create'] if dry_run else counts['created']} crop(s) from {len(items)} row(s)"
-        )
-        if json_mode:
-            summary = ImagesCropBatchResult(
-                ok=status == "success",
-                status=status,
-                message=message,
-                project=project,
-                dry_run=dry_run,
-                total=len(items),
-                created=counts["created"],
-                would_create=counts["would_create"],
-                skipped=counts["skipped"],
-                failed=counts["failed"],
-                created_ids=[
-                    item.child_image_id
-                    for item in items
-                    if item.status == "created" and item.child_image_id is not None
-                ],
-                failed_lines=sorted(
-                    item.line for item in items if item.status == "failed" and item.line is not None
-                ),
-            )
-            emit_result(**summary.model_dump(mode="json", exclude={"kind"}))
-        else:
-            prefix = "[dry-run] " if dry_run else ""
-            console.print(
-                f"{prefix}{message}: skipped={counts['skipped']}, failed={counts['failed']}",
-                highlight=False,
-            )
+        status = _report_crop_batch_summary(items, project=project, dry_run=dry_run, json_mode=json_mode)
         if status != "success":
             raise typer.Exit(result_exit_code(status))
 
