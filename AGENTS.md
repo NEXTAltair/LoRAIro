@@ -40,6 +40,25 @@
 - PRs should include a clear description, test results, and screenshots for GUI changes.
 - Link related issues and note any migration or config changes.
 
+## LoRAIro Skills
+Repository-specific skills live in `.agents/skills/` (tracked); `.claude/skills/<name>` links to them.
+External skills (kit / third-party, e.g. `check-existing`, `pr-maintainer`, `pr-autoloop`) are untracked
+and restored from `skills-lock.json` by `make setup` / `make skills-install`. Read the skill's `SKILL.md`
+before starting the matching task; the skill holds the steps, safety constraints and verification.
+
+| Task | Skill | Key constraint |
+|---|---|---|
+| Read or edit the image DB (images, tags, annotations, errors) | `lorairo-cli-db-access` | Use `lorairo-cli`, never raw `sqlite3` against `lorairo_data/*` (9p mount + WAL) |
+| New repository / persistence code | `lorairo-repository-pattern` | Typed transactions via the repository layer |
+| New or slow queries, N+1 review | `sqlalchemy-query-patterns` | Batch lookups; check with EXPLAIN |
+| PySide6 widget / worker / Qt Designer work | `lorairo-qt-widget` | QObject + `moveToThread`; regenerate UI with `scripts/generate_ui.py` |
+| UI design intent before Qt work | `interface-design` | Then implement with `lorairo-qt-widget` |
+| Sync app layout with the wireframes / claude.ai design | `lorairo-design-capture` | Capture the render-time state, not static HTML |
+| Write tests | `lorairo-test-generator` | Mock `QMessageBox`; `qtbot.waitUntil`, no fixed waits |
+| Add or edit ADRs / concept docs | `okf-bundle` | Frontmatter is the SSoT; regenerate the index (`make adr-index`) |
+| Scope a feature (reuse vs build) | `check-existing` (external) | Check `local_packages/` first |
+| Maintain an agent-created PR | `pr-maintainer` / `pr-autoloop` (external) | See "Agent Git Workflow" below |
+
 ## Agent Git Workflow
 - Issue resolution, feature work, PR preparation, and any multi-file implementation must start from a dedicated git worktree under `.agents/worktree/`.
 - Do not edit, stage, commit, rebase, or push from the shared main checkout at `/workspaces/LoRAIro` for implementation work.

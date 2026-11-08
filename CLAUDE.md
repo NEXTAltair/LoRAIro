@@ -217,7 +217,7 @@ Agent Teams 有効（実験的）。チームメートとしても利用可能�
 
 ### Skills
 
-`.agents/skills/`: `check-existing` (実装前の既存解調査), `lorairo-repository-pattern`, `interface-design`, `lorairo-qt-widget`, `lorairo-test-generator`, `lorairo-cli-db-access` (画像DB調査は sqlite3 直叩きでなく lorairo-cli 経由), `lazy-import-refactor`, `pr-maintainer` (PR保守ポリシー), `pr-autoloop` (PR保守ループ自走)
+`.agents/skills/`: `check-existing` (実装前の既存解調査), `lorairo-repository-pattern`, `interface-design`, `lorairo-qt-widget`, `lorairo-test-generator`, `lorairo-cli-db-access` (画像DB調査は sqlite3 直叩きでなく lorairo-cli 経由), `lorairo-design-capture`, `sqlalchemy-query-patterns`, `okf-bundle`, `lazy-import-refactor`, `pr-maintainer` (PR保守ポリシー), `pr-autoloop` (PR保守ループ自走)
 
 `npx skills` (Vercel) で管理。`.claude/skills/<name>` は `.agents/skills/<name>` への symlink。
 外部ソース skill ([altairs-agent-dev-kit](https://github.com/NEXTAltair/altairs-agent-dev-kit) 由来 + サードパーティ) は git 追跡外で、`make setup` / `make skills-install` が `skills-lock.json` から自動復元する (`docs/development-workflow.md` 参照)。
