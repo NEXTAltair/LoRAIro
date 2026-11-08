@@ -301,6 +301,11 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 - **Class**: `DatasetVersionDiffService` / Function: `diff_snapshots()`
 - **Purpose**: 2 つの版のフォルダ・画像 (追加 / 削除 / 差し替え)・学習テキスト (要素の追加 / 削除 / 並び替え) の差分を表示時に計算する (Qt-free、保存しない)。CLI は `lorairo-cli dataset diff`。
 
+#### ImageComparisonService (Qt-free)
+- **Path**: `src/lorairo/services/image_comparison.py`
+- **Class**: `ImageComparisonService` / `ComparisonSelection` / Functions: `diff_tags()`, `diff_caption()`, `snapshot_from_metadata()`
+- **Purpose**: 2 枚の画像の現在のタグ (共通 / 左だけ / 右だけ) とキャプション (原文を保ったテキスト差分) を比べる読み取り専用の処理と、比較画面の左右選択・片側固定の状態。片側に情報が無いときは比較せず欠けている側を返す。画面は `gui/widgets/image_comparison_dialog.py`、読み込みは `gui/workers/image_comparison_worker.py`。
+
 #### KohyaScanner
 - **Path**: `src/lorairo/services/kohya_scanner.py`
 - **Purpose**: `<繰り返し数>_<名前>/` フォルダと学習テキストのスキャン。トリガーワード候補の検出 (Qt-free)。

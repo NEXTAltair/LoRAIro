@@ -70,6 +70,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     selection_synced = Signal(list)  # ドラッグ選択を状態管理へ反映した後の image_ids
     stage_selected_requested = Signal(list)  # バッチタグのステージング追加要求（visible image_ids）
     quick_tag_requested = Signal(list)  # クイックタグ追加要求（image_ids）
+    compare_requested = Signal(list)  # 選択画像の比較要求（image_ids、2 枚以上, #1399）
     # クロップ作成要求（1 枚選択時のみ、image_id）。配線側が set_crop_action_enabled(True)
     # を呼んだタブでのみ右クリックメニューへ項目が出る (#1346)。
     crop_requested = Signal(int)
@@ -632,6 +633,10 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             action_crop = menu.addAction("クロップして学習素材を作成…")
             action_crop.setEnabled(len(visible_selected_ids) == 1)
 
+        # 画像の比較 (#1399)。2 枚以上の選択で有効。先頭 2 枚を左右に置き、残りは候補。
+        action_compare = menu.addAction("選択した画像を比較…")
+        action_compare.setEnabled(len(visible_selected_ids) >= 2)
+
         menu.addSeparator()
 
         # すべて選択
@@ -647,6 +652,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             self.stage_selected_requested.emit(visible_selected_ids)
         elif action == action_quick_tag:
             self.quick_tag_requested.emit(visible_selected_ids)
+        elif action == action_compare:
+            self.compare_requested.emit(visible_selected_ids)
         elif action_crop is not None and action == action_crop:
             self.crop_requested.emit(visible_selected_ids[0])
         elif action == action_select_all:

@@ -1786,6 +1786,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.search_tab.shutdown()
         if self.results_tab is not None:
             self.results_tab.shutdown()
+        # アノテーションタブの比較画面 (ステージングの「比較…」) の worker を停止する (#1399)。
+        if self.annotate_tab is not None:
+            self.annotate_tab.shutdown()
         # Provider Batch 結果回収 worker を停止する (#1158 Codex P2)。埋め込み widget の
         # closeEvent は親閉鎖で発火しないため、Jobs タブ経由で明示的に停止して待つ。
         if self.jobs_tab is not None:

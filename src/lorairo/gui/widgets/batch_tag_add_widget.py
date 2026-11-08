@@ -93,6 +93,7 @@ class BatchTagAddWidget(QWidget):
     staged_images_changed = Signal(list)  # list[int] - ステージング画像IDリスト（StagingWidget から再公開）
     tag_add_requested = Signal(list, str)  # (image_ids, tag) - タグ追加要求
     staging_cleared = Signal()  # ステージングリストクリア（StagingWidget から再公開）
+    compare_requested = Signal(list)  # list[int] - 比較要求（StagingWidget から再公開, #1399）
 
     # 定数（StagingWidget と同値を公開, main_window / テストが参照する）
     MAX_STAGING_IMAGES = StagingWidget.MAX_STAGING_IMAGES
@@ -124,6 +125,7 @@ class BatchTagAddWidget(QWidget):
         # StagingWidget シグナルを BatchTagAddWidget シグナルとして再公開
         self._staging_widget.staged_images_changed.connect(self.staged_images_changed)
         self._staging_widget.staging_cleared.connect(self.staging_cleared)
+        self._staging_widget.compare_requested.connect(self.compare_requested)
 
         # タグ補完 (共通部品、Issue #1439)。候補ソースは set_tag_suggestion_service() で注入する。
         self._tag_suggestion = TagSuggestionWidget(self)

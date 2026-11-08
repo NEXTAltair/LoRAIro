@@ -173,6 +173,7 @@ class TestMainWindowAnnotationCompletion:
         window.export_tab = None
         window.search_tab = None
         window.results_tab = None
+        window.annotate_tab = None
         window.jobs_tab = None
 
         def check_closing():
