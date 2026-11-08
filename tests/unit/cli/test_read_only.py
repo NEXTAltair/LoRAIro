@@ -140,6 +140,7 @@ def test_strict_metadata_inventory_and_config_read_preservation(tmp_path, monkey
         "review run",
         "tags translations show",
         "tags health",
+        "maintenance check",
         "models list",
         "batch list",
         "errors list",

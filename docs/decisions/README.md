@@ -108,6 +108,7 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0096](0096-clef-search-tag-suggestions.md) | Clef の検索警告と関連画像群のタグ候補・手動修正 | 2026-10-08 | Accepted |
 | [0097](0097-clef-local-only.md) | Clef をローカルモデル専用に変更 | 2026-10-08 | Accepted |
 | [0098](0098-kohya-dataset-model.md) | Kohya-ss 学習データセットのデータモデルと取り込み・書き出し | 2026-11-06 | Proposed |
+| [0099](0099-read-only-db-maintenance-check.md) | 読み取り専用の DB メンテナンス点検コマンド | 2026-11-08 | Accepted |
 <!-- OKF-TABLE:END -->
 
 ## ADR テンプレート

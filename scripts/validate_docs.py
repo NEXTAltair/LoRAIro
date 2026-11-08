@@ -124,7 +124,8 @@ class DocValidator:
         # Reviewed inventory through CLI resume/diagnostic services (#1402):
         # annotation_run_ledger, duplicate_report_service and tag_health_service add three modules.
         # folder_common_tags adds one module for subfolder common tags on import (#1409 / #1448).
-        expected_business_count = 55
+        # db_maintenance_check_service adds the read-only maintenance check (#1358 / ADR 0099).
+        expected_business_count = 56
         expected_gui_count = 9
         expected_count = expected_business_count + expected_gui_count
 

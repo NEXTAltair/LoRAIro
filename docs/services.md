@@ -174,6 +174,11 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 
 ### ユーティリティ
 
+#### DbMaintenanceCheckService (Qt-free)
+- **Path**: `src/lorairo/services/db_maintenance_check_service.py`
+- **Class**: `DbMaintenanceCheckService`
+- **Purpose**: Provider Batch の DB 状態の整合と画像実ファイル欠損の読み取り専用点検 (`maintenance check`, ADR 0099)
+
 #### DateFormatter
 - **Path**: `src/lorairo/services/date_formatter.py`
 - **Purpose**: 日付フォーマット統一処理
