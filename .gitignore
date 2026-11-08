@@ -48,8 +48,6 @@ ENV/
 # 復元は scripts/install_agent_skills.py / make setup が行う)。
 # LoRAIro 固有 skill のみ whitelist で追跡する
 .agents/skills/*
-!.agents/skills/agent-pr-autoloop
-!.agents/skills/agent-pr-maintainer
 !.agents/skills/interface-design
 !.agents/skills/lorairo-cli-db-access
 !.agents/skills/lorairo-design-capture
