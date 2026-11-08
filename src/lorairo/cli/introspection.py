@@ -323,6 +323,50 @@ class ImagesUpdateResult(BaseModel):
     model_config = ConfigDict(title="ImagesUpdateResult")
 
 
+class ImagesAnalyzeMetadataInputSchema(BaseModel):
+    """Implemented options surface accepted by ``images analyze-metadata`` (ADR 0106)."""
+
+    project: str
+    image_ids: str | None = Field(
+        default=None,
+        description=(
+            "Comma-separated image IDs, max 500. Positional form also works. "
+            "Omit to process images without an analysis result."
+        ),
+    )
+    force: bool = Field(default=False, description="Replace existing results of the given image IDs.")
+    limit: int = Field(default=500, ge=1, le=500, description="Max unanalyzed images when IDs are omitted.")
+
+    model_config = ConfigDict(title="ImagesAnalyzeMetadataInput")
+
+
+class ImagesAnalyzeMetadataItem(BaseModel):
+    """JSONL item payload emitted per image by ``images analyze-metadata --json``."""
+
+    image_id: int
+    action: Literal["analyzed", "skipped_analyzed", "not_found", "file_missing", "save_failed"]
+    status: Literal["parsed", "partial", "unsupported", "no_metadata", "failed"] | None = None
+    tool: str | None = None
+
+    model_config = ConfigDict(title="ImagesAnalyzeMetadataItem")
+
+
+class ImagesAnalyzeMetadataResult(BaseModel):
+    """JSONL result payload emitted by ``images analyze-metadata --json``."""
+
+    kind: Literal["result"] = "result"
+    ok: bool
+    message: str
+    target_images: int
+    analyzed: int
+    skipped_analyzed: int
+    file_missing: int
+    save_failed: int
+    remaining_unanalyzed: int
+
+    model_config = ConfigDict(title="ImagesAnalyzeMetadataResult")
+
+
 class ImagesShowInputSchema(BaseModel):
     """Implemented options surface accepted by ``images show``."""
 
@@ -2142,6 +2186,69 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("has_more", "bool?"),
                 ),
                 schema=ImagesListResult,
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "images analyze-metadata": ToolSpec(
+        name="images analyze-metadata",
+        path="images analyze-metadata",
+        summary=(
+            "Read generation metadata (PNG parameters / ComfyUI prompt / EXIF UserComment) from stored "
+            "image files and save the analysis. Keeps saved raw data; never edits tags or captions."
+        ),
+        read_only=False,
+        side_effects=("db_read", "db_write", "file_read"),
+        inputs=(
+            _input(
+                "ImagesAnalyzeMetadataInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "image_ids",
+                        "csv[int]?",
+                        description=(
+                            "Comma-separated image IDs, max 500. Omit to process images "
+                            "without an analysis result."
+                        ),
+                    ),
+                    _f("force", "bool", default=False, description="Replace existing results (needs IDs)."),
+                    _f(
+                        "limit",
+                        "int",
+                        default=500,
+                        description="Max unanalyzed images when IDs are omitted.",
+                    ),
+                ),
+                schema=ImagesAnalyzeMetadataInputSchema,
+            ),
+        ),
+        outputs=(
+            _output(
+                "ImagesAnalyzeMetadataItem",
+                (
+                    _f("image_id", "int"),
+                    _f(
+                        "action",
+                        "str",
+                        description="analyzed/skipped_analyzed/not_found/file_missing/save_failed",
+                    ),
+                    _f("status", "str?", description="parsed/partial/unsupported/no_metadata/failed"),
+                    _f("tool", "str?"),
+                ),
+                schema=ImagesAnalyzeMetadataItem,
+            ),
+            _output(
+                "ImagesAnalyzeMetadataResult",
+                (
+                    _f("target_images", "int"),
+                    _f("analyzed", "int"),
+                    _f("skipped_analyzed", "int"),
+                    _f("file_missing", "int"),
+                    _f("save_failed", "int"),
+                    _f("remaining_unanalyzed", "int"),
+                ),
+                schema=ImagesAnalyzeMetadataResult,
             ),
         ),
         errors=(ERROR_MODEL,),

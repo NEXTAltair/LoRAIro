@@ -10,12 +10,13 @@ import datetime
 import json
 from dataclasses import asdict
 
+from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.future import select
 
 from ...domain.generation_metadata import GenerationMetadataResult
 from ...utils.log import logger
-from ..schema import GenerationMetadata, GenerationMetadataSource
+from ..schema import GenerationMetadata, GenerationMetadataSource, Image
 from .base import BaseRepository
 
 
@@ -139,4 +140,62 @@ class GenerationMetadataRepository(BaseRepository):
                 return list(session.execute(stmt).scalars().all())
             except SQLAlchemyError:
                 logger.opt(exception=True).error(f"生成メタデータの原データ取得に失敗: image_id={image_id}")
+                raise
+
+    def get_analyzed_image_ids(self, image_ids: list[int]) -> set[int]:
+        """指定した画像のうち、解析結果がある画像 ID の集合を返す。
+
+        Raises:
+            SQLAlchemyError: 予期しない DB エラー。
+        """
+        if not image_ids:
+            return set()
+        analyzed: set[int] = set()
+        with self.session_factory() as session:
+            try:
+                for start in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
+                    chunk = image_ids[start : start + self.BATCH_CHUNK_SIZE]
+                    stmt = select(GenerationMetadata.image_id).where(GenerationMetadata.image_id.in_(chunk))
+                    analyzed.update(session.execute(stmt).scalars().all())
+                return analyzed
+            except SQLAlchemyError:
+                logger.opt(exception=True).error("解析済み画像 ID の取得に失敗")
+                raise
+
+    def get_unanalyzed_image_ids(self, limit: int) -> list[int]:
+        """解析結果が無い画像 ID を ID 順に最大 ``limit`` 件返す。
+
+        Raises:
+            SQLAlchemyError: 予期しない DB エラー。
+        """
+        with self.session_factory() as session:
+            try:
+                stmt = (
+                    select(Image.id)
+                    .outerjoin(GenerationMetadata, GenerationMetadata.image_id == Image.id)
+                    .where(GenerationMetadata.id.is_(None))
+                    .order_by(Image.id)
+                    .limit(limit)
+                )
+                return list(session.execute(stmt).scalars().all())
+            except SQLAlchemyError:
+                logger.opt(exception=True).error("未解析の画像 ID の取得に失敗")
+                raise
+
+    def count_unanalyzed_images(self) -> int:
+        """解析結果が無い画像の件数を返す。
+
+        Raises:
+            SQLAlchemyError: 予期しない DB エラー。
+        """
+        with self.session_factory() as session:
+            try:
+                stmt = (
+                    select(func.count(Image.id))
+                    .outerjoin(GenerationMetadata, GenerationMetadata.image_id == Image.id)
+                    .where(GenerationMetadata.id.is_(None))
+                )
+                return int(session.execute(stmt).scalar_one())
+            except SQLAlchemyError:
+                logger.opt(exception=True).error("未解析の画像件数の取得に失敗")
                 raise

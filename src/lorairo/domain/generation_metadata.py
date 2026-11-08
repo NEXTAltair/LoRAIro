@@ -104,15 +104,51 @@ class GenerationMetadataResult:
 
     @property
     def is_ai_generation_evidence(self) -> bool:
-        """生成ツール固有の形式に一致したか (#1396 の判定材料)。
+        """生成ツール固有の形式に一致したか (#1396 の判定材料)。"""
+        return is_ai_generation_evidence(self.tool, self.status)
 
-        生成ツールが特定でき、解析状態が parsed / partial / unsupported (ComfyUI の判定のみ)
-        のいずれかであるときに True。汎用の文字列一致や画像寸法は根拠にしない。
-        """
-        if self.tool is None:
-            return False
-        return self.status in (
-            GenerationMetadataStatus.PARSED,
-            GenerationMetadataStatus.PARTIAL,
-            GenerationMetadataStatus.UNSUPPORTED,
-        )
+
+def is_ai_generation_evidence(tool: str | None, status: GenerationMetadataStatus) -> bool:
+    """生成ツールと解析状態から、AI 生成の根拠になるかを返す。
+
+    生成ツールが特定でき、解析状態が parsed / partial / unsupported (ComfyUI の判定のみ)
+    のいずれかであるときに True。汎用の文字列一致や画像寸法は根拠にしない。
+    """
+    if tool is None:
+        return False
+    return status in (
+        GenerationMetadataStatus.PARSED,
+        GenerationMetadataStatus.PARTIAL,
+        GenerationMetadataStatus.UNSUPPORTED,
+    )
+
+
+@dataclass(frozen=True)
+class GenerationEvidence:
+    """保存済みの解析結果のうち、AI 生成の判定に使う部分 (ADR 0106)。"""
+
+    tool: str | None
+    status: GenerationMetadataStatus
+
+    @property
+    def is_ai_generated(self) -> bool:
+        """生成ツール固有の形式に一致したか。"""
+        return is_ai_generation_evidence(self.tool, self.status)
+
+
+@dataclass(frozen=True)
+class GenerationMetadataAnalysisItem:
+    """再解析 1 画像分の処理結果 (ADR 0106)。
+
+    Attributes:
+        image_id: 画像 ID。
+        action: ``analyzed`` / ``skipped_analyzed`` (解析済みで飛ばした) / ``not_found`` /
+            ``file_missing`` / ``save_failed``。
+        status: 解析した場合の解析状態。
+        tool: 解析した場合の生成ツール。
+    """
+
+    image_id: int
+    action: str
+    status: GenerationMetadataStatus | None = None
+    tool: str | None = None

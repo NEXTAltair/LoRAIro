@@ -14,10 +14,16 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..domain.crop_request import DEFAULT_CROP_ORIGIN
-from ..domain.generation_metadata import GenerationMetadataResult
+from ..domain.generation_metadata import (
+    GenerationEvidence,
+    GenerationMetadataAnalysisItem,
+    GenerationMetadataResult,
+    GenerationMetadataStatus,
+)
 from ..filesystem import FileSystemManager
 from ..utils.log import logger
 from ..utils.tools import calculate_phash
+from .db_core import resolve_stored_path
 from .filter_criteria import ImageFilterCriteria
 from .repository.annotation_record import AnnotationRepository
 from .repository.crop_relation import CropRelationRepository
@@ -331,11 +337,20 @@ class ImageDatabaseManager:
         )
 
         # 3. 重複確定: 保存せず既存メタデータを返す (#632: ファイルコピーを残さない)
-        if classification is PhashClassification.DUPLICATE and existing_id is not None:
-            return self._handle_duplicate_image(existing_id, image_path, fsm)
-
         # 4. 新規 / 別版: 保存 + 挿入 + サムネイル生成を委譲する (ADR 0061 §3)
-        return self._persist_new_or_variant(image_path, fsm, original_metadata, phash, classification)
+        result: tuple[int, dict[str, Any]] | None
+        if classification is PhashClassification.DUPLICATE and existing_id is not None:
+            result = self._handle_duplicate_image(existing_id, image_path, fsm)
+        else:
+            result = self._persist_new_or_variant(image_path, fsm, original_metadata, phash, classification)
+
+        # 5. 生成メタデータを読み取って保存する (ADR 0106)。失敗しても登録結果は変えない。
+        # 重複 (再取り込み) は未解析のときだけ解析し、既存の解析結果と原データを保つ。
+        if result is not None:
+            image_id, metadata = result
+            is_duplicate = metadata.get("phash_classification") == PhashClassification.DUPLICATE.value
+            self.record_generation_metadata(image_id, image_path, only_if_unanalyzed=is_duplicate)
+        return result
 
     def register_image_with_side_effects(
         self,
@@ -1963,6 +1978,92 @@ class ImageDatabaseManager:
             `generation_metadata.id`。
         """
         return self.generation_metadata_repo.save_result(image_id, result)
+
+    def record_generation_metadata(
+        self, image_id: int, image_path: Path, *, only_if_unanalyzed: bool = False
+    ) -> GenerationMetadataResult | None:
+        """画像ファイルの生成メタデータを読み取り、解析結果を保存する (ADR 0106)。
+
+        読み取り・解析の失敗は ``failed`` の結果として保存する。保存自体の DB エラーは
+        警告に留め、呼び出し元 (画像登録) を止めない。
+
+        Args:
+            image_id: 保存先の画像 ID。
+            image_path: 読み取る画像ファイル。
+            only_if_unanalyzed: True なら、既に解析結果がある画像には何もしない。
+
+        Returns:
+            保存した解析結果。何もしなかった / 保存に失敗したときは None。
+        """
+        # services パッケージの __init__ が db_manager を参照するため、循環を避けて遅延 import する
+        from ..services.generation_metadata_parser import extract_generation_metadata
+
+        try:
+            if only_if_unanalyzed and self.generation_metadata_repo.get_by_image_id(image_id) is not None:
+                logger.debug(f"生成メタデータは解析済みのため保持: image_id={image_id}")
+                return None
+            result = extract_generation_metadata(image_path)
+            self.generation_metadata_repo.save_result(image_id, result)
+        except SQLAlchemyError:
+            logger.opt(exception=True).warning(
+                f"生成メタデータの保存に失敗 (画像登録は継続): image_id={image_id}, path={image_path}"
+            )
+            return None
+        return result
+
+    def get_generation_evidence(self, image_id: int) -> GenerationEvidence | None:
+        """AI 生成の判定に使う解析結果の要約を返す (#1396 向け, ADR 0106)。
+
+        Returns:
+            生成ツール・解析状態・判定可否。未解析なら None。
+        """
+        row = self.generation_metadata_repo.get_by_image_id(image_id)
+        if row is None:
+            return None
+        return GenerationEvidence(tool=row.tool, status=GenerationMetadataStatus(row.status))
+
+    def analyze_generation_metadata(
+        self, image_ids: list[int], *, force: bool = False
+    ) -> list[GenerationMetadataAnalysisItem]:
+        """保存済みの画像ファイルから生成メタデータを読み取り直す (ADR 0106)。
+
+        既存の原データは書き換えず、まだ無い取得元だけを足す。タグ・キャプションには触れない。
+
+        Args:
+            image_ids: 対象の画像 ID。
+            force: False なら解析済みの画像は飛ばす。True なら解析結果を置き換える。
+
+        Returns:
+            画像ごとの処理結果 (入力順)。
+        """
+        analyzed_ids = set() if force else self.generation_metadata_repo.get_analyzed_image_ids(image_ids)
+        items: list[GenerationMetadataAnalysisItem] = []
+        for image_id in image_ids:
+            if image_id in analyzed_ids:
+                items.append(GenerationMetadataAnalysisItem(image_id, "skipped_analyzed"))
+                continue
+            metadata = self.image_repo.get_image_metadata(image_id)
+            if metadata is None:
+                items.append(GenerationMetadataAnalysisItem(image_id, "not_found"))
+                continue
+            path = resolve_stored_path(str(metadata["stored_image_path"]))
+            if not path.is_file():
+                items.append(GenerationMetadataAnalysisItem(image_id, "file_missing"))
+                continue
+            result = self.record_generation_metadata(image_id, path)
+            if result is None:
+                items.append(GenerationMetadataAnalysisItem(image_id, "save_failed"))
+                continue
+            items.append(GenerationMetadataAnalysisItem(image_id, "analyzed", result.status, result.tool))
+        return items
+
+    def get_unanalyzed_generation_image_ids(self, limit: int) -> list[int]:
+        """生成メタデータが未解析の画像 ID を ID 順に最大 ``limit`` 件返す (ADR 0106)。"""
+        return self.generation_metadata_repo.get_unanalyzed_image_ids(limit)
+
+    def count_unanalyzed_generation_images(self) -> int:
+        """生成メタデータが未解析の画像の件数 (ADR 0106)。"""
+        return self.generation_metadata_repo.count_unanalyzed_images()
 
     def get_generation_metadata(self, image_id: int) -> GenerationMetadata | None:
         """画像の生成メタデータの解析結果を返す。未解析なら None (ADR 0105)。"""
