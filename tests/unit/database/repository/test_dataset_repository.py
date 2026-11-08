@@ -429,3 +429,16 @@ def test_copy_learning_texts_to_tags_unknown_folder_or_version_raises(
     with pytest.raises(LookupError):
         repo.copy_learning_texts_to_tags(9999)
     assert _count(session_factory, Tag) == 0
+
+
+def test_copy_learning_texts_to_tags_chunks_existing_lookup(
+    repo: DatasetRepository, session_factory: Callable[[], Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """既存行の照会は BATCH_CHUNK_SIZE ごとに分割しても結果が変わらない (SQLite の変数上限対策)。"""
+    version_id, _, _ = _two_folder_version(repo, session_factory)
+    repo.copy_learning_texts_to_tags(version_id, dir_names=["10_kariginu"])
+    monkeypatch.setattr(repo, "BATCH_CHUNK_SIZE", 1)
+
+    result = repo.copy_learning_texts_to_tags(version_id)
+
+    assert (result.tags_added, result.tags_skipped) == (1, 4)

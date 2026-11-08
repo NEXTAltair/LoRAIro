@@ -544,14 +544,15 @@ class DatasetRepository(BaseRepository):
             elements_by_image = _collect_elements_by_image(folders, extension)
 
             model_id = ModelRepository.get_or_create_kohya_dataset_model(session)
+            # SQLite のバインド変数上限を超えないよう、画像 ID を分割して既存行を引く
             existing: set[tuple[int, str]] = set()
-            if elements_by_image:
+            image_ids = list(elements_by_image)
+            for offset in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
+                chunk = image_ids[offset : offset + self.BATCH_CHUNK_SIZE]
                 rows = session.execute(
-                    select(Tag.image_id, Tag.tag).where(
-                        Tag.model_id == model_id, Tag.image_id.in_(list(elements_by_image))
-                    )
+                    select(Tag.image_id, Tag.tag).where(Tag.model_id == model_id, Tag.image_id.in_(chunk))
                 ).all()
-                existing = {(row.image_id, row.tag) for row in rows if row.image_id is not None}
+                existing.update((row.image_id, row.tag) for row in rows if row.image_id is not None)
 
             new_tags = [
                 Tag(
