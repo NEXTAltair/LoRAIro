@@ -8,11 +8,13 @@ from typing import NotRequired, TypedDict
 from sqlalchemy import (
     TIMESTAMP,
     Boolean,
+    CheckConstraint,
     Column,  # Table で使用
     Float,
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Table,  # 中間テーブル定義で使用
     Text,
@@ -857,6 +859,90 @@ class CropRelation(Base):
             f"<CropRelation(id={self.id}, parent_image_id={self.parent_image_id}, "
             f"child_image_id={self.child_image_id})>"
         )
+
+
+class GenerationMetadataSource(Base):
+    """画像に埋め込まれていた生成情報の原データ (ADR 0105, Issue #1481)。
+
+    PNG のテキストチャンクや EXIF UserComment を整形前のまま 1 件 1 行で持つ。
+    解析結果 (`generation_metadata`) とは別に持ち、再解析しても書き換えない。
+    """
+
+    __tablename__ = "generation_metadata_sources"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    image_id: Mapped[int] = mapped_column(ForeignKey("images.id", ondelete="CASCADE"), nullable=False)
+    # 取得元の種類 ("png_text" / "exif") とキー ("parameters" / "prompt" / "workflow" / "UserComment")
+    source_kind: Mapped[str] = mapped_column(String, nullable=False)
+    source_key: Mapped[str] = mapped_column(String, nullable=False)
+    # 文字列として取り出した原文。バイト列を復号できなかったときは NULL
+    raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # バイト列の原データ (EXIF UserComment)。PNG のテキストチャンクは NULL
+    raw_bytes: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    sha256: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "image_id", "source_kind", "source_key", name="uix_generation_metadata_sources_image_kind_key"
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<GenerationMetadataSource(id={self.id}, image_id={self.image_id}, "
+            f"kind='{self.source_kind}', key='{self.source_key}')>"
+        )
+
+
+class GenerationMetadata(Base):
+    """生成メタデータの解析結果 (ADR 0105, Issue #1481)。1 画像 1 行。
+
+    行が無い画像は未解析。解析した結果メタデータが無かった画像は `status="no_metadata"`。
+    取得できなかった項目は NULL のままにし、推測で補完しない。
+    """
+
+    __tablename__ = "generation_metadata"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    image_id: Mapped[int] = mapped_column(ForeignKey("images.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    # 生成ツール ("sd_webui" / "comfyui")。特定できなければ NULL
+    tool: Mapped[str | None] = mapped_column(String, nullable=True)
+    parser_name: Mapped[str] = mapped_column(String, nullable=False)
+    parser_version: Mapped[str] = mapped_column(String, nullable=False)
+    # 解析に使った原データ全体のハッシュ。原データが無ければ NULL
+    input_sha256: Mapped[str | None] = mapped_column(String, nullable=True)
+    positive_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    negative_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    model_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    model_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    # seed は 64 bit 符号付き整数を超えることがあるため文字列
+    seed: Mapped[str | None] = mapped_column(String, nullable=True)
+    steps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sampler: Mapped[str | None] = mapped_column(String, nullable=True)
+    cfg_scale: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # LoRA 参照 [{"name", "weight", "kind"}] と、共通項目以外の key: value (JSON)
+    loras_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extra_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String, nullable=True)
+    analyzed_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("image_id", name="uix_generation_metadata_image"),
+        CheckConstraint(
+            "status IN ('parsed', 'partial', 'unsupported', 'no_metadata', 'failed')",
+            name="ck_generation_metadata_status",
+        ),
+        Index("ix_generation_metadata_tool", "tool"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<GenerationMetadata(id={self.id}, image_id={self.image_id}, status='{self.status}')>"
 
 
 class ProviderBatchJob(Base):

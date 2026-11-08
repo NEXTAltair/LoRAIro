@@ -14,6 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..domain.crop_request import DEFAULT_CROP_ORIGIN
+from ..domain.generation_metadata import GenerationMetadataResult
 from ..filesystem import FileSystemManager
 from ..utils.log import logger
 from ..utils.tools import calculate_phash
@@ -21,6 +22,7 @@ from .filter_criteria import ImageFilterCriteria
 from .repository.annotation_record import AnnotationRepository
 from .repository.crop_relation import CropRelationRepository
 from .repository.error_record import ErrorRecordRepository
+from .repository.generation_metadata import GenerationMetadataRepository
 from .repository.image import ImageRepository, PhashClassification
 from .repository.model import ModelRepository
 from .repository.project import ProjectRepository
@@ -30,6 +32,7 @@ from .schema import (
     AnnotationsDict,
     CaptionAnnotationData,
     CropRelation,
+    GenerationMetadata,
     RatingAnnotationData,
     ScoreAnnotationData,
     TagAnnotationData,
@@ -96,6 +99,7 @@ class ImageDatabaseManager:
         annotation_repo: AnnotationRepository | None = None,
         provider_batch_repo: ProviderBatchRepository | None = None,
         crop_relation_repo: CropRelationRepository | None = None,
+        generation_metadata_repo: GenerationMetadataRepository | None = None,
     ):
         """ImageDatabaseManagerのコンストラクタ。
 
@@ -121,6 +125,7 @@ class ImageDatabaseManager:
             provider_batch_repo: Provider Batch API job/item/artifact の Repository
                 (ADR 0035 段階 6)。
             crop_relation_repo: クロップ親子関係の Repository (ADR 0092, #1343)。
+            generation_metadata_repo: 生成メタデータの Repository (ADR 0105, #1481)。
 
         """
         self.config_service = config_service
@@ -134,6 +139,7 @@ class ImageDatabaseManager:
                 annotation_repo,
                 provider_batch_repo,
                 crop_relation_repo,
+                generation_metadata_repo,
             ):
                 session_factory = getattr(repo, "session_factory", None)
                 if session_factory is not None:
@@ -163,6 +169,10 @@ class ImageDatabaseManager:
         # ADR 0092 (#1343): クロップ親子関係 (crop_relations) の Repository。
         self.crop_relation_repo: CropRelationRepository = crop_relation_repo or CropRelationRepository(
             session_factory=session_factory
+        )
+        # ADR 0105 (#1481): 生成メタデータ (原データと解析結果) の Repository。
+        self.generation_metadata_repo: GenerationMetadataRepository = (
+            generation_metadata_repo or GenerationMetadataRepository(session_factory=session_factory)
         )
         self._cached_project_id: int | None = None
         logger.info("ImageDatabaseManager initialized.")
@@ -1941,6 +1951,22 @@ class ImageDatabaseManager:
             height=height,
             origin=origin,
         )
+
+    def save_generation_metadata(self, image_id: int, result: GenerationMetadataResult) -> int:
+        """生成メタデータの解析結果を保存する (Manager 層 Facade, ADR 0105)。
+
+        Args:
+            image_id: 画像 ID。
+            result: parser の解析結果。原データは未保存の取得元だけ追加される。
+
+        Returns:
+            `generation_metadata.id`。
+        """
+        return self.generation_metadata_repo.save_result(image_id, result)
+
+    def get_generation_metadata(self, image_id: int) -> GenerationMetadata | None:
+        """画像の生成メタデータの解析結果を返す。未解析なら None (ADR 0105)。"""
+        return self.generation_metadata_repo.get_by_image_id(image_id)
 
     def get_crop_children(self, parent_image_id: int) -> list[CropRelation]:
         """親画像から切り出された子の関係行を作成順に返す (Manager 層 Facade)。
