@@ -119,6 +119,16 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 - **Class**: `DatasetExportService`
 - **Purpose**: データセットのエクスポート機能
 
+#### crop_batch_service (Qt-free)
+- **Path**: `src/lorairo/services/crop_batch_service.py`
+- **Function**: `run_crop_batch()`
+- **Purpose**: `CropRectProvider` の矩形候補からクロップ画像を一括作成する (1 矩形 = 1 結果、部分失敗は継続、同じ親・矩形・由来は skipped、dry-run 対応)。1 件の作成は `crop_service.create_crop_image` を再利用 (ADR 0103)
+
+#### JsonlCropRectProvider (Qt-free)
+- **Path**: `src/lorairo/services/crop_rect_jsonl_provider.py`
+- **Class**: `JsonlCropRectProvider`
+- **Purpose**: 外部で用意した矩形 JSONL (1 行 = image_id + 矩形) を読む `CropRectProvider` の最初の実装。不正な行は行番号付きで保持し、500 行超は count-first で拒否 (ADR 0103)
+
 #### ExportOverlay (Qt-free)
 - **Path**: `src/lorairo/services/export_overlay.py`
 - **Purpose**: エクスポート時の per-image タグ変換パイプライン (ADR 0080 §1-§4)

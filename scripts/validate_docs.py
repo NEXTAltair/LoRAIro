@@ -125,8 +125,9 @@ class DocValidator:
         # annotation_run_ledger, duplicate_report_service and tag_health_service add three modules.
         # folder_common_tags adds one module for subfolder common tags on import (#1409 / #1448).
         # db_maintenance_check_service adds the read-only maintenance check (#1358 / ADR 0099).
+        # crop_batch_service and crop_rect_jsonl_provider add bulk crop creation (#1340 / ADR 0103).
         # dataset_version_diff adds one module for comparing Kohya dataset versions (#1455).
-        expected_business_count = 57
+        expected_business_count = 59
         expected_gui_count = 9
         expected_count = expected_business_count + expected_gui_count
 

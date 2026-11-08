@@ -970,6 +970,77 @@ Structured error payload emitted as kind=error by the CLI boundary.
 - `hint`: `str?` (optional, default `None`)
 - `details`: `dict?` (optional, default `None`)
 
+### `images crop-batch`
+
+Create crop images in bulk from an externally prepared JSONL of rectangles (one row = image_id + rectangle). Reuses images crop per rectangle; tags and rating are copied from the parent. Coordinates are EXIF-oriented display pixels (ADR 0092). See ADR 0103.
+
+- Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
+- Side effects: `db_read`, `db_write`, `file_read`, `file_write`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "images crop-batch"
+```
+
+#### Models
+
+**Input `ImagesCropBatchInput`**
+
+- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `rects`: `str` (required) - JSONL, one object per line: {"image_id": int, "x": int, "y": int, "width": int, "height": int, "origin"?: str, "score"?: float}. Unknown keys are rejected; max 500 non-blank rows (RESULT_SET_TOO_LARGE, exit 2). (CLI: `--rects`)
+- `origin`: `str` (optional, default `manual`) - Provenance for rows that omit origin. (CLI: `--origin`)
+- `dry_run`: `bool` (optional, default `False`) - Validate rectangles and report would_create without writing. (CLI: `--dry-run`)
+
+**Output `ImagesCropBatchItem`**
+
+- `kind`: `item` (optional, default `item`)
+- `line`: `int?` (optional, default `None`) - 1-based JSONL line number.
+- `status`: `created | would_create | skipped | failed` (required)
+- `parent_image_id`: `int?` (optional, default `None`)
+- `child_image_id`: `int?` (optional, default `None`) - Created child, or the existing image when skipped.
+- `x`: `int?` (optional, default `None`)
+- `y`: `int?` (optional, default `None`)
+- `width`: `int?` (optional, default `None`)
+- `height`: `int?` (optional, default `None`)
+- `origin`: `str?` (optional, default `None`)
+- `score`: `float?` (optional, default `None`) - Echoed from the row; not stored.
+- `reason`: `already_exists | duplicate_image | invalid_rect | parent_not_found | io_error | registration_failed | invalid_row?` (optional, default `None`)
+- `message`: `str?` (optional, default `None`)
+
+**Output `ImagesCropBatchResult`**
+
+Re-running the same file is idempotent: existing parent+rectangle+origin rows are skipped.
+
+- `kind`: `result` (optional, default `result`)
+- `ok`: `bool` (required)
+- `status`: `success | partial_success | failed` (required) - Skipped rows count as success; partial success exits 3; total failure exits 1.
+- `message`: `str` (required)
+- `project`: `str` (required)
+- `dry_run`: `bool` (required)
+- `total`: `int` (required)
+- `created`: `int` (required)
+- `would_create`: `int` (required)
+- `skipped`: `int` (required)
+- `failed`: `int` (required)
+- `created_ids`: `list[int]` (required)
+- `failed_lines`: `list[int]` (required)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (optional, default `error`)
+- `ok`: `false` (optional, default `False`)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional, default `None`)
+- `details`: `dict?` (optional, default `None`)
+
 ### `images duplicates`
 
 Read-only duplicate candidates from saved 64-bit pHashes, capped at 10,000 project images. See [duplicate report](cli-duplicate-report.md).
