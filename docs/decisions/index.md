@@ -102,3 +102,4 @@
 * [登録日フィルタはスライダーを唯一の状態にし、暦日の境界を 1 箇所で決める](0100-registration-date-filter-single-state.md)
 * [クロップ矩形の供給元を CropRectProvider で差し替え可能にし、外部 JSONL から一括作成する](0103-crop-rect-provider-and-batch-crop.md)
 * [Kohya データセットの学習テキストをライブラリの Tag へ写す (擬似モデル KOHYA_DATASET)](0104-kohya-learning-text-to-library-tags.md)
+* [生成メタデータを原データと解析結果に分けて保存する](0105-generation-metadata-raw-and-parsed.md)

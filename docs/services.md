@@ -306,6 +306,11 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 - **Class**: `ImageComparisonService` / `ComparisonSelection` / Functions: `diff_tags()`, `diff_caption()`, `snapshot_from_metadata()`
 - **Purpose**: 2 枚の画像の現在のタグ (共通 / 左だけ / 右だけ) とキャプション (原文を保ったテキスト差分) を比べる読み取り専用の処理と、比較画面の左右選択・片側固定の状態。片側に情報が無いときは比較せず欠けている側を返す。画面は `gui/widgets/image_comparison_dialog.py`、読み込みは `gui/workers/image_comparison_worker.py`。
 
+#### GenerationMetadataParser (Qt-free)
+- **Path**: `src/lorairo/services/generation_metadata_parser.py`
+- **Functions**: `extract_generation_metadata()`, `read_generation_sources()`, `parse_generation_sources()`, `parse_sd_webui_parameters()`
+- **Purpose**: 画像に埋め込まれた生成情報 (PNG の `parameters` / `prompt` / `workflow`、EXIF UserComment) を整形前の原データとして取り出し、SD WebUI 形式を共通項目へ解析する。ComfyUI は判定のみ。結果型は `domain/generation_metadata.py`、保存は `GenerationMetadataRepository` (ADR 0105)。
+
 #### KohyaScanner
 - **Path**: `src/lorairo/services/kohya_scanner.py`
 - **Purpose**: `<繰り返し数>_<名前>/` フォルダと学習テキストのスキャン。トリガーワード候補の検出 (Qt-free)。

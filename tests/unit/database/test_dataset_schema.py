@@ -172,9 +172,11 @@ def test_alembic_has_single_head(tmp_path: Path) -> None:
     heads = script.get_heads()
 
     assert len(heads) == 1
-    revision = script.get_revision(heads[0])
-    assert revision is not None
-    assert revision.down_revision == PREVIOUS_REVISION
+    # データセットの migration (e5f6a7b8c9d0) は d4e5f6a7b8c9 の直後にあり、head までの系列に含まれる
+    dataset_revision = script.get_revision("e5f6a7b8c9d0")
+    assert dataset_revision is not None
+    assert dataset_revision.down_revision == PREVIOUS_REVISION
+    assert "e5f6a7b8c9d0" in {rev.revision for rev in script.iterate_revisions(heads[0], "base")}
 
 
 def test_alembic_downgrade_drops_dataset_tables(tmp_path: Path) -> None:
