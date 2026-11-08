@@ -79,6 +79,28 @@ elif scenario == "legacy_import":
         matched=good + bad, unmatched=0, saved=good, save_errors=bad, model_name="fixture",
         unmatched_ids=[], error_details=["fixture error"] if bad else [],
     ))
+elif scenario == "crop_batch":
+    from pathlib import Path
+    from lorairo.domain.crop_rect_provider import CropRectCandidate
+    from lorairo.domain.crop_request import CropRect
+    from lorairo.services.crop_batch_service import CropBatchOutcome
+    images.api_get_project = MagicMock()
+    images.get_service_container = lambda: container
+    Path("rects.jsonl").write_text(
+        '{"image_id": 1, "x": 0, "y": 0, "width": 8, "height": 8}\n'
+        '{"image_id": 2, "x": 0, "y": 0, "width": 8, "height": 8}\n',
+        encoding="utf-8",
+    )
+    def fake_run(provider, parent_ids, *, on_outcome, **kwargs):
+        statuses = {1: "created" if good else "failed", 2: "failed" if bad else "created"}
+        for parent_id in parent_ids:
+            for candidate in provider.candidates_for(parent_id):
+                outcome = CropBatchOutcome(statuses[parent_id], parent_id, candidate,
+                    child_image_id=10 if statuses[parent_id] == "created" else None,
+                    reason=None if statuses[parent_id] == "created" else "invalid_rect", message="fixture")
+                on_outcome(outcome)
+        return []
+    images.run_crop_batch = fake_run
 elif scenario == "maintenance":
     import lorairo.public_api.maintenance as maintenance_api
     from lorairo.services.db_maintenance_check_service import MaintenanceFinding, MaintenanceReport
@@ -98,12 +120,21 @@ main()
     scope="module",
     params=[
         pytest.param((scenario, status, expected), id=f"{scenario}-{status}-{expected}")
-        for scenario in ("processing", "register", "resolve", "import", "legacy_import", "update", "export")
+        for scenario in (
+            "processing",
+            "register",
+            "resolve",
+            "import",
+            "legacy_import",
+            "update",
+            "export",
+            "crop_batch",
+        )
         for status, expected in (("success", 0), ("partial_success", 3), ("failed", 1))
     ],
 )
 def process_case(request, tmp_path_factory):
-    """Overlap two fresh CLI startups, keeping 42 independently reported cases.
+    """Overlap two fresh CLI startups, keeping 48 independently reported cases.
 
     Only the JSON/non-JSON pair shares this fixture. At most two children run,
     including on two-core CI; each retains its own files and 60-second timeout.
@@ -144,6 +175,7 @@ def _run_process(tmp_path, scenario, status, json_mode, base_env):
         ],
         "export": ["export", "create", "--image-ids", "1,2", "--output", str(tmp_path / "output")],
         "maintenance": ["maintenance", "check"],
+        "crop_batch": ["images", "crop-batch", "--rects", "rects.jsonl"],
     }
     child_tmp = tmp_path / "tmp"
     child_tmp.mkdir()
