@@ -474,6 +474,39 @@ def test_collect_worker_reference_retained_until_thread_finished(widget, depende
 
 @pytest.mark.unit
 @pytest.mark.gui
+def test_collect_worker_is_destroyed_on_gui_thread_not_worker_thread(widget, dependencies, qtbot):
+    """Python 製 worker の C++ 破棄は GUI スレッドで行い、worker スレッドで行わない。
+
+    worker スレッドの deferred delete (``worker.deleteLater``) で破棄すると、``~QObject`` が
+    Qt の signal/slot プールミューテックスを保持したまま PySide の override 解決で GIL を
+    要求する。同時に GIL を握った GUI スレッドが ``QObject::connect`` で同じプールミューテックスを
+    待つと ABBA デッドロックになり、pytest-timeout も発動しない無期限ハングになる。
+    """
+    workflow, repository = dependencies
+    blocking = _BlockingWorkflow(workflow)
+    widget.set_dependencies(blocking, repository)
+
+    destroyed_thread_ids: list[int] = []
+    try:
+        widget.check_job_status(42)
+        qtbot.waitUntil(blocking.refresh_started.is_set, timeout=5000)
+        worker = widget._collect_runners[42][1]
+        # destroyed は破棄したスレッドで同期発火させ、どのスレッドで ~QObject が走ったかを記録する
+        worker.destroyed.connect(
+            lambda: destroyed_thread_ids.append(threading.get_ident()),
+            Qt.ConnectionType.DirectConnection,
+        )
+        del worker
+    finally:
+        blocking.release.set()
+
+    qtbot.waitUntil(lambda: 42 not in widget._collecting_job_ids, timeout=5000)
+    qtbot.waitUntil(lambda: bool(destroyed_thread_ids), timeout=5000)
+    assert destroyed_thread_ids == [threading.get_ident()]
+
+
+@pytest.mark.unit
+@pytest.mark.gui
 def test_check_status_initial_read_failure_falls_through_to_worker(widget, dependencies, qtbot):
     """#1158 Codex P2: 保存済み判定の初回読みが transient エラーで raise しても未処理に
     せず、最適化を諦めて worker 経路へ回す (皮肉にも #1158 が直す経路を再発させない)。"""
