@@ -2057,9 +2057,12 @@ class ImageDatabaseManager:
             items.append(GenerationMetadataAnalysisItem(image_id, "analyzed", result.status, result.tool))
         return items
 
-    def get_unanalyzed_generation_image_ids(self, limit: int) -> list[int]:
-        """生成メタデータが未解析の画像 ID を ID 順に最大 ``limit`` 件返す (ADR 0106)。"""
-        return self.generation_metadata_repo.get_unanalyzed_image_ids(limit)
+    def get_unanalyzed_generation_image_ids(self, limit: int, after_id: int = 0) -> list[int]:
+        """生成メタデータが未解析の画像 ID を、``after_id`` より後ろから ID 順に最大 ``limit`` 件返す。
+
+        ファイル欠落などで解析結果を作れなかった画像を飛ばして先へ進めるためのカーソル (ADR 0106)。
+        """
+        return self.generation_metadata_repo.get_unanalyzed_image_ids(limit, after_id)
 
     def count_unanalyzed_generation_images(self) -> int:
         """生成メタデータが未解析の画像の件数 (ADR 0106)。"""

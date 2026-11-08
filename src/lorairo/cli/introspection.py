@@ -336,6 +336,11 @@ class ImagesAnalyzeMetadataInputSchema(BaseModel):
     )
     force: bool = Field(default=False, description="Replace existing results of the given image IDs.")
     limit: int = Field(default=500, ge=1, le=500, description="Max unanalyzed images when IDs are omitted.")
+    after_id: int = Field(
+        default=0,
+        ge=0,
+        description="Only unanalyzed images with a larger ID (pass next_after_id to continue).",
+    )
 
     model_config = ConfigDict(title="ImagesAnalyzeMetadataInput")
 
@@ -363,6 +368,10 @@ class ImagesAnalyzeMetadataResult(BaseModel):
     file_missing: int
     save_failed: int
     remaining_unanalyzed: int
+    next_after_id: int | None = Field(
+        default=None,
+        description="Largest processed image ID; pass to --after-id to continue. Null if none.",
+    )
 
     model_config = ConfigDict(title="ImagesAnalyzeMetadataResult")
 
@@ -2219,6 +2228,12 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                         default=500,
                         description="Max unanalyzed images when IDs are omitted.",
                     ),
+                    _f(
+                        "after_id",
+                        "int",
+                        default=0,
+                        description="Only unanalyzed images with a larger ID (pass next_after_id to continue).",
+                    ),
                 ),
                 schema=ImagesAnalyzeMetadataInputSchema,
             ),
@@ -2247,6 +2262,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("file_missing", "int"),
                     _f("save_failed", "int"),
                     _f("remaining_unanalyzed", "int"),
+                    _f("next_after_id", "int?", description="Pass to --after-id to continue."),
                 ),
                 schema=ImagesAnalyzeMetadataResult,
             ),

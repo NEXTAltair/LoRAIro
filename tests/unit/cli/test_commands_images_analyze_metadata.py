@@ -40,13 +40,22 @@ class TestImagesAnalyzeMetadata:
         result = runner.invoke(app, ["--json", "images", "analyze-metadata", "-p", "proj", "--limit", "10"])
 
         assert result.exit_code == 0, result.output
-        container.db_manager.get_unanalyzed_generation_image_ids.assert_called_once_with(10)
+        container.db_manager.get_unanalyzed_generation_image_ids.assert_called_once_with(10, 0)
         container.db_manager.analyze_generation_metadata.assert_called_once_with([7], force=False)
         rows = _rows(result.output)
         assert [r["image_id"] for r in rows if r.get("kind") == "item"] == [7]
         summary = next(r for r in rows if r.get("kind") == "result")
         assert summary["analyzed"] == 1
         assert summary["remaining_unanalyzed"] == 3
+        assert summary["next_after_id"] == 7
+
+    def test_after_id_cursor_is_passed(self, container: MagicMock) -> None:
+        result = runner.invoke(
+            app, ["--json", "images", "analyze-metadata", "-p", "proj", "--after-id", "6"]
+        )
+
+        assert result.exit_code == 0, result.output
+        container.db_manager.get_unanalyzed_generation_image_ids.assert_called_once_with(500, 6)
 
     def test_with_ids_and_force_replaces_results(self, container: MagicMock) -> None:
         result = runner.invoke(

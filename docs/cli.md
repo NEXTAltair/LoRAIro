@@ -929,6 +929,7 @@ lorairo-cli --json describe "images analyze-metadata"
 - `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
 - `force`: `bool` (optional, default `False`) - Replace existing results (needs IDs). (CLI: `--force`)
 - `limit`: `int[1,500]` (optional, default `500`) - Max unanalyzed images when IDs are omitted. (CLI: `--limit`)
+- `after_id`: `int>=0` (optional, default `0`) - Only unanalyzed images with a larger ID (pass next_after_id to continue). (CLI: `--after-id`)
 
 **Output `ImagesAnalyzeMetadataItem`**
 
@@ -948,6 +949,7 @@ lorairo-cli --json describe "images analyze-metadata"
 - `file_missing`: `int` (required)
 - `save_failed`: `int` (required)
 - `remaining_unanalyzed`: `int` (required)
+- `next_after_id`: `int?` (optional, default `None`) - Pass to --after-id to continue.
 
 **Error `CliErrorResponse`**
 

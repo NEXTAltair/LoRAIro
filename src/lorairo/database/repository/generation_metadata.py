@@ -162,8 +162,8 @@ class GenerationMetadataRepository(BaseRepository):
                 logger.opt(exception=True).error("解析済み画像 ID の取得に失敗")
                 raise
 
-    def get_unanalyzed_image_ids(self, limit: int) -> list[int]:
-        """解析結果が無い画像 ID を ID 順に最大 ``limit`` 件返す。
+    def get_unanalyzed_image_ids(self, limit: int, after_id: int = 0) -> list[int]:
+        """解析結果が無い画像 ID を、``after_id`` より大きいものから ID 順に最大 ``limit`` 件返す。
 
         Raises:
             SQLAlchemyError: 予期しない DB エラー。
@@ -173,7 +173,7 @@ class GenerationMetadataRepository(BaseRepository):
                 stmt = (
                     select(Image.id)
                     .outerjoin(GenerationMetadata, GenerationMetadata.image_id == Image.id)
-                    .where(GenerationMetadata.id.is_(None))
+                    .where(GenerationMetadata.id.is_(None), Image.id > after_id)
                     .order_by(Image.id)
                     .limit(limit)
                 )

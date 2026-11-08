@@ -812,11 +812,18 @@ def analyze_metadata(
         max=MAX_IMAGE_IDS,
         help="Maximum number of unanalyzed images to process when no image IDs are given.",
     ),
+    after_id: int = typer.Option(
+        0,
+        "--after-id",
+        min=0,
+        help="Only consider unanalyzed images with an ID greater than this (use next_after_id to continue).",
+    ),
 ) -> None:
     """Read generation metadata from stored image files and save the analysis (ADR 0106).
 
     保存済みの画像ファイルから生成メタデータ (PNG の parameters 等) を読み直して保存します。
-    画像 ID を省くと、解析結果の無い画像を ID 順に最大 --limit 件処理します。
+    画像 ID を省くと、解析結果の無い画像を ID 順に最大 --limit 件処理します。ファイル欠落などで
+    解析できなかった画像は未解析のまま残るため、結果の next_after_id を --after-id に渡して先へ進めます。
     既存の原データは書き換えません。--force は指定した画像の解析結果を置き換えます。
     タグとキャプションには触れません。JSON item rows carry image_id/action/status/tool;
     the result row carries counts and remaining_unanalyzed.
@@ -831,10 +838,13 @@ def analyze_metadata(
         if image_ids:
             validate_image_ids_exist(container, image_ids)
         else:
-            image_ids = db_manager.get_unanalyzed_generation_image_ids(limit)
+            image_ids = db_manager.get_unanalyzed_generation_image_ids(limit, after_id)
 
         items = db_manager.analyze_generation_metadata(image_ids, force=force)
-        counts = _report_generation_analysis(items, db_manager.count_unanalyzed_generation_images())
+        next_after_id = max(image_ids) if image_ids else None
+        counts = _report_generation_analysis(
+            items, db_manager.count_unanalyzed_generation_images(), next_after_id
+        )
         if counts.get("file_missing", 0) + counts.get("save_failed", 0):
             raise typer.Exit(result_exit_code("partial_success" if counts.get("analyzed") else "failed"))
 
@@ -855,7 +865,7 @@ def _parse_analyze_image_ids(positional: list[str] | None, csv: str | None, forc
 
 
 def _report_generation_analysis(
-    items: list[GenerationMetadataAnalysisItem], remaining: int
+    items: list[GenerationMetadataAnalysisItem], remaining: int, next_after_id: int | None
 ) -> dict[str, int]:
     """再解析の結果を出力し、action ごとの件数を返す。"""
     counts: dict[str, int] = {}
@@ -882,6 +892,7 @@ def _report_generation_analysis(
             ok=summary["file_missing"] + summary["save_failed"] == 0,
             target_images=len(items),
             remaining_unanalyzed=remaining,
+            next_after_id=next_after_id,
             **summary,
         )
     else:
@@ -891,7 +902,7 @@ def _report_generation_analysis(
             console.print(f"  {item.image_id}: {item.action}{status}{tool}")
         console.print(
             ", ".join(f"{key}={value}" for key, value in summary.items())
-            + f", remaining_unanalyzed={remaining}"
+            + f", remaining_unanalyzed={remaining}, next_after_id={next_after_id}"
         )
     return counts
 

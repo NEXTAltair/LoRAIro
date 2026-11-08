@@ -202,3 +202,27 @@ def test_analyze_generation_metadata_reports_missing_file(tmp_path, gen_db, fs_m
         Path(stored.stored_image_path).unlink()
 
     assert manager.analyze_generation_metadata([image_id], force=True)[0].action == "file_missing"
+
+
+def test_unanalyzed_cursor_advances_past_missing_file(tmp_path, gen_db, fs_manager) -> None:
+    manager, factory = gen_db
+    first = manager.register_image_with_side_effects(_png(tmp_path / "a.png", A1111_TEXT), fs_manager)
+    second = manager.register_image_with_side_effects(
+        _png(tmp_path / "b.png", A1111_TEXT, size=(80, 64)), fs_manager
+    )
+    assert first.image_id is not None and second.image_id is not None
+    with factory() as session:
+        session.query(GenerationMetadata).delete()
+        stored = session.get(Image, first.image_id)
+        assert stored is not None
+        Path(stored.stored_image_path).unlink()
+        session.commit()
+
+    batch = manager.get_unanalyzed_generation_image_ids(limit=1)
+    assert batch == [first.image_id]
+    assert manager.analyze_generation_metadata(batch)[0].action == "file_missing"
+    # 欠落した画像は未解析のまま残るが、カーソルで先へ進める
+    assert manager.get_unanalyzed_generation_image_ids(limit=1) == [first.image_id]
+    assert manager.get_unanalyzed_generation_image_ids(limit=1, after_id=first.image_id) == [
+        second.image_id
+    ]
