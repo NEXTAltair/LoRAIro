@@ -454,7 +454,11 @@ class ProviderBatchJobWidget(QWidget):
         worker.succeeded.connect(self._on_collect_succeeded)
         worker.failed.connect(self._on_collect_failed)
         worker.finished.connect(thread.quit)
-        worker.finished.connect(worker.deleteLater)
+        # worker.deleteLater は繋がない: Python 製 QObject を worker スレッドの deferred delete で
+        # 破棄すると、~QObject が Qt の signal/slot プールミューテックスを保持したまま PySide の
+        # override 解決で GIL を要求し、GIL を握って QObject::connect 中の GUI スレッドと ABBA
+        # デッドロックする (無期限ハング)。worker は thread 終了後に GUI スレッドで参照解放
+        # (_on_collect_thread_finished / thread.deleteLater) されたときに破棄される。
         thread.finished.connect(lambda: self._on_collect_thread_finished(job_id, runner))
         thread.finished.connect(thread.deleteLater)
 
