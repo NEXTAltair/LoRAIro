@@ -33,6 +33,7 @@ from lorairo.database.access_policy import read_only_scope
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.repository.annotation_record import AnnotationRepository
 from lorairo.domain.crop_request import DEFAULT_CROP_ORIGIN, CropCreateRequest, CropRect
+from lorairo.domain.generation_metadata import GenerationMetadataAnalysisItem
 from lorairo.public_api.exceptions import ImageNotFoundError, ResultSetTooLargeError
 from lorairo.public_api.images import register_images as api_register_images
 from lorairo.public_api.project import get_project as api_get_project
@@ -788,6 +789,122 @@ def show(
                     )
                 console.print(f"  tags: {', '.join(tag_names) if tag_names else '(none)'}")
                 console.print(f"  captions: {' | '.join(caption_texts) if caption_texts else '(none)'}")
+
+
+@app.command("analyze-metadata")
+def analyze_metadata(
+    image_ids_positional: list[str] | None = typer.Argument(
+        None,
+        metavar="[IMAGE_IDS]...",
+        help="Image IDs (space or comma separated). Omit to analyze images that have no result yet.",
+    ),
+    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    image_ids_csv: str | None = typer.Option(None, "--image-ids", help="Comma-separated image IDs"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Replace existing analysis results of the given image IDs (requires image IDs).",
+    ),
+    limit: int = typer.Option(
+        MAX_IMAGE_IDS,
+        "--limit",
+        min=1,
+        max=MAX_IMAGE_IDS,
+        help="Maximum number of unanalyzed images to process when no image IDs are given.",
+    ),
+    after_id: int = typer.Option(
+        0,
+        "--after-id",
+        min=0,
+        help="Only consider unanalyzed images with an ID greater than this (use next_after_id to continue).",
+    ),
+) -> None:
+    """Read generation metadata from stored image files and save the analysis (ADR 0106).
+
+    保存済みの画像ファイルから生成メタデータ (PNG の parameters 等) を読み直して保存します。
+    画像 ID を省くと、解析結果の無い画像を ID 順に最大 --limit 件処理します。ファイル欠落などで
+    解析できなかった画像は未解析のまま残るため、結果の next_after_id を --after-id に渡して先へ進めます。
+    既存の原データは書き換えません。--force は指定した画像の解析結果を置き換えます。
+    タグとキャプションには触れません。JSON item rows carry image_id/action/status/tool;
+    the result row carries counts and remaining_unanalyzed.
+    """
+    with command_boundary():
+        image_ids = _parse_analyze_image_ids(image_ids_positional, image_ids_csv, force)
+        api_get_project(project)
+
+        container = get_service_container()
+        container.set_active_project(project)
+        db_manager = container.db_manager
+        if image_ids:
+            validate_image_ids_exist(container, image_ids)
+        else:
+            image_ids = db_manager.get_unanalyzed_generation_image_ids(limit, after_id)
+
+        items = db_manager.analyze_generation_metadata(image_ids, force=force)
+        next_after_id = max(image_ids) if image_ids else None
+        counts = _report_generation_analysis(
+            items, db_manager.count_unanalyzed_generation_images(), next_after_id
+        )
+        if counts.get("file_missing", 0) + counts.get("save_failed", 0):
+            raise typer.Exit(result_exit_code("partial_success" if counts.get("analyzed") else "failed"))
+
+
+def _parse_analyze_image_ids(positional: list[str] | None, csv: str | None, force: bool) -> list[int]:
+    """analyze-metadata の画像 ID 指定を検証して返す。省略時は空リスト。"""
+    id_sources = list(positional or [])
+    if csv:
+        id_sources.append(csv)
+    image_ids = parse_image_ids(",".join(id_sources)) if id_sources else []
+    if id_sources and not image_ids:
+        raise click.UsageError("画像 ID に有効な値がありません。")
+    if len(image_ids) > MAX_IMAGE_IDS:
+        raise click.UsageError(f"画像 ID は最大 {MAX_IMAGE_IDS} 件まで。")
+    if force and not image_ids:
+        raise click.UsageError("--force は画像 ID と一緒に指定してください。")
+    return image_ids
+
+
+def _report_generation_analysis(
+    items: list[GenerationMetadataAnalysisItem], remaining: int, next_after_id: int | None
+) -> dict[str, int]:
+    """再解析の結果を出力し、action ごとの件数を返す。"""
+    counts: dict[str, int] = {}
+    for item in items:
+        counts[item.action] = counts.get(item.action, 0) + 1
+    summary = {
+        "analyzed": counts.get("analyzed", 0),
+        "skipped_analyzed": counts.get("skipped_analyzed", 0),
+        "file_missing": counts.get("file_missing", 0),
+        "save_failed": counts.get("save_failed", 0),
+    }
+    if is_json_mode():
+        for item in items:
+            emit_item(
+                {
+                    "image_id": item.image_id,
+                    "action": item.action,
+                    "status": item.status.value if item.status else None,
+                    "tool": item.tool,
+                }
+            )
+        emit_result(
+            f"Analyzed generation metadata of {summary['analyzed']} image(s)",
+            ok=summary["file_missing"] + summary["save_failed"] == 0,
+            target_images=len(items),
+            remaining_unanalyzed=remaining,
+            next_after_id=next_after_id,
+            **summary,
+        )
+    else:
+        for item in items:
+            status = f" {item.status.value}" if item.status else ""
+            tool = f" ({item.tool})" if item.tool else ""
+            console.print(f"  {item.image_id}: {item.action}{status}{tool}")
+        console.print(
+            ", ".join(f"{key}={value}" for key, value in summary.items())
+            + f", remaining_unanalyzed={remaining}, next_after_id={next_after_id}"
+        )
+    return counts
 
 
 @app.command("crop")

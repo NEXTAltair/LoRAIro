@@ -906,6 +906,64 @@ Structured error payload emitted as kind=error by the CLI boundary.
 - `hint`: `str?` (optional, default `None`)
 - `details`: `dict?` (optional, default `None`)
 
+### `images analyze-metadata`
+
+Read generation metadata (PNG parameters / ComfyUI prompt / EXIF UserComment) from stored image files and save the analysis. Keeps saved raw data; never edits tags or captions.
+
+- Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
+- Side effects: `db_read`, `db_write`, `file_read`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "images analyze-metadata"
+```
+
+#### Models
+
+**Input `ImagesAnalyzeMetadataInput`**
+
+- `image_ids`: `str?` (optional, default `None`) - Comma-separated image IDs, max 500. Omit to process images without an analysis result. (CLI: `image_ids_positional`, `--image-ids`)
+- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `force`: `bool` (optional, default `False`) - Replace existing results (needs IDs). (CLI: `--force`)
+- `limit`: `int[1,500]` (optional, default `500`) - Max unanalyzed images when IDs are omitted. (CLI: `--limit`)
+- `after_id`: `int>=0` (optional, default `0`) - Only unanalyzed images with a larger ID (pass next_after_id to continue). (CLI: `--after-id`)
+
+**Output `ImagesAnalyzeMetadataItem`**
+
+- `image_id`: `int` (required)
+- `action`: `analyzed | skipped_analyzed | not_found | file_missing | save_failed` (required) - analyzed/skipped_analyzed/not_found/file_missing/save_failed
+- `status`: `parsed | partial | unsupported | no_metadata | failed?` (optional, default `None`) - parsed/partial/unsupported/no_metadata/failed
+- `tool`: `str?` (optional, default `None`)
+
+**Output `ImagesAnalyzeMetadataResult`**
+
+- `kind`: `result` (optional, default `result`)
+- `ok`: `bool` (required)
+- `message`: `str` (required)
+- `target_images`: `int` (required)
+- `analyzed`: `int` (required)
+- `skipped_analyzed`: `int` (required)
+- `file_missing`: `int` (required)
+- `save_failed`: `int` (required)
+- `remaining_unanalyzed`: `int` (required)
+- `next_after_id`: `int?` (optional, default `None`) - Pass to --after-id to continue.
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (optional, default `error`)
+- `ok`: `false` (optional, default `False`)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional, default `None`)
+- `details`: `dict?` (optional, default `None`)
+
 ### `images crop`
 
 Crop one rectangle out of a parent image and register it as an independent image. Tags and rating are copied from the parent at creation time and then managed separately.
