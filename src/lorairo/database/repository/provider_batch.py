@@ -21,7 +21,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import datetime
+from collections.abc import Collection, Mapping
+from dataclasses import dataclass
 from typing import Any, ClassVar, cast
 
 from sqlalchemy import delete, func, update
@@ -40,6 +42,16 @@ from ..schema import (
     ProviderBatchJobData,
 )
 from .base import BaseRepository
+
+
+@dataclass(frozen=True)
+class ProviderBatchJobState:
+    """整合点検用の job 状態スナップショット (ADR 0099)。"""
+
+    job_id: int
+    status: str
+    imported_at: datetime.datetime | None
+    expires_at: datetime.datetime | None
 
 
 class ProviderBatchRepository(BaseRepository):
@@ -381,5 +393,56 @@ class ProviderBatchRepository(BaseRepository):
             except SQLAlchemyError as e:
                 logger.opt(exception=True).error(
                     f"Provider batch artifact 一覧取得中にエラーが発生しました: {e}"
+                )
+                raise
+
+    # --- Read-only maintenance checks (ADR 0099) ---
+
+    def list_job_states(self) -> list[ProviderBatchJobState]:
+        """全 job の状態列だけを job ID 昇順で返す (payload や item は読まない)。"""
+        with self.session_factory() as session:
+            try:
+                rows = session.execute(
+                    select(
+                        ProviderBatchJob.id,
+                        ProviderBatchJob.status,
+                        ProviderBatchJob.imported_at,
+                        ProviderBatchJob.expires_at,
+                    ).order_by(ProviderBatchJob.id)
+                ).all()
+            except SQLAlchemyError as e:
+                logger.opt(exception=True).error(
+                    f"Provider batch job 状態の取得中にエラーが発生しました: {e}"
+                )
+                raise
+        return [ProviderBatchJobState(row[0], row[1], row[2], row[3]) for row in rows]
+
+    def list_job_ids_with_unlinked_items(self, excluded_job_statuses: Collection[str]) -> list[int]:
+        """画像参照が失われた未取込み item を持つ job ID を昇順で返す。
+
+        ``image_id`` は画像削除時に ``SET NULL`` されるため、未取込み item の
+        ``image_id IS NULL`` は結果を画像へ反映できない状態を表す。
+
+        Args:
+            excluded_job_statuses: 点検対象から外す job status (取込み済み・終端失敗など)。
+
+        Returns:
+            該当 job ID の昇順リスト。
+        """
+        with self.session_factory() as session:
+            try:
+                stmt = (
+                    select(ProviderBatchItem.job_id)
+                    .join(ProviderBatchJob, ProviderBatchJob.id == ProviderBatchItem.job_id)
+                    .where(ProviderBatchItem.image_id.is_(None))
+                    .where(ProviderBatchItem.status != "imported")
+                    .where(ProviderBatchJob.status.not_in(list(excluded_job_statuses)))
+                    .distinct()
+                    .order_by(ProviderBatchItem.job_id)
+                )
+                return list(session.execute(stmt).scalars().all())
+            except SQLAlchemyError as e:
+                logger.opt(exception=True).error(
+                    f"画像参照のない provider batch item の取得中にエラーが発生しました: {e}"
                 )
                 raise

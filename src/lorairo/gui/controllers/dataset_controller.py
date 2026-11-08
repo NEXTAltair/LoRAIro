@@ -61,7 +61,7 @@ class DatasetController:
 
         Args:
             dialog_callback: MainWindowでダイアログを実行するcallback関数。
-                設定JSON付きの DatasetSelection ならKohya取り込み、JSONなしの
+                Kohya 取り込みを選んだ DatasetSelection ならKohya取り込み、それ以外の
                 DatasetSelection または Path なら従来の画像登録を行う。
         """
         logger.info("統合ワークフロー: データセット選択と自動処理開始")
@@ -93,7 +93,7 @@ class DatasetController:
         """Kohya データセット取り込みを開始する（内部メソッド）。
 
         Args:
-            selection: 設定JSONを1つ以上含む選択結果
+            selection: Kohya 取り込みの選択結果 (設定JSONは 0 個でもよい)
         """
         if not self._validate_services():
             return
@@ -111,6 +111,7 @@ class DatasetController:
                 selection.version_name,
                 list(selection.config_files),
                 file_system_manager,
+                list(selection.folder_overrides) if selection.folder_overrides is not None else None,
             )
             logger.info(f"Kohya取り込み開始: worker_id={worker_id}, directory={selection.directory}")
         except (RuntimeError, OSError, ValueError) as e:
@@ -134,6 +135,7 @@ class DatasetController:
                 f"版 ID: {result.version_id}\n"
                 f"画像数: {result.image_count}\n"
                 f"スキップ数: {result.skipped_images}\n"
+                f"学習テキストの無い画像数: {result.images_without_text}\n"
                 f"学習設定数: {len(result.training_config_ids)}"
             ),
         )
