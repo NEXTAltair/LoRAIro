@@ -98,7 +98,9 @@ class FolderOverride:
 def apply_folder_overrides(plan: DatasetImportPlan, overrides: list[FolderOverride]) -> DatasetImportPlan:
     """確定値を計画のフォルダに反映した新しい計画を返す。
 
-    確定値の無いフォルダは計画のままにする。トリガーワードの空文字は未設定 (`None`) とする。
+    `overrides` は確認画面で確定したフォルダの全体とみなし、確定値の無いフォルダ (確認後に
+    追加されたフォルダなど、ユーザーが確認していないもの) は取り込まない。
+    トリガーワードの空文字は未設定 (`None`) とする。
 
     Args:
         plan: `propose_plan` で作った計画。
@@ -127,7 +129,9 @@ def apply_folder_overrides(plan: DatasetImportPlan, overrides: list[FolderOverri
     for folder in plan.folders:
         confirmed = by_dir.get(folder.dir_name)
         if confirmed is None:
-            folders.append(folder)
+            # 確認していないフォルダを黙って取り込むと、確認画面の内容と違う版になる
+            logger.debug(f"確認画面に無いフォルダは取り込みません: {folder.dir_name}")
+            folders.append(replace(folder, include=False))
             continue
         trigger = confirmed.trigger_word.strip() if confirmed.trigger_word else ""
         folders.append(

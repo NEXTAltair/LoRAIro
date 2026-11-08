@@ -141,3 +141,18 @@ def test_apply_folder_overrides_rejects_invalid_values(overrides):
     plan = DatasetImportPlan("ds", "v1", None, [FolderImportPlan("10_a", "a", 10, None, True)], [])
     with pytest.raises(ValueError):
         apply_folder_overrides(plan, overrides)
+
+
+def test_apply_folder_overrides_excludes_folders_not_confirmed():
+    """確認後に増えたフォルダ (確定値が無い) は取り込まない (Codex P2, PR #1472)。"""
+    from lorairo.services.dataset_import_service import apply_folder_overrides
+
+    plan = DatasetImportPlan(
+        "ds",
+        "v1",
+        None,
+        [FolderImportPlan("10_a", "a", 10, None, True), FolderImportPlan("3_new", "new", 3, None, True)],
+        [],
+    )
+    applied = apply_folder_overrides(plan, [FolderOverride("10_a", True, 10, None)])
+    assert [(f.dir_name, f.include) for f in applied.folders] == [("10_a", True), ("3_new", False)]
