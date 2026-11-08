@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
 from ...database.repository.dataset import DatasetRepository
-from ...services.dataset_import_service import DatasetImportResult, DatasetImportService
+from ...services.dataset_import_service import (
+    DatasetImportResult,
+    DatasetImportService,
+    FolderOverride,
+    apply_folder_overrides,
+)
 from ...utils.log import logger
 from .base import LoRAIroWorkerBase
 
@@ -31,6 +36,7 @@ class DatasetImportWorker(LoRAIroWorkerBase[DatasetImportResult]):
         config_files: list[Path],
         db_manager: ImageDatabaseManager,
         fsm: FileSystemManager,
+        folder_overrides: list[FolderOverride] | None = None,
     ) -> None:
         """ワーカー初期化。
 
@@ -41,6 +47,8 @@ class DatasetImportWorker(LoRAIroWorkerBase[DatasetImportResult]):
             config_files: 版に紐づける設定 JSON (自動検出結果を置き換える)。
             db_manager: 画像登録に使う DB マネージャ (image_repo の session_factory も共有する)。
             fsm: 初期化済み FileSystemManager。
+            folder_overrides: 確認画面で確定したフォルダごとの値 (取捨・繰り返し回数・トリガーワード)。
+                `None` ならスキャン結果の計画のまま取り込む。
         """
         super().__init__(db_manager=db_manager)
         self._root = root
@@ -48,6 +56,7 @@ class DatasetImportWorker(LoRAIroWorkerBase[DatasetImportResult]):
         self._version_name = version_name
         self._config_files = config_files
         self._fsm = fsm
+        self._folder_overrides = folder_overrides
 
     def execute(self) -> DatasetImportResult:
         """取り込みを実行する。
@@ -70,6 +79,8 @@ class DatasetImportWorker(LoRAIroWorkerBase[DatasetImportResult]):
         # 版名の候補 (output_name) も選択された JSON から作る
         config_files = [path.resolve() for path in self._config_files]
         plan = service.propose_plan(self._root, self._dataset_name, self._version_name, config_files)
+        if self._folder_overrides is not None:
+            plan = apply_folder_overrides(plan, self._folder_overrides)
 
         self._check_cancellation()
         self._report_progress(10, "データセットを取り込み中...")
@@ -77,6 +88,7 @@ class DatasetImportWorker(LoRAIroWorkerBase[DatasetImportResult]):
         self._report_progress(100, "データセット取り込み完了")
         logger.info(
             f"データセット取り込みワーカー完了: version_id={result.version_id}, "
-            f"images={result.image_count}, skipped={result.skipped_images}"
+            f"images={result.image_count}, skipped={result.skipped_images}, "
+            f"without_text={result.images_without_text}"
         )
         return result

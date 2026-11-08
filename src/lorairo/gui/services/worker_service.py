@@ -11,6 +11,7 @@ from ...annotation.annotation_runner import AnnotationRunner
 from ...database.db_manager import ImageDatabaseManager
 from ...filesystem import FileSystemManager
 from ...services.annotation_progress import AnnotationPhase, AnnotationProgress
+from ...services.dataset_import_service import FolderOverride
 from ...services.folder_common_tags import FolderCommonTags
 from ...services.job_ledger_service import JobLedgerService, JobStatus
 from ...services.model_registry_protocol import local_ml_model_names
@@ -721,6 +722,7 @@ class WorkerService(QObject):
         version_name: str,
         config_files: list[Path],
         fsm: FileSystemManager,
+        folder_overrides: list[FolderOverride] | None = None,
     ) -> str:
         """Kohya データセット取り込みワーカーを開始する。
 
@@ -730,6 +732,7 @@ class WorkerService(QObject):
             version_name: 版名 (空可)。
             config_files: 版に紐づける設定 JSON。
             fsm: 初期化済み FileSystemManager。
+            folder_overrides: 確認画面で確定したフォルダごとの値。`None` ならスキャン結果のまま。
 
         Returns:
             ワーカーID。
@@ -737,7 +740,9 @@ class WorkerService(QObject):
         Raises:
             RuntimeError: ワーカーを開始できなかった場合。
         """
-        worker = DatasetImportWorker(root, dataset_name, version_name, config_files, self.db_manager, fsm)
+        worker = DatasetImportWorker(
+            root, dataset_name, version_name, config_files, self.db_manager, fsm, folder_overrides
+        )
         worker_id = f"dataset_import_{uuid.uuid4().hex[:8]}"
         self._register_operation(worker_id, OperationType.DATASET_IMPORT)
 

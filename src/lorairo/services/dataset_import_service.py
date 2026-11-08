@@ -11,7 +11,7 @@
 """
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from lorairo.database.db_manager import ImageDatabaseManager
@@ -83,6 +83,62 @@ class DatasetImportPlan:
     def included_folders(self) -> list[FolderImportPlan]:
         """取り込む (`include=True`) フォルダ。"""
         return [folder for folder in self.folders if folder.include]
+
+
+@dataclass(frozen=True)
+class FolderOverride:
+    """ユーザーが確認画面で確定したフォルダ 1 つ分の値 (取捨・繰り返し回数・トリガーワード)。"""
+
+    dir_name: str
+    include: bool
+    num_repeats: int
+    trigger_word: str | None
+
+
+def apply_folder_overrides(plan: DatasetImportPlan, overrides: list[FolderOverride]) -> DatasetImportPlan:
+    """確定値を計画のフォルダに反映した新しい計画を返す。
+
+    確定値の無いフォルダは計画のままにする。トリガーワードの空文字は未設定 (`None`) とする。
+
+    Args:
+        plan: `propose_plan` で作った計画。
+        overrides: フォルダごとの確定値。
+
+    Returns:
+        確定値を反映した計画。
+
+    Raises:
+        ValueError: 確定値のフォルダが計画に無い、同じフォルダが重複する、繰り返し回数が 1 未満の場合。
+    """
+    by_dir: dict[str, FolderOverride] = {}
+    for override in overrides:
+        if override.dir_name in by_dir:
+            raise ValueError(f"同じフォルダの指定が重複しています: '{override.dir_name}'")
+        if override.num_repeats < 1:
+            raise ValueError(f"繰り返し回数は 1 以上にしてください: '{override.dir_name}'")
+        by_dir[override.dir_name] = override
+    known = {folder.dir_name for folder in plan.folders}
+    unknown = sorted(set(by_dir) - known)
+    if unknown:
+        # 確認後にフォルダが消えた・改名された場合。黙って落とすと意図と違う版になる
+        raise ValueError(f"取り込み対象のフォルダが見つかりません: {', '.join(unknown)}")
+
+    folders: list[FolderImportPlan] = []
+    for folder in plan.folders:
+        confirmed = by_dir.get(folder.dir_name)
+        if confirmed is None:
+            folders.append(folder)
+            continue
+        trigger = confirmed.trigger_word.strip() if confirmed.trigger_word else ""
+        folders.append(
+            replace(
+                folder,
+                include=confirmed.include,
+                num_repeats=confirmed.num_repeats,
+                trigger_word=trigger or None,
+            )
+        )
+    return replace(plan, folders=folders)
 
 
 class EmptyDatasetImportError(ValueError):
