@@ -1,10 +1,12 @@
 # Shared-worktree profile (opt-in)
 
-Rebuilds the *current* shared-worktree container shape: host checkout bind-mounted **rw** at
-`/workspaces/LoRAIro`, OS-specific worktrees under `.agents/worktree/`, the existing `lorairo-venv`
-volume at `/workspaces/LoRAIro/.venv`, and `UV_PROJECT_ENVIRONMENT` unified to that path for the
-container, SSH and CLI sessions. The default profile (`../devcontainer.json`, read-only mount +
-independent `-linux` checkout) is unchanged. This profile never runs `make setup`, `uv sync` or a clone.
+The default profile (`../devcontainer.json`) already uses the shared-worktree shape: host checkout
+bind-mounted **rw** at `/workspaces/LoRAIro`, OS-specific worktrees under `.agents/worktree/`, the
+existing `lorairo-venv` volume at `/workspaces/LoRAIro/.venv`, and `UV_PROJECT_ENVIRONMENT` set to
+that path. This profile keeps that shape and adds only opt-in extras: a persist volume restored by
+`bootstrap.sh` (Herdr binary, `~/.claude.json`, SSH `authorized_keys` / `known_hosts`), the sshd
+Feature's default port mapping (`2222:2222`), and `LORAIRO_VOLUME_PREFIX` for seeding fresh volumes.
+Unlike the default profile, it never runs `make setup`, `uv sync` or a clone.
 
 Select it only explicitly: `--config .devcontainer/shared-worktree/devcontainer.json`.
 The Dev Containers lockfile of the default profile is not shared; pin features separately if needed.

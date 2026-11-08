@@ -1,12 +1,9 @@
-"""Protect host Git state and persisted Linux state during repeated setup."""
+"""Protect OS-specific Git hooks and the Dev Container mount layout."""
 
 import importlib.util
-import os
-import shutil
 import subprocess
 from pathlib import Path
 
-import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -31,48 +28,24 @@ def test_git_hook_install_preserves_old_generated_hook(tmp_path):
     assert old.read_text(encoding="utf-8").endswith("original OS-specific hook")
 
 
-@pytest.mark.skipif(os.name == "nt", reason="Linux bootstrap is exercised in the container")
-def test_linux_checkout_has_independent_git_and_refuses_dirty_setup(tmp_path):
-    host = tmp_path / "host source"
-    linux = tmp_path / "linux workspace"
-    host.mkdir()
-    git(host, "init", "-b", "main")
-    git(host, "remote", "add", "origin", "https://example.invalid/test.git")
-    (host / ".gitignore").write_text(".venv/\n", encoding="utf-8")
-    (host / "shared.txt").write_text("committed", encoding="utf-8")
-    git(host, "add", ".")
-    git(host, "-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-m", "seed")
-    (host / "shared.txt").write_text("unsaved host edit", encoding="utf-8")
-    (linux / ".venv").mkdir(parents=True)
-    sentinel = linux / ".venv/keep"
-    sentinel.write_text("existing environment", encoding="utf-8")
-    env = {**os.environ, "LORAIRO_HOST_SOURCE": str(host), "LORAIRO_LINUX_WORKSPACE": str(linux)}
-    script = ROOT / ".devcontainer/initialize-linux-workspace.sh"
-    subprocess.run([shutil.which("bash"), str(script)], env=env, check=True)
-    assert (linux / ".git").is_dir()
-    assert git(linux, "config", "branch.main.remote") == "origin"
-    assert git(linux, "config", "branch.main.merge") == "refs/heads/main"
-    assert (linux / "shared.txt").read_text() == "committed"
-    assert (host / "shared.txt").read_text() == "unsaved host edit"
-    assert sentinel.read_text() == "existing environment"
-    subprocess.run([shutil.which("bash"), str(script)], env=env, check=True)
-    (linux / "shared.txt").write_text("unsaved Linux edit", encoding="utf-8")
-    result = subprocess.run([shutil.which("bash"), str(script)], env=env, check=False)
-    assert result.returncode != 0
-    assert (linux / "shared.txt").read_text() == "unsaved Linux edit"
-    assert (host / "shared.txt").read_text() == "unsaved host edit"
-
-
-def test_mounts_keep_homes_and_git_separate():
+def test_default_profile_shares_rw_host_checkout_and_keeps_homes_separate():
     text = (ROOT / ".devcontainer/devcontainer.json").read_text(encoding="utf-8")
-    assert '"workspaceFolder": "/workspaces/LoRAIro-linux"' in text
-    assert "target=/workspaces/LoRAIro,type=bind,readonly" in text
+    assert '"workspaceFolder": "/workspaces/LoRAIro"' in text
+    assert '"workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/LoRAIro,type=bind"' in text
+    assert "readonly" not in text
+    assert '"UV_PROJECT_ENVIRONMENT": "/workspaces/LoRAIro/.venv"' in text
+    dockerfile = (ROOT / ".devcontainer/Dockerfile").read_text(encoding="utf-8")
+    assert "ENV UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv" in dockerfile
     for name, target in (
         ("lorairo-codex-config", "/home/vscode/.codex"),
         ("lorairo-claude-config", "/home/vscode/.claude"),
-        ("lorairo-linux-checkout", "/workspaces/LoRAIro-linux"),
-        ("lorairo-venv", "/workspaces/LoRAIro-linux/.venv"),
+        ("lorairo-venv", "/workspaces/LoRAIro/.venv"),
     ):
         assert f"source={name},target={target},type=volume" in text
+    # 独立 Linux checkout (#1395) は撤回済み
+    for retired in (text, dockerfile, (ROOT / ".devcontainer/postCreateCommand.sh").read_text(encoding="utf-8")):
+        assert "LoRAIro-linux" not in retired
+        assert "initialize-linux-workspace" not in retired
+    assert not (ROOT / ".devcontainer/initialize-linux-workspace.sh").exists()
     assert "target=/workspaces/LoRAIro/.claude,type=volume" not in text
     assert "target=/workspaces/LoRAIro/.codex,type=volume" not in text

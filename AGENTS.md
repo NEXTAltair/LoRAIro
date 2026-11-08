@@ -48,9 +48,9 @@
 - Do not end issue or multi-file feature work after local implementation only. Report the PR URL and final monitored state as the outcome.
 - If PR creation is blocked by auth, network, failing validation, or unclear scope, report the blocker explicitly instead of silently stopping at local changes.
 - When running `uv` from a `.agents/worktree/` checkout, use this OS checkout's Git common root `.venv`.
-  Windows uses the host checkout `.venv`; the Dev Container uses `/workspaces/LoRAIro-linux/.venv`
-  (the existing `lorairo-venv` named volume). The host is mounted read-only at `/workspaces/LoRAIro`;
-  implementation belongs in the independent Linux checkout, never the host bind mount.
+  Windows uses the host checkout `.venv`; the Dev Container bind-mounts the same host checkout
+  read-write at `/workspaces/LoRAIro` and uses `/workspaces/LoRAIro/.venv` (the existing
+  `lorairo-venv` named volume mounted over the host `.venv`).
   Run `python scripts/configure_agent_environment.py` to set `UV_PROJECT_ENVIRONMENT` in the current
   OS **user** Codex config and Claude settings. Do not put OS-specific absolute paths in shared
   `.codex/config.toml`, `.claude/settings.json`, or `.claude/settings.local.json`. Project settings
@@ -70,9 +70,10 @@
 - After an agent-created PR is merged, immediately remove the clean worktree with `git worktree remove <path>` or run `make worktree-cleanup-merged` from the shared checkout. Do not leave merged worktrees behind.
 - **`pr-autoloop` の Codex 実装 (wait mechanism override):** the shared PR maintenance loop is described by the `pr-autoloop` skill (policy in `pr-maintainer`, decision in ADR 0039). Codex runs that loop **inline in the same session**: after creating the PR, poll `gh pr view` / `gh pr checks` about every 3 minutes for up to 20 minutes, classify each cycle into continue / repair / escalate / merge / timeout, repair actionable findings in the PR worktree, reply in Japanese, and squash merge when safe. Codex does not use Claude Code's `ScheduleWakeup`; it polls within the session and reports the final monitored state, escalating instead of looping past the 4-repair limit.
 - Keep agent-specific rules as references to this file and `.claude/rules/git-workflow.md` rather than duplicating conflicting workflow text.
-- Keep Windows and Linux Git metadata in separate checkouts. Existing mixed worktree registrations
-  are protected legacy state: never prune/repair/remove another OS's worktree because its absolute
-  path appears missing. Clean up only on its originating OS after checking local changes.
+- Windows and the Dev Container share one checkout, so worktrees created on one OS are registered
+  with absolute paths the other OS cannot resolve (`git worktree list` shows them as `prunable`).
+  Never prune/repair/remove another OS's worktree because its absolute path appears missing.
+  Clean up only on its originating OS after checking local changes.
 - Setup restores common hooks, rules, agents and skills in both checkouts. Skills are portable
   directory copies; `core.hooksPath=.githooks` selects shared hooks with the current OS interpreter.
   Do not run `pre-commit install` to generate a hook with one OS's Python path.

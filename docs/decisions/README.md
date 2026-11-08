@@ -60,7 +60,7 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0048](0048-webapi-annotation-candidate-filtering.md) | WebAPI Annotation Candidate Filtering (Endpoint / Capability / Suitability) | 2026-05-31 | Accepted |
 | [0049](0049-cli-images-list-db-limit.md) | Apply CLI Image List Limit in the Repository Query | 2026-06-01 | Accepted |
 | [0050](0050-cli-tag-db-lazy-initialization.md) | CLI Tag DB Lazy Initialization | 2026-06-01 | Accepted |
-| [0051](0051-codex-worktree-shared-uv-environment.md) | Codex Worktree Shared uv Environment | 2026-06-01 | Accepted (amended 2026-10-11: OS user settings and independent Linux checkout) |
+| [0051](0051-codex-worktree-shared-uv-environment.md) | Codex Worktree Shared uv Environment | 2026-06-01 | Accepted (amended 2026-10-11: OS user settings; amended 2026-11-08: independent Linux checkout withdrawn) |
 | [0052](0052-model-selection-auto-reconcile.md) | ModelSelectionWidget 初回表示時の model reconcile | 2026-06-01 | Accepted |
 | [0053](0053-cli-streaming-annotation-memory-bounded-contract.md) | CLI Streaming Annotation Memory-Bounded Execution Contract | 2026-05-29 | Accepted (1 回の呼び出しの処理総数上限は ADR 0057 で 500 に改定) |
 | [0054](0054-gui-tag-language-reader-initialization.md) | GUI tag language reader initialization | 2026-06-03 | Accepted |

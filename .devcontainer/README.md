@@ -1,32 +1,36 @@
 # Windows / Linux environment isolation
 
-Windows owns the host checkout. The container mounts it **read-only** at
-/workspaces/LoRAIro and develops in an independent checkout at
-/workspaces/LoRAIro-linux. The Linux checkout has its own index, branches,
-submodule repositories and .agents/worktree/. Configuration isolation alone
-cannot make Git worktree absolute paths or branch switching portable.
+Windows owns the host checkout. The container bind-mounts the same checkout **read-write** at
+/workspaces/LoRAIro and works in it. Implementation work starts from worktrees under
+.agents/worktree/, created separately on each OS. Worktrees registered from one OS use absolute
+paths the other OS cannot resolve, so `git worktree list` shows them as `prunable` there.
+Home-directory state is isolated per OS by named volumes.
 
 | State | Windows | Container |
 | --- | --- | --- |
-| Git/source/project hooks, rules, agents, skills | Host checkout | lorairo-linux-checkout volume, same committed main |
-| Shared Python per OS | Host .venv/Scripts/python.exe | Existing lorairo-venv, at Linux checkout .venv/bin/python |
+| Git/source/project hooks, rules, agents, skills | Host checkout | Same host checkout (rw bind mount at /workspaces/LoRAIro) |
+| Worktrees | Host .agents/worktree/, created from Windows | Same .agents/worktree/, created from the container |
+| Shared Python per OS | Host .venv/Scripts/python.exe | Existing lorairo-venv volume at /workspaces/LoRAIro/.venv (bin/python) |
 | Codex user settings/auth/history | Windows user .codex | lorairo-codex-config at /home/vscode/.codex |
 | Claude user settings/auth/history | Windows user .claude | Existing lorairo-claude-config at /home/vscode/.claude |
 | LoRAIro user config/log | LocalAppData/LoRAIro | Linux XDG config/state volumes |
 | Annotator user config/runtime cache/install markers/log | LocalAppData/image-annotator-lib | Linux XDG config/cache/state volumes |
-| node_modules/build/test and type caches/coverage | Host checkout | Linux checkout volume |
+| node_modules/build/test and type caches/coverage | Host checkout | Same host checkout (not isolated) |
 
-The old host-mounted .venv remains covered by the same lorairo-venv volume
-for compatibility. Both Linux mounts reference that one existing volume.
-Windows environments and all existing named volumes are retained.
-Project .claude/.codex directories are not covered by home volumes.
-Common settings remain readable in each checkout.
+The lorairo-venv volume is mounted over the host .venv path, so the container never writes the
+Windows environment and Windows never sees the Linux one. Windows environments and all existing
+named volumes are retained. Project .claude/.codex directories are not covered by home volumes;
+common settings remain readable from both OS.
+
+PR #1395 briefly made the default a read-only host mount plus an independent Linux checkout at
+/workspaces/LoRAIro-linux (volume lorairo-linux-checkout). That was a documentation mistake and has
+been withdrawn: the default profile no longer mounts or initializes that checkout.
 
 ## Shared-worktree profile (opt-in)
 
-To recreate the current shared-worktree container shape (rw host mount, OS-specific worktrees, shared
-venv) instead of the profile above, see [shared-worktree/README.md](shared-worktree/README.md). It is
-selected only by an explicit `--config` and changes nothing in this default profile.
+The default profile above already has the shared-worktree shape. For the opt-in extras (Herdr and SSH
+files persisted in a volume, the sshd Feature's default port mapping, a volume-name prefix), see
+[shared-worktree/README.md](shared-worktree/README.md). It is selected only by an explicit `--config`.
 
 ## First migration and rebuild
 
@@ -77,11 +81,10 @@ Use **Dev Containers: Rebuild Container** or the installed Dev Containers CLI:
 node <devContainersSpecCLI.js> up --workspace-folder H:/LoRAIro --remove-existing-container
 ~~~
 
-No volume deletion is required. Initialization imports the host's committed main
-into the Linux checkout, never its uncommitted files. An existing dirty Linux
-checkout or another checked-out branch causes setup to stop with its work intact.
-A divergent main refuses fast-forward; it is never reset. Save/publish that work
-before rerunning setup. The startup log is Linux-only:
+No volume deletion is required. postCreate runs `make setup` in the shared host checkout.
+A lorairo-linux-checkout volume created by the withdrawn #1395 profile is no longer mounted
+and is left untouched; inspect it for unpublished work before deleting it manually.
+The startup log is Linux-only:
 /home/vscode/.local/state/LoRAIro/postCreate.log.
 
 ## Setup and priority
@@ -128,7 +131,7 @@ native executables across OS boundaries.
 ## Verify after rebuild
 
 ~~~bash
-cd /workspaces/LoRAIro-linux
+cd /workspaces/LoRAIro
 python scripts/dev_tasks.py lint --dry-run
 python -X utf8 scripts/validate_harness.py
 git config --local --get core.hooksPath
@@ -136,18 +139,17 @@ uv run --no-sync python -c 'import sys; print(sys.executable)'
 codex login status
 ~~~
 
-Repeat setup and confirm the host's settings, venv and worktree registrations
-are unchanged. Validate with test data only. Interactive Qt belongs on Windows;
+Repeat setup and confirm the Windows .venv, Windows user settings and
+Windows-created worktree registrations are unchanged. Validate with test data only. Interactive Qt belongs on Windows;
 container Qt tests use offscreen. Simultaneous Windows GUI/container CLI
 access to a real SQLite database remains unsupported.
 
-The old shared caches and logs were real collision candidates. Site
-node_modules was absent at migration, so its issue was prospective. Separate
-checkouts isolate future generated files as well as today's caches.
+Checkout-local generated files (caches, coverage, node_modules) are shared by
+both OS; only home-directory state and the venv are separated.
 
 The image installs Node/Codex/Claude as vscode. Their executables are image
 state; their user data is volume state. Cached image layers may retain an older
 CLI; rebuild without cache only when a CLI update is intended.
 
-References: [Docker read-only bind mounts](https://docs.docker.com/engine/storage/bind-mounts/),
+References: [Docker bind mounts](https://docs.docker.com/engine/storage/bind-mounts/),
 [VS Code source mount configuration](https://code.visualstudio.com/remote/advancedcontainers/change-default-source-mount).
