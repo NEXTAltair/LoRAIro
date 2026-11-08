@@ -24,7 +24,7 @@ def service_container() -> Mock:
     container.dataset_export_service = Mock()
     # MergedTagReader 無し (None) で構築 → 詳細ウィジェットの言語セレクタ初期化を回避し、
     # ExportOverlayBar は convert スキップで動作する。
-    container.db_manager.annotation_repo.get_merged_reader.return_value = None
+    container.db_manager.annotation_repo.peek_merged_reader.return_value = None
     # #1106: エクスポート前検証・実在解像度取得はデフォルトで「全て有効」を返す
     # (個別テストで欠落ケースを上書きする)。
     container.dataset_export_service.validate_export_requirements.return_value = {

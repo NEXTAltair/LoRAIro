@@ -111,7 +111,7 @@ def given_search_tab_with_parent_image(
     container.favorite_filters_service.list_filters.return_value = []
     merged_reader = Mock()
     merged_reader.get_tag_languages.return_value = []
-    container.db_manager.annotation_repo.get_merged_reader.return_value = merged_reader
+    container.db_manager.annotation_repo.peek_merged_reader.return_value = merged_reader
 
     dataset_state = DatasetStateManager()
     dataset_state.set_db_manager(db_manager)

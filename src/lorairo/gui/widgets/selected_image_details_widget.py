@@ -472,6 +472,10 @@ class SelectedImageDetailsWidget(QWidget):
             TagSuggestionService(reader) if reader is not None else None
         )
         logger.debug(f"MergedTagReader設定完了: 利用可能言語={self._available_languages}")
+        # 起動時の tag DB 背景準備中に画像を選ぶと reader 不在で翻訳/type 解決が skip される。
+        # 後から reader が届いた時点で表示中画像のメタデータを取り直す (#1438 Codex P2)。
+        if reader is not None and self.current_image_id is not None and self._current_tags_list:
+            self._trigger_tag_metadata_fetch(self._current_tags_list)
 
     def set_db_manager(self, db_manager: Any) -> None:
         """soft-reject 導線用に ImageDatabaseManager を設定し編集モードを有効化する (Issue #792)。

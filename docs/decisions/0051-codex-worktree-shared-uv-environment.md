@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: Codex Worktree Shared uv Environment
-status: Accepted (amended 2026-10-11: OS user settings and independent Linux checkout)
+status: Accepted (amended 2026-10-11: OS user settings; amended 2026-11-08: independent Linux checkout withdrawn)
 timestamp: 2026-06-01
 tags: []
 ---
@@ -64,3 +64,24 @@ environment-mutating operation for parallel worker coordination.
 - Linux Git metadata/source/generated files live in an independent named-volume checkout. The
   host bind mount is read-only. Home volumes alone would leave branch/index/worktree conflicts.
 - Claude Code-specific behavior can be documented separately without coupling it to Codex policy.
+
+## Amendment (2026-11-08): independent Linux checkout withdrawn
+
+The 2026-10-11 amendment (PR #1395) made `/workspaces/LoRAIro-linux/.venv` the canonical Linux
+path, mounted the host read-only, and placed Linux Git metadata in a separate named-volume checkout
+(`lorairo-linux-checkout`). That was a documentation mistake: the repository already isolates
+implementation work in worktrees under `.agents/worktree/`, and the container actually in use
+bind-mounts the host checkout read-write.
+
+The Decision paragraph naming `/workspaces/LoRAIro-linux/.venv` and the Consequences bullet about the
+independent named-volume checkout are withdrawn. In their place:
+
+- The Dev Container bind-mounts the host checkout read-write at `/workspaces/LoRAIro` and creates its
+  worktrees under `.agents/worktree/`.
+- The Linux shared environment is `/workspaces/LoRAIro/.venv`, backed by the existing `lorairo-venv`
+  volume mounted over the host `.venv`; Windows keeps using its host checkout `.venv`.
+- Worktrees registered from one OS have absolute paths the other OS cannot resolve; they must never be
+  pruned, repaired or removed from the other OS.
+
+The OS user settings part of the 2026-10-11 amendment (no OS-specific absolute paths in shared project
+config, `configure_agent_environment.py` writing the current OS user settings) remains in force.
