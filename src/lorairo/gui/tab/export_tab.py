@@ -26,9 +26,18 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 from PySide6.QtCore import QSettings, Qt, QThread, Slot
 from PySide6.QtGui import QCloseEvent, QShowEvent
-from PySide6.QtWidgets import QFileDialog, QMessageBox, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QHBoxLayout,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ...database.db_core import resolve_stored_path
+from ...database.repository.dataset import DatasetRepository
 from ...services.export_overlay import ExportOverlayPlan, ExportTagOverlay, ScopedOverlayRule
 from ...services.staging_tag_aggregation import StagingTagAggregationService
 from ...services.tag_suggestion_service import TagSuggestionService
@@ -38,6 +47,7 @@ from ..state.staging_state import StagingStateManager
 from ..widgets.dataset_export_worker import DatasetExportWorker
 from ..widgets.export_overlay_bar import ExportOverlayBar
 from ..widgets.image_preview import ImagePreviewWidget
+from ..widgets.kohya_version_export_dialog import KohyaVersionExportDialog
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from ..widgets.staging_tag_panel import StagingTagPanel
 from ..widgets.thumbnail_selector_widget import ThumbnailSelectorWidget
@@ -142,6 +152,20 @@ class ExportTabWidget(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
+        # 取り込んだ Kohya データセットの版の書き出し (Issue #1456)。ステージング集合とは独立の操作
+        kohya_row = QHBoxLayout()
+        kohya_row.setContentsMargins(6, 4, 6, 4)
+        kohya_row.addStretch(1)
+        self._kohya_export_button = QPushButton("Kohya 版を書き出す…")
+        self._kohya_export_button.setObjectName("kohyaVersionExportButton")
+        self._kohya_export_button.setToolTip(
+            "取り込んだ Kohya データセットの版を一覧し、Kohya-ss 形式で書き出す"
+        )
+        self._kohya_export_button.setEnabled(self._db_manager is not None)
+        self._kohya_export_button.clicked.connect(self.open_kohya_version_export_dialog)
+        kohya_row.addWidget(self._kohya_export_button)
+        root.addLayout(kohya_row)
+
         # 横 3ペイン: 左 StagingTagPanel / 中 サムネ / 右 縦splitter[プレビュー, 詳細]
         self._main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self._main_splitter.setObjectName("exportMainSplitter")
@@ -168,6 +192,16 @@ class ExportTabWidget(QWidget):
         self._overlay_bar.export_requested.connect(self._on_export_requested)
         self._overlay_bar.validate_requested.connect(self._on_validate_requested)
         root.addWidget(self._overlay_bar)
+
+    @Slot()
+    def open_kohya_version_export_dialog(self) -> None:
+        """Kohya データセットの版の一覧・書き出しダイアログを開く (Issue #1456)。"""
+        if self._db_manager is None:
+            return
+        repository = DatasetRepository(session_factory=self._db_manager.image_repo.session_factory)
+        dialog = KohyaVersionExportDialog(repository, self)
+        dialog.exec()
+        dialog.deleteLater()
 
     def _setup_widgets(self) -> None:
         """再利用ウィジェットを各 manager へ接続する (検索タブ _setup_widgets と同型)。"""

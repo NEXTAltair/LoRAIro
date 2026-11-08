@@ -16,7 +16,7 @@ import datetime
 import json
 from dataclasses import dataclass, fields
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
@@ -108,6 +108,20 @@ class VersionSnapshot:
     version_name: str
     parent_version_id: int | None
     folders: list[FolderSnapshot]
+
+
+@dataclass(frozen=True)
+class VersionSummary:
+    """版の一覧の 1 行。"""
+
+    version_id: int
+    version_name: str
+    dataset_id: int
+    dataset_name: str
+    parent_version_id: int | None
+    created_at: datetime.datetime | None
+    folder_count: int
+    image_count: int
 
 
 @dataclass(frozen=True)
@@ -586,3 +600,51 @@ class DatasetRepository(BaseRepository):
                 f"images={result.images}, added={result.tags_added}, skipped={result.tags_skipped}"
             )
             return result
+
+    def list_versions(self) -> list[VersionSummary]:
+        """全データセットの版を、フォルダ数・画像数 (フォルダごとの所属数の合計) とともに返す。
+
+        Returns:
+            データセット名、版 ID の順に並べた版の一覧。無ければ空。
+        """
+        with self.session_factory() as session:
+            folder_counts = (
+                select(DatasetFolder.version_id, func.count(DatasetFolder.id).label("folders"))
+                .group_by(DatasetFolder.version_id)
+                .subquery()
+            )
+            image_counts = (
+                select(DatasetFolder.version_id, func.count(DatasetFolderImage.id).label("images"))
+                .join(DatasetFolderImage, DatasetFolderImage.folder_id == DatasetFolder.id)
+                .group_by(DatasetFolder.version_id)
+                .subquery()
+            )
+            stmt = (
+                select(
+                    DatasetVersion.id,
+                    DatasetVersion.name,
+                    Dataset.id,
+                    Dataset.name,
+                    DatasetVersion.parent_version_id,
+                    DatasetVersion.created_at,
+                    func.coalesce(folder_counts.c.folders, 0),
+                    func.coalesce(image_counts.c.images, 0),
+                )
+                .join(Dataset, Dataset.id == DatasetVersion.dataset_id)
+                .outerjoin(folder_counts, folder_counts.c.version_id == DatasetVersion.id)
+                .outerjoin(image_counts, image_counts.c.version_id == DatasetVersion.id)
+                .order_by(Dataset.name, DatasetVersion.id)
+            )
+            return [
+                VersionSummary(
+                    version_id=row[0],
+                    version_name=row[1],
+                    dataset_id=row[2],
+                    dataset_name=row[3],
+                    parent_version_id=row[4],
+                    created_at=row[5],
+                    folder_count=int(row[6]),
+                    image_count=int(row[7]),
+                )
+                for row in session.execute(stmt).all()
+            ]

@@ -442,3 +442,43 @@ def test_copy_learning_texts_to_tags_chunks_existing_lookup(
     result = repo.copy_learning_texts_to_tags(version_id)
 
     assert (result.tags_added, result.tags_skipped) == (1, 4)
+
+
+# --- 版の一覧 (Issue #1456) ---
+
+
+def test_list_versions_returns_counts_per_version(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    image_a = _insert_image(session_factory, "img-a")
+    image_b = _insert_image(session_factory, "img-b")
+    dataset_id = repo.ensure_dataset("kariginu")
+    v1 = repo.create_version(dataset_id, "v01")
+    repo.add_folder(
+        v1,
+        _folder("10_kariginu", 0),
+        [
+            FolderImageSpec(image_id=image_a, file_stem="a", texts=[_text("a")]),
+            FolderImageSpec(image_id=image_b, file_stem="b", texts=[_text("b")]),
+        ],
+    )
+    repo.add_folder(v1, _folder("5_style", 1), [FolderImageSpec(image_id=image_a, file_stem="a", texts=[])])
+    v2 = repo.create_version(dataset_id, "v02", parent_version_id=v1)
+    other = repo.create_version(repo.ensure_dataset("another"), "x")
+
+    versions = repo.list_versions()
+
+    assert [(v.dataset_name, v.version_name) for v in versions] == [
+        ("another", "x"),
+        ("kariginu", "v01"),
+        ("kariginu", "v02"),
+    ]
+    by_id = {v.version_id: v for v in versions}
+    assert (by_id[v1].folder_count, by_id[v1].image_count) == (2, 3)
+    assert (by_id[v2].folder_count, by_id[v2].image_count, by_id[v2].parent_version_id) == (0, 0, v1)
+    assert by_id[other].dataset_id != by_id[v1].dataset_id
+    assert by_id[v1].created_at is not None
+
+
+def test_list_versions_empty(repo: DatasetRepository) -> None:
+    assert repo.list_versions() == []
