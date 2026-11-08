@@ -5,6 +5,7 @@
 `config/lorairo.toml` から読み込まれます。
 """
 
+import threading
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -248,6 +249,9 @@ IMG_DB_PATH: Path = DB_DIR / IMG_DB_FILENAME
 # CLI --help / version コマンドでは HF Hub に接続しない。
 USER_TAG_DB_PATH: Path | None = None
 _tag_db_initialized: bool = False
+# 起動時のバックグラウンド初期化と GUI スレッドからの呼び出しが重なっても、HF Hub 確認 /
+# DB 初期化を二重実行しないための直列化ロック (#1438)。
+_TAG_DB_INIT_LOCK = threading.RLock()
 
 
 @dataclass
@@ -281,7 +285,17 @@ def tag_database_scope() -> Generator[None, None, None]:
 
 
 def ensure_tag_db_initialized() -> None:
-    """タグDBを遅延初期化する。初回呼び出し時のみ HF Hub に接続する。"""
+    """タグDBを遅延初期化する。初回呼び出し時のみ HF Hub に接続する。
+
+    起動時はバックグラウンド worker からも呼ばれるため、ロックで直列化する (#1438)。
+    初期化中に別スレッドが呼ぶと、初期化完了までそのスレッドが待つ。
+    """
+    with _TAG_DB_INIT_LOCK:
+        _ensure_tag_db_initialized_locked()
+
+
+def _ensure_tag_db_initialized_locked() -> None:
+    """``ensure_tag_db_initialized`` の本体 (``_TAG_DB_INIT_LOCK`` 保持下で呼ぶ)。"""
     import os
 
     global _tag_db_initialized, DB_DIR, USER_TAG_DB_PATH

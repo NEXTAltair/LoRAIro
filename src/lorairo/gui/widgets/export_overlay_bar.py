@@ -143,6 +143,14 @@ class ExportOverlayBar(QWidget):
     # Public API（#949 が配線）
     # ------------------------------------------------------------------
 
+    def set_reader(self, reader: MergedTagReader | None) -> None:
+        """convert 用の MergedTagReader を後から差し替える (起動時 tag DB 背景準備の完了後, #1438)。
+
+        Args:
+            reader: 準備できた MergedTagReader。None で convert スキップのまま。
+        """
+        self._reader = reader
+
     def current_overlay(self) -> ExportTagOverlay:
         """現在の overlay 作業状態から ExportTagOverlay を構築して返す。"""
         return ExportTagOverlay(

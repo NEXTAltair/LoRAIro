@@ -9,6 +9,7 @@ from PySide6.QtCore import (
     QSettings,
     Qt,
     Signal,
+    Slot,
 )
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
@@ -54,6 +55,8 @@ from ..widgets.dataset_select_dialog import DatasetSelectDialog, DatasetSelectio
 from ..widgets.error_notification_widget import ErrorNotificationWidget
 from ..widgets.registration_summary_widget import RegistrationSummaryWidget
 from ..widgets.tag_management_dialog import TagManagementDialog
+from ..workers.manager import WorkerManager
+from ..workers.tag_db_warmup_worker import TagDbWarmupResult, TagDbWarmupWorker
 
 if TYPE_CHECKING:
     from ..workers.annotation_worker import AnnotationExecutionResult
@@ -128,6 +131,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._initialization_failed = False
         self._initialization_error: str | None = None
         self._closing = False
+        self._tag_db_manager: WorkerManager | None = None
 
         try:
             # Phase 1: 基本UI設定（最優先）
@@ -1712,6 +1716,47 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     # QSettings: ウィンドウ/スプリッター状態の保存・復元
     # -------------------------------------------------------------------------
 
+    # -- タグ DB の背景準備 (#1438) ----------------------------------------------------
+
+    _tag_db_ready = Signal(object)  # TagDbWarmupResult | None (失敗時)
+
+    def start_tag_db_warmup(self) -> None:
+        """タグ DB の初期化を背景 worker で開始する (window 表示後に呼ぶ)。
+
+        初期化は HF Hub の確認 / ダウンロードを伴い最長で数分かかるため、GUI スレッドでは
+        行わない。完了までは翻訳表示とタグ補完が無効で、完了後に各タブへ後付け注入する。
+        """
+        if self._closing or self._initialization_failed or self._tag_db_manager is not None:
+            return
+        self._tag_db_manager = WorkerManager(self)
+        self._tag_db_ready.connect(self._on_tag_db_warmup_done)
+        self.statusBar().showMessage("タグDBを準備中です (翻訳表示とタグ補完は準備完了後に有効になります)")
+        worker = TagDbWarmupWorker(self.service_container)
+        # lambda は worker スレッドで走るが Signal を emit するだけ (queued で GUI スレッドへ配送)。
+        worker.finished.connect(lambda result: self._tag_db_ready.emit(result))
+        worker.error_occurred.connect(lambda message: self._tag_db_ready.emit(str(message)))
+        worker.canceled.connect(lambda: self._tag_db_ready.emit(None))
+        self._tag_db_manager.start_worker("tag_db_warmup", worker)
+        logger.info("タグDBの背景初期化を開始")
+
+    @Slot(object)
+    def _on_tag_db_warmup_done(self, result: object) -> None:
+        """タグ DB 準備の完了 (成功 / 失敗 / キャンセル) を受けて各タブへ反映する。"""
+        if self._closing:
+            return
+        if isinstance(result, TagDbWarmupResult):
+            logger.info(
+                f"タグDB準備完了: reader={result.reader_ready}, tag_management={result.tag_management_ready}"
+            )
+            self.statusBar().showMessage("タグDBの準備が完了しました", 5000)
+        else:
+            logger.warning(f"タグDBの準備に失敗または中断 (翻訳・タグ補完なしで継続): {result}")
+            self.statusBar().showMessage("タグDBを準備できませんでした (翻訳とタグ補完は無効です)", 10000)
+        # 失敗時も peek ベースなので、各タブは未準備のまま (補完なし) で整合する。
+        for tab in (self.search_tab, self.annotate_tab, self.results_tab, self.export_tab):
+            if tab is not None:
+                tab.on_tag_db_ready()
+
     def closeEvent(self, event: QCloseEvent) -> None:
         """ウィンドウ閉鎖時にレイアウト状態を保存する。
 
@@ -1719,6 +1764,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             event: クローズイベント
         """
         self._closing = True
+        tag_db_manager = getattr(self, "_tag_db_manager", None)
+        if tag_db_manager is not None:
+            tag_db_manager.cancel_all_workers()
         if self.dataset_state_manager is not None:
             self.dataset_state_manager.shutdown_annotation_refresh()
         self._save_window_state()

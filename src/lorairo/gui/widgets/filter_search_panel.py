@@ -23,7 +23,7 @@ Signal/Slot 流通ルール (ADR 0036 §3):
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QBoxLayout,
@@ -40,6 +40,8 @@ from ...gui.designer.FilterSearchPanel_ui import Ui_FilterSearchPanel
 from ...gui.services.operation_events import OperationOutcome, OperationType, WorkerOperationEvent
 from ...utils.log import logger
 from .. import theme
+from ..workers.manager import WorkerManager
+from ..workers.search_facets_worker import SearchFacetsResult, SearchFacetsWorker
 from .count_estimate import CountEstimateWidget
 from .custom_range_slider import CustomRangeSlider
 from .ds_segmented_control import DsSegmentedControl
@@ -199,6 +201,8 @@ class FilterSearchPanel(QScrollArea):
     # シグナル
     filter_cleared = Signal()
     search_requested = Signal(dict)  # search_conditions
+    # ファセット取得 worker (背景スレッド) から GUI スレッドへ結果を渡す内部 Signal (#1438)。
+    _facets_loaded = Signal(int, object)  # generation, SearchFacetsResult | None
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -219,6 +223,11 @@ class FilterSearchPanel(QScrollArea):
 
         # 現在の SearchWorker の ID
         self._current_search_worker_id: str | None = None
+
+        # ファセット (最近使ったモデル / 作成日ヒストグラム) の背景取得 (#1438)
+        self._facets_manager: WorkerManager | None = None
+        self._facets_generation = 0
+        self._facets_loaded.connect(self._on_facets_loaded)
 
         # === UI 設定 ===
         self.ui = Ui_FilterSearchPanel()
@@ -444,15 +453,9 @@ class FilterSearchPanel(QScrollArea):
         self._count_estimate.set_search_filter_service(service)
         logger.info(f"SearchFilterService set for FilterSearchPanel: {type(service)}")
 
-        # TagSuggestionService を SearchFilterService 経由で初期化
-        merged_reader = self._resolve_tag_suggestion_reader(service)
-        if merged_reader is not None:
-            from ...services.tag_suggestion_service import TagSuggestionService
-
-            self.set_tag_suggestion_service(TagSuggestionService(merged_reader))
-        else:
-            logger.debug("MergedTagReader not available: tag autocomplete disabled")
-            self.set_tag_suggestion_service(None)
+        # TagSuggestionService を SearchFilterService 経由で初期化。tag DB が未準備なら補完なしで
+        # 始め、準備完了後に refresh_tag_suggestion_reader() で後から有効化する (#1438)。
+        self.refresh_tag_suggestion_reader()
 
         # 基本メソッド存在確認 (DEBUG レベルに圧縮)
         required_methods = ["create_search_conditions", "parse_search_input"]
@@ -462,13 +465,55 @@ class FilterSearchPanel(QScrollArea):
         else:
             logger.debug("SearchFilterService method validation: OK")
 
-        # Phase 4: 初期化時にモデルリストとヒストグラムを更新
-        if hasattr(service, "get_recently_used_model_ids"):
-            model_ids = service.get_recently_used_model_ids()
-            self._search_facets_sidebar.update_models(model_ids)
-        if hasattr(service, "get_created_at_histogram"):
-            histogram_bins = service.get_created_at_histogram()
-            self._search_facets_sidebar.update_histogram(histogram_bins)
+        # Phase 4: モデルリストとヒストグラムは背景で取得する (GUI スレッドで DB を叩かない, #1438)
+        self.refresh_search_facets()
+
+    def refresh_tag_suggestion_reader(self) -> None:
+        """準備済みの MergedTagReader からタグ補完を (再) 構成する。
+
+        reader が未準備 (tag DB 初期化中 / 失敗) の場合は補完を無効にする。初期化は起動しない。
+        """
+        service = self.search_filter_service
+        merged_reader = self._resolve_tag_suggestion_reader(service) if service is not None else None
+        if merged_reader is not None:
+            from ...services.tag_suggestion_service import TagSuggestionService
+
+            self.set_tag_suggestion_service(TagSuggestionService(merged_reader))
+        else:
+            logger.debug("MergedTagReader not available: tag autocomplete disabled")
+            self.set_tag_suggestion_service(None)
+
+    def refresh_search_facets(self) -> None:
+        """検索ファセット (モデル / ヒストグラム) を背景 worker で取得して反映する。"""
+        service = self.search_filter_service
+        if service is None:
+            return
+        if self._facets_manager is None:
+            self._facets_manager = WorkerManager(self)
+        self._facets_generation += 1
+        generation = self._facets_generation
+        worker_id = f"search_facets_{generation}"
+        worker = SearchFacetsWorker(service)
+        # 以下の lambda は worker スレッドで走るが Signal を emit するだけ (スレッド安全)。
+        worker.finished.connect(lambda result, gen=generation: self._facets_loaded.emit(gen, result))
+        worker.error_occurred.connect(
+            lambda message, gen=generation: self._on_facets_error(gen, str(message))
+        )
+        self._facets_manager.start_worker(worker_id, worker)
+
+    def _on_facets_error(self, generation: int, message: str) -> None:
+        logger.warning(f"検索ファセットの取得に失敗 (ファセットなしで継続): {message}")
+        self._facets_loaded.emit(generation, None)
+
+    @Slot(int, object)
+    def _on_facets_loaded(self, generation: int, result: object) -> None:
+        """取得済みファセットを反映する (古い世代の結果は捨てる)。"""
+        if generation != self._facets_generation or not isinstance(result, SearchFacetsResult):
+            return
+        if result.model_ids is not None:
+            self._search_facets_sidebar.update_models(result.model_ids)
+        if result.histogram_bins is not None:
+            self._search_facets_sidebar.update_histogram(result.histogram_bins)
 
     @staticmethod
     def _resolve_tag_suggestion_reader(service: "SearchFilterService") -> Any:
@@ -483,10 +528,12 @@ class FilterSearchPanel(QScrollArea):
 
         db_manager_attrs = getattr(db_manager, "__dict__", {})
         annotation_repo = db_manager_attrs.get("annotation_repo")
-        get_merged_reader = getattr(annotation_repo, "get_merged_reader", None)
-        if callable(get_merged_reader):
+        # 初期化を起動しない peek を使う。tag DB の初期化 (HF Hub 確認) は背景 warm-up が担い、
+        # GUI スレッドでブロックしない (#1438)。
+        peek_merged_reader = getattr(annotation_repo, "peek_merged_reader", None)
+        if callable(peek_merged_reader):
             try:
-                merged_reader = get_merged_reader()
+                merged_reader = peek_merged_reader()
             except Exception as e:
                 logger.warning(f"MergedTagReader 取得に失敗: {e}")
             else:
@@ -547,7 +594,14 @@ class FilterSearchPanel(QScrollArea):
         """ウィジェット破棄時のクリーンアップ。"""
         self._tag_suggestion.cleanup()
         self._count_estimate.cleanup()
+        self.shutdown()
         super().closeEvent(event)
+
+    def shutdown(self) -> None:
+        """ファセット取得 worker を止める。親ウィンドウ閉鎖時は closeEvent が届かないため公開する。"""
+        self._facets_generation += 1  # 以降に届く結果は捨てる
+        if self._facets_manager is not None:
+            self._facets_manager.cancel_all_workers()
 
     # ============================================================
     # ===  Worker / Pipeline event handlers

@@ -70,6 +70,8 @@ from ..workers.search_review_loader import SearchReviewLoader, SearchReviewMetad
 from ..workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
 
 if TYPE_CHECKING:
+    from genai_tag_db_tools.db.repository import MergedTagReader
+
     from ...services.annotation_review_service import AnnotationReviewService
     from ...services.annotation_review_store import AnnotationReviewStore
 
@@ -208,14 +210,9 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         if self._db_manager is not None:
             self._selected_image_details_widget.set_db_manager(self._db_manager)
         self.reload_annotation_review_service()
-        merged_reader = self._service_container.db_manager.annotation_repo.get_merged_reader()
-        self._selected_image_details_widget.set_merged_reader(merged_reader)
-        # クイックタグ / アノテーションチェック関連タグ入力の補完候補ソース (Issue #1439)。
-        # reader 不在時は None のまま、各入力欄は補完なしで動作する。
-        self._tag_suggestion_service = (
-            TagSuggestionService(merged_reader) if merged_reader is not None else None
-        )
-        self.selection_review_widget.set_tag_suggestion_service(self._tag_suggestion_service)
+        # tag DB の初期化 (HF Hub 確認) は GUI スレッドで行わない (#1438)。起動時は準備済みの
+        # reader だけを使い、未準備なら補完/翻訳なしで始めて on_tag_db_ready() で後から注入する。
+        self._apply_merged_reader(self._service_container.db_manager.annotation_repo.peek_merged_reader())
         # refinement リコメンド (#931): RefinementService を注入。ignore 保存先は注入された
         # db_manager の session factory に追従させ、「表示 DB」と「ignore 保存 DB」の乖離を防ぐ
         # (#978)。db_manager 未注入時のみ container のアクティブ DB へフォールバックする。
@@ -227,13 +224,8 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             # tagdb 不可時の graceful degradation (#931): refinement は付加機能のため、
             # どの初期化エラーでもタブを生かす意図で広く捕捉する。
             logger.warning(f"RefinementService 配線をスキップ (tagdb 不可?): {e}")
-        # tagdb userdb 系書き込み (#989): 翻訳追加 / type 補正。tagdb 不可でも degrade する。
-        try:
-            self._selected_image_details_widget.set_tag_management_service(
-                self._service_container.tag_management_service
-            )
-        except Exception as e:
-            logger.warning(f"TagManagementService 配線をスキップ (tagdb 不可?): {e}")
+        # tagdb userdb 系書き込み (#989): 翻訳追加 / type 補正。未準備・tagdb 不可でも degrade する。
+        self._wire_tag_management_service()
         if dsm is not None:
             self._selected_image_details_widget.connect_to_dataset_state_manager(dsm)
             logger.debug("SelectedImageDetailsWidget DatasetStateManager接続完了")
@@ -249,6 +241,37 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         self.splitterPreviewDetails.setStretchFactor(0, 1)
         self.splitterPreviewDetails.setStretchFactor(1, 1)
         logger.debug("検索タブ splitter 初期化完了")
+
+    def _apply_merged_reader(self, merged_reader: "MergedTagReader | None") -> None:
+        """MergedTagReader を詳細ペイン / クイックタグ / アノテーションチェックへ注入する。
+
+        Args:
+            merged_reader: 準備済みの reader。None なら翻訳/補完なしのまま動作する。
+        """
+        self._selected_image_details_widget.set_merged_reader(merged_reader)
+        # クイックタグ / アノテーションチェック関連タグ入力の補完候補ソース (Issue #1439)。
+        # reader 不在時は None のまま、各入力欄は補完なしで動作する。
+        self._tag_suggestion_service = (
+            TagSuggestionService(merged_reader) if merged_reader is not None else None
+        )
+        self.selection_review_widget.set_tag_suggestion_service(self._tag_suggestion_service)
+
+    def _wire_tag_management_service(self) -> None:
+        """構築済みの TagManagementService があれば詳細ペインへ注入する (初期化は起動しない)。"""
+        service = self._service_container.peek_tag_management_service()
+        if service is None:
+            logger.debug("TagManagementService 未準備 - タグ DB 準備完了後に配線する")
+            return
+        self._selected_image_details_widget.set_tag_management_service(service)
+
+    def on_tag_db_ready(self) -> None:
+        """背景で tag DB の準備が終わった後に、翻訳/補完/タグ管理/クロップ導線へ後付け注入する (#1438)。"""
+        merged_reader = self._service_container.db_manager.annotation_repo.peek_merged_reader()
+        self._apply_merged_reader(merged_reader)
+        self._wire_tag_management_service()
+        self._filter_search_panel.refresh_tag_suggestion_reader()
+        if self._crop_dialog_launcher is not None:
+            self._crop_dialog_launcher.set_merged_reader(merged_reader)
 
     @Slot()
     def reload_annotation_review_service(self) -> None:
@@ -533,6 +556,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             self._crop_dialog_launcher.shutdown()
         self.selection_review_widget.shutdown()
         self._selected_image_details_widget.shutdown()
+        self._filter_search_panel.shutdown()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self.shutdown()
@@ -560,7 +584,8 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         )
         # 候補/採用タグの翻訳表示 (#1355)。get_merged_reader は tagdb 不可なら None を返す
         # (詳細カラムと同じ graceful degradation)。
-        merged_reader = self._db_manager.annotation_repo.get_merged_reader()
+        # 準備済みの reader のみ (未準備なら翻訳なし。準備完了後に on_tag_db_ready で注入, #1438)。
+        merged_reader = self._db_manager.annotation_repo.peek_merged_reader()
         self._crop_dialog_launcher = CropDialogLauncher(
             db_manager=self._db_manager,
             fsm=fsm,

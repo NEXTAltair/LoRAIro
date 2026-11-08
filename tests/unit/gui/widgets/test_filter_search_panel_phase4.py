@@ -37,6 +37,8 @@ def panel_with_service(qtbot):
     widget = FilterSearchPanel()
     qtbot.addWidget(widget)
     widget.set_search_filter_service(service)
+    # ファセットは背景 worker で取得されるため、反映完了を待ってから返す (#1438)
+    qtbot.waitUntil(lambda: widget._search_facets_sidebar._model_list.count() == 2, timeout=5000)
     return widget, service
 
 
@@ -159,8 +161,10 @@ class TestSetSearchFilterServicePhase4:
         qtbot.addWidget(panel)
         panel.set_search_filter_service(service)
 
-        service.get_recently_used_model_ids.assert_called_once()
-        service.get_created_at_histogram.assert_called_once()
+        # ファセットは背景 worker で取得される (#1438)
+        qtbot.waitUntil(lambda: service.get_recently_used_model_ids.call_count == 1, timeout=5000)
+        qtbot.waitUntil(lambda: service.get_created_at_histogram.call_count == 1, timeout=5000)
+        qtbot.waitUntil(lambda: panel._search_facets_sidebar._model_list.count() == 2, timeout=5000)
 
     def test_models_populated_in_sidebar(self, panel_with_service):
         """サービス設定後にサイドバーのモデルリストが更新される。"""
@@ -168,3 +172,59 @@ class TestSetSearchFilterServicePhase4:
         # get_recently_used_model_ids で返した 2 件がサイドバーに反映される
         model_list = panel._search_facets_sidebar._model_list
         assert model_list.count() == 2
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+class TestFacetsAreAsync:
+    """ファセット取得が GUI スレッドをブロックしない (#1438)。"""
+
+    def test_set_search_filter_service_does_not_query_facets_on_gui_thread(self, qtbot):
+        import threading
+
+        caller_threads: list[int] = []
+
+        def record_models(*_args, **_kwargs):
+            caller_threads.append(threading.get_ident())
+            return ["m1"]
+
+        service = MagicMock()
+        service.create_search_conditions = MagicMock(return_value=MagicMock())
+        service.parse_search_input = MagicMock(return_value=([], []))
+        service.get_recently_used_model_ids = MagicMock(side_effect=record_models)
+        service.get_created_at_histogram = MagicMock(return_value=[])
+        service.db_manager = MagicMock()
+        service.db_manager.repository = MagicMock()
+        service.db_manager.repository.merged_reader = None
+
+        panel = FilterSearchPanel()
+        qtbot.addWidget(panel)
+        panel.set_search_filter_service(service)
+
+        qtbot.waitUntil(lambda: bool(caller_threads), timeout=5000)
+        assert caller_threads[0] != threading.get_ident()
+        qtbot.waitUntil(lambda: panel._search_facets_sidebar._model_list.count() == 1, timeout=5000)
+        panel.shutdown()
+
+    def test_refresh_tag_suggestion_reader_enables_completion_after_ready(self, qtbot):
+        service = MagicMock()
+        service.create_search_conditions = MagicMock(return_value=MagicMock())
+        service.parse_search_input = MagicMock(return_value=([], []))
+        service.get_recently_used_model_ids = MagicMock(return_value=[])
+        service.get_created_at_histogram = MagicMock(return_value=[])
+        service.db_manager = MagicMock()
+        service.db_manager.annotation_repo = MagicMock()
+        service.db_manager.annotation_repo.peek_merged_reader.return_value = None
+        service.db_manager.repository.merged_reader = None
+
+        panel = FilterSearchPanel()
+        qtbot.addWidget(panel)
+        panel.set_search_filter_service(service)
+        assert panel._tag_suggestion.tag_suggestion_service is None
+
+        reader = object()
+        service.db_manager.annotation_repo.peek_merged_reader.return_value = reader
+        panel.refresh_tag_suggestion_reader()
+
+        assert panel._tag_suggestion.tag_suggestion_service._merged_reader is reader
+        panel.shutdown()

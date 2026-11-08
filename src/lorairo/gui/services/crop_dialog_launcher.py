@@ -87,6 +87,14 @@ class CropDialogLauncher(QObject):
         self._tag_metadata_dropped.connect(self._on_tag_metadata_dropped)
         logger.debug("CropDialogLauncher initialized")
 
+    def set_merged_reader(self, merged_reader: MergedTagReader | None) -> None:
+        """タグ翻訳用 reader を後から差し替える (起動時 tag DB 背景準備の完了後, #1438)。
+
+        Args:
+            merged_reader: 準備できた MergedTagReader。None なら翻訳なしのまま。
+        """
+        self._merged_reader = merged_reader
+
     def shutdown(self) -> None:
         """実行中のタグ翻訳 worker をキャンセルし、以降の起動を止める (#1355)。
 
