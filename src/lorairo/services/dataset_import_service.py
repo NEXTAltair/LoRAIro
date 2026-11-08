@@ -11,7 +11,7 @@
 """
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from lorairo.database.db_manager import ImageDatabaseManager
@@ -36,14 +36,36 @@ CONFIG_SOURCE_KIND = "kohya_gui_json"
 
 
 @dataclass(frozen=True)
+class FolderScanSummary:
+    """フォルダ 1 つ分のスキャン情報 (確認用。確定値ではない)。
+
+    Attributes:
+        image_count: フォルダ直下の画像数。
+        images_without_text: 学習テキスト (`.txt` / `.caption`) が無い画像数。
+        trigger_candidate: 先頭要素の共通性から出したトリガーワード候補。閾値未満なら None。
+        trigger_match_rate: 最頻の先頭要素を先頭に持つ画像の割合 (0.0〜1.0)。
+    """
+
+    image_count: int
+    images_without_text: int
+    trigger_candidate: str | None
+    trigger_match_rate: float
+
+
+@dataclass(frozen=True)
 class FolderImportPlan:
-    """取り込むフォルダ 1 つ分の確定値。"""
+    """取り込むフォルダ 1 つ分の確定値。
+
+    `scan` は確認用のスキャン情報で、取り込みには使わない。トリガーワード候補
+    (`scan.trigger_candidate`) は確認なしに `trigger_word` へ入れない (ADR 0098)。
+    """
 
     dir_name: str
     name: str
     num_repeats: int
     trigger_word: str | None
     include: bool
+    scan: FolderScanSummary | None = None
 
 
 @dataclass(frozen=True)
@@ -55,6 +77,28 @@ class DatasetImportPlan:
     parent_version_id: int | None
     folders: list[FolderImportPlan]
     config_files: list[Path]
+    train_data_dir_hints: list[str] = field(default_factory=list)
+
+    @property
+    def included_folders(self) -> list[FolderImportPlan]:
+        """取り込む (`include=True`) フォルダ。"""
+        return [folder for folder in self.folders if folder.include]
+
+
+class EmptyDatasetImportError(ValueError):
+    """取り込めるフォルダが 1 つも無い計画を拒否するときの例外。
+
+    Attributes:
+        train_data_dir_hints: 設定 json の `train_data_dir` (ルートの候補)。
+    """
+
+    def __init__(self, message: str, train_data_dir_hints: list[str]) -> None:
+        super().__init__(message)
+        self.train_data_dir_hints = train_data_dir_hints
+        # CLI のエラー境界が details として表示する
+        self.details: dict[str, object] = (
+            {"train_data_dir_hints": train_data_dir_hints} if train_data_dir_hints else {}
+        )
 
 
 @dataclass(frozen=True)
@@ -68,6 +112,8 @@ class DatasetImportResult:
         image_count: フォルダへの所属を記録した画像数 (同じ画像が 2 フォルダにあれば 2 と数える)。
         skipped_images: 画像の登録に失敗し、所属を記録しなかった画像数。
         training_config_ids: 追加した学習設定の ID。
+        images_without_text: 取り込んだ画像のうち、学習テキストが無い画像数 (取り込みはする)。
+            登録に失敗した画像は数えない。
     """
 
     dataset_id: int
@@ -76,6 +122,7 @@ class DatasetImportResult:
     image_count: int
     skipped_images: int
     training_config_ids: list[int]
+    images_without_text: int = 0
 
 
 @dataclass(frozen=True)
@@ -170,6 +217,46 @@ def _to_training_config_spec(prepared: _PreparedConfig) -> TrainingConfigSpec:
     )
 
 
+def summarize_folder(folder: ScannedFolder) -> FolderScanSummary:
+    """スキャン結果を確認用のスキャン情報にまとめる。
+
+    Args:
+        folder: スキャンしたフォルダ。
+
+    Returns:
+        画像数・学習テキストの無い画像数・トリガーワード候補。
+    """
+    return FolderScanSummary(
+        image_count=len(folder.images),
+        images_without_text=sum(1 for image in folder.images if not image.texts),
+        trigger_candidate=folder.trigger_candidate,
+        trigger_match_rate=folder.trigger_match_rate,
+    )
+
+
+def _train_data_dir_hints(root: Path, prepared: list[_PreparedConfig]) -> list[str]:
+    """設定 json の `train_data_dir` のうち、`root` と異なるものを重複なしで返す。"""
+    hints: list[str] = []
+    for config in prepared:
+        value = _as_str(config.normalized.normalized.get("train_data_dir"))
+        if not value or value in hints:
+            continue
+        # 同じ場所を指す値は候補にしない (区切り文字の違いは吸収する)
+        if Path(value).as_posix().rstrip("/") == root.as_posix().rstrip("/"):
+            continue
+        hints.append(value)
+    return hints
+
+
+def _empty_import_error(root: Path, hints: list[str]) -> EmptyDatasetImportError:
+    message = f"取り込めるフォルダがありません (<数字>_<名前> のフォルダが無いか、すべて外されています): {root.name}"
+    if hints:
+        message += (
+            f"。設定 json の train_data_dir をルートにすると取り込めるかもしれません: {', '.join(hints)}"
+        )
+    return EmptyDatasetImportError(message, hints)
+
+
 def _validate_folders(
     plan: DatasetImportPlan, scanned_by_dir: dict[str, ScannedFolder]
 ) -> list[tuple[FolderImportPlan, ScannedFolder]]:
@@ -228,7 +315,8 @@ class DatasetImportService:
     ) -> DatasetImportPlan:
         """スキャン結果から取り込み計画の候補を作る。DB には何も書かない。
 
-        トリガーワードはスキャンの候補を確定値にしないため `None` とする。版名は、
+        トリガーワードはスキャンの候補を確定値にしないため `None` とし、候補は各フォルダの
+        `scan` (画像数・学習テキストの無い画像数と合わせて) に載せる。版名は、
         `version_name` が空なら `root` 直下の設定 json の `output_name` を候補にし、
         それも無ければ `root` のフォルダ名を使う。
 
@@ -255,6 +343,7 @@ class DatasetImportService:
                 num_repeats=folder.num_repeats,
                 trigger_word=None,
                 include=True,
+                scan=summarize_folder(folder),
             )
             for folder in scanned
         ]
@@ -278,6 +367,7 @@ class DatasetImportService:
             parent_version_id=None,
             folders=folders,
             config_files=config_files,
+            train_data_dir_hints=_train_data_dir_hints(root, prepared),
         )
 
     def import_directory(self, root: Path, plan: DatasetImportPlan) -> DatasetImportResult:
@@ -296,6 +386,7 @@ class DatasetImportService:
         Raises:
             DatasetConflictError: 同じデータセットに同名の版がある、計画に同じフォルダが重複する、
                 フォルダ内で画像名が重複する場合。
+            EmptyDatasetImportError: 取り込むフォルダが 1 つも無い場合 (空の版は作らない)。
             ValueError: 計画のフォルダがスキャン結果に無い、または設定 json が読めない場合。
             OSError: 設定 json を読めない場合。
         """
@@ -305,6 +396,8 @@ class DatasetImportService:
             _PreparedConfig(path, normalize_kohya_gui_config(_read_config_text(path)))
             for path in plan.config_files
         ]
+        if not targets:
+            raise _empty_import_error(root, _train_data_dir_hints(root, prepared_configs))
 
         logger.info(
             f"データセット取り込み開始: {root} (dataset='{plan.dataset_name}', "
@@ -315,6 +408,7 @@ class DatasetImportService:
 
         image_count = 0
         skipped_images = 0
+        images_without_text = 0
         for position, (folder_plan, scanned) in enumerate(targets):
             images: list[FolderImageSpec] = []
             for scanned_image in scanned.images:
@@ -323,6 +417,9 @@ class DatasetImportService:
                     skipped_images += 1
                     logger.debug(f"画像を登録できないため所属を記録しません: {scanned_image.path}")
                     continue
+                # 登録できた画像だけを数える (スキャン時の件数は計画の scan に載っている)
+                if not scanned_image.texts:
+                    images_without_text += 1
                 images.append(
                     FolderImageSpec(
                         image_id=registered[0],
@@ -350,7 +447,8 @@ class DatasetImportService:
 
         logger.info(
             f"データセット取り込み完了: version_id={version_id}, folders={len(targets)}, "
-            f"images={image_count}, skipped={skipped_images}, configs={len(training_config_ids)}"
+            f"images={image_count}, skipped={skipped_images}, without_text={images_without_text}, "
+            f"configs={len(training_config_ids)}"
         )
         return DatasetImportResult(
             dataset_id=dataset_id,
@@ -359,4 +457,5 @@ class DatasetImportService:
             image_count=image_count,
             skipped_images=skipped_images,
             training_config_ids=training_config_ids,
+            images_without_text=images_without_text,
         )

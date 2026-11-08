@@ -26,6 +26,7 @@ from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.dataset_import_service import (
     DatasetImportPlan,
     DatasetImportService,
+    EmptyDatasetImportError,
     FolderImportPlan,
 )
 
@@ -362,3 +363,75 @@ def test_propose_plan_keeps_given_version_name(service: DatasetImportService, ko
     plan = service.propose_plan(kohya_root, "ds", "v_user")
 
     assert plan.version_name == "v_user"
+
+
+def test_propose_plan_carries_scan_summary_without_confirming_trigger(
+    service: DatasetImportService, kohya_root: Path
+) -> None:
+    """計画にスキャン情報 (画像数・学習テキストの無い画像数・候補) が載り、候補は確定値にならない (#1452)。"""
+    plan = service.propose_plan(kohya_root, "ds", "v1")
+
+    by_dir = {folder.dir_name: folder for folder in plan.folders}
+    scan_a = by_dir["10_a"].scan
+    assert scan_a is not None
+    assert scan_a.image_count == 4
+    assert scan_a.images_without_text == 1
+    assert scan_a.trigger_candidate == "trig_a"
+    assert scan_a.trigger_match_rate == pytest.approx(0.5)
+    assert by_dir["10_a"].trigger_word is None
+    scan_b = by_dir["5_b"].scan
+    assert scan_b is not None
+    assert (scan_b.image_count, scan_b.images_without_text, scan_b.trigger_candidate) == (1, 0, "trig_b")
+    assert by_dir["5_b"].trigger_word is None
+
+
+def test_import_reports_images_without_text(service: DatasetImportService, kohya_root: Path) -> None:
+    result = service.import_directory(kohya_root, _plan(kohya_root))
+
+    # 学習テキストの無い画像も取り込み、件数だけ返す
+    assert result.images_without_text == 1
+    assert result.image_count == 5
+
+
+def test_import_with_no_included_folder_raises_and_creates_no_version(
+    service: DatasetImportService, engine: Engine, kohya_root: Path
+) -> None:
+    plan = _plan(kohya_root)
+    plan = replace(plan, folders=[replace(folder, include=False) for folder in plan.folders])
+
+    with pytest.raises(EmptyDatasetImportError):
+        service.import_directory(kohya_root, plan)
+
+    assert all(count == 0 for count in _counts(engine).values())
+
+
+def test_import_without_kohya_folders_suggests_train_data_dir(
+    service: DatasetImportService, engine: Engine, tmp_path: Path
+) -> None:
+    """学習プロジェクト全体をルートにして 0 フォルダになったら、設定 json の train_data_dir を示す。"""
+    root = tmp_path / "project"
+    _save_noise_image(root / "img_v02" / "x.png", seed=11)
+    (root / "config.json").write_text(
+        json.dumps({"output_name": "v02", "train_data_dir": "D:/train/img_v02"}), encoding="utf-8"
+    )
+    plan = service.propose_plan(root, "ds", "v1")
+    assert plan.included_folders == []
+    assert plan.train_data_dir_hints == ["D:/train/img_v02"]
+
+    with pytest.raises(EmptyDatasetImportError, match="img_v02") as excinfo:
+        service.import_directory(root, plan)
+
+    assert excinfo.value.train_data_dir_hints == ["D:/train/img_v02"]
+    assert all(count == 0 for count in _counts(engine).values())
+
+
+def test_images_without_text_excludes_images_that_failed_to_register(
+    service: DatasetImportService, kohya_root: Path
+) -> None:
+    """登録に失敗した (壊れた) 画像は、学習テキストが無くても images_without_text に数えない。"""
+    (kohya_root / "5_b" / "broken.png").write_bytes(b"not a png")
+
+    result = service.import_directory(kohya_root, _plan(kohya_root))
+
+    assert result.skipped_images == 1
+    assert result.images_without_text == 1  # 10_a/no_text.png のみ
