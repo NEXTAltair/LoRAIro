@@ -289,7 +289,7 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 #### DatasetImportService
 - **Path**: `src/lorairo/services/dataset_import_service.py`
 - **Class**: `DatasetImportService`
-- **Purpose**: Kohya-ss 形式の学習データセットを版・フォルダ・学習テキストとして取り込む (Qt-free)。画像は登録のみで画像直下の `Tag` には書かない。永続化は `DatasetRepository` (`src/lorairo/database/repository/dataset.py`)。CLI は `lorairo-cli dataset import / export / show / diff`。
+- **Purpose**: Kohya-ss 形式の学習データセットを版・フォルダ・学習テキストとして取り込む (Qt-free)。画像は登録のみで画像直下の `Tag` には書かない。永続化は `DatasetRepository` (`src/lorairo/database/repository/dataset.py`)。CLI は `lorairo-cli dataset import / export / show / diff / copy-tags` (`copy-tags` は学習テキストをライブラリの `Tag` へ写す。ADR 0104)。
 
 #### KohyaDatasetExportService
 - **Path**: `src/lorairo/services/kohya_dataset_export_service.py`

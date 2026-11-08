@@ -460,3 +460,50 @@ def diff_dataset(
             texts_removed=summary.texts_removed,
             texts_changed=summary.texts_changed,
         )
+
+
+@app.command("copy-tags")
+def copy_tags(
+    version_id: int = typer.Argument(..., help="Dataset version ID"),
+    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    folder: list[str] | None = typer.Option(
+        None, "--folder", help="Folder name (e.g. 10_name) to copy. Repeatable. Default: all folders."
+    ),
+    extension: str = typer.Option(".txt", "--extension", help="Learning text extension to copy"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Count tags without writing."),
+) -> None:
+    """Copy learning text elements of a version to the library image tags (ADR 0104).
+
+    Elements are copied as written (no tag normalization) as rows of the pseudo model
+    KOHYA_DATASET, so they stay separate from manual and AI tags. When an image is in several
+    selected folders, the union of their elements is copied. Copying again only adds missing
+    tags; existing KOHYA_DATASET rows (including rejected ones) and other models' tags are not
+    changed. Later edits of learning texts are not followed.
+    """
+    with command_boundary():
+        normalized_extension = extension if extension.startswith(".") else f".{extension}"
+        repository = _build_repository(project)
+        try:
+            result = repository.copy_learning_texts_to_tags(
+                version_id, dir_names=folder or None, extension=normalized_extension, dry_run=dry_run
+            )
+        except LookupError as e:
+            raise typer.BadParameter(f"Version or folder not found: {e}") from e
+
+        verb = "Would copy" if dry_run else "Copied"
+        if is_json_mode():
+            emit_result(
+                f"{verb} {result.tags_added} tag(s) to {result.images} image(s)",
+                version_id=version_id,
+                dry_run=dry_run,
+                folders=result.folders,
+                images=result.images,
+                tags_added=result.tags_added,
+                tags_skipped=result.tags_skipped,
+            )
+            return
+        console.print(f"{verb} learning texts of version {version_id} to image tags (KOHYA_DATASET)")
+        console.print(f"folders: {result.folders}")
+        console.print(f"images: {result.images}")
+        console.print(f"tags_added: {result.tags_added}")
+        console.print(f"tags_skipped: {result.tags_skipped}")

@@ -18,6 +18,9 @@ from sqlalchemy.orm import Session, selectinload
 
 from ...utils.log import logger
 from ..schema import (
+    KOHYA_DATASET_LITELLM_ID,
+    KOHYA_DATASET_NAME,
+    KOHYA_DATASET_PROVIDER,
     MANUAL_EDIT_LITELLM_ID,
     MANUAL_EDIT_NAME,
     MANUAL_EDIT_PROVIDER,
@@ -209,6 +212,40 @@ class ModelRepository(BaseRepository):
         except SQLAlchemyError as e:
             logger.opt(exception=True).error(f"MANUAL_EDITモデルの取得/作成中にエラーが発生しました: {e}")
             raise
+
+    @staticmethod
+    def get_or_create_kohya_dataset_model(session: Session) -> int:
+        """Kohya データセットから写したタグ用の擬似モデル ID を取得または作成する (ADR 0104)。
+
+        `MANUAL_EDIT` と同じく sentinel `__kohya_dataset__` で lookup・作成し、
+        model_types には関連付けない (推論の対象にしない)。呼び出し元のセッションで動き、
+        commit はしない。
+
+        Args:
+            session: データベースセッション。
+
+        Returns:
+            `KOHYA_DATASET` モデルの ID。
+
+        Raises:
+            SQLAlchemyError: データベース操作中にエラーが発生した場合。
+        """
+        existing_id = session.execute(
+            select(Model.id).where(Model.litellm_model_id == KOHYA_DATASET_LITELLM_ID)
+        ).scalar_one_or_none()
+        if existing_id is not None:
+            return existing_id
+        model = Model(
+            name=KOHYA_DATASET_NAME,
+            provider=KOHYA_DATASET_PROVIDER,
+            litellm_model_id=KOHYA_DATASET_LITELLM_ID,
+            requires_api_key=False,
+        )
+        session.add(model)
+        session.flush()
+        logger.debug(f"KOHYA_DATASET モデルを作成: ID={model.id}")
+        model_id: int = model.id
+        return model_id
 
     def insert_model(
         self,

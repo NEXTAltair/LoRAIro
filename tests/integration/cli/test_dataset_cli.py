@@ -375,3 +375,54 @@ def test_cli_diff_missing_version_exits_nonzero(
 
     assert result.exit_code != 0
     assert "Traceback" not in result.stdout + result.stderr
+
+
+def _invoke_copy_tags(runner: CliRunner, version_id: int, *extra: str) -> dict[str, object]:
+    result = runner.invoke(app, ["--json", "dataset", "copy-tags", str(version_id), "-p", PROJECT, *extra])
+    assert result.exit_code == 0, result.stdout + result.stderr
+    summary: dict[str, object] = json.loads(result.stdout.strip().splitlines()[-1])
+    return summary
+
+
+def _kohya_tags(project_dir: Path) -> list[str]:
+    with sqlite3.connect(project_dir / "image_database.db") as conn:
+        rows = conn.execute(
+            "SELECT t.tag FROM tags t JOIN models m ON t.model_id = m.id "
+            "WHERE m.litellm_model_id = '__kohya_dataset__' ORDER BY t.tag"
+        ).fetchall()
+    return [row[0] for row in rows]
+
+
+def test_cli_copy_tags_copies_selected_folder_as_kohya_dataset(
+    cli_runner: CliRunner, project_dir: Path, kohya_root: Path
+) -> None:
+    """copy-tags は選んだフォルダの学習テキストを KOHYA_DATASET の Tag として写す (#1454)。"""
+    version_id = _import(cli_runner, kohya_root, "--exclude-dir", "3_skipme")
+
+    dry = _invoke_copy_tags(cli_runner, version_id, "--folder", "5_b", "--dry-run")
+    assert dry["dry_run"] is True
+    assert dry["tags_added"] == 2
+    assert _tag_count(project_dir) == 0
+
+    summary = _invoke_copy_tags(cli_runner, version_id, "--folder", "5_b")
+    assert (summary["folders"], summary["images"], summary["tags_added"]) == (1, 1, 2)
+    assert _kohya_tags(project_dir) == ["blue eyes", "trig_b"]
+
+    again = _invoke_copy_tags(cli_runner, version_id)
+    # 5_b の 2 件は飛ばし、10_a の要素を足す (表記はそのまま)
+    assert (again["tags_added"], again["tags_skipped"]) == (4, 2)
+    assert "(tag:1.2)" in _kohya_tags(project_dir)
+
+
+def test_cli_copy_tags_unknown_folder_exits_nonzero(
+    cli_runner: CliRunner, project_dir: Path, kohya_root: Path
+) -> None:
+    version_id = _import(cli_runner, kohya_root, "--exclude-dir", "3_skipme")
+
+    result = cli_runner.invoke(
+        app, ["dataset", "copy-tags", str(version_id), "-p", PROJECT, "--folder", "nope"]
+    )
+
+    assert result.exit_code != 0
+    assert "Traceback" not in result.stdout + result.stderr
+    assert _tag_count(project_dir) == 0

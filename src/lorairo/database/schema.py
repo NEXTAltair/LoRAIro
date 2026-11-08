@@ -29,6 +29,13 @@ MANUAL_EDIT_NAME = "MANUAL_EDIT"
 MANUAL_EDIT_PROVIDER = "user"
 MANUAL_EDIT_LITELLM_ID = "__manual_edit__"
 
+# ADR 0104 (Issue #1454): Kohya データセットの学習テキストをライブラリの Tag へ写した行の擬似モデル。
+# MANUAL_EDIT と同じく model_types を持たず requires_api_key=False のため、推論経路と
+# WebAPI モデルの availability 調整には乗らない。
+KOHYA_DATASET_NAME = "KOHYA_DATASET"
+KOHYA_DATASET_PROVIDER = "user"
+KOHYA_DATASET_LITELLM_ID = "__kohya_dataset__"
+
 # タグ/キャプションの soft-reject 種別 (reject_reason 列の値、Issue #1003 / ADR 0065)。
 # rejected_at が非 NULL のときのみ意味を持つ。NULL = 採用中。
 # エクスポート抽出は従来どおり ``rejected_at IS NULL`` で行い、3値すべて除外される
