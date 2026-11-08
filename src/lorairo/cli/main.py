@@ -42,6 +42,7 @@ from lorairo.cli.commands import (
     errors,
     export,
     images,
+    maintenance,
     models,
     project,
     review,
@@ -116,6 +117,7 @@ app.add_typer(batch.app, name="batch", help="Provider Batch API job commands")
 app.add_typer(tags.app, name="tags", help="Tag editing commands (agent-friendly)")
 app.add_typer(errors.app, name="errors", help="Error record management commands")
 app.add_typer(dataset.app, name="dataset", help="Kohya-ss training dataset import/export commands")
+app.add_typer(maintenance.app, name="maintenance", help="Read-only DB maintenance check commands")
 
 
 @app.callback()

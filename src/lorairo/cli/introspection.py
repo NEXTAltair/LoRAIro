@@ -489,6 +489,44 @@ class DuplicateReportResult(BaseModel):
     max_pair_comparisons: Literal[49995000]
 
 
+class MaintenanceCheckItem(BaseModel):
+    kind: Literal["item"] = "item"
+    check: Literal[
+        "batch_unknown_status",
+        "batch_import_marker_mismatch",
+        "batch_active_past_expiry",
+        "batch_unlinked_items",
+        "image_file_missing",
+        "processed_file_missing",
+    ]
+    scope: Literal["batch", "files"]
+    id_type: Literal["job_id", "image_id"]
+    count: int
+    ids: list[int]
+    ids_truncated: bool
+    description: str
+
+
+class MaintenanceCheckResult(BaseModel):
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    project: str
+    read_only: Literal[True]
+    status: Literal["success"]
+    scopes: list[Literal["batch", "files"]]
+    limit: int
+    checked_batch_jobs: int | None
+    checked_images: int | None
+    checked_processed_images: int | None
+    provider_queried: Literal[False]
+    repaired: Literal[False]
+    checks_run: int
+    issue_count: int
+    issues_found: bool
+    failing_checks: list[str]
+
+
 class TagHealthFrequencyItem(BaseModel):
     kind: Literal["item"] = "item"
     section: Literal["frequency"]
@@ -3080,6 +3118,37 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             _output("TagHealthVariantItem", (), schema=TagHealthVariantItem),
             _output("TagHealthMissingItem", (), schema=TagHealthMissingItem),
             _output("TagHealthResult", (), schema=TagHealthResult),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "maintenance check": ToolSpec(
+        name="maintenance check",
+        path="maintenance check",
+        summary="Read-only provider batch DB consistency and missing image file checks; no repair, no provider API calls. See [DB maintenance check](cli-maintenance-check.md).",
+        read_only=True,
+        side_effects=("db_read",),
+        inputs=(
+            _input(
+                "MaintenanceCheckInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "scope",
+                        "list[str]?",
+                        description="Repeat for several scopes: batch, files. Default runs all scopes.",
+                    ),
+                    _f(
+                        "limit",
+                        "int[1,500]",
+                        default=100,
+                        description="Maximum IDs per check; counts cover the whole project.",
+                    ),
+                ),
+            ),
+        ),
+        outputs=(
+            _output("MaintenanceCheckItem", (), schema=MaintenanceCheckItem),
+            _output("MaintenanceCheckResult", (), schema=MaintenanceCheckResult),
         ),
         errors=(ERROR_MODEL,),
     ),

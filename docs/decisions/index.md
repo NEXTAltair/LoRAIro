@@ -98,3 +98,4 @@
 * [Clef の検索警告と関連画像群のタグ候補・手動修正](0096-clef-search-tag-suggestions.md)
 * [Clef をローカルモデル専用に変更](0097-clef-local-only.md)
 * [Kohya-ss 学習データセットのデータモデルと取り込み・書き出し](0098-kohya-dataset-model.md)
+* [読み取り専用の DB メンテナンス点検コマンド](0099-read-only-db-maintenance-check.md)
