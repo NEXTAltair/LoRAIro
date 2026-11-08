@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -389,3 +390,25 @@ class TestAvailableResolutions:
     def test_dedupes_and_sorts(self, bar: ExportOverlayBar) -> None:
         bar.set_available_resolutions([1024, 512, 1024, 512])
         assert self._resolutions(bar) == ["512", "1024"]
+
+
+class TestLateReaderInjection:
+    """tag DB 背景準備後の reader 後付け注入 (#1438)。"""
+
+    def test_set_reader_refreshes_preview_with_conversion(
+        self, loaded_bar: ExportOverlayBar, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """reader 注入時に表示中プレビューが reader 付きの変換結果へ更新されること。"""
+        sentinel_reader = MagicMock(name="merged_reader")
+        calls: list[object] = []
+
+        def fake_apply_overlay(db_tags, overlay, reader, tag_format):
+            calls.append(reader)
+            return ["converted"] if reader is sentinel_reader else list(db_tags)
+
+        monkeypatch.setattr("lorairo.gui.widgets.export_overlay_bar.apply_overlay", fake_apply_overlay)
+
+        loaded_bar.set_reader(sentinel_reader)
+
+        assert calls == [sentinel_reader]
+        assert loaded_bar._preview.toPlainText() == "converted"
