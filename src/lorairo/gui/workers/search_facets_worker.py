@@ -6,7 +6,7 @@
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date
 from typing import Protocol
 
 from .base import LoRAIroWorkerBase
@@ -17,7 +17,7 @@ class _FacetsSource(Protocol):
 
     def get_recently_used_model_ids(self, limit: int = 10) -> list[str]: ...
 
-    def get_created_at_histogram(self, bins: int = 20) -> list[tuple[datetime, datetime, int]]: ...
+    def get_created_at_histogram(self, bins: int = 20) -> list[tuple[date, date, int]]: ...
 
 
 @dataclass
@@ -25,7 +25,7 @@ class SearchFacetsResult:
     """ファセット取得結果。取得元が対応していない項目は None。"""
 
     model_ids: list[str] | None = None
-    histogram_bins: list[tuple[datetime, datetime, int]] | None = field(default=None)
+    histogram_bins: list[tuple[date, date, int]] | None = field(default=None)
 
 
 class SearchFacetsWorker(LoRAIroWorkerBase[SearchFacetsResult]):

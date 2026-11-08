@@ -32,6 +32,8 @@ class SearchConditions:
     resolution_filter: str | None = None
     aspect_ratio_filter: str | None = None
     date_filter_enabled: bool = False
+    # 登録日 (Image.created_at) の範囲 (ADR 0100)。lorairo.domain.registration_date_range.to_utc_bounds
+    # が作る naive UTC の半開区間: start は含む、end は含まない (終了日の翌日 00:00)。
     date_range_start: datetime | None = None
     date_range_end: datetime | None = None
     only_untagged: bool = False
@@ -123,7 +125,8 @@ class SearchConditions:
             use_and=self.tag_logic == "and",
             include_untagged=self.only_untagged,
             start_date=self.date_range_start.isoformat() if self.date_range_start else None,
-            end_date=self.date_range_end.isoformat() if self.date_range_end else None,
+            # date_range_end は排他境界 (ADR 0100)。CLI 互換の inclusive な end_date とは別に渡す
+            end_date_exclusive=self.date_range_end.isoformat() if self.date_range_end else None,
             include_nsfw=self.include_nsfw,
             include_unrated=self.include_unrated,
             manual_rating_filter=self.rating_filter,

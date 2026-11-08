@@ -1,9 +1,15 @@
+import datetime as dt
 from collections.abc import Callable
 from typing import Any, cast
 
-from PySide6.QtCore import QDate, QDateTime, Qt, QTime, QTimeZone, Signal, Slot
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from superqt import QDoubleRangeSlider
+
+from ...domain.registration_date_range import LocalDayRange, local_today
+
+# 日付モードの既定の下限 (登録日フィルタ)
+DEFAULT_MIN_DAY = dt.date(2023, 1, 1)
 
 
 class CustomRangeSlider(QWidget):
@@ -55,22 +61,22 @@ class CustomRangeSlider(QWidget):
         min_val: float
         max_val: float
         min_val, max_val = self.slider.value()
-        min_count = int(min_val)
-        max_count = int(max_val)
-
         if self.is_date_mode:
-            local_tz = QTimeZone.systemTimeZone()
-            min_date = QDateTime.fromSecsSinceEpoch(min_count, local_tz)
-            max_date = QDateTime.fromSecsSinceEpoch(max_count, local_tz)
-            self.min_label.setText(min_date.toString("yyyy-MM-dd"))
-            self.max_label.setText(max_date.toString("yyyy-MM-dd"))
+            # 日付モードの値は暦日の序数 (date.toordinal)。ドラッグ中の小数は最寄りの日へ丸める
+            min_count = round(min_val)
+            max_count = round(max_val)
+            # 序数は 1 以上 (モード切替の途中で 0 起点の範囲が入っても落ちないようにする)
+            self.min_label.setText(dt.date.fromordinal(max(1, min_count)).isoformat())
+            self.max_label.setText(dt.date.fromordinal(max(1, max_count)).isoformat())
         elif self.is_score_mode:
             # スコアモード: 内部値0-1000を0.00-10.00に変換して表示
-            min_score = min_count / 100.0
-            max_score = max_count / 100.0
-            self.min_label.setText(f"{min_score:.2f}")
-            self.max_label.setText(f"{max_score:.2f}")
+            min_count = int(min_val)
+            max_count = int(max_val)
+            self.min_label.setText(f"{min_count / 100.0:.2f}")
+            self.max_label.setText(f"{max_count / 100.0:.2f}")
         else:
+            min_count = int(min_val)
+            max_count = int(max_val)
             self.min_label.setText(f"{min_count:,}")
             self.max_label.setText(f"{max_count:,}")
 
@@ -81,6 +87,8 @@ class CustomRangeSlider(QWidget):
         min_val: float
         max_val: float
         min_val, max_val = self.slider.value()
+        if self.is_date_mode:
+            return (round(min_val), round(max_val))
         return (int(min_val), int(max_val))
 
     def set_range(self, min_value: int, max_value: int) -> None:
@@ -90,17 +98,51 @@ class CustomRangeSlider(QWidget):
         self.slider.setRange(min_value, max_value)
         self.slider.setValue((min_value, max_value))
 
-    def set_date_range(self) -> None:
-        """日付モードを設定（2023/1/1から現在まで）"""
-        start_date = QDateTime(QDate(2023, 1, 1), QTime(0, 0), QTimeZone.utc())
-        end_date = QDateTime.currentDateTimeUtc()
-        end_date.setTime(QTime(23, 59, 59))
+    def set_date_range(self, min_day: dt.date = DEFAULT_MIN_DAY, max_day: dt.date | None = None) -> None:
+        """日付モード (暦日単位) を設定する。既定は 2023-01-01 からローカル時刻の今日まで。
 
+        値は ``date.toordinal()`` の整数で、1 目盛り = 1 日 (ADR 0100)。
+
+        Args:
+            min_day: 下限の暦日。
+            max_day: 上限の暦日。None はローカル時刻の今日。
+        """
         self.is_date_mode = True
-        start_timestamp = int(start_date.toSecsSinceEpoch())
-        end_timestamp = int(end_date.toSecsSinceEpoch())
+        self.is_score_mode = False
+        upper = max_day or local_today()
+        self.slider.setSingleStep(1)
+        self.set_range(min_day.toordinal(), max(min_day, upper).toordinal())
 
-        self.set_range(start_timestamp, end_timestamp)
+    def get_day_range(self) -> LocalDayRange:
+        """日付モードで選択中の暦日範囲 (両端を含む) を返す。"""
+        min_ordinal, max_ordinal = self.get_range()
+        low, high = sorted((min_ordinal, max_ordinal))
+        return LocalDayRange(dt.date.fromordinal(low), dt.date.fromordinal(high))
+
+    def set_day_range(self, day_range: LocalDayRange) -> None:
+        """日付モードの選択を暦日範囲に設定する。範囲外なら目盛りの範囲を広げる。
+
+        Args:
+            day_range: 選択する暦日範囲。
+        """
+        low = min(round(self.slider.minimum()), day_range.start.toordinal())
+        high = max(round(self.slider.maximum()), day_range.end.toordinal())
+        if (low, high) != (round(self.slider.minimum()), round(self.slider.maximum())):
+            self.min_value, self.max_value = low, high
+            self.slider.setRange(low, high)
+        self.slider.setValue((day_range.start.toordinal(), day_range.end.toordinal()))
+
+    def full_day_range(self) -> LocalDayRange:
+        """日付モードの目盛り全体 (絞り込みなし相当) の暦日範囲を返す。"""
+        return LocalDayRange(
+            dt.date.fromordinal(round(self.slider.minimum())),
+            dt.date.fromordinal(round(self.slider.maximum())),
+        )
+
+    def is_full_range(self) -> bool:
+        """選択が目盛りの全範囲 (絞り込みなし相当) かを返す。"""
+        min_val, max_val = self.get_range()
+        return (min_val, max_val) == (round(self.slider.minimum()), round(self.slider.maximum()))
 
     def set_score_mode(self) -> None:
         """スコアモードを設定（0.00-10.00、内部値0-1000）"""

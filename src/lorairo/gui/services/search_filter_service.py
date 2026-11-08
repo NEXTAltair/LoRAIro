@@ -1,12 +1,13 @@
 # src/lorairo/gui/services/search_filter_service.py
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
 from ...database.db_manager import ImageDatabaseManager
+from ...domain.registration_date_range import utc_bounds_to_day_range
 from ...services.model_registry_protocol import (
     ModelRegistryServiceProtocol,
     NullModelRegistry,
@@ -213,14 +214,12 @@ class SearchFilterService:
             parts.append(f"解像度: {conditions.resolution_filter}")
         if conditions.aspect_ratio_filter:
             parts.append(f"アスペクト比: {conditions.aspect_ratio_filter}")
-        if conditions.date_filter_enabled:
-            date_info = []
-            if conditions.date_range_start:
-                date_info.append(f"開始: {conditions.date_range_start.strftime('%Y-%m-%d')}")
-            if conditions.date_range_end:
-                date_info.append(f"終了: {conditions.date_range_end.strftime('%Y-%m-%d')}")
-            if date_info:
-                parts.append(f"日付範囲: {', '.join(date_info)}")
+        if conditions.date_filter_enabled and conditions.date_range_start and conditions.date_range_end:
+            # 境界 (naive UTC の半開区間) をローカル暦日へ戻して表示する (ADR 0100)
+            day_range = utc_bounds_to_day_range(conditions.date_range_start, conditions.date_range_end)
+            parts.append(
+                f"日付範囲: 開始: {day_range.start.isoformat()}, 終了: {day_range.end.isoformat()}"
+            )
         return parts
 
     def _format_flag_parts(self, conditions: SearchConditions) -> list[str]:
@@ -494,14 +493,14 @@ class SearchFilterService:
             logger.opt(exception=True).error(f"最近使用モデル取得エラー: {e}")
             return []
 
-    def get_created_at_histogram(self, bins: int = 20) -> list[tuple[datetime, datetime, int]]:
+    def get_created_at_histogram(self, bins: int = 20) -> list[tuple[date, date, int]]:
         """Image.created_at 分布ヒストグラムを取得する。
 
         Args:
             bins: ヒストグラムのビン数（デフォルト 20）。
 
         Returns:
-            (bin_start, bin_end, count) のリスト。エラー時は空リスト。
+            (開始日, 終了日 (含む), count) のリスト (ローカル暦日)。エラー時は空リスト。
         """
         try:
             return self.db_manager.get_created_at_histogram(bins=bins)

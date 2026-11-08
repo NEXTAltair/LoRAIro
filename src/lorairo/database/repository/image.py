@@ -37,6 +37,7 @@ from sqlalchemy import (
     ColumnElement,
     Select,
     and_,
+    case,
     delete,
     exists,
     func,
@@ -48,6 +49,11 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ...domain.quality_tier import compute_quality_summary
+from ...domain.registration_date_range import (
+    build_histogram_day_bins,
+    to_utc_bounds,
+    utc_to_local_date,
+)
 from ...domain.score_scaler import calibrate_to_display, display_weight_for
 from ...utils.log import logger
 from ..filter_criteria import ImageFilterCriteria, KeywordSearchGroup
@@ -1536,9 +1542,7 @@ class ImageRepository(BaseRepository):
             # ISO 8601形式 (YYYY-MM-DDTHH:MM:SS or YYYY-MM-DD HH:MM:SS) を想定
             # スペース区切りも考慮
             date_str = date_str.replace(" ", "T")
-            # マイクロ秒以下を削除 (存在する場合)
-            if "." in date_str:
-                date_str = date_str.split(".")[0]
+            # 小数秒は保持する (切り捨てると境界の前の時刻まで含んでしまう, #1457)
 
             # naive datetime としてパースしてからUTCタイムゾーンを設定
             # 入力文字列はUTC時刻として解釈する（アプリケーション統一方針）
@@ -1580,26 +1584,62 @@ class ImageRepository(BaseRepository):
         # logger.debug(f"Prepared pattern: '{pattern}', is_exact: {is_exact} for term: '{term}'")
         return pattern, is_exact
 
+    @staticmethod
+    def _to_sqlite_utc_text(value: datetime.datetime) -> str:
+        """日時を SQLite の日時関数が解釈できる naive UTC テキストにする。
+
+        aware は UTC へ変換してから tzinfo を外す (SQLite の datetime は naive UTC で保存される)。
+        """
+        if value.tzinfo is not None:
+            value = value.astimezone(datetime.UTC).replace(tzinfo=None)
+        return value.isoformat(sep=" ", timespec="microseconds")
+
+    @classmethod
+    def _created_at_conditions(
+        cls,
+        start_dt: datetime.datetime | None,
+        end_dt: datetime.datetime | None,
+        end_exclusive_dt: datetime.datetime | None = None,
+    ) -> list[ColumnElement[bool]]:
+        """登録日 (Image.created_at) の範囲条件を作る (#1457)。
+
+        保存値と境界の両方を ``julianday()`` で数値化して比較するため、秒精度
+        (``CURRENT_TIMESTAMP``)・マイクロ秒付き・'T' 区切りの保存形式が混在しても
+        同じ基準で比較できる (文字列比較の精度依存を避ける)。
+
+        Args:
+            start_dt: 開始 (含む)。
+            end_dt: 終了 (含む)。CLI の公開契約 (inclusive end) 用。
+            end_exclusive_dt: 終了 (含まない)。GUI の暦日フィルタ用 (翌日 00:00 未満)。
+
+        Returns:
+            WHERE 句に AND で渡す条件のリスト。
+        """
+        stored = func.julianday(Image.created_at)
+        conditions: list[ColumnElement[bool]] = []
+        if start_dt:
+            conditions.append(stored >= func.julianday(cls._to_sqlite_utc_text(start_dt)))
+        if end_dt:
+            conditions.append(stored <= func.julianday(cls._to_sqlite_utc_text(end_dt)))
+        if end_exclusive_dt:
+            conditions.append(stored < func.julianday(cls._to_sqlite_utc_text(end_exclusive_dt)))
+        return conditions
+
     def _apply_date_filter(
         self,
         query: Select[Any],
         start_dt: datetime.datetime | None,
         end_dt: datetime.datetime | None,
+        end_exclusive_dt: datetime.datetime | None = None,
     ) -> Select[Any]:
-        """クエリに日付フィルタを適用します (画像またはアノテーションの更新日時)。"""
-        if not start_dt and not end_dt:
+        """クエリに登録日 (Image.created_at) フィルタを適用する。
+
+        境界の意味は :meth:`_created_at_conditions` を参照。
+        """
+        conditions = self._created_at_conditions(start_dt, end_dt, end_exclusive_dt)
+        if not conditions:
             return query
-
-        # 画像自体の作成/更新日時のみを考慮
-        img_date_conds = []
-        if start_dt:
-            img_date_conds.append(Image.updated_at >= start_dt)
-        if end_dt:
-            img_date_conds.append(Image.updated_at <= end_dt)
-        if img_date_conds:
-            query = query.where(and_(*img_date_conds))
-
-        return query
+        return query.where(and_(*conditions))
 
     def _build_tag_match_condition(
         self, tags: list[str] | None, use_and: bool
@@ -2942,6 +2982,7 @@ class ImageRepository(BaseRepository):
         model_filter: list[str] | None = None,
         rating_combine: str = "and",
         keyword_groups: list[KeywordSearchGroup] | None = None,
+        end_date_exclusive: str | None = None,
     ) -> Select[Any]:
         """画像フィルタ条件を適用したクエリを構築する。
 
@@ -2952,7 +2993,8 @@ class ImageRepository(BaseRepository):
             caption: 検索キャプションキーワードのリスト (全語を対象、#1093)。
             use_and: 複数タグのAND/OR指定。
             start_date: 検索開始日時(ISO 8601)。
-            end_date: 検索終了日時(ISO 8601)。
+            end_date: 検索終了日時(ISO 8601、含む)。
+            end_date_exclusive: 検索終了日時(ISO 8601、含まない)。暦日フィルタ用。
             include_untagged: タグなし画像のみ対象とするか。
             include_nsfw: NSFWコンテンツを含むか。
             include_unrated: 未評価画像を含むか。
@@ -2977,7 +3019,8 @@ class ImageRepository(BaseRepository):
 
         start_dt = self._parse_datetime_str(start_date)
         end_dt = self._parse_datetime_str(end_date)
-        query = self._apply_date_filter(query, start_dt, end_dt)
+        end_exclusive_dt = self._parse_datetime_str(end_date_exclusive)
+        query = self._apply_date_filter(query, start_dt, end_dt, end_exclusive_dt)
 
         has_tag_terms = bool(tags) or (
             keyword_groups is not None and any(group.tag_terms for group in keyword_groups)
@@ -3150,6 +3193,7 @@ class ImageRepository(BaseRepository):
             use_and=criteria.use_and,
             start_date=criteria.start_date,
             end_date=criteria.end_date,
+            end_date_exclusive=criteria.end_date_exclusive,
             include_untagged=criteria.include_untagged,
             include_nsfw=criteria.include_nsfw,
             include_unrated=criteria.include_unrated,
@@ -3389,6 +3433,7 @@ class ImageRepository(BaseRepository):
                     use_and=filter_criteria.use_and,
                     start_date=filter_criteria.start_date,
                     end_date=filter_criteria.end_date,
+                    end_date_exclusive=filter_criteria.end_date_exclusive,
                     include_untagged=filter_criteria.include_untagged,
                     include_nsfw=filter_criteria.include_nsfw,
                     include_unrated=filter_criteria.include_unrated,
@@ -3500,6 +3545,7 @@ class ImageRepository(BaseRepository):
                 use_and=criteria.use_and,
                 start_date=criteria.start_date,
                 end_date=criteria.end_date,
+                end_date_exclusive=criteria.end_date_exclusive,
                 include_untagged=criteria.include_untagged,
                 include_nsfw=criteria.include_nsfw,
                 include_unrated=criteria.include_unrated,
@@ -3869,46 +3915,43 @@ class ImageRepository(BaseRepository):
                 return result
 
     def get_created_at_histogram(
-        self, bins: int = 20
-    ) -> list[tuple[datetime.datetime, datetime.datetime, int]]:
-        """Image.created_at の分布ヒストグラムを返す。
+        self, bins: int = 20, tz: datetime.tzinfo | None = None
+    ) -> list[tuple[datetime.date, datetime.date, int]]:
+        """Image.created_at の分布ヒストグラムを、ローカル時刻の暦日単位のビンで返す。
+
+        ビンの境界と包含規則は検索と同じ (:mod:`lorairo.domain.registration_date_range`
+        の暦日範囲を :meth:`_created_at_conditions` で数える) ので、ビンを選んで検索した
+        件数とビンの件数は常に一致する (#1457)。
 
         Args:
-            bins: ビン数（デフォルト 20）。
+            bins: 最大ビン数（デフォルト 20）。
+            tz: ローカル時刻のタイムゾーン。None はシステムのローカル時刻。
 
         Returns:
-            list of (bin_start, bin_end, count)。空データの場合は空リスト。
+            list of (開始日, 終了日 (含む), count)。空データの場合は空リスト。
         """
+        # julianday → unix epoch ミリ秒 (保存形式の違いに依存しない最小・最大)
+        epoch_ms = func.round((func.julianday(Image.created_at) - 2440587.5) * 86400000.0)
         with self.session_factory() as session:
-            result = session.execute(select(func.min(Image.created_at), func.max(Image.created_at))).one()
-            min_dt, max_dt = result[0], result[1]
-            if min_dt is None or max_dt is None:
+            min_ms, max_ms = session.execute(select(func.min(epoch_ms), func.max(epoch_ms))).one()
+            if min_ms is None or max_ms is None:
                 return []
-            if min_dt == max_dt:
-                count = session.execute(select(func.count(Image.id))).scalar_one()
-                return [(min_dt, max_dt, count)]
+            epoch = datetime.datetime(1970, 1, 1)
+            first_day = utc_to_local_date(epoch + datetime.timedelta(milliseconds=int(min_ms)), tz)
+            last_day = utc_to_local_date(epoch + datetime.timedelta(milliseconds=int(max_ms)), tz)
+            day_bins = build_histogram_day_bins(first_day, last_day, bins)
 
-            all_dates: list[datetime.datetime] = list(
-                session.execute(select(Image.created_at).where(Image.created_at.is_not(None)))
-                .scalars()
-                .all()
-            )
+            counters = []
+            for day_range in day_bins:
+                start_utc, end_utc = to_utc_bounds(day_range, tz)
+                conditions = self._created_at_conditions(start_utc, None, end_utc)
+                counters.append(func.coalesce(func.sum(case((and_(*conditions), 1), else_=0)), 0))
+            counts = session.execute(select(*counters)).one()
 
-            total_seconds = (max_dt - min_dt).total_seconds()
-            bin_width_sec = total_seconds / bins
-            counts = [0] * bins
-            for dt in all_dates:
-                idx = min(int((dt - min_dt).total_seconds() / bin_width_sec), bins - 1)
-                counts[idx] += 1
-
-            return [
-                (
-                    min_dt + datetime.timedelta(seconds=i * bin_width_sec),
-                    min_dt + datetime.timedelta(seconds=(i + 1) * bin_width_sec),
-                    counts[i],
-                )
-                for i in range(bins)
-            ]
+        return [
+            (day_range.start, day_range.end, int(count))
+            for day_range, count in zip(day_bins, counts, strict=True)
+        ]
 
     def get_recently_used_model_ids(self, limit: int = 10) -> list[str]:
         """アノテーション実績があるモデルの litellm_model_id を返す。

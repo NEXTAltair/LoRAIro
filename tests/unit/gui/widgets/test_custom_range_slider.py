@@ -1,10 +1,12 @@
 # tests/unit/gui/widgets/test_filter_widgets.py
 
+import datetime
 from unittest.mock import Mock
 
 import pytest
 from PySide6.QtWidgets import QWidget
 
+from lorairo.domain.registration_date_range import PRESET_ALL, LocalDayRange
 from lorairo.gui.widgets.custom_range_slider import CustomRangeSlider
 from lorairo.gui.widgets.filter_search_panel import (
     _AI_RATING_OPTIONS,
@@ -86,12 +88,36 @@ class TestCustomRangeSlider:
         assert range_slider.max_value == new_max
 
     def test_set_date_range(self, range_slider):
-        """日付範囲設定テスト"""
+        """日付範囲設定テスト (暦日単位、既定は 2023-01-01 から今日まで)"""
         range_slider.set_date_range()
 
         assert range_slider.is_date_mode is True
-        assert range_slider.min_value > 0  # UTCタイムスタンプ
-        assert range_slider.max_value > range_slider.min_value
+        assert range_slider.min_value == datetime.date(2023, 1, 1).toordinal()
+        assert range_slider.max_value == datetime.date.today().toordinal()
+        assert range_slider.full_day_range() == LocalDayRange(
+            datetime.date(2023, 1, 1), datetime.date.today()
+        )
+
+    def test_day_range_round_trip_and_extends_bounds(self, range_slider):
+        """暦日範囲の設定・取得。範囲外の日は目盛りを広げて受け入れる。"""
+        range_slider.set_date_range(datetime.date(2026, 1, 1), datetime.date(2026, 11, 8))
+        day_range = LocalDayRange(datetime.date(2026, 11, 1), datetime.date(2026, 11, 7))
+        range_slider.set_day_range(day_range)
+        assert range_slider.get_day_range() == day_range
+        assert range_slider.min_label.text() == "2026-11-01"
+        assert range_slider.max_label.text() == "2026-11-07"
+
+        later = LocalDayRange(datetime.date(2026, 11, 9), datetime.date(2026, 11, 9))
+        range_slider.set_day_range(later)
+        assert range_slider.get_day_range() == later
+        assert not range_slider.is_full_range()
+
+    def test_fractional_drag_value_rounds_to_nearest_day(self, range_slider):
+        """ドラッグ中の小数値は最寄りの日に丸める (1 目盛り = 1 日)。"""
+        base = datetime.date(2026, 11, 1)
+        range_slider.set_date_range(base, datetime.date(2026, 11, 30))
+        range_slider.slider.setValue((base.toordinal() + 0.4, base.toordinal() + 2.6))
+        assert range_slider.get_day_range() == LocalDayRange(base, datetime.date(2026, 11, 4))
 
     def test_date_mode_labels(self, range_slider):
         """日付モード時のラベル表示テスト"""
@@ -234,8 +260,17 @@ class _TestableFilterSearchPanel(FilterSearchPanel):
 
     def setup_custom_widgets(self) -> None:
         self.date_range_slider = Mock()
-        self.date_range_slider.get_range.return_value = (1640995200, 1703980800)
+        self.date_range_slider.get_day_range.return_value = LocalDayRange(
+            datetime.date(2022, 1, 1), datetime.date(2023, 12, 30)
+        )
+        self.date_range_slider.full_day_range.return_value = LocalDayRange(
+            datetime.date(2023, 1, 1), datetime.date(2026, 11, 8)
+        )
         self.date_range_slider.slider = Mock()
+        # 登録日フィルタの状態 (ADR 0100)
+        self._date_filter_enabled = False
+        self._applying_date_state = False
+        self._date_preset_control = Mock()
         self.score_range_slider = Mock()
         self.score_range_slider.get_range.return_value = (0, 1000)
         # _estimated_count_label / progress_bar / _status_label / progress_layout は
@@ -289,7 +324,6 @@ class TestFilterSearchPanel:
         panel.comboAspectRatio = Mock()
         panel.lineEditWidth = Mock()
         panel.lineEditHeight = Mock()
-        panel.checkboxDateFilter = Mock()
         panel.frameDateRange = Mock()
         panel.checkboxOnlyUntagged = Mock()
         panel.checkboxOnlyUncaptioned = Mock()
@@ -303,12 +337,7 @@ class TestFilterSearchPanel:
         panel.buttonClear = Mock()
         panel.dateRangeSliderPlaceholder = Mock()
 
-        # DateRangeSlider モック
-        panel.date_range_slider = Mock()
-        panel.date_range_slider.get_range.return_value = (
-            1640995200,
-            1703980800,
-        )  # 2022-01-01 to 2023-12-30
+        # DateRangeSlider モックは _TestableFilterSearchPanel.setup_custom_widgets で設定済み
 
         # QButtonGroup モック（新機能）
         from PySide6.QtWidgets import QButtonGroup
@@ -326,7 +355,6 @@ class TestFilterSearchPanel:
         panel.ui.comboAspectRatio = panel.comboAspectRatio
         panel.ui.lineEditWidth = panel.lineEditWidth
         panel.ui.lineEditHeight = panel.lineEditHeight
-        panel.ui.checkboxDateFilter = panel.checkboxDateFilter
         panel.ui.frameDateRange = panel.frameDateRange
         panel.ui.checkboxOnlyUntagged = panel.checkboxOnlyUntagged
         panel.ui.checkboxOnlyUncaptioned = panel.checkboxOnlyUncaptioned
@@ -372,7 +400,7 @@ class TestFilterSearchPanel:
         filter_panel.comboResolution.currentIndex.return_value = 0
         filter_panel.comboAspectRatio.currentText.return_value = "全て"
         filter_panel.comboAspectRatio.currentIndex.return_value = 0
-        filter_panel.checkboxDateFilter.isChecked.return_value = False
+        filter_panel._date_filter_enabled = False
         filter_panel.checkboxOnlyUntagged.isChecked.return_value = False
         filter_panel.checkboxOnlyUncaptioned.isChecked.return_value = False
         filter_panel.checkboxExcludeDuplicates.isChecked.return_value = False
@@ -404,7 +432,7 @@ class TestFilterSearchPanel:
         filter_panel.comboResolution.currentIndex.return_value = 0
         filter_panel.comboAspectRatio.currentText.return_value = "全て"
         filter_panel.comboAspectRatio.currentIndex.return_value = 0
-        filter_panel.checkboxDateFilter.isChecked.return_value = False
+        filter_panel._date_filter_enabled = False
         filter_panel.checkboxOnlyUntagged.isChecked.return_value = False
         filter_panel.checkboxOnlyUncaptioned.isChecked.return_value = False
         filter_panel.checkboxExcludeDuplicates.isChecked.return_value = False
@@ -428,7 +456,7 @@ class TestFilterSearchPanel:
         filter_panel.comboResolution.currentIndex.return_value = 0
         filter_panel.comboAspectRatio.currentText.return_value = "全て"
         filter_panel.comboAspectRatio.currentIndex.return_value = 0
-        filter_panel.checkboxDateFilter.isChecked.return_value = True
+        filter_panel._date_filter_enabled = True
         filter_panel.checkboxOnlyUntagged.isChecked.return_value = False
         filter_panel.checkboxOnlyUncaptioned.isChecked.return_value = False
         filter_panel.checkboxExcludeDuplicates.isChecked.return_value = False
@@ -438,7 +466,8 @@ class TestFilterSearchPanel:
         conditions = filter_panel.get_current_conditions()
 
         assert conditions["date_filter_enabled"] is True
-        assert conditions["date_range"] == [1640995200, 1703980800]
+        # ADR 0100: スライダーの暦日を ISO 日付で保存する
+        assert conditions["date_range"] == ["2022-01-01", "2023-12-30"]
 
     def test_get_filter_conditions_all_options(self, filter_panel):
         """全オプション有効時の条件テスト"""
@@ -450,7 +479,7 @@ class TestFilterSearchPanel:
         filter_panel.comboResolution.currentIndex.return_value = 2
         filter_panel.comboAspectRatio.currentText.return_value = "正方形 (1:1)"
         filter_panel.comboAspectRatio.currentIndex.return_value = 1
-        filter_panel.checkboxDateFilter.isChecked.return_value = True
+        filter_panel._date_filter_enabled = True
         filter_panel.checkboxOnlyUntagged.isChecked.return_value = True
         filter_panel.checkboxOnlyUncaptioned.isChecked.return_value = True
         filter_panel.checkboxExcludeDuplicates.isChecked.return_value = True
@@ -480,7 +509,8 @@ class TestFilterSearchPanel:
         filter_panel.ui.radioAnd.setChecked.assert_called_with(True)
         filter_panel.ui.comboResolution.setCurrentIndex.assert_called_with(0)
         filter_panel.ui.comboAspectRatio.setCurrentIndex.assert_called_with(0)
-        filter_panel.ui.checkboxDateFilter.setChecked.assert_called_with(False)
+        assert filter_panel._date_filter_enabled is False
+        filter_panel._date_preset_control.set_value.assert_called_with(PRESET_ALL)
         filter_panel.ui.checkboxOnlyUntagged.setChecked.assert_called_with(False)
         filter_panel.ui.checkboxOnlyUncaptioned.setChecked.assert_called_with(False)
         filter_panel.ui.checkboxExcludeDuplicates.setChecked.assert_called_with(False)
@@ -520,7 +550,7 @@ class TestFilterSearchPanel:
         filter_panel.radioAnd.isChecked.return_value = True
         filter_panel.comboResolution.currentText.return_value = "全て"
         filter_panel.comboAspectRatio.currentText.return_value = "全て"
-        filter_panel.checkboxDateFilter.isChecked.return_value = False
+        filter_panel._date_filter_enabled = False
         filter_panel.checkboxOnlyUntagged.isChecked.return_value = False
         filter_panel.checkboxOnlyUncaptioned.isChecked.return_value = False
         filter_panel.checkboxExcludeDuplicates.isChecked.return_value = False
@@ -534,7 +564,6 @@ class TestFilterSearchPanel:
         filter_panel.ui.radioAnd = filter_panel.radioAnd
         filter_panel.ui.comboResolution = filter_panel.comboResolution
         filter_panel.ui.comboAspectRatio = filter_panel.comboAspectRatio
-        filter_panel.ui.checkboxDateFilter = filter_panel.checkboxDateFilter
         filter_panel.ui.checkboxOnlyUntagged = filter_panel.checkboxOnlyUntagged
         filter_panel.ui.checkboxOnlyUncaptioned = filter_panel.checkboxOnlyUncaptioned
         filter_panel.ui.checkboxExcludeDuplicates = filter_panel.checkboxExcludeDuplicates
