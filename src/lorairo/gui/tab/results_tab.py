@@ -117,11 +117,16 @@ class ResultsTabWidget(QWidget):
         if self._db_manager is None:
             return None
         try:
-            merged_reader = self._db_manager.annotation_repo.get_merged_reader()
+            # 初期化は起動しない (#1438)。未準備なら補完なしで始め、on_tag_db_ready() で後付けする。
+            merged_reader = self._db_manager.annotation_repo.peek_merged_reader()
         except (AttributeError, RuntimeError) as e:
             logger.warning(f"MergedTagReader 取得に失敗 (タグ補完なしで継続): {e}")
             return None
         return TagSuggestionService(merged_reader) if merged_reader is not None else None
+
+    def on_tag_db_ready(self) -> None:
+        """背景で tag DB の準備が終わった後に、関連タグ入力の補完を有効化する (#1438)。"""
+        self._annotation_review_widget.set_tag_suggestion_service(self._resolve_tag_suggestion_service())
 
     def set_annotation_review_unavailable_reason(self, reason: str) -> None:
         self._annotation_review_widget.set_unavailable_reason(reason)

@@ -46,7 +46,7 @@ def service_container() -> Mock:
     # SelectedImageDetailsWidget へ注入する MergedTagReader (言語セレクタ初期化で iterate される)
     merged_reader = Mock()
     merged_reader.get_tag_languages.return_value = []
-    container.db_manager.annotation_repo.get_merged_reader.return_value = merged_reader
+    container.db_manager.annotation_repo.peek_merged_reader.return_value = merged_reader
     return container
 
 

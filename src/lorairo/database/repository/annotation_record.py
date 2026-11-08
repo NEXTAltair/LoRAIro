@@ -40,6 +40,7 @@ genai-tag-db-tools (外部 tag_db) 統合を本 Repository に集約する。
 from __future__ import annotations
 
 import datetime
+import threading
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, cast
@@ -157,6 +158,7 @@ class AnnotationRepository(BaseRepository):
         # TagCleaner.clean_format() は静的メソッドなのでインスタンス化不要。
         self.merged_reader: MergedTagReader | None = None
         self._merged_reader_initialized = False
+        self._merged_reader_lock = threading.RLock()
         # TagRegisterService は遅延初期化 (登録時のみ必要)。
         self.tag_register_service: TagRegisterService | None = None
 
@@ -190,9 +192,19 @@ class AnnotationRepository(BaseRepository):
         if self.merged_reader is not None:
             self._merged_reader_initialized = True
             return self.merged_reader
-        if not self._merged_reader_initialized:
-            self.merged_reader = self._initialize_merged_reader()
-            self._merged_reader_initialized = True
+        # 起動時のバックグラウンド warm-up と GUI スレッドが同時に来ても初期化は 1 回にする (#1438)。
+        with self._merged_reader_lock:
+            if not self._merged_reader_initialized:
+                self.merged_reader = self._initialize_merged_reader()
+                self._merged_reader_initialized = True
+            return self.merged_reader
+
+    def peek_merged_reader(self) -> MergedTagReader | None:
+        """外部タグDBリーダーを初期化せずに返す (GUI スレッド向けの非ブロッキング accessor)。
+
+        初期化済みならリーダーを、未初期化 (または初期化失敗) なら None を返す。HF Hub 確認などの
+        重い初期化は一切起動しないため、``show()`` 前の GUI 構築パスで安全に呼べる (#1438)。
+        """
         return self.merged_reader
 
     def get_merged_reader(self) -> MergedTagReader | None:

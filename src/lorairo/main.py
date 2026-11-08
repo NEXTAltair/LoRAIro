@@ -293,6 +293,9 @@ def main() -> int:
             except Exception as show_error:
                 logger.error(f"強制表示エラー: {show_error}")
 
+        # タグ DB の初期化 (HF Hub 確認) は window 表示後に背景で行い、起動中の「応答なし」を避ける (#1438)
+        window.start_tag_db_warmup()
+
         # 起動成功ログ
         logger.info("LoRAIro ワークスペースGUI 起動完了")
 

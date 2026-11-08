@@ -195,6 +195,67 @@ class TestExternalTagDbInitialization:
         assert annotation_repository.merged_reader is merged_reader
         assert annotation_repository._merged_reader_initialized is True
 
+    def test_peek_merged_reader_never_triggers_initialization(
+        self, annotation_repository: AnnotationRepository, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """peek は未初期化なら None を返し、tag DB 初期化を起動しない (#1438)。"""
+        annotation_repository.merged_reader = None
+        annotation_repository._merged_reader_initialized = False
+        ensure_spy = Mock()
+        monkeypatch.setattr(
+            "lorairo.database.repository.annotation_record.ensure_tag_db_initialized", ensure_spy
+        )
+
+        assert annotation_repository.peek_merged_reader() is None
+        ensure_spy.assert_not_called()
+
+    def test_peek_merged_reader_returns_reader_after_initialization(
+        self, annotation_repository: AnnotationRepository, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """get_merged_reader で初期化済みなら peek が同じ reader を返す (#1438)。"""
+        annotation_repository._merged_reader_initialized = False
+        merged_reader = Mock()
+        monkeypatch.setattr(
+            "lorairo.database.repository.annotation_record.ensure_tag_db_initialized", Mock()
+        )
+        monkeypatch.setattr(
+            "lorairo.database.repository.annotation_record.get_default_reader",
+            Mock(return_value=merged_reader),
+        )
+
+        annotation_repository.get_merged_reader()
+
+        assert annotation_repository.peek_merged_reader() is merged_reader
+
+    def test_concurrent_get_merged_reader_initializes_once(
+        self, annotation_repository: AnnotationRepository, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """背景 warm-up と GUI スレッドが同時に来ても reader 初期化は 1 回 (#1438)。"""
+        import threading
+        import time
+
+        annotation_repository._merged_reader_initialized = False
+        calls: list[int] = []
+
+        def slow_ensure() -> None:
+            calls.append(1)
+            time.sleep(0.2)
+
+        monkeypatch.setattr(
+            "lorairo.database.repository.annotation_record.ensure_tag_db_initialized", slow_ensure
+        )
+        monkeypatch.setattr(
+            "lorairo.database.repository.annotation_record.get_default_reader",
+            Mock(return_value=Mock()),
+        )
+        threads = [threading.Thread(target=annotation_repository.get_merged_reader) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        assert len(calls) == 1
+
 
 @pytest.mark.unit
 class TestSaveAnnotations:

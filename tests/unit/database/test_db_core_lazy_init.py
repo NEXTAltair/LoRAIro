@@ -267,3 +267,36 @@ class TestDefaultDbDirectoryLazyInit:
         assert db_core.DB_DIR == materialized_dir
         assert db_core.IMG_DB_PATH == materialized_dir / db_core.IMG_DB_FILENAME
         assert len(list(data_root.glob("main_dataset_*"))) == 1
+
+
+class TestEnsureTagDbInitializedConcurrency:
+    """背景 warm-up と GUI スレッドが同時に呼んでも初期化は 1 回 (#1438)。"""
+
+    def test_concurrent_calls_initialize_once(self):
+        import threading
+        import time
+
+        import lorairo.database.db_core as db_core
+
+        original_flag = db_core._tag_db_initialized
+        original_path = db_core.USER_TAG_DB_PATH
+        db_core._tag_db_initialized = False
+        db_core.USER_TAG_DB_PATH = None
+        calls: list[int] = []
+
+        def slow_init(**_kwargs):
+            calls.append(1)
+            time.sleep(0.2)
+            return [MagicMock()]
+
+        try:
+            with patch("genai_tag_db_tools.initialize_databases", side_effect=slow_init):
+                threads = [threading.Thread(target=db_core.ensure_tag_db_initialized) for _ in range(4)]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join(timeout=10)
+            assert len(calls) == 1
+        finally:
+            db_core._tag_db_initialized = original_flag
+            db_core.USER_TAG_DB_PATH = original_path
