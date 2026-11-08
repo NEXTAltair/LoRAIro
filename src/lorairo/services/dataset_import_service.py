@@ -112,7 +112,8 @@ class DatasetImportResult:
         image_count: フォルダへの所属を記録した画像数 (同じ画像が 2 フォルダにあれば 2 と数える)。
         skipped_images: 画像の登録に失敗し、所属を記録しなかった画像数。
         training_config_ids: 追加した学習設定の ID。
-        images_without_text: 取り込んだフォルダのうち、学習テキストが無い画像数 (取り込みはする)。
+        images_without_text: 取り込んだ画像のうち、学習テキストが無い画像数 (取り込みはする)。
+            登録に失敗した画像は数えない。
     """
 
     dataset_id: int
@@ -397,7 +398,6 @@ class DatasetImportService:
         ]
         if not targets:
             raise _empty_import_error(root, _train_data_dir_hints(root, prepared_configs))
-        images_without_text = sum(summarize_folder(scanned).images_without_text for _, scanned in targets)
 
         logger.info(
             f"データセット取り込み開始: {root} (dataset='{plan.dataset_name}', "
@@ -408,6 +408,7 @@ class DatasetImportService:
 
         image_count = 0
         skipped_images = 0
+        images_without_text = 0
         for position, (folder_plan, scanned) in enumerate(targets):
             images: list[FolderImageSpec] = []
             for scanned_image in scanned.images:
@@ -416,6 +417,9 @@ class DatasetImportService:
                     skipped_images += 1
                     logger.debug(f"画像を登録できないため所属を記録しません: {scanned_image.path}")
                     continue
+                # 登録できた画像だけを数える (スキャン時の件数は計画の scan に載っている)
+                if not scanned_image.texts:
+                    images_without_text += 1
                 images.append(
                     FolderImageSpec(
                         image_id=registered[0],

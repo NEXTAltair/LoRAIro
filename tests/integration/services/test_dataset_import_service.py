@@ -423,3 +423,15 @@ def test_import_without_kohya_folders_suggests_train_data_dir(
 
     assert excinfo.value.train_data_dir_hints == ["D:/train/img_v02"]
     assert all(count == 0 for count in _counts(engine).values())
+
+
+def test_images_without_text_excludes_images_that_failed_to_register(
+    service: DatasetImportService, kohya_root: Path
+) -> None:
+    """登録に失敗した (壊れた) 画像は、学習テキストが無くても images_without_text に数えない。"""
+    (kohya_root / "5_b" / "broken.png").write_bytes(b"not a png")
+
+    result = service.import_directory(kohya_root, _plan(kohya_root))
+
+    assert result.skipped_images == 1
+    assert result.images_without_text == 1  # 10_a/no_text.png のみ
