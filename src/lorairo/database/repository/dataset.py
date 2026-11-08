@@ -6,6 +6,8 @@
 - 版の `raw_text` は取り込み後に書き換えない。本 Repository は `raw_text` の更新 API を持たない。
 - 同名の版・フォルダの作成や、フォルダ追加中の制約違反は `DatasetConflictError` とし、
   フォルダ追加は 1 トランザクションで中途半端な行を残さない。
+- 学習テキストをライブラリの `Tag` へ写すのは明示的な操作 (`copy_learning_texts_to_tags`) だけで、
+  擬似モデル `KOHYA_DATASET` の行として追加する (ADR 0104)。
 """
 
 from __future__ import annotations
@@ -25,9 +27,11 @@ from ..schema import (
     DatasetFolderImage,
     DatasetLearningText,
     DatasetVersion,
+    Tag,
     TrainingConfig,
 )
 from .base import BaseRepository
+from .model import ModelRepository
 
 
 class DatasetConflictError(ValueError):
@@ -146,6 +150,17 @@ class TrainingConfigSnapshot:
     created_at: datetime.datetime
 
 
+@dataclass(frozen=True)
+class TagCopyResult:
+    """学習テキストをライブラリの `Tag` へ写した結果。"""
+
+    folders: int
+    images: int
+    tags_added: int
+    tags_skipped: int
+    dry_run: bool
+
+
 def _dump_elements(elements: list[str]) -> str:
     # 日本語などをエスケープせずに保存する
     return json.dumps(elements, ensure_ascii=False)
@@ -154,6 +169,21 @@ def _dump_elements(elements: list[str]) -> str:
 def _load_elements(elements_json: str) -> list[str]:
     loaded = json.loads(elements_json)
     return [str(element) for element in loaded]
+
+
+def _collect_elements_by_image(folders: list[DatasetFolder], extension: str) -> dict[int, list[str]]:
+    """フォルダ群の学習テキストの要素を、画像ごとの和集合 (最初に現れた順) にまとめる。"""
+    elements_by_image: dict[int, list[str]] = {}
+    for folder in folders:
+        for folder_image in sorted(folder.images, key=lambda i: i.id):
+            for text in folder_image.learning_texts:
+                if text.extension != extension:
+                    continue
+                collected = elements_by_image.setdefault(folder_image.image_id, [])
+                for element in _load_elements(text.elements_json):
+                    if element and element not in collected:
+                        collected.append(element)
+    return elements_by_image
 
 
 def _to_config_snapshot(config: TrainingConfig) -> TrainingConfigSnapshot:
@@ -464,3 +494,95 @@ class DatasetRepository(BaseRepository):
             if config is None:
                 raise LookupError(f"学習設定が見つかりません: config_id={config_id}")
             return _to_config_snapshot(config)
+
+    def copy_learning_texts_to_tags(
+        self,
+        version_id: int,
+        dir_names: list[str] | None = None,
+        extension: str = ".txt",
+        dry_run: bool = False,
+    ) -> TagCopyResult:
+        """版の学習テキストの要素を、画像直下の `Tag` へ擬似モデル `KOHYA_DATASET` の行として写す。
+
+        ADR 0104 の規則に従う:
+
+        - 対象は選んだフォルダ (`None` なら版の全フォルダ) の、指定した拡張子の学習テキスト。
+          同じ画像が対象の複数フォルダにあるときは要素の和集合を写す。
+        - 表記は要素のまま (`clean_format` もタグ DB での解決もしない)。`tag_id` は空、
+          `existing=True`, `is_edited_manually=False`。
+        - 追加だけを行う。`KOHYA_DATASET` の同じ行 (soft-reject 済みを含む) が既にあれば飛ばし、
+          他のモデルの行には触れない。1 トランザクションで行い、途中で失敗したら何も残さない。
+
+        Args:
+            version_id: `dataset_versions.id`。
+            dir_names: 対象のフォルダ名。`None` なら版の全フォルダ。
+            extension: 写す学習テキストの拡張子 (例: `.txt`)。
+            dry_run: True なら件数だけ数えて書き込まない (擬似モデル行も作らない)。
+
+        Returns:
+            写した件数。
+
+        Raises:
+            LookupError: 版、または指定したフォルダが存在しない場合。
+        """
+        with self.session_factory() as session:
+            if session.get(DatasetVersion, version_id) is None:
+                raise LookupError(f"版が見つかりません: version_id={version_id}")
+            stmt = (
+                select(DatasetFolder)
+                .where(DatasetFolder.version_id == version_id)
+                .options(selectinload(DatasetFolder.images).selectinload(DatasetFolderImage.learning_texts))
+                .order_by(DatasetFolder.position, DatasetFolder.id)
+            )
+            folders = list(session.execute(stmt).scalars())
+            if dir_names is not None:
+                unknown = sorted(set(dir_names) - {folder.dir_name for folder in folders})
+                if unknown:
+                    raise LookupError(f"フォルダが見つかりません: {', '.join(unknown)}")
+                folders = [folder for folder in folders if folder.dir_name in set(dir_names)]
+
+            elements_by_image = _collect_elements_by_image(folders, extension)
+
+            model_id = ModelRepository.get_or_create_kohya_dataset_model(session)
+            # SQLite のバインド変数上限を超えないよう、画像 ID を分割して既存行を引く
+            existing: set[tuple[int, str]] = set()
+            image_ids = list(elements_by_image)
+            for offset in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
+                chunk = image_ids[offset : offset + self.BATCH_CHUNK_SIZE]
+                rows = session.execute(
+                    select(Tag.image_id, Tag.tag).where(Tag.model_id == model_id, Tag.image_id.in_(chunk))
+                ).all()
+                existing.update((row.image_id, row.tag) for row in rows if row.image_id is not None)
+
+            new_tags = [
+                Tag(
+                    image_id=image_id,
+                    model_id=model_id,
+                    tag=element,
+                    tag_id=None,
+                    confidence_score=None,
+                    existing=True,
+                    is_edited_manually=False,
+                )
+                for image_id, elements in elements_by_image.items()
+                for element in elements
+                if (image_id, element) not in existing
+            ]
+            total = sum(len(elements) for elements in elements_by_image.values())
+            result = TagCopyResult(
+                folders=len(folders),
+                images=len(elements_by_image),
+                tags_added=len(new_tags),
+                tags_skipped=total - len(new_tags),
+                dry_run=dry_run,
+            )
+            if dry_run:
+                session.rollback()
+                return result
+            session.add_all(new_tags)
+            session.commit()
+            logger.debug(
+                f"学習テキストを Tag へ写す: version_id={version_id}, folders={result.folders}, "
+                f"images={result.images}, added={result.tags_added}, skipped={result.tags_skipped}"
+            )
+            return result

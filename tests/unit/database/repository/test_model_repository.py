@@ -19,10 +19,14 @@ import pytest
 from lorairo.database.repository.base import BaseRepository
 from lorairo.database.repository.model import ModelRepository
 from lorairo.database.schema import (
+    KOHYA_DATASET_LITELLM_ID,
+    KOHYA_DATASET_NAME,
+    KOHYA_DATASET_PROVIDER,
     MANUAL_EDIT_LITELLM_ID,
     MANUAL_EDIT_NAME,
     MANUAL_EDIT_PROVIDER,
 )
+from lorairo.services.model_selection_service import ModelSelectionService
 
 
 @pytest.fixture
@@ -262,3 +266,44 @@ class TestReconcileApiModelAvailability:
 
         second_delisted, second_reactivated = model_repository.reconcile_api_model_availability(set())
         assert second_delisted == [] and second_reactivated == []
+
+
+@pytest.mark.unit
+class TestKohyaDatasetModel:
+    """擬似モデル KOHYA_DATASET (ADR 0104) が MANUAL_EDIT と同じく推論経路から外れること。"""
+
+    def test_get_or_create_is_idempotent(self, model_repository: ModelRepository) -> None:
+        with model_repository.session_factory() as session:
+            first = ModelRepository.get_or_create_kohya_dataset_model(session)
+            second = ModelRepository.get_or_create_kohya_dataset_model(session)
+            session.commit()
+
+        assert first == second
+        model = model_repository.get_model_by_litellm_id(KOHYA_DATASET_LITELLM_ID)
+        assert model is not None
+        assert (model.name, model.provider, model.requires_api_key) == (
+            KOHYA_DATASET_NAME,
+            KOHYA_DATASET_PROVIDER,
+            False,
+        )
+        assert model.model_types == []
+
+    def test_is_never_delisted(self, model_repository: ModelRepository) -> None:
+        with model_repository.session_factory() as session:
+            ModelRepository.get_or_create_kohya_dataset_model(session)
+            session.commit()
+
+        delisted, reactivated = model_repository.reconcile_api_model_availability(set())
+
+        assert delisted == [] and reactivated == []
+        model = model_repository.get_model_by_litellm_id(KOHYA_DATASET_LITELLM_ID)
+        assert model is not None and model.available is True
+
+    def test_is_not_annotation_eligible(self, model_repository: ModelRepository) -> None:
+        with model_repository.session_factory() as session:
+            ModelRepository.get_or_create_kohya_dataset_model(session)
+            session.commit()
+        model = model_repository.get_model_by_litellm_id(KOHYA_DATASET_LITELLM_ID)
+        assert model is not None
+
+        assert ModelSelectionService._is_annotation_eligible_model(model) is False

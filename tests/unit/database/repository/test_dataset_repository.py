@@ -24,11 +24,14 @@ from lorairo.database.repository.dataset import (
     TrainingConfigSpec,
 )
 from lorairo.database.schema import (
+    KOHYA_DATASET_LITELLM_ID,
+    MANUAL_EDIT_LITELLM_ID,
     Base,
     DatasetFolder,
     DatasetFolderImage,
     DatasetLearningText,
     Image,
+    Model,
     Tag,
 )
 
@@ -258,3 +261,184 @@ def test_training_config_roundtrip(repo: DatasetRepository) -> None:
 def test_get_training_config_missing_raises(repo: DatasetRepository) -> None:
     with pytest.raises(LookupError):
         repo.get_training_config(999)
+
+
+# --- 学習テキストをライブラリの Tag へ写す (Issue #1454 / ADR 0104) ---
+
+
+def _two_folder_version(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> tuple[int, int, int]:
+    """画像 a が 2 フォルダに、画像 b が 1 フォルダ目だけにある版を作る。"""
+    image_a = _insert_image(session_factory, "img-a")
+    image_b = _insert_image(session_factory, "img-b")
+    dataset_id = repo.ensure_dataset("kariginu")
+    version_id = repo.create_version(dataset_id, "v01")
+    repo.add_folder(
+        version_id,
+        _folder("10_kariginu", 0),
+        [
+            FolderImageSpec(image_id=image_a, file_stem="a", texts=[_text("Kariginu, long_sleeves")]),
+            FolderImageSpec(image_id=image_b, file_stem="b", texts=[_text("Kariginu, (smile:1.2)")]),
+        ],
+    )
+    repo.add_folder(
+        version_id,
+        _folder("5_style", 1),
+        [
+            FolderImageSpec(
+                image_id=image_a,
+                file_stem="a",
+                texts=[
+                    _text("style, long_sleeves"),
+                    LearningTextSpec(extension=".caption", raw_text="a girl", elements=["a girl"]),
+                ],
+            )
+        ],
+    )
+    return version_id, image_a, image_b
+
+
+def _tags_by_image(session_factory: Callable[[], Session]) -> dict[int, list[tuple[str, str]]]:
+    with session_factory() as session:
+        rows = session.execute(
+            select(Tag.image_id, Tag.tag, Model.litellm_model_id).join(Model, Tag.model_id == Model.id)
+        ).all()
+    result: dict[int, list[tuple[str, str]]] = {}
+    for image_id, tag, litellm_id in rows:
+        result.setdefault(image_id, []).append((tag, litellm_id))
+    return {key: sorted(value) for key, value in result.items()}
+
+
+def test_copy_learning_texts_to_tags_uses_kohya_model_and_verbatim_elements(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    version_id, image_a, image_b = _two_folder_version(repo, session_factory)
+
+    result = repo.copy_learning_texts_to_tags(version_id, dir_names=["10_kariginu"])
+
+    assert (result.folders, result.images, result.tags_added, result.tags_skipped) == (1, 2, 4, 0)
+    tags = _tags_by_image(session_factory)
+    assert tags[image_a] == [
+        ("Kariginu", KOHYA_DATASET_LITELLM_ID),
+        ("long_sleeves", KOHYA_DATASET_LITELLM_ID),
+    ]
+    # 表記はそのまま (重み付き・大文字・アンダースコアを保つ)
+    assert tags[image_b] == [
+        ("(smile:1.2)", KOHYA_DATASET_LITELLM_ID),
+        ("Kariginu", KOHYA_DATASET_LITELLM_ID),
+    ]
+    with session_factory() as session:
+        row = session.execute(select(Tag).limit(1)).scalar_one()
+        assert (row.tag_id, row.existing, row.is_edited_manually) == (None, True, False)
+        model = session.execute(
+            select(Model).where(Model.litellm_model_id == KOHYA_DATASET_LITELLM_ID)
+        ).scalar_one()
+        assert (model.name, model.provider, model.requires_api_key, model.model_types) == (
+            "KOHYA_DATASET",
+            "user",
+            False,
+            [],
+        )
+
+
+def test_copy_learning_texts_to_tags_unions_selected_folders(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    """同じ画像が選んだ複数フォルダにあるときは要素の和集合を写す。.caption は既定では写さない。"""
+    version_id, image_a, _ = _two_folder_version(repo, session_factory)
+
+    result = repo.copy_learning_texts_to_tags(version_id)
+
+    assert result.folders == 2
+    assert result.images == 2
+    assert [tag for tag, _ in _tags_by_image(session_factory)[image_a]] == [
+        "Kariginu",
+        "long_sleeves",
+        "style",
+    ]
+
+
+def test_copy_learning_texts_to_tags_with_caption_extension(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    version_id, image_a, _ = _two_folder_version(repo, session_factory)
+
+    result = repo.copy_learning_texts_to_tags(version_id, extension=".caption")
+
+    assert result.images == 1
+    assert _tags_by_image(session_factory)[image_a] == [("a girl", KOHYA_DATASET_LITELLM_ID)]
+
+
+def test_copy_learning_texts_to_tags_is_add_only_and_keeps_other_models(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    """写し直しは追加だけ。soft-reject 済みの行も、他モデル (MANUAL_EDIT) の同じ表記の行も触らない。"""
+    version_id, image_a, _ = _two_folder_version(repo, session_factory)
+    repo.copy_learning_texts_to_tags(version_id, dir_names=["10_kariginu"])
+    with session_factory() as session:
+        manual = Model(name="MANUAL_EDIT", provider="user", litellm_model_id=MANUAL_EDIT_LITELLM_ID)
+        session.add(manual)
+        session.flush()
+        session.add(
+            Tag(image_id=image_a, model_id=manual.id, tag="style", existing=False, is_edited_manually=True)
+        )
+        rejected = session.execute(
+            select(Tag).where(Tag.image_id == image_a, Tag.tag == "Kariginu")
+        ).scalar_one()
+        rejected.rejected_at = rejected.created_at
+        session.commit()
+
+    result = repo.copy_learning_texts_to_tags(version_id)
+
+    # a: Kariginu(既存 reject), long_sleeves(既存) は skip、style を追加。b: 2 つとも既存
+    assert (result.tags_added, result.tags_skipped) == (1, 4)
+    assert _tags_by_image(session_factory)[image_a] == [
+        ("Kariginu", KOHYA_DATASET_LITELLM_ID),
+        ("long_sleeves", KOHYA_DATASET_LITELLM_ID),
+        ("style", KOHYA_DATASET_LITELLM_ID),
+        ("style", MANUAL_EDIT_LITELLM_ID),
+    ]
+    with session_factory() as session:
+        still_rejected = session.execute(
+            select(Tag.rejected_at).where(Tag.image_id == image_a, Tag.tag == "Kariginu")
+        ).scalar_one()
+    assert still_rejected is not None
+
+
+def test_copy_learning_texts_to_tags_dry_run_writes_nothing(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    version_id, _, _ = _two_folder_version(repo, session_factory)
+
+    result = repo.copy_learning_texts_to_tags(version_id, dry_run=True)
+
+    assert result.tags_added == 5
+    assert result.dry_run is True
+    assert _count(session_factory, Tag) == 0
+    assert _count(session_factory, Model) == 0
+
+
+def test_copy_learning_texts_to_tags_unknown_folder_or_version_raises(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    version_id, _, _ = _two_folder_version(repo, session_factory)
+
+    with pytest.raises(LookupError):
+        repo.copy_learning_texts_to_tags(version_id, dir_names=["10_kariginu", "nope"])
+    with pytest.raises(LookupError):
+        repo.copy_learning_texts_to_tags(9999)
+    assert _count(session_factory, Tag) == 0
+
+
+def test_copy_learning_texts_to_tags_chunks_existing_lookup(
+    repo: DatasetRepository, session_factory: Callable[[], Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """既存行の照会は BATCH_CHUNK_SIZE ごとに分割しても結果が変わらない (SQLite の変数上限対策)。"""
+    version_id, _, _ = _two_folder_version(repo, session_factory)
+    repo.copy_learning_texts_to_tags(version_id, dir_names=["10_kariginu"])
+    monkeypatch.setattr(repo, "BATCH_CHUNK_SIZE", 1)
+
+    result = repo.copy_learning_texts_to_tags(version_id)
+
+    assert (result.tags_added, result.tags_skipped) == (1, 4)
