@@ -838,3 +838,45 @@ def test_populate_updates_available_resolutions_from_service(
     choices = [combo.itemText(i) for i in range(combo.count())]
     assert choices == ["512", "1024", "1536"]
     export_service.get_available_resolutions.assert_called_with([1, 2])
+
+
+@pytest.mark.gui
+def test_kohya_version_export_button_disabled_without_db_manager(qtbot, export_tab_with_staging) -> None:
+    """db_manager が無いと Kohya 版の書き出し (#1456) の入口は押せない。"""
+    tab, _ = export_tab_with_staging
+
+    assert tab._kohya_export_button.objectName() == "kohyaVersionExportButton"
+    assert tab._kohya_export_button.isEnabled() is False
+
+
+@pytest.mark.gui
+def test_kohya_version_export_button_opens_dialog_with_db_session(
+    qtbot, service_container: Mock, staging_manager: StagingStateManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """入口ボタンは、db_manager の session_factory を使う Repository でダイアログを開く (#1456)。"""
+    import lorairo.gui.tab.export_tab as export_tab_module
+
+    opened: list[object] = []
+
+    class _FakeDialog:
+        def __init__(self, repository: object, parent: object) -> None:
+            opened.append(repository)
+
+        def exec(self) -> int:
+            return 0
+
+        def deleteLater(self) -> None:
+            return None
+
+    monkeypatch.setattr(export_tab_module, "KohyaVersionExportDialog", _FakeDialog)
+    db_manager = Mock()
+    widget = ExportTabWidget(
+        service_container=service_container, db_manager=db_manager, staging_state_manager=staging_manager
+    )
+    qtbot.addWidget(widget)
+
+    assert widget._kohya_export_button.isEnabled()
+    widget._kohya_export_button.click()
+
+    assert len(opened) == 1
+    assert opened[0].session_factory is db_manager.image_repo.session_factory
