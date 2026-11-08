@@ -1,6 +1,7 @@
 {
     // 明示 opt-in: devcontainer --config .devcontainer/shared-worktree/devcontainer.json
-    // 既定プロファイル (読み取り専用マウント + 独立 Linux checkout) は変更しない。
+    // rw マウント・.agents/worktree/・lorairo-venv の基本形は既定プロファイルと同じ。
+    // このプロファイルは Herdr / SSH 永続化 (persist volume)・volume prefix を足す opt-in。
     "name": "LoRAIro Shared Worktree",
     "build": {
         "dockerfile": "../Dockerfile",
@@ -50,7 +51,7 @@
         "source=lorairo-worktrees,target=/tmp/worktrees,type=volume",
         "source=${localEnv:LORAIRO_VOLUME_PREFIX:lorairo}-shared-persist,target=/home/vscode/.persist,type=volume"
     ],
-    // 独立 checkout 初期化・make setup・uv sync は呼ばない。ボリューム所有権の修正と保全ファイルの復元のみ。
+    // make setup・uv sync は呼ばない。ボリューム所有権の修正と保全ファイルの復元のみ。
     "postCreateCommand": "sudo chown vscode:vscode /home/vscode/.persist /home/vscode/.codex /home/vscode/.config /home/vscode/.cache /home/vscode/.local/state && bash /workspaces/LoRAIro/.devcontainer/shared-worktree/bootstrap.sh restore",
     "features": {
         // schema は version / gatewayPorts のみ。待受は Feature 既定の 2222 (ports/port/passwordAccess は無効)

@@ -52,11 +52,17 @@ def test_profile_uses_feature_default_ssh_port_without_root_or_trust_changes() -
         assert forbidden not in command
 
 
-def test_default_profile_is_unchanged() -> None:
-    default = (ROOT / ".devcontainer" / "devcontainer.json").read_text(encoding="utf-8")
-    assert "readonly" in default
-    assert '"workspaceFolder": "/workspaces/LoRAIro-linux"' in default
-    assert "shared-worktree" not in default
+def test_default_profile_has_the_same_core_shape_without_opt_in_extras() -> None:
+    default = load_config(ROOT / ".devcontainer" / "devcontainer.json")
+    profile = load_config(PROFILE / "devcontainer.json")
+    for key in ("workspaceMount", "workspaceFolder", "shutdownAction"):
+        assert default[key] == profile[key]
+    assert default["remoteEnv"]["UV_PROJECT_ENVIRONMENT"] == "/workspaces/LoRAIro/.venv"
+    assert "source=lorairo-venv,target=/workspaces/LoRAIro/.venv,type=volume" in default["mounts"]
+    text = json.dumps(default)
+    # Herdr / persist volume / volume prefix は opt-in プロファイルだけに置く
+    for extra in ("shared-worktree", "persist", "LORAIRO_VOLUME_PREFIX"):
+        assert extra not in text
 
 
 posix_only = pytest.mark.skipif(os.name == "nt", reason="bootstrap.sh runs in the Linux container")

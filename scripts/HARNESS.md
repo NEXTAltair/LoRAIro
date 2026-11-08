@@ -26,8 +26,8 @@ Windowsとコンテナは別の共有 `.venv` を使う。
 Codex **ユーザー設定** と Claude **ユーザー設定** に共有環境を指定する。
 プロジェクト `.codex/config.toml`、`.claude/settings.json`、`settings.local.json` には
 OS 固有の絶対パスを置かない。プロジェクト設定の優先度が高いため、home volume 追加のみでは
-解決しない。Linux の独立 checkout は `/workspaces/LoRAIro-linux`、既存 venv volume は
-その `.venv` にマウントする。詳細は [環境分離](../.devcontainer/README.md) を参照。
+解決しない。コンテナは host checkout を `/workspaces/LoRAIro` に rw でマウントし、既存 venv volume
+`lorairo-venv` を `/workspaces/LoRAIro/.venv` にマウントする。詳細は [環境分離](../.devcontainer/README.md) を参照。
 フック起動には両環境のPATH上に `python` とGitが必要（汎用Linux kitの既定は `python3`）。
 
 Claudeはexec形式、CodexはGitルート解決とWindows用コマンドを使う。
