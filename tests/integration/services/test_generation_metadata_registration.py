@@ -88,8 +88,8 @@ def test_registration_saves_generation_metadata_on_every_entry(
     with factory() as session:
         raw = list(session.scalars(select(GenerationMetadataSource.raw_text)))
         assert raw == [A1111_TEXT]
-        # 生成プロンプトは学習用のタグ / キャプションへ自動で反映しない
-        assert list(session.scalars(select(Tag.tag))) == []
+        # 生成プロンプトは学習用のタグ / キャプションへ自動で反映しない (付くのは ai generated だけ, ADR 0107)
+        assert list(session.scalars(select(Tag.tag))) == ["ai generated"]
         assert list(session.scalars(select(Caption.caption))) == []
 
 
@@ -226,3 +226,124 @@ def test_unanalyzed_cursor_advances_past_missing_file(tmp_path, gen_db, fs_manag
     assert manager.get_unanalyzed_generation_image_ids(limit=1, after_id=first.image_id) == [
         second.image_id
     ]
+
+
+# --- #1396: ai generated の自動付与 (ADR 0107) ---
+
+COMFY_PROMPT = '{"3": {"class_type": "KSampler", "inputs": {"seed": 1}}}'
+
+
+def _tags(factory, filename: str) -> list[tuple[str, str | None]]:
+    """画像のタグを (tag, モデルの litellm_model_id) で返す。"""
+    from lorairo.database.schema import Model
+
+    with factory() as session:
+        image_id = session.scalars(select(Image.id).where(Image.filename == filename)).one()
+        rows = session.execute(
+            select(Tag.tag, Model.litellm_model_id)
+            .outerjoin(Model, Model.id == Tag.model_id)
+            .where(Tag.image_id == image_id)
+            .order_by(Tag.id)
+        ).all()
+        return [(row[0], row[1]) for row in rows]
+
+
+def _comfy_png(path: Path, size: tuple[int, int] = (64, 64)) -> Path:
+    info = PngImagePlugin.PngInfo()
+    info.add_text("prompt", COMFY_PROMPT)
+    PILImage.new("RGB", size, "green").save(path, "PNG", pnginfo=info)
+    return path
+
+
+@pytest.mark.parametrize("entry", ["worker", "common"])
+def test_ai_generated_tag_is_added_only_with_generation_evidence(
+    tmp_path, gen_db, fs_manager, monkeypatch, entry
+) -> None:
+    manager, factory = gen_db
+    source = tmp_path / "source"
+    webui = _png(source / "webui.png", A1111_TEXT, size=(64, 64))
+    comfy = _comfy_png(source / "comfy.png", size=(72, 64))
+    plain = _png(source / "plain.png", None, size=(80, 64))
+    # parameters チャンクはあるが SD WebUI 形式ではない (汎用 fallback 一致を根拠にしない)
+    loose = _png(source / "loose.png", "1girl, solo", size=(88, 64))
+
+    _register(entry, manager, fs_manager, monkeypatch, [webui, comfy, plain, loose], source)
+
+    assert _tags(factory, "webui.png") == [("ai generated", "__generation_metadata__")]
+    assert _tags(factory, "comfy.png") == [("ai generated", "__generation_metadata__")]
+    assert _tags(factory, "plain.png") == []
+    assert _tags(factory, "loose.png") == []
+
+
+def test_ai_generated_tag_is_searchable_as_normal_tag(tmp_path, gen_db, fs_manager) -> None:
+    from lorairo.database.filter_criteria import ImageFilterCriteria
+
+    manager, _ = gen_db
+    tagged = manager.register_image_with_side_effects(_png(tmp_path / "a.png", A1111_TEXT), fs_manager)
+    manager.register_image_with_side_effects(_png(tmp_path / "b.png", None, size=(80, 64)), fs_manager)
+
+    records, total = manager.image_repo.get_images_by_filter(ImageFilterCriteria(tags=["ai generated"]))
+
+    assert total == 1
+    assert [r["id"] for r in records] == [tagged.image_id]
+
+
+def test_ai_generated_tag_is_not_duplicated(tmp_path, gen_db, fs_manager) -> None:
+    manager, factory = gen_db
+    image = _png(tmp_path / "a" / "img.png", A1111_TEXT)
+    image.with_suffix(".txt").write_text("1girl, ai_generated", encoding="utf-8")
+
+    manager.register_image_with_side_effects(image, fs_manager)
+    # 同じ画像の再取り込み
+    again = _png(tmp_path / "b" / "img.png", A1111_TEXT)
+    manager.register_image_with_side_effects(again, fs_manager)
+
+    # 関連 .txt (取り込み時に ai generated へ整形される) に既にあるため、自動付与の行は足さない
+    assert _tags(factory, "img.png") == [("1girl", None), ("ai generated", None)]
+
+
+def test_ai_generated_tag_is_added_once_on_reimport(tmp_path, gen_db, fs_manager) -> None:
+    manager, factory = gen_db
+    manager.register_image_with_side_effects(_png(tmp_path / "a" / "img.png", A1111_TEXT), fs_manager)
+    manager.register_image_with_side_effects(_png(tmp_path / "b" / "img.png", A1111_TEXT), fs_manager)
+
+    assert _tags(factory, "img.png") == [("ai generated", "__generation_metadata__")]
+
+
+def test_soft_rejected_ai_generated_tag_is_not_readded(tmp_path, gen_db, fs_manager) -> None:
+    import datetime
+
+    manager, factory = gen_db
+    manager.register_image_with_side_effects(_png(tmp_path / "a" / "img.png", A1111_TEXT), fs_manager)
+    with factory() as session:
+        tag = session.scalars(select(Tag)).one()
+        tag.rejected_at = datetime.datetime(2026, 1, 1)
+        session.commit()
+
+    manager.register_image_with_side_effects(_png(tmp_path / "b" / "img.png", A1111_TEXT), fs_manager)
+
+    assert _tags(factory, "img.png") == [("ai generated", "__generation_metadata__")]
+
+
+def test_direct_registration_entry_also_tags(tmp_path, gen_db, fs_manager) -> None:
+    """データセット取り込み・クロップ等が使う register_original_image でも同じ動作になる。"""
+    manager, factory = gen_db
+
+    registered = manager.register_original_image(_png(tmp_path / "img.png", A1111_TEXT), fs_manager)
+
+    assert registered is not None
+    assert _tags(factory, "img.png") == [("ai generated", "__generation_metadata__")]
+
+
+def test_tag_failure_does_not_stop_registration(tmp_path, gen_db, fs_manager, monkeypatch) -> None:
+    manager, factory = gen_db
+
+    def broken_add(image_id):
+        raise OperationalError("INSERT", {}, Exception("database is locked"))
+
+    monkeypatch.setattr(manager.generation_metadata_repo, "add_ai_generated_tag", broken_add)
+
+    result = manager.register_image_with_side_effects(_png(tmp_path / "img.png", A1111_TEXT), fs_manager)
+
+    assert result.outcome is RegistrationOutcome.REGISTERED
+    assert _tags(factory, "img.png") == []

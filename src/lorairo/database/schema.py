@@ -38,6 +38,13 @@ KOHYA_DATASET_NAME = "KOHYA_DATASET"
 KOHYA_DATASET_PROVIDER = "user"
 KOHYA_DATASET_LITELLM_ID = "__kohya_dataset__"
 
+# ADR 0107 (Issue #1396): 生成メタデータを根拠に自動で付けたタグ (`ai generated`) の擬似モデル。
+# KOHYA_DATASET と同じく model_types を持たず requires_api_key=False で、推論経路に乗らない。
+GENERATION_METADATA_NAME = "GENERATION_METADATA"
+GENERATION_METADATA_PROVIDER = "user"
+GENERATION_METADATA_LITELLM_ID = "__generation_metadata__"
+AI_GENERATED_TAG = "ai generated"
+
 # タグ/キャプションの soft-reject 種別 (reject_reason 列の値、Issue #1003 / ADR 0065)。
 # rejected_at が非 NULL のときのみ意味を持つ。NULL = 採用中。
 # エクスポート抽出は従来どおり ``rejected_at IS NULL`` で行い、3値すべて除外される

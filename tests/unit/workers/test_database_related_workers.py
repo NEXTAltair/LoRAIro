@@ -1057,6 +1057,8 @@ class TestRegisterImageWithSideEffects:
         manager = ImageDatabaseManager(config_service=ConfigurationService(), image_repo=mock_image_repo)
         manager.save_tags = Mock()
         manager.save_captions = Mock()
+        # ai generated の自動付与 (ADR 0107) は実 DB の結合テストで確かめる
+        manager.apply_ai_generated_tag = Mock(return_value=False)
         mock_fsm = Mock(spec=FileSystemManager)
         return manager, mock_image_repo, mock_fsm
 

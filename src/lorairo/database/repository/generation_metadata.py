@@ -16,8 +16,14 @@ from sqlalchemy.future import select
 
 from ...domain.generation_metadata import GenerationMetadataResult
 from ...utils.log import logger
-from ..schema import GenerationMetadata, GenerationMetadataSource, Image
+from ..schema import AI_GENERATED_TAG, GenerationMetadata, GenerationMetadataSource, Image, Tag
 from .base import BaseRepository
+from .model import ModelRepository
+
+
+def _normalize_tag(tag: str) -> str:
+    """同じタグかの比較用に、大小・アンダースコア・前後の空白を揃える。"""
+    return " ".join(tag.replace("_", " ").lower().split())
 
 
 class GenerationMetadataRepository(BaseRepository):
@@ -198,4 +204,45 @@ class GenerationMetadataRepository(BaseRepository):
                 return int(session.execute(stmt).scalar_one())
             except SQLAlchemyError:
                 logger.opt(exception=True).error("未解析の画像件数の取得に失敗")
+                raise
+
+    def add_ai_generated_tag(self, image_id: int) -> bool:
+        """画像へ `ai generated` を擬似モデル `GENERATION_METADATA` の行として足す (ADR 0107)。
+
+        同じ表記 (大小・アンダースコアの違いを含む) のタグがどのモデルの行にも無いときだけ足す。
+        soft-reject 済みの行があるときも足さない (ユーザーの判断を保つ)。
+
+        Args:
+            image_id: 画像 ID。
+
+        Returns:
+            行を足したら True。既にあって何もしなかったら False。
+
+        Raises:
+            SQLAlchemyError: 予期しない DB エラー。
+        """
+        target = _normalize_tag(AI_GENERATED_TAG)
+        with self.session_factory() as session:
+            try:
+                existing = session.execute(select(Tag.tag).where(Tag.image_id == image_id)).scalars().all()
+                if any(_normalize_tag(tag) == target for tag in existing):
+                    return False
+                model_id = ModelRepository.get_or_create_generation_metadata_model(session)
+                session.add(
+                    Tag(
+                        image_id=image_id,
+                        model_id=model_id,
+                        tag=AI_GENERATED_TAG,
+                        tag_id=None,
+                        confidence_score=None,
+                        existing=False,
+                        is_edited_manually=False,
+                    )
+                )
+                session.commit()
+                logger.debug(f"ai generated タグを自動付与: image_id={image_id}")
+                return True
+            except SQLAlchemyError:
+                session.rollback()
+                logger.opt(exception=True).error(f"ai generated タグの付与に失敗: image_id={image_id}")
                 raise
