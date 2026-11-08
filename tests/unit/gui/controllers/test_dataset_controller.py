@@ -281,10 +281,13 @@ class TestDatasetControllerKohyaImport:
             config_files=tuple(configs),
             dataset_name="ds",
             version_name="v1",
+            kohya_import=True,
         )
 
     def test_selection_without_json_uses_plain_registration(self, controller, mock_worker_service):
-        sel = self._selection([])
+        from lorairo.gui.widgets.dataset_select_dialog import DatasetSelection
+
+        sel = DatasetSelection(directory=Path("/data/set"))
         controller.select_and_register_images(Mock(return_value=sel))
         mock_worker_service.start_batch_registration_with_fsm.assert_called_once()
         mock_worker_service.start_dataset_import.assert_not_called()
@@ -307,7 +310,23 @@ class TestDatasetControllerKohyaImport:
         controller.select_and_register_images(Mock(return_value=self._selection([cfg])))
         mock_worker_service.start_batch_registration_with_fsm.assert_not_called()
         mock_worker_service.start_dataset_import.assert_called_once_with(
-            Path("/data/set"), "ds", "v1", [cfg], mock_file_system_manager
+            Path("/data/set"), "ds", "v1", [cfg], mock_file_system_manager, None
+        )
+
+    def test_kohya_selection_without_json_starts_dataset_import_with_overrides(
+        self, controller, mock_worker_service, mock_file_system_manager
+    ):
+        """設定 JSON なしでも Kohya 取り込みを選べば取り込みに進み、確定値を渡す (#1453 / #1452)。"""
+        from dataclasses import replace
+
+        from lorairo.services.dataset_import_service import FolderOverride
+
+        override = FolderOverride("10_a", include=True, num_repeats=3, trigger_word="trig")
+        sel = replace(self._selection([]), folder_overrides=(override,))
+        controller.select_and_register_images(Mock(return_value=sel))
+        mock_worker_service.start_batch_registration_with_fsm.assert_not_called()
+        mock_worker_service.start_dataset_import.assert_called_once_with(
+            Path("/data/set"), "ds", "v1", [], mock_file_system_manager, [override]
         )
 
     def test_dataset_import_start_failure_shows_critical(self, controller, mock_worker_service):
@@ -319,11 +338,12 @@ class TestDatasetControllerKohyaImport:
     def test_finished_shows_result_popup(self, controller):
         from lorairo.services.dataset_import_service import DatasetImportResult
 
-        result = DatasetImportResult(1, 7, 2, 10, 1, [3, 4])
+        result = DatasetImportResult(1, 7, 2, 10, 1, [3, 4], images_without_text=5)
         with patch("lorairo.gui.controllers.dataset_controller.show_information") as info:
             controller._on_dataset_import_finished(result)
         text = info.call_args.args[2]
         assert "7" in text and "10" in text and "1" in text and "2" in text
+        assert "学習テキストの無い画像数: 5" in text
 
     def test_error_shows_warning_popup(self, controller):
         with patch("lorairo.gui.controllers.dataset_controller.show_warning") as warn:
