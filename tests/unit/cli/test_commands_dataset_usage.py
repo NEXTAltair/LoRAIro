@@ -186,3 +186,39 @@ def test_usage_invalid_image_id_arguments_exit_2(
     assert rows[-1]["kind"] == "error"
     assert rows[-1]["code"] == "INVALID_INPUT"
     mock_dataset_repo.list_image_usage.assert_not_called()
+
+
+def test_usage_summary_counts_distinct_folders_when_same_folder_has_multiple_stems(
+    mock_dataset_repo: MagicMock,
+) -> None:
+    """同じフォルダ内で複数 stem として登録された画像は folders を重複排除して集計する。"""
+    usages = _sample_usages()
+    same_folder_second_stem = ImageDatasetUsage(
+        image_id=42,
+        dataset_id=1,
+        dataset_name="kariginu",
+        version_id=10,
+        version_name="v01",
+        parent_version_id=None,
+        folder_id=100,
+        dir_name="10_kariginu",
+        folder_name="kariginu",
+        num_repeats=10,
+        trigger_word="Kariginu",
+        file_stem="img_a_dup",
+        texts=[],
+    )
+    mock_dataset_repo.list_image_usage.side_effect = lambda _image_id: [
+        usages[0],
+        same_folder_second_stem,
+    ]
+
+    result = runner.invoke(app, ["--json", "dataset", "usage", "--image-id", "42", "-p", "proj"])
+
+    assert result.exit_code == 0, result.output
+    rows = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+    summary = rows[-1]
+    assert summary["usages"] == 2
+    assert summary["datasets"] == 1
+    assert summary["versions"] == 1
+    assert summary["folders"] == 1

@@ -589,5 +589,5 @@ def usage_dataset(
             usages=len(usages),
             datasets=len({u.dataset_id for u in usages}),
             versions=len({u.version_id for u in usages}),
-            folders=len(usages),
+            folders=len({u.folder_id for u in usages}),
         )
