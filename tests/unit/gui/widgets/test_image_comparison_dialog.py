@@ -1,4 +1,4 @@
-"""画像の比較画面と入口の GUI テスト (Issue #1399 / #1484)。"""
+"""画像の比較画面と入口の GUI テスト (Issue #1399 / #1484 / #1494)。"""
 
 from __future__ import annotations
 
@@ -7,11 +7,15 @@ from typing import Any
 
 import pytest
 from PIL import Image
-from PySide6.QtCore import QPoint
-from PySide6.QtGui import QImage
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import QImage, QWheelEvent
 
 from lorairo.gui.state.dataset_state import DatasetStateManager
-from lorairo.gui.widgets.image_comparison_dialog import ImageComparisonDialog, ImageComparisonLauncher
+from lorairo.gui.widgets.image_comparison_dialog import (
+    ComparisonImageViewport,
+    ImageComparisonDialog,
+    ImageComparisonLauncher,
+)
 from lorairo.gui.widgets.image_preview import ImagePreviewWidget
 from lorairo.gui.widgets.staging_widget import StagingWidget
 from lorairo.gui.widgets.thumbnail_selector_widget import ThumbnailSelectorWidget
@@ -65,13 +69,19 @@ def _write_image(path: Path, size: tuple[int, int], color: tuple[int, int, int])
 
 @pytest.fixture
 def source(tmp_path: Path) -> _FakeSource:
-    def meta(image_id: int, tags: list[str], caption: str | None, color: tuple[int, int, int]) -> dict:
+    def meta(
+        image_id: int,
+        tags: list[str],
+        caption: str | None,
+        color: tuple[int, int, int],
+        size: tuple[int, int] = (64, 48),
+    ) -> dict[str, Any]:
         return {
             "id": image_id,
-            "stored_image_path": _write_image(tmp_path / f"{image_id}.png", (64, 48), color),
+            "stored_image_path": _write_image(tmp_path / f"{image_id}.png", size, color),
             "original_image_path": f"/src/img_{image_id}.png",
-            "width": 64,
-            "height": 48,
+            "width": size[0],
+            "height": size[1],
             "tags": [{"tag": t, "model_name": "wd", "source": "AI"} for t in tags],
             "captions": [{"caption": caption, "model_name": "blip"}] if caption else [],
             "caption_text": caption or "",
@@ -79,19 +89,22 @@ def source(tmp_path: Path) -> _FakeSource:
 
     return _FakeSource(
         {
-            1: meta(1, ["cat", "sitting"], "a cat sitting", (255, 0, 0)),
-            2: meta(2, ["dog", "sitting"], "a dog sitting", (0, 255, 0)),
-            3: meta(3, [], None, (0, 0, 255)),
+            1: meta(1, ["cat", "sitting"], "a cat sitting", (255, 0, 0), size=(100, 80)),
+            2: meta(2, ["dog", "sitting"], "a dog sitting", (0, 255, 0), size=(200, 160)),
+            3: meta(3, [], None, (0, 0, 255), size=(64, 48)),
         }
     )
 
 
 @pytest.fixture
 def dialog(qtbot, source: _FakeSource) -> ImageComparisonDialog:
+    import gc
+
     widget = ImageComparisonDialog(ImageComparisonService(source))
     qtbot.addWidget(widget)
     yield widget
     widget.shutdown()
+    gc.collect()
 
 
 def _wait_loaded(qtbot, dialog: ImageComparisonDialog, left: int, right: int) -> ImageComparisonLoadResult:
@@ -253,6 +266,104 @@ def test_image_preview_show_decoded_image(qtbot) -> None:
     assert widget.pixmap_item is not None
     widget.show_decoded_image(None)
     assert widget.pixmap_item is None
+
+
+# --- 同期ズーム / パン (#1494) ----------------------------------------------
+
+
+def test_sync_zoom_and_pan_aligns_different_resolution_viewports(
+    qtbot, dialog: ImageComparisonDialog
+) -> None:
+    """同期オン時、解像度が異なる左右画像でも同じ倍率・同じ相対位置 (rx, ry) に揃う。"""
+    dialog.set_candidates([1, 2])
+    _wait_loaded(qtbot, dialog, 1, 2)
+
+    left_vp = dialog.left_viewport
+    right_vp = dialog.right_viewport
+    assert isinstance(left_vp, ComparisonImageViewport)
+    assert isinstance(right_vp, ComparisonImageViewport)
+    assert dialog.is_sync_enabled() is True
+
+    # 左 (100x80) をズーム・パンすると、右 (200x160) も同じ zoom_factor と相対位置 (rx, ry) になる
+    left_vp.set_zoom_factor(2.5)
+    left_vp.set_relative_center(0.25, 0.75)
+
+    assert right_vp.zoom_factor == pytest.approx(2.5)
+    assert right_vp.get_relative_center() == pytest.approx((0.25, 0.75))
+    # ピクセル座標系では各画像の解像度に応じた対応位置を指す
+    assert left_vp.get_scene_center() == QPointF(25.0, 60.0)
+    assert right_vp.get_scene_center() == QPointF(50.0, 120.0)
+
+    # 右側からのホイールズームとパンも左側へ反映される
+    wheel_in = QWheelEvent(
+        QPointF(10.0, 10.0),
+        QPointF(10.0, 10.0),
+        QPoint(0, 0),
+        QPoint(0, 120),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    right_vp.wheelEvent(wheel_in)
+    right_vp.set_relative_center(0.6, 0.2)
+
+    assert left_vp.zoom_factor == pytest.approx(right_vp.zoom_factor)
+    assert left_vp.get_relative_center() == pytest.approx((0.6, 0.2))
+
+
+def test_sync_off_keeps_viewports_independent_and_realigns_when_reenabled(
+    qtbot, dialog: ImageComparisonDialog
+) -> None:
+    """同期オフ時は左右が独立し、再びオンにすると左の表示状態へ右が揃う。"""
+    dialog.set_candidates([1, 2])
+    _wait_loaded(qtbot, dialog, 1, 2)
+
+    left_vp = dialog.left_viewport
+    right_vp = dialog.right_viewport
+
+    dialog.set_sync_enabled(False)
+    assert dialog.is_sync_enabled() is False
+
+    left_vp.set_zoom_factor(3.0)
+    left_vp.set_relative_center(0.2, 0.8)
+
+    # 右側は初期状態のまま変わらない
+    assert right_vp.zoom_factor == pytest.approx(1.0)
+    assert right_vp.get_relative_center() == pytest.approx((0.5, 0.5))
+
+    right_vp.set_zoom_factor(1.5)
+    right_vp.set_relative_center(0.9, 0.1)
+    assert left_vp.zoom_factor == pytest.approx(3.0)
+    assert left_vp.get_relative_center() == pytest.approx((0.2, 0.8))
+
+    # 同期をオンに戻すと、左側の状態へ右側が即座に揃う
+    dialog.set_sync_enabled(True)
+    assert right_vp.zoom_factor == pytest.approx(3.0)
+    assert right_vp.get_relative_center() == pytest.approx((0.2, 0.8))
+
+
+def test_reset_zoom_button_restores_both_viewports_when_sync_on(
+    qtbot, dialog: ImageComparisonDialog
+) -> None:
+    """同期オン時にリセットボタンを押すと両側の倍率と中心が初期値に戻る。"""
+    dialog.set_candidates([1, 2])
+    _wait_loaded(qtbot, dialog, 1, 2)
+
+    left_vp = dialog.left_viewport
+    right_vp = dialog.right_viewport
+
+    dialog.btnZoomIn.click()
+    left_vp.set_relative_center(0.15, 0.85)
+    assert left_vp.zoom_factor > 1.0
+    assert right_vp.zoom_factor == pytest.approx(left_vp.zoom_factor)
+    assert right_vp.get_relative_center() == pytest.approx((0.15, 0.85))
+
+    dialog.btnResetZoom.click()
+    assert left_vp.zoom_factor == pytest.approx(1.0)
+    assert right_vp.zoom_factor == pytest.approx(1.0)
+    assert left_vp.get_relative_center() == pytest.approx((0.5, 0.5))
+    assert right_vp.get_relative_center() == pytest.approx((0.5, 0.5))
 
 
 # --- 入口 -------------------------------------------------------------------

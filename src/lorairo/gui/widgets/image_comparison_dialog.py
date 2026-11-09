@@ -1,9 +1,11 @@
-"""2 枚の画像を左右に並べ、現在のタグ / キャプションの差分を見る比較画面 (Issue #1399 / #1484)。
+"""2 枚の画像を左右に並べ、現在のタグ / キャプションの差分を見る比較画面 (Issue #1399 / #1484 / #1494)。
 
 読み取り専用。比較してもタグや採用状態は変えない。
 
 - 差分計算と左右の選択状態は Qt 非依存の ``services/image_comparison.py`` が持ち、
   この画面は結果の表示と操作の受け付けだけを行う。
+- 左右のプレビューは ``ComparisonImageViewport`` で表示し、同期オン時は片側のズーム倍率と
+  画像内の相対中心座標 ``(rx, ry)`` (``[0.0, 1.0] x [0.0, 1.0]``) を反対側へ反映する (#1494)。
 - 左右の注釈とプレビューは ``ImageComparisonWorker`` が 1 回の要求ごとにまとめて読む。
   要求ごとに世代番号を進め、古い世代の結果や、表示対象と画像 ID が合わない結果は捨てる。
   読み込み中は左右の表示を空にし、古い画像と新しい注釈が並ぶ瞬間を作らない。
@@ -13,20 +15,39 @@
 from __future__ import annotations
 
 import html
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QObject, Qt, Slot
-from PySide6.QtGui import QBrush, QCloseEvent, QColor
+from PySide6.QtCore import QObject, QPointF, QRectF, Qt, Signal, Slot
+from PySide6.QtGui import (
+    QAction,
+    QBrush,
+    QCloseEvent,
+    QColor,
+    QContextMenuEvent,
+    QImage,
+    QMouseEvent,
+    QPainter,
+    QPixmap,
+    QResizeEvent,
+    QShowEvent,
+    QWheelEvent,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
+    QGraphicsPixmapItem,
+    QGraphicsScene,
+    QGraphicsView,
     QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QListWidget,
+    QMenu,
     QPlainTextEdit,
     QPushButton,
     QSplitter,
@@ -60,13 +81,20 @@ from ..workers.image_comparison_worker import (
 )
 from ..workers.manager import WorkerManager
 from ..workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
-from .image_preview import ImagePreviewWidget
 
 if TYPE_CHECKING:
     from ..state.dataset_state import DatasetStateManager
 
 _SIDE_LABELS = {Side.LEFT: "左", Side.RIGHT: "右"}
 _WORKER_PREFIX = "image_comparison_"
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, float(value)))
+
+
+def _clamp01(value: float) -> float:
+    return _clamp(value, 0.0, 1.0)
 
 
 def _missing_message(availability: Availability, subject: str) -> str:
@@ -102,6 +130,276 @@ def _plain_html(text: str) -> str:
     return f'<div style="white-space: pre-wrap;">{html.escape(text)}</div>'
 
 
+class ComparisonImageViewport(QGraphicsView):
+    """比較画面の片側プレビュービューポート (ズーム / パン対応、Issue #1494)。
+
+    ``zoom_factor == 1.0`` をビュー全体へのフィット基準とし、表示中心を画像サイズに対する
+    相対座標 ``(rx, ry)`` (``[0.0, 1.0] x [0.0, 1.0]``) で保持する。解像度が異なる 2 枚の
+    画像を比較するときも、同じ相対位置 ``(rx, ry)`` と同じ倍率 ``zoom_factor`` で揃えられる。
+
+    Signals:
+        view_changed (float, float, float): ``(zoom_factor, rx, ry)`` が変化したときに発火する。
+    """
+
+    view_changed = Signal(float, float, float)
+
+    ZOOM_STEP = 1.25
+    MIN_ZOOM = 0.25
+    MAX_ZOOM = 16.0
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        """ビューポートを初期化する。"""
+        super().__init__(parent)
+        self.graphics_scene = QGraphicsScene(self)
+        self.setScene(self.graphics_scene)
+        self.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform)
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+
+        self.pixmap_item: QGraphicsPixmapItem | None = None
+        self._current_image_path: Path | None = None
+        self._current_pixmap: QPixmap | None = None
+
+        self._zoom_factor: float = 1.0
+        self._relative_center: tuple[float, float] = (0.5, 0.5)
+        self._updating_transform: bool = False
+        self._drag_last_pos: QPointF | None = None
+
+    # -- 画像の設定・クリア ------------------------------------------------
+
+    def show_decoded_image(self, image: QImage | None, image_path: Path | None = None) -> None:
+        """デコード済みの QImage を表示し、表示倍率と中心を初期状態に戻す。"""
+        self.clear_preview()
+        if image is None or image.isNull():
+            return
+        pixmap = QPixmap.fromImage(image)
+        if pixmap.isNull():
+            return
+        self.pixmap_item = self.graphics_scene.addPixmap(pixmap)
+        self._current_image_path = image_path
+        self._current_pixmap = pixmap
+        self._zoom_factor = 1.0
+        self._relative_center = (0.5, 0.5)
+        self._apply_view_transform()
+
+    def clear_preview(self) -> None:
+        """プレビューを空にする。"""
+        self._updating_transform = True
+        try:
+            self.graphics_scene.clear()
+            self.resetTransform()
+        finally:
+            self._updating_transform = False
+        self.pixmap_item = None
+        self._current_image_path = None
+        self._current_pixmap = None
+        self._drag_last_pos = None
+        self._zoom_factor = 1.0
+        self._relative_center = (0.5, 0.5)
+
+    # -- ズーム / 相対中心 API --------------------------------------------
+
+    @property
+    def zoom_factor(self) -> float:
+        """フィット基準に対する現在のズーム倍率 (1.0 が全体表示)。"""
+        return self._zoom_factor
+
+    def set_zoom_factor(self, factor: float, *, emit_signal: bool = True) -> None:
+        """ズーム倍率を設定する。"""
+        clamped = _clamp(factor, self.MIN_ZOOM, self.MAX_ZOOM)
+        self._zoom_factor = clamped
+        self._apply_view_transform()
+        if emit_signal:
+            rx, ry = self._relative_center
+            self.view_changed.emit(self._zoom_factor, rx, ry)
+
+    def zoom_in(self) -> None:
+        """1 段階ズームインする。"""
+        self.set_zoom_factor(self._zoom_factor * self.ZOOM_STEP)
+
+    def zoom_out(self) -> None:
+        """1 段階ズームアウトする。"""
+        self.set_zoom_factor(self._zoom_factor / self.ZOOM_STEP)
+
+    def get_relative_center(self) -> tuple[float, float]:
+        """表示中心の相対座標 ``(rx, ry)`` (各軸 ``0.0``〜``1.0``) を返す。"""
+        return self._relative_center
+
+    @property
+    def relative_center(self) -> tuple[float, float]:
+        """表示中心の相対座標 ``(rx, ry)``。"""
+        return self._relative_center
+
+    def set_relative_center(self, rx: float, ry: float, *, emit_signal: bool = True) -> None:
+        """表示中心の相対座標 ``(rx, ry)`` を設定する。"""
+        self._relative_center = (_clamp01(rx), _clamp01(ry))
+        self._apply_view_transform()
+        if emit_signal:
+            self.view_changed.emit(self._zoom_factor, self._relative_center[0], self._relative_center[1])
+
+    def pan_by_relative(self, drx: float, dry: float) -> None:
+        """相対座標差分 ``(drx, dry)`` だけパンする。"""
+        rx, ry = self._relative_center
+        self.set_relative_center(rx + drx, ry + dry)
+
+    def reset_view(self, *, emit_signal: bool = True) -> None:
+        """倍率 1.0・中心 (0.5, 0.5) の全体表示に戻す。"""
+        self._zoom_factor = 1.0
+        self._relative_center = (0.5, 0.5)
+        self._apply_view_transform()
+        if emit_signal:
+            self.view_changed.emit(1.0, 0.5, 0.5)
+
+    def get_scene_center(self) -> QPointF:
+        """現在の画像のピクセル座標系での表示中心を返す。"""
+        if self._current_pixmap is None or self._current_pixmap.isNull():
+            return QPointF(0.0, 0.0)
+        rx, ry = self._relative_center
+        return QPointF(rx * self._current_pixmap.width(), ry * self._current_pixmap.height())
+
+    # -- 内部変換・イベント ------------------------------------------------
+
+    def _apply_view_transform(self) -> None:
+        if self.pixmap_item is None or self._current_pixmap is None or self._current_pixmap.isNull():
+            return
+        w = float(self._current_pixmap.width())
+        h = float(self._current_pixmap.height())
+        if w <= 0.0 or h <= 0.0:
+            return
+        vw = max(1, self.viewport().width())
+        vh = max(1, self.viewport().height())
+        base_scale = min(vw / w, vh / h)
+        scale = base_scale * self._zoom_factor
+        rx, ry = self._relative_center
+
+        self._updating_transform = True
+        try:
+            # 端の領域へパンしてもスクロールバー上限で中心が押し戻されないよう余白を設ける
+            self.graphics_scene.setSceneRect(QRectF(-w * 2.0, -h * 2.0, w * 5.0, h * 5.0))
+            self.resetTransform()
+            self.scale(scale, scale)
+            self.centerOn(rx * w, ry * h)
+        finally:
+            self._updating_transform = False
+
+    def scrollContentsBy(self, dx: int, dy: int) -> None:
+        """ユーザーによるスクロール操作時に相対中心を更新・クランプ反映する。"""
+        super().scrollContentsBy(dx, dy)
+        if self._updating_transform or self._current_pixmap is None or self._current_pixmap.isNull():
+            return
+        w = float(self._current_pixmap.width())
+        h = float(self._current_pixmap.height())
+        if w <= 0.0 or h <= 0.0:
+            return
+        center = self.mapToScene(self.viewport().rect().center())
+        raw_rx = center.x() / w
+        raw_ry = center.y() / h
+        clamped_rx = _clamp01(raw_rx)
+        clamped_ry = _clamp01(raw_ry)
+        self._relative_center = (clamped_rx, clamped_ry)
+        if abs(raw_rx - clamped_rx) > 1e-6 or abs(raw_ry - clamped_ry) > 1e-6:
+            self._updating_transform = True
+            try:
+                self.centerOn(clamped_rx * w, clamped_ry * h)
+            finally:
+                self._updating_transform = False
+        self.view_changed.emit(self._zoom_factor, clamped_rx, clamped_ry)
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        """マウスホイールでズームする。"""
+        delta_y = event.angleDelta().y()
+        if delta_y > 0:
+            self.zoom_in()
+            event.accept()
+            return
+        if delta_y < 0:
+            self.zoom_out()
+            event.accept()
+            return
+        super().wheelEvent(event)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """左ドラッグ開始でパン操作を始める。"""
+        if event.button() == Qt.MouseButton.LeftButton and self._has_current_image():
+            self._drag_last_pos = event.position()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        """左ドラッグ中に相対中心を更新する。"""
+        if (
+            self._drag_last_pos is not None
+            and self._current_pixmap is not None
+            and not self._current_pixmap.isNull()
+        ):
+            w = float(self._current_pixmap.width())
+            h = float(self._current_pixmap.height())
+            if w > 0.0 and h > 0.0:
+                prev_scene = self.mapToScene(self._drag_last_pos.toPoint())
+                curr_scene = self.mapToScene(event.position().toPoint())
+                delta_scene = prev_scene - curr_scene
+                self._drag_last_pos = event.position()
+                rx, ry = self._relative_center
+                self.set_relative_center(rx + delta_scene.x() / w, ry + delta_scene.y() / h)
+                event.accept()
+                return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        """左ドラッグ終了でカーソルを戻す。"""
+        if event.button() == Qt.MouseButton.LeftButton and self._drag_last_pos is not None:
+            self._drag_last_pos = None
+            self.unsetCursor()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """リサイズ時も現在のズーム倍率と相対中心を維持する。"""
+        super().resizeEvent(event)
+        self._apply_view_transform()
+
+    def showEvent(self, event: QShowEvent) -> None:
+        """表示時に現在のズーム倍率と相対中心を反映する。"""
+        super().showEvent(event)
+        self._apply_view_transform()
+
+    # -- クリップボードへの画像コピー (読み取り専用) ----------------------
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        """右クリックで画像コピーメニューを表示する。"""
+        menu = QMenu(self)
+        copy_action = QAction("画像をコピー", menu)
+        copy_action.setEnabled(self._has_current_image())
+        copy_action.triggered.connect(self.copy_current_image_to_clipboard)
+        menu.addAction(copy_action)
+        menu.exec(event.globalPos())
+
+    def _has_current_image(self) -> bool:
+        return self._current_pixmap is not None and not self._current_pixmap.isNull()
+
+    def copy_current_image_to_clipboard(self) -> bool:
+        """現在表示中の画像をクリップボードへコピーする。"""
+        if not self._has_current_image():
+            return False
+        pixmap: QPixmap | None = None
+        if self._current_image_path is not None and self._current_image_path.exists():
+            loaded = QPixmap(str(self._current_image_path))
+            if not loaded.isNull():
+                pixmap = loaded
+        if pixmap is None:
+            pixmap = self._current_pixmap
+        if pixmap is None or pixmap.isNull():
+            return False
+        QApplication.clipboard().setPixmap(pixmap)
+        return True
+
+
 class _ComparisonSidePanel(QWidget):
     """片側の画像・出所・タグを表示するパネル。"""
 
@@ -111,7 +409,7 @@ class _ComparisonSidePanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        self.preview = ImagePreviewWidget(self)
+        self.preview = ComparisonImageViewport(self)
         self.preview.setObjectName(f"{side.value}ComparisonPreview")
         layout.addWidget(self.preview, 1)
 
@@ -126,6 +424,11 @@ class _ComparisonSidePanel(QWidget):
         self.tags_view.setReadOnly(True)
         self.tags_view.setMaximumHeight(90)
         layout.addWidget(self.tags_view)
+
+    @property
+    def viewport(self) -> ComparisonImageViewport:
+        """片側の画像ビューポート。"""
+        return self.preview
 
     def show_loading(self) -> None:
         """読み込み中の表示にする (古い画像と注釈を残さない)。"""
@@ -175,6 +478,7 @@ class ImageComparisonDialog(QDialog):
         self._current: ImageComparisonLoadResult | None = None
         self._shutting_down = False
         self._syncing_controls = False
+        self._syncing_viewport = False
 
         self._worker_manager = WorkerManager(self)
         self._worker_manager.worker_terminal.connect(self._on_worker_terminal)
@@ -225,6 +529,38 @@ class ImageComparisonDialog(QDialog):
             self._pin_checks[side] = pin
             if side is Side.LEFT:
                 controls.addStretch(1)
+
+        self.chkSyncView = QCheckBox("表示を同期", self)
+        self.chkSyncView.setObjectName("chkSyncView")
+        self.chkSyncView.setToolTip("左右のズーム倍率と相対表示位置を同期する")
+        self.chkSyncView.setChecked(True)
+        self.chkSyncView.toggled.connect(self._on_sync_toggled)
+        self._sync_check = self.chkSyncView
+        controls.addWidget(self.chkSyncView)
+
+        self.btnZoomOut = QToolButton(self)
+        self.btnZoomOut.setText("-")
+        self.btnZoomOut.setToolTip("縮小")
+        self.btnZoomOut.setObjectName("btnZoomOut")
+        self.btnZoomOut.clicked.connect(self.zoom_out)
+        self._zoom_out_button = self.btnZoomOut
+        controls.addWidget(self.btnZoomOut)
+
+        self.btnZoomIn = QToolButton(self)
+        self.btnZoomIn.setText("+")
+        self.btnZoomIn.setToolTip("拡大")
+        self.btnZoomIn.setObjectName("btnZoomIn")
+        self.btnZoomIn.clicked.connect(self.zoom_in)
+        self._zoom_in_button = self.btnZoomIn
+        controls.addWidget(self.btnZoomIn)
+
+        self.btnResetZoom = QPushButton("1:1 / リセット", self)
+        self.btnResetZoom.setToolTip("表示倍率と位置を全体表示に戻す")
+        self.btnResetZoom.setObjectName("btnResetZoom")
+        self.btnResetZoom.clicked.connect(self.reset_view)
+        self._reset_zoom_button = self.btnResetZoom
+        controls.addWidget(self.btnResetZoom)
+
         self._reload_button = QPushButton("再読み込み", self)
         self._reload_button.setObjectName("reloadComparisonButton")
         self._reload_button.setToolTip("DB の現在の注釈を読み直す")
@@ -242,8 +578,11 @@ class ImageComparisonDialog(QDialog):
             Side.LEFT: _ComparisonSidePanel(Side.LEFT, sides),
             Side.RIGHT: _ComparisonSidePanel(Side.RIGHT, sides),
         }
-        sides.addWidget(self._panels[Side.LEFT])
-        sides.addWidget(self._panels[Side.RIGHT])
+        for side, panel in self._panels.items():
+            panel.preview.view_changed.connect(
+                lambda zoom, rx, ry, s=side: self._on_viewport_changed(s, zoom, rx, ry)
+            )
+            sides.addWidget(panel)
         vertical.addWidget(sides)
         vertical.addWidget(self._build_diff_tabs(vertical))
         vertical.setStretchFactor(0, 3)
@@ -415,6 +754,48 @@ class ImageComparisonDialog(QDialog):
         """現在の要求の世代番号。"""
         return self._generation
 
+    def viewport(self, side: Side) -> ComparisonImageViewport:
+        """指定した側の画像ビューポートを返す。"""
+        return self._panels[side].preview
+
+    @property
+    def left_viewport(self) -> ComparisonImageViewport:
+        """左側の画像ビューポート。"""
+        return self._panels[Side.LEFT].preview
+
+    @property
+    def right_viewport(self) -> ComparisonImageViewport:
+        """右側の画像ビューポート。"""
+        return self._panels[Side.RIGHT].preview
+
+    @property
+    def sync_enabled(self) -> bool:
+        """左右のズーム / パン同期が有効かどうか。"""
+        return self.chkSyncView.isChecked()
+
+    def is_sync_enabled(self) -> bool:
+        """左右のズーム / パン同期が有効かどうかを返す。"""
+        return self.chkSyncView.isChecked()
+
+    def set_sync_enabled(self, enabled: bool) -> None:
+        """左右のズーム / パン同期のオン / オフを切り替える。"""
+        self.chkSyncView.setChecked(enabled)
+
+    @Slot()
+    def zoom_in(self) -> None:
+        """拡大ボタン操作 (同期オン時は両側、オフ時は左側に適用)。"""
+        self._panels[Side.LEFT].preview.zoom_in()
+
+    @Slot()
+    def zoom_out(self) -> None:
+        """縮小ボタン操作 (同期オン時は両側、オフ時は左側に適用)。"""
+        self._panels[Side.LEFT].preview.zoom_out()
+
+    @Slot()
+    def reset_view(self) -> None:
+        """表示リセットボタン操作 (同期オン時は両側、オフ時は左側を 1:1 に戻す)。"""
+        self._panels[Side.LEFT].preview.reset_view()
+
     @Slot()
     def reload(self) -> None:
         """DB の現在の注釈を読み直す。"""
@@ -447,6 +828,29 @@ class ImageComparisonDialog(QDialog):
         """閉じたら読み込みを止め、保持しているプレビューを手放す。"""
         self.stop_loading()
         super().closeEvent(event)
+
+    # -- ビューポート同期 --------------------------------------------------
+
+    def _on_viewport_changed(self, source_side: Side, zoom: float, rx: float, ry: float) -> None:
+        """片側のビューポート変化を、同期オン時に反対側へ伝播する。"""
+        if self._syncing_viewport or not self.chkSyncView.isChecked():
+            return
+        target_side = Side.RIGHT if source_side is Side.LEFT else Side.LEFT
+        target = self._panels[target_side].preview
+        self._syncing_viewport = True
+        try:
+            target.set_zoom_factor(zoom, emit_signal=False)
+            target.set_relative_center(rx, ry, emit_signal=False)
+        finally:
+            self._syncing_viewport = False
+
+    def _on_sync_toggled(self, checked: bool) -> None:
+        """同期をオフからオンに戻したとき、左の表示状態へ右を即座に揃える。"""
+        if not checked or self._syncing_viewport:
+            return
+        left = self._panels[Side.LEFT].preview
+        rx, ry = left.get_relative_center()
+        self._on_viewport_changed(Side.LEFT, left.zoom_factor, rx, ry)
 
     # -- 操作 --------------------------------------------------------------
 
