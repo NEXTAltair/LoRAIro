@@ -161,3 +161,20 @@ class TestImagesTagAiGenerated:
         assert summary["revoked"] is True
         assert summary["dry_run"] is True
         assert summary["tags_revoked"] == 2
+
+    @pytest.mark.parametrize(
+        "extra_args",
+        [
+            ["--image-ids", ""],
+            ["--image-ids", "   "],
+            ["", "--revoke"],
+        ],
+    )
+    def test_empty_image_ids_rejected_without_targeting_all_images(
+        self, container: MagicMock, extra_args: list[str]
+    ) -> None:
+        result = runner.invoke(app, ["--json", "images", "tag-ai-generated", *extra_args, "-p", "proj"])
+
+        assert result.exit_code == 2
+        container.db_manager.apply_ai_generated_tags_batch.assert_not_called()
+        container.db_manager.revoke_ai_generated_tags_batch.assert_not_called()

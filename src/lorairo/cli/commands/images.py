@@ -855,7 +855,7 @@ def analyze_metadata(
 def _parse_optional_image_ids(positional: list[str] | None, csv: str | None) -> list[int]:
     """任意の画像 ID 指定を検証して返す。省略時は空リスト。"""
     id_sources = list(positional or [])
-    if csv:
+    if csv is not None:
         id_sources.append(csv)
     image_ids = parse_image_ids(",".join(id_sources)) if id_sources else []
     if id_sources and not image_ids:
