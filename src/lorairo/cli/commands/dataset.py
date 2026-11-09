@@ -462,14 +462,60 @@ def diff_dataset(
         )
 
 
+def _run_revoke_tags(
+    *,
+    version_id: int | None,
+    project: str,
+    folder: list[str] | None,
+    dry_run: bool,
+) -> None:
+    if version_id is None and folder:
+        raise typer.BadParameter("--folder requires VERSION_ID.")
+    repository = _build_repository(project)
+    try:
+        result = repository.revoke_learning_texts_from_tags(
+            version_id=version_id,
+            dir_names=folder or None,
+            dry_run=dry_run,
+        )
+    except LookupError as e:
+        raise typer.BadParameter(f"Version or folder not found: {e}") from e
+
+    verb = "Would revoke" if dry_run else "Revoked"
+    if is_json_mode():
+        emit_result(
+            f"{verb} {result.tags_removed} tag(s) from {result.images} image(s)",
+            version_id=version_id,
+            dry_run=dry_run,
+            folders=result.folders,
+            images=result.images,
+            tags_removed=result.tags_removed,
+            tags_revoked=result.tags_removed,
+        )
+        return
+    scope = f"version {version_id}" if version_id is not None else f"project {project}"
+    console.print(f"{verb} KOHYA_DATASET tags of {scope}")
+    console.print(f"folders: {result.folders}")
+    console.print(f"images: {result.images}")
+    console.print(f"tags_removed: {result.tags_removed}")
+
+
 @app.command("copy-tags")
 def copy_tags(
-    version_id: int = typer.Argument(..., help="Dataset version ID"),
+    version_id: int | None = typer.Argument(
+        None,
+        help="Dataset version ID (omit with --revoke to revoke all KOHYA_DATASET tags in the project)",
+    ),
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
     folder: list[str] | None = typer.Option(
-        None, "--folder", help="Folder name (e.g. 10_name) to copy. Repeatable. Default: all folders."
+        None,
+        "--folder",
+        help="Folder name (e.g. 10_name) to copy/revoke. Repeatable. Default: all folders.",
     ),
     extension: str = typer.Option(".txt", "--extension", help="Learning text extension to copy"),
+    revoke: bool = typer.Option(
+        False, "--revoke", help="Revoke (delete) KOHYA_DATASET tags instead of copying."
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Count tags without writing."),
 ) -> None:
     """Copy learning text elements of a version to the library image tags (ADR 0104).
@@ -479,8 +525,16 @@ def copy_tags(
     selected folders, the union of their elements is copied. Copying again only adds missing
     tags; existing KOHYA_DATASET rows (including rejected ones) and other models' tags are not
     changed. Later edits of learning texts are not followed.
+
+    Pass ``--revoke`` to delete KOHYA_DATASET tag rows (scoped to VERSION_ID/--folder or the
+    whole project when VERSION_ID is omitted).
     """
     with command_boundary():
+        if revoke:
+            _run_revoke_tags(version_id=version_id, project=project, folder=folder, dry_run=dry_run)
+            return
+        if version_id is None:
+            raise typer.BadParameter("VERSION_ID is required unless --revoke is specified.")
         normalized_extension = extension if extension.startswith(".") else f".{extension}"
         repository = _build_repository(project)
         try:
@@ -507,6 +561,30 @@ def copy_tags(
         console.print(f"images: {result.images}")
         console.print(f"tags_added: {result.tags_added}")
         console.print(f"tags_skipped: {result.tags_skipped}")
+
+
+@app.command("revoke-tags")
+def revoke_tags(
+    version_id: int | None = typer.Argument(
+        None,
+        help="Dataset version ID (omit to revoke all KOHYA_DATASET tags in the project)",
+    ),
+    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    folder: list[str] | None = typer.Option(
+        None,
+        "--folder",
+        help="Folder name (e.g. 10_name) to revoke (requires VERSION_ID). Repeatable.",
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Count tags without deleting."),
+) -> None:
+    """Delete KOHYA_DATASET tag rows copied from learning texts (Issue #1490 / ADR 0104).
+
+    Deletes only Tag rows whose model_id is KOHYA_DATASET; manual and AI model tags are never
+    touched. Specify VERSION_ID (and optional --folder) to limit deletion to that version's
+    images, or omit VERSION_ID to delete all KOHYA_DATASET tag rows in the project.
+    """
+    with command_boundary():
+        _run_revoke_tags(version_id=version_id, project=project, folder=folder, dry_run=dry_run)
 
 
 def _resolve_usage_image_id(positional: int | None, option: int | None) -> int:

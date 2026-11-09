@@ -31,15 +31,23 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...database.repository.dataset import DatasetRepository, TrainingConfigSnapshot, VersionSummary
+from ...database.repository.dataset import (
+    DatasetRepository,
+    TagCopyResult,
+    TagRevokeResult,
+    TrainingConfigSnapshot,
+    VersionSummary,
+)
 from ...services.kohya_dataset_export_service import KohyaExportResult
 from ...utils.log import logger
 from ..message_box import show_information, show_warning
 from ..workers.kohya_version_workers import (
+    KohyaVersionCopyTagsWorker,
     KohyaVersionDetail,
     KohyaVersionDetailWorker,
     KohyaVersionExportWorker,
     KohyaVersionListWorker,
+    KohyaVersionRevokeTagsWorker,
 )
 from ..workers.manager import WorkerManager
 
@@ -59,10 +67,17 @@ def _unmapped_keys(config: TrainingConfigSnapshot) -> list[str]:
 class KohyaVersionExportDialog(QDialog):
     """データセットの版の一覧と、選んだ版の Kohya-ss 形式での書き出し。"""
 
+    # タグの反映・取り消しで DB のタグ行が変化したときに親タブへ通知する
+    tags_mutated = Signal()
+
     # worker スレッドから GUI スレッドへ結果を渡す (受け手はダイアログ = GUI スレッド)
     _versions_loaded = Signal(object)
     _detail_loaded = Signal(int, object)
     _export_finished = Signal(object)
+    _copy_tags_previewed = Signal(object)
+    _copy_tags_finished = Signal(object)
+    _revoke_tags_previewed = Signal(object)
+    _revoke_tags_finished = Signal(object)
     _task_failed = Signal(str, str)
 
     def __init__(self, repository: DatasetRepository, parent: QWidget | None = None) -> None:
@@ -81,11 +96,17 @@ class KohyaVersionExportDialog(QDialog):
         self._detail: KohyaVersionDetail | None = None
         self._detail_generation = 0
         self._exporting = False
+        self._pending_copy_scope: tuple[int, list[str] | None] | None = None
+        self._pending_revoke_scope: tuple[int | None, list[str] | None] | None = None
 
         self._build_ui()
         self._versions_loaded.connect(self._on_versions_loaded)
         self._detail_loaded.connect(self._on_detail_loaded)
         self._export_finished.connect(self._on_export_finished)
+        self._copy_tags_previewed.connect(self._on_copy_tags_previewed)
+        self._copy_tags_finished.connect(self._on_copy_tags_finished)
+        self._revoke_tags_previewed.connect(self._on_revoke_tags_previewed)
+        self._revoke_tags_finished.connect(self._on_revoke_tags_finished)
         self._task_failed.connect(self._on_task_failed)
         self.load_versions()
 
@@ -114,6 +135,12 @@ class KohyaVersionExportDialog(QDialog):
         root.addWidget(splitter, 1)
 
         form = QFormLayout()
+        self.tag_folder_combo = QComboBox()
+        self.tag_folder_combo.setObjectName("kohyaTagFolderCombo")
+        self.tag_folder_combo.addItem("全フォルダ", None)
+        self.tag_folder_combo.setEnabled(False)
+        form.addRow("対象フォルダ", self.tag_folder_combo)
+
         self.config_combo = QComboBox()
         self.config_combo.setObjectName("kohyaConfigCombo")
         self.config_combo.currentIndexChanged.connect(self._update_unmapped_warning)
@@ -142,6 +169,15 @@ class KohyaVersionExportDialog(QDialog):
         root.addWidget(self.status_label)
 
         buttons = QHBoxLayout()
+        self.copy_tags_button = QPushButton("学習テキストをタグへ写す")
+        self.copy_tags_button.setObjectName("kohyaCopyTagsButton")
+        self.copy_tags_button.setEnabled(False)
+        self.copy_tags_button.clicked.connect(self._on_copy_tags_clicked)
+        self.revoke_tags_button = QPushButton("写したタグを取り消す")
+        self.revoke_tags_button.setObjectName("kohyaRevokeTagsButton")
+        self.revoke_tags_button.clicked.connect(self._on_revoke_tags_clicked)
+        buttons.addWidget(self.copy_tags_button)
+        buttons.addWidget(self.revoke_tags_button)
         buttons.addStretch(1)
         self.export_button = QPushButton("書き出す")
         self.export_button.setObjectName("kohyaExportButton")
@@ -203,6 +239,9 @@ class KohyaVersionExportDialog(QDialog):
         self._detail = None
         self.folder_table.setRowCount(0)
         self.config_combo.clear()
+        self.tag_folder_combo.clear()
+        self.tag_folder_combo.addItem("全フォルダ", None)
+        self.tag_folder_combo.setEnabled(False)
         self._update_export_enabled()
         if version is None:
             return
@@ -232,6 +271,14 @@ class KohyaVersionExportDialog(QDialog):
             for column, value in enumerate(values):
                 self.folder_table.setItem(row, column, QTableWidgetItem(value))
 
+        self.tag_folder_combo.blockSignals(True)
+        self.tag_folder_combo.clear()
+        self.tag_folder_combo.addItem("全フォルダ", None)
+        for folder in folders:
+            self.tag_folder_combo.addItem(folder.dir_name, folder.dir_name)
+        self.tag_folder_combo.setEnabled(not self._exporting)
+        self.tag_folder_combo.blockSignals(False)
+
         self.config_combo.blockSignals(True)
         self.config_combo.clear()
         self.config_combo.addItem("学習設定を書き出さない", None)
@@ -247,6 +294,10 @@ class KohyaVersionExportDialog(QDialog):
             f"{len(folders)} フォルダ、学習設定 {len(detail.training_configs)} 件"
         )
         self._update_export_enabled()
+
+    def _selected_tag_dir_names(self) -> list[str] | None:
+        folder_name = self.tag_folder_combo.currentData()
+        return [str(folder_name)] if isinstance(folder_name, str) and folder_name else None
 
     def _selected_config(self) -> TrainingConfigSnapshot | None:
         config_id = self.config_combo.currentData()
@@ -265,7 +316,7 @@ class KohyaVersionExportDialog(QDialog):
                 + ", ".join(keys)
             )
 
-    # --- 書き出し ---
+    # --- 書き出し / タグ反映・取り消し ---
 
     @Slot()
     def _browse_output_dir(self) -> None:
@@ -275,9 +326,180 @@ class KohyaVersionExportDialog(QDialog):
 
     @Slot()
     def _update_export_enabled(self) -> None:
+        has_selection = self.selected_version() is not None
         self.export_button.setEnabled(
             not self._exporting and self._detail is not None and bool(self.output_dir_edit.text().strip())
         )
+        self.copy_tags_button.setEnabled(not self._exporting and self._detail is not None)
+        self.revoke_tags_button.setEnabled(
+            not self._exporting and (self._detail is not None or not has_selection)
+        )
+        self.tag_folder_combo.setEnabled(not self._exporting and self._detail is not None)
+
+    def _start_busy(self, status_text: str) -> None:
+        self._exporting = True
+        self._update_export_enabled()
+        self.close_button.setEnabled(False)
+        self.status_label.setText(status_text)
+
+    def _end_export(self) -> None:
+        self._exporting = False
+        self.close_button.setEnabled(True)
+        self._update_export_enabled()
+
+    @Slot()
+    def _on_copy_tags_clicked(self) -> None:
+        version = self.selected_version()
+        if version is None or self._detail is None or self._exporting:
+            return
+        dir_names = self._selected_tag_dir_names()
+        self._pending_copy_scope = (version.version_id, dir_names)
+        self._start_busy(f"版 {version.version_id} のタグ反映件数を確認中...")
+        worker = KohyaVersionCopyTagsWorker(
+            self._repository,
+            version.version_id,
+            dir_names=dir_names,
+            dry_run=True,
+        )
+        worker.finished.connect(lambda result: self._copy_tags_previewed.emit(result))
+        worker.error_occurred.connect(lambda message: self._task_failed.emit("copy_tags", str(message)))
+        self._worker_manager.start_worker(f"kohya_copy_tags_preview_{version.version_id}", worker)
+
+    @Slot(object)
+    def _on_copy_tags_previewed(self, result: object) -> None:
+        self._end_export()
+        scope = self._pending_copy_scope
+        self._pending_copy_scope = None
+        if not isinstance(result, TagCopyResult) or scope is None:
+            return
+        version_id, dir_names = scope
+        scope_label = dir_names[0] if dir_names else "全フォルダ"
+        reply = QMessageBox.question(
+            self,
+            "学習テキストをタグへ写す",
+            f"版の学習テキストをライブラリのタグ (KOHYA_DATASET) へ写します。\n\n"
+            f"対象フォルダ: {scope_label} ({result.folders} フォルダ)\n"
+            f"対象画像数: {result.images}\n"
+            f"追加予定タグ数: {result.tags_added}\n"
+            f"既存スキップ数: {result.tags_skipped}\n\n"
+            f"実行しますか?",
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            self.status_label.setText("学習テキストのタグ反映をキャンセルしました")
+            return
+
+        self._start_busy(f"版 {version_id} の学習テキストをタグへ反映中...")
+        worker = KohyaVersionCopyTagsWorker(
+            self._repository,
+            version_id,
+            dir_names=dir_names,
+            dry_run=False,
+        )
+        worker.finished.connect(lambda res: self._copy_tags_finished.emit(res))
+        worker.error_occurred.connect(lambda message: self._task_failed.emit("copy_tags", str(message)))
+        self._worker_manager.start_worker(f"kohya_copy_tags_apply_{version_id}", worker)
+
+    @Slot(object)
+    def _on_copy_tags_finished(self, result: object) -> None:
+        self._end_export()
+        if not isinstance(result, TagCopyResult):
+            return
+        self.status_label.setText(
+            f"タグ反映完了: 追加 {result.tags_added} 件 (スキップ {result.tags_skipped} 件)"
+        )
+        lines = [
+            f"フォルダ数: {result.folders}",
+            f"画像数: {result.images}",
+            f"追加タグ数: {result.tags_added}",
+            f"スキップ数: {result.tags_skipped}",
+        ]
+        logger.info(
+            f"学習テキストのタグ反映完了: folders={result.folders}, images={result.images}, "
+            f"added={result.tags_added}, skipped={result.tags_skipped}"
+        )
+        if result.tags_added > 0:
+            self.tags_mutated.emit()
+        show_information(self, "学習テキストのタグ反映完了", "\n".join(lines))
+
+    @Slot()
+    def _on_revoke_tags_clicked(self) -> None:
+        if self._exporting:
+            return
+        if self._detail is not None:
+            version_id: int | None = self._detail.version_id
+            dir_names = self._selected_tag_dir_names()
+        elif self.selected_version() is None:
+            version_id = None
+            dir_names = None
+        else:
+            return
+        self._pending_revoke_scope = (version_id, dir_names)
+        self._start_busy("取り消し対象のタグ件数を確認中...")
+        worker = KohyaVersionRevokeTagsWorker(
+            self._repository,
+            version_id=version_id,
+            dir_names=dir_names,
+            dry_run=True,
+        )
+        worker.finished.connect(lambda result: self._revoke_tags_previewed.emit(result))
+        worker.error_occurred.connect(lambda message: self._task_failed.emit("revoke_tags", str(message)))
+        self._worker_manager.start_worker(f"kohya_revoke_tags_preview_{version_id or 'all'}", worker)
+
+    @Slot(object)
+    def _on_revoke_tags_previewed(self, result: object) -> None:
+        self._end_export()
+        scope = self._pending_revoke_scope
+        self._pending_revoke_scope = None
+        if not isinstance(result, TagRevokeResult) or scope is None:
+            return
+        version_id, dir_names = scope
+        if version_id is not None:
+            scope_label = dir_names[0] if dir_names else "全フォルダ"
+            scope_line = f"対象: 版 {version_id} / {scope_label} ({result.folders} フォルダ)"
+        else:
+            scope_line = "対象: プロジェクト全体"
+        reply = QMessageBox.question(
+            self,
+            "写したタグを取り消す",
+            f"擬似モデル KOHYA_DATASET のタグ行だけを削除します (手動・AI タグは残ります)。\n\n"
+            f"{scope_line}\n"
+            f"対象画像数: {result.images}\n"
+            f"削除予定タグ数: {result.tags_removed}\n\n"
+            f"取り消しますか?",
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            self.status_label.setText("タグの取り消しをキャンセルしました")
+            return
+
+        self._start_busy("KOHYA_DATASET タグを取り消し中...")
+        worker = KohyaVersionRevokeTagsWorker(
+            self._repository,
+            version_id=version_id,
+            dir_names=dir_names,
+            dry_run=False,
+        )
+        worker.finished.connect(lambda res: self._revoke_tags_finished.emit(res))
+        worker.error_occurred.connect(lambda message: self._task_failed.emit("revoke_tags", str(message)))
+        self._worker_manager.start_worker(f"kohya_revoke_tags_apply_{version_id or 'all'}", worker)
+
+    @Slot(object)
+    def _on_revoke_tags_finished(self, result: object) -> None:
+        self._end_export()
+        if not isinstance(result, TagRevokeResult):
+            return
+        self.status_label.setText(f"タグ取り消し完了: 削除 {result.tags_removed} 件")
+        lines = [
+            f"フォルダ数: {result.folders}",
+            f"対象画像数: {result.images}",
+            f"削除タグ数: {result.tags_removed}",
+        ]
+        logger.info(
+            f"KOHYA_DATASET タグ取り消し完了: folders={result.folders}, images={result.images}, "
+            f"removed={result.tags_removed}"
+        )
+        if result.tags_removed > 0:
+            self.tags_mutated.emit()
+        show_information(self, "写したタグの取り消し完了", "\n".join(lines))
 
     @Slot()
     def _on_export_clicked(self) -> None:
@@ -302,21 +524,13 @@ class KohyaVersionExportDialog(QDialog):
             if reply != QMessageBox.StandardButton.Yes:
                 return
 
-        self._exporting = True
-        self._update_export_enabled()
-        self.close_button.setEnabled(False)
-        self.status_label.setText(f"版 {version.version_id} を書き出し中...")
+        self._start_busy(f"版 {version.version_id} を書き出し中...")
         worker = KohyaVersionExportWorker(
             self._repository, version.version_id, output_dir, config.id if config is not None else None
         )
         worker.finished.connect(lambda result: self._export_finished.emit(result))
         worker.error_occurred.connect(lambda message: self._task_failed.emit("export", str(message)))
         self._worker_manager.start_worker(f"kohya_version_export_{version.version_id}", worker)
-
-    def _end_export(self) -> None:
-        self._exporting = False
-        self.close_button.setEnabled(True)
-        self._update_export_enabled()
 
     @Slot(object)
     def _on_export_finished(self, result: object) -> None:
@@ -345,6 +559,16 @@ class KohyaVersionExportDialog(QDialog):
             self._end_export()
             self.status_label.setText("書き出しに失敗しました")
             show_warning(self, "Kohya 版の書き出しエラー", message)
+            return
+        if task == "copy_tags":
+            self._end_export()
+            self.status_label.setText("タグ反映に失敗しました")
+            show_warning(self, "学習テキストのタグ反映エラー", message)
+            return
+        if task == "revoke_tags":
+            self._end_export()
+            self.status_label.setText("タグの取り消しに失敗しました")
+            show_warning(self, "写したタグの取り消しエラー", message)
             return
         self.status_label.setText("読み込みに失敗しました")
         show_warning(self, "Kohya 版の読み込みエラー", message)

@@ -11,6 +11,8 @@ from pathlib import Path
 
 from ...database.repository.dataset import (
     DatasetRepository,
+    TagCopyResult,
+    TagRevokeResult,
     TrainingConfigSnapshot,
     VersionSnapshot,
     VersionSummary,
@@ -119,3 +121,89 @@ class KohyaVersionExportWorker(LoRAIroWorkerBase[KohyaExportResult]):
     def _should_cancel_completed_result(self) -> bool:
         # 書き出し済みのファイルは取り消せないため、完了した結果は常に通知する
         return False
+
+
+class KohyaVersionCopyTagsWorker(LoRAIroWorkerBase[TagCopyResult]):
+    """版の学習テキストをライブラリの `Tag` (`KOHYA_DATASET`) へ写す (Issue #1490 / ADR 0104)。"""
+
+    _OPERATION_TYPE = "kohya_version_copy_tags"
+
+    def __init__(
+        self,
+        repository: DatasetRepository,
+        version_id: int,
+        *,
+        dir_names: list[str] | None = None,
+        extension: str = ".txt",
+        dry_run: bool = False,
+    ) -> None:
+        """Worker を初期化する。
+
+        Args:
+            repository: データセット Repository。
+            version_id: 版 ID。
+            dir_names: 対象のフォルダ名 (`None` なら版の全フォルダ)。
+            extension: 学習テキストの拡張子。
+            dry_run: True なら件数だけ数えて書き込まない。
+        """
+        super().__init__()
+        self._repository = repository
+        self._version_id = version_id
+        self._dir_names = dir_names
+        self._extension = extension
+        self._dry_run = dry_run
+
+    def execute(self) -> TagCopyResult:
+        """学習テキストのタグ反映 (または dry-run 集計) を実行する。"""
+        return self._repository.copy_learning_texts_to_tags(
+            self._version_id,
+            dir_names=self._dir_names,
+            extension=self._extension,
+            dry_run=self._dry_run,
+        )
+
+    def _should_cancel_completed_result(self) -> bool:
+        if not self._dry_run:
+            return False
+        return super()._should_cancel_completed_result()
+
+
+class KohyaVersionRevokeTagsWorker(LoRAIroWorkerBase[TagRevokeResult]):
+    """擬似モデル `KOHYA_DATASET` の `Tag` 行を一括削除する (Issue #1490 / ADR 0104)。"""
+
+    _OPERATION_TYPE = "kohya_version_revoke_tags"
+
+    def __init__(
+        self,
+        repository: DatasetRepository,
+        version_id: int | None = None,
+        *,
+        dir_names: list[str] | None = None,
+        dry_run: bool = False,
+    ) -> None:
+        """Worker を初期化する。
+
+        Args:
+            repository: データセット Repository。
+            version_id: 版 ID (`None` ならプロジェクト全体)。
+            dir_names: 対象のフォルダ名 (`version_id` 指定時のみ有効、`None` なら全フォルダ)。
+            dry_run: True なら件数だけ数えて削除しない。
+        """
+        super().__init__()
+        self._repository = repository
+        self._version_id = version_id
+        self._dir_names = dir_names
+        self._dry_run = dry_run
+
+    def execute(self) -> TagRevokeResult:
+        """`KOHYA_DATASET` タグの削除 (または dry-run 集計) を実行する。"""
+        return self._repository.revoke_learning_texts_from_tags(
+            version_id=self._version_id,
+            dir_names=self._dir_names,
+            dry_run=self._dry_run,
+        )
+
+    def _should_cancel_completed_result(self) -> bool:
+        if not self._dry_run:
+            return False
+        return super()._should_cancel_completed_result()

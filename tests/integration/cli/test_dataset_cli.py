@@ -428,6 +428,61 @@ def test_cli_copy_tags_unknown_folder_exits_nonzero(
     assert _tag_count(project_dir) == 0
 
 
+def test_cli_revoke_tags_deletes_only_kohya_dataset_and_supports_dry_run_and_all(
+    cli_runner: CliRunner, project_dir: Path, kohya_root: Path
+) -> None:
+    """revoke-tags / copy-tags --revoke は KOHYA_DATASET の行だけを削除し、他モデルのタグは残す (#1490)。"""
+    version_id = _import(cli_runner, kohya_root, "--exclude-dir", "3_skipme")
+    _invoke_copy_tags(cli_runner, version_id)
+
+    # 手動タグを 1 件追加しておく
+    with sqlite3.connect(project_dir / "image_database.db") as conn:
+        conn.execute(
+            "INSERT INTO models (name, provider, litellm_model_id, requires_api_key, created_at, updated_at) "
+            "VALUES ('MANUAL_EDIT', 'user', '__manual_edit__', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        )
+        manual_model_id = conn.execute(
+            "SELECT id FROM models WHERE litellm_model_id = '__manual_edit__'"
+        ).fetchone()[0]
+        first_image_id = conn.execute("SELECT id FROM images ORDER BY id LIMIT 1").fetchone()[0]
+        conn.execute(
+            "INSERT INTO tags (image_id, model_id, tag, existing, is_edited_manually, created_at, updated_at) "
+            "VALUES (?, ?, 'manual_keep', 0, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+            (first_image_id, manual_model_id),
+        )
+        conn.commit()
+
+    # 1. dry-run: 件数だけ返し、削除しない
+    dry_res = cli_runner.invoke(
+        app, ["--json", "dataset", "revoke-tags", str(version_id), "-p", PROJECT, "--dry-run"]
+    )
+    assert dry_res.exit_code == 0, dry_res.stdout + dry_res.stderr
+    dry_payload = json.loads(dry_res.stdout.strip().splitlines()[-1])
+    assert dry_payload["dry_run"] is True
+    assert dry_payload["tags_removed"] == 6
+    assert len(_kohya_tags(project_dir)) == 6
+
+    # 2. フォルダ指定での取り消し (5_b の 2 件だけ削除)
+    folder_res = cli_runner.invoke(
+        app,
+        ["--json", "dataset", "revoke-tags", str(version_id), "-p", PROJECT, "--folder", "5_b"],
+    )
+    assert folder_res.exit_code == 0, folder_res.stdout + folder_res.stderr
+    folder_payload = json.loads(folder_res.stdout.strip().splitlines()[-1])
+    assert folder_payload["tags_removed"] == 2
+    assert len(_kohya_tags(project_dir)) == 4
+
+    # 3. プロジェクト全体の取り消し (`copy-tags --revoke` で VERSION_ID 省略)
+    all_res = cli_runner.invoke(app, ["--json", "dataset", "copy-tags", "--revoke", "-p", PROJECT])
+    assert all_res.exit_code == 0, all_res.stdout + all_res.stderr
+    all_payload = json.loads(all_res.stdout.strip().splitlines()[-1])
+    assert all_payload["version_id"] is None
+    assert all_payload["tags_removed"] == 4
+    assert _kohya_tags(project_dir) == []
+    # 手動タグは残っていること
+    assert _tag_count(project_dir) == 1
+
+
 def _first_image_id(project_dir: Path) -> int:
     with sqlite3.connect(project_dir / "image_database.db") as conn:
         image_id: int = conn.execute("SELECT id FROM images ORDER BY id LIMIT 1").fetchone()[0]

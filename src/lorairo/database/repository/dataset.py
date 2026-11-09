@@ -16,18 +16,20 @@ import datetime
 import json
 from dataclasses import dataclass, fields
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from ...utils.log import logger
 from ..schema import (
+    KOHYA_DATASET_LITELLM_ID,
     Dataset,
     DatasetFolder,
     DatasetFolderImage,
     DatasetImage,
     DatasetLearningText,
     DatasetVersion,
+    Model,
     Tag,
     TrainingConfig,
 )
@@ -213,6 +215,21 @@ class TagCopyResult:
     tags_added: int
     tags_skipped: int
     dry_run: bool
+
+
+@dataclass(frozen=True)
+class TagRevokeResult:
+    """擬似モデル `KOHYA_DATASET` の `Tag` 行を取り消した結果。"""
+
+    folders: int
+    images: int
+    tags_removed: int
+    dry_run: bool
+
+    @property
+    def tags_revoked(self) -> int:
+        """`tags_removed` の別名。"""
+        return self.tags_removed
 
 
 def _dump_elements(elements: list[str]) -> str:
@@ -1152,6 +1169,136 @@ class DatasetRepository(BaseRepository):
                 f"images={result.images}, added={result.tags_added}, skipped={result.tags_skipped}"
             )
             return result
+
+    def revoke_learning_texts_from_tags(
+        self,
+        version_id: int | None = None,
+        dir_names: list[str] | None = None,
+        dry_run: bool = False,
+    ) -> TagRevokeResult:
+        """擬似モデル `KOHYA_DATASET` の `Tag` 行だけを一括削除する (Issue #1490 / ADR 0104)。
+
+        - `Tag.model_id` が `KOHYA_DATASET` (`__kohya_dataset__`) の行だけを対象とし、
+          `MANUAL_EDIT`・`GENERATION_METADATA`・AI モデルの `Tag` 行には一切触れない。
+        - `version_id` を指定したときはその版 (さらに `dir_names` 指定時はそのフォルダ群) に
+          所属する画像の `KOHYA_DATASET` 行だけを削除する。
+        - `version_id=None` のときはプロジェクト全体の `KOHYA_DATASET` 行を削除する。
+        - `dry_run=True` のときは削除される件数だけを数えて書き込まない (擬似モデル行も作らない)。
+
+        Args:
+            version_id: `dataset_versions.id`。`None` ならプロジェクト全体。
+            dir_names: 対象のフォルダ名 (`version_id` 指定時のみ有効)。`None` なら版の全フォルダ。
+            dry_run: True なら件数だけ数えて削除しない。
+
+        Returns:
+            取り消した件数。
+
+        Raises:
+            ValueError: `version_id=None` で `dir_names` を指定した場合。
+            LookupError: 指定した版またはフォルダが存在しない場合。
+        """
+        if version_id is None and dir_names is not None:
+            raise ValueError("dir_names を指定するときは version_id も指定してください")
+
+        with self.session_factory() as session:
+            kohya_model_id = session.execute(
+                select(Model.id).where(Model.litellm_model_id == KOHYA_DATASET_LITELLM_ID)
+            ).scalar_one_or_none()
+
+            if version_id is not None:
+                result = self._revoke_version_tags(
+                    session,
+                    version_id=version_id,
+                    dir_names=dir_names,
+                    kohya_model_id=kohya_model_id,
+                    dry_run=dry_run,
+                )
+            else:
+                result = self._revoke_all_tags(session, kohya_model_id=kohya_model_id, dry_run=dry_run)
+
+            if dry_run:
+                session.rollback()
+                return result
+            session.commit()
+            logger.debug(
+                f"KOHYA_DATASET の Tag を取り消す: version_id={version_id}, folders={result.folders}, "
+                f"images={result.images}, removed={result.tags_removed}"
+            )
+            return result
+
+    def _revoke_version_tags(
+        self,
+        session: Session,
+        *,
+        version_id: int,
+        dir_names: list[str] | None,
+        kohya_model_id: int | None,
+        dry_run: bool,
+    ) -> TagRevokeResult:
+        if session.get(DatasetVersion, version_id) is None:
+            raise LookupError(f"版が見つかりません: version_id={version_id}")
+        stmt = (
+            select(DatasetFolder)
+            .where(DatasetFolder.version_id == version_id)
+            .options(selectinload(DatasetFolder.images))
+            .order_by(DatasetFolder.position, DatasetFolder.id)
+        )
+        folders = list(session.execute(stmt).scalars())
+        if dir_names is not None:
+            unknown = sorted(set(dir_names) - {folder.dir_name for folder in folders})
+            if unknown:
+                raise LookupError(f"フォルダが見つかりません: {', '.join(unknown)}")
+            folders = [folder for folder in folders if folder.dir_name in set(dir_names)]
+
+        image_ids = sorted({folder_image.image_id for folder in folders for folder_image in folder.images})
+        tag_ids_to_delete = self._collect_kohya_tag_ids(session, kohya_model_id, image_ids)
+        if not dry_run and tag_ids_to_delete:
+            for offset in range(0, len(tag_ids_to_delete), self.BATCH_CHUNK_SIZE):
+                chunk = tag_ids_to_delete[offset : offset + self.BATCH_CHUNK_SIZE]
+                session.execute(delete(Tag).where(Tag.id.in_(chunk)))
+
+        return TagRevokeResult(
+            folders=len(folders),
+            images=len(image_ids),
+            tags_removed=len(tag_ids_to_delete),
+            dry_run=dry_run,
+        )
+
+    def _collect_kohya_tag_ids(
+        self, session: Session, kohya_model_id: int | None, image_ids: list[int]
+    ) -> list[int]:
+        if kohya_model_id is None or not image_ids:
+            return []
+        tag_ids: list[int] = []
+        for offset in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
+            chunk = image_ids[offset : offset + self.BATCH_CHUNK_SIZE]
+            rows = (
+                session.execute(
+                    select(Tag.id).where(Tag.model_id == kohya_model_id, Tag.image_id.in_(chunk))
+                )
+                .scalars()
+                .all()
+            )
+            tag_ids.extend(rows)
+        return tag_ids
+
+    @staticmethod
+    def _revoke_all_tags(session: Session, *, kohya_model_id: int | None, dry_run: bool) -> TagRevokeResult:
+        if kohya_model_id is None:
+            return TagRevokeResult(folders=0, images=0, tags_removed=0, dry_run=dry_run)
+        rows = session.execute(select(Tag.id, Tag.image_id).where(Tag.model_id == kohya_model_id)).all()
+        affected_images = {row.image_id for row in rows if row.image_id is not None}
+        tags_removed = len(rows)
+        if not dry_run and tags_removed > 0:
+            session.execute(delete(Tag).where(Tag.model_id == kohya_model_id))
+        return TagRevokeResult(
+            folders=0,
+            images=len(affected_images),
+            tags_removed=tags_removed,
+            dry_run=dry_run,
+        )
+
+    revoke_copied_tags = revoke_learning_texts_from_tags
 
     def list_versions(self) -> list[VersionSummary]:
         """全データセットの版を、フォルダ数・画像数 (フォルダごとの所属数の合計) とともに返す。

@@ -24,7 +24,14 @@ from lorairo.database.repository.dataset import (
     LearningTextSpec,
     TrainingConfigSpec,
 )
-from lorairo.database.schema import Base, Image
+from lorairo.database.schema import (
+    KOHYA_DATASET_LITELLM_ID,
+    MANUAL_EDIT_LITELLM_ID,
+    Base,
+    Image,
+    Model,
+    Tag,
+)
 from lorairo.gui.widgets import kohya_version_export_dialog as dialog_module
 from lorairo.gui.widgets.kohya_version_export_dialog import KohyaVersionExportDialog
 
@@ -273,3 +280,126 @@ def test_empty_database_shows_message(qtbot: QtBot, repo: DatasetRepository) -> 
 
     qtbot.waitUntil(lambda: "ありません" in dialog.status_label.text(), timeout=_TIMEOUT_MS)
     assert dialog.version_table.rowCount() == 0
+
+
+def test_copy_tags_dry_run_cancel_writes_nothing(
+    qtbot: QtBot,
+    repo: DatasetRepository,
+    session_factory: Callable[[], Session],
+    version_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """タグ反映で dry-run 確認をキャンセルしたら、DB には 1 件も書き込まない (#1490)。"""
+    asked: list[str] = []
+
+    def decline(*args: object, **_kwargs: object) -> QMessageBox.StandardButton:
+        asked.append(str(args[2]))
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(QMessageBox, "question", decline)
+    dialog = _open(qtbot, repo)
+    _select_first_version(qtbot, dialog)
+    assert dialog.copy_tags_button.isEnabled()
+
+    dialog.copy_tags_button.click()
+    qtbot.waitUntil(lambda: bool(asked), timeout=_TIMEOUT_MS)
+
+    assert "追加予定タグ数: 2" in asked[0]
+    with session_factory() as session:
+        assert session.query(Tag).count() == 0
+
+
+def test_copy_tags_confirm_writes_tags_and_reports_summary(
+    qtbot: QtBot,
+    repo: DatasetRepository,
+    session_factory: Callable[[], Session],
+    version_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """タグ反映で dry-run 確認を承認したら worker で書き込み、結果サマリを表示する (#1490)。"""
+    asked: list[str] = []
+    infos: list[str] = []
+
+    def confirm(*args: object, **_kwargs: object) -> QMessageBox.StandardButton:
+        asked.append(str(args[2]))
+        return QMessageBox.StandardButton.Yes
+
+    monkeypatch.setattr(QMessageBox, "question", confirm)
+    monkeypatch.setattr(dialog_module, "show_information", lambda _p, _t, text, *a: infos.append(text))
+    dialog = _open(qtbot, repo)
+    _select_first_version(qtbot, dialog)
+    # 特定フォルダ "10_kariginu" を選ぶ
+    assert dialog.tag_folder_combo.count() == 2
+    dialog.tag_folder_combo.setCurrentIndex(1)
+
+    dialog.copy_tags_button.click()
+    qtbot.waitUntil(lambda: bool(infos), timeout=_TIMEOUT_MS)
+
+    assert asked and "10_kariginu" in asked[0]
+    assert "追加タグ数: 2" in infos[0]
+    with session_factory() as session:
+        tags = (
+            session.query(Tag.tag, Model.litellm_model_id)
+            .join(Model, Tag.model_id == Model.id)
+            .order_by(Tag.tag)
+            .all()
+        )
+    assert tags == [("Kari", KOHYA_DATASET_LITELLM_ID), ("smile", KOHYA_DATASET_LITELLM_ID)]
+
+
+def test_revoke_tags_dry_run_cancel_and_confirm_preserves_other_models(
+    qtbot: QtBot,
+    repo: DatasetRepository,
+    session_factory: Callable[[], Session],
+    version_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """タグ取り消しは dry-run キャンセルで何も消さず、承認時は KOHYA_DATASET のみ削除し他モデルを残す (#1490)。"""
+    repo.copy_learning_texts_to_tags(version_id)
+    with session_factory() as session:
+        image_id = session.query(Image.id).first()[0]
+        manual = Model(name="MANUAL_EDIT", provider="user", litellm_model_id=MANUAL_EDIT_LITELLM_ID)
+        session.add(manual)
+        session.flush()
+        session.add(
+            Tag(
+                image_id=image_id,
+                model_id=manual.id,
+                tag="manual_keep",
+                existing=False,
+                is_edited_manually=True,
+            )
+        )
+        session.commit()
+
+    asked: list[str] = []
+    infos: list[str] = []
+    decision = QMessageBox.StandardButton.No
+
+    def answer(*args: object, **_kwargs: object) -> QMessageBox.StandardButton:
+        asked.append(str(args[2]))
+        return decision
+
+    monkeypatch.setattr(QMessageBox, "question", answer)
+    monkeypatch.setattr(dialog_module, "show_information", lambda _p, _t, text, *a: infos.append(text))
+    dialog = _open(qtbot, repo)
+    _select_first_version(qtbot, dialog)
+
+    # 1. キャンセル時は削除しない
+    dialog.revoke_tags_button.click()
+    qtbot.waitUntil(lambda: len(asked) == 1, timeout=_TIMEOUT_MS)
+    assert "削除予定タグ数: 2" in asked[0]
+    with session_factory() as session:
+        assert session.query(Tag).count() == 3
+
+    # 2. 承認時は KOHYA_DATASET の 2 件だけ削除し、MANUAL_EDIT の 1 件は残す
+    decision = QMessageBox.StandardButton.Yes
+    dialog.revoke_tags_button.click()
+    qtbot.waitUntil(lambda: bool(infos), timeout=_TIMEOUT_MS)
+
+    assert "削除タグ数: 2" in infos[0]
+    with session_factory() as session:
+        remaining = (
+            session.query(Tag.tag, Model.litellm_model_id).join(Model, Tag.model_id == Model.id).all()
+        )
+    assert remaining == [("manual_keep", MANUAL_EDIT_LITELLM_ID)]

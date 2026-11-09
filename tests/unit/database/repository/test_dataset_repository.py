@@ -463,6 +463,143 @@ def test_copy_learning_texts_to_tags_chunks_existing_lookup(
     assert (result.tags_added, result.tags_skipped) == (1, 4)
 
 
+# --- 学習テキストを写した Tag の取り消し (Issue #1490 / ADR 0104) ---
+
+
+def test_revoke_learning_texts_from_tags_deletes_only_kohya_dataset_rows(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    """KOHYA_DATASET の行だけを削除し、MANUAL_EDIT や AI モデルの行は残す。"""
+    version_id, image_a, image_b = _two_folder_version(repo, session_factory)
+    repo.copy_learning_texts_to_tags(version_id)
+    with session_factory() as session:
+        manual = Model(name="MANUAL_EDIT", provider="user", litellm_model_id=MANUAL_EDIT_LITELLM_ID)
+        ai = Model(name="wd-tagger", provider="local", litellm_model_id="local/wd-tagger")
+        session.add_all([manual, ai])
+        session.flush()
+        session.add_all(
+            [
+                Tag(
+                    image_id=image_a,
+                    model_id=manual.id,
+                    tag="Kariginu",
+                    existing=False,
+                    is_edited_manually=True,
+                ),
+                Tag(
+                    image_id=image_b,
+                    model_id=ai.id,
+                    tag="standing",
+                    confidence_score=0.95,
+                    existing=False,
+                    is_edited_manually=False,
+                ),
+            ]
+        )
+        session.commit()
+
+    result = repo.revoke_learning_texts_from_tags(version_id)
+
+    assert (result.folders, result.images, result.tags_removed, result.tags_revoked, result.dry_run) == (
+        2,
+        2,
+        5,
+        5,
+        False,
+    )
+    assert _tags_by_image(session_factory) == {
+        image_a: [("Kariginu", MANUAL_EDIT_LITELLM_ID)],
+        image_b: [("standing", "local/wd-tagger")],
+    }
+
+
+def test_revoke_learning_texts_from_tags_filters_by_folder(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    """特定フォルダ指定時はそのフォルダの画像に付いた KOHYA_DATASET 行だけを削除する。"""
+    version_id, _image_a, image_b = _two_folder_version(repo, session_factory)
+    repo.copy_learning_texts_to_tags(version_id)
+
+    # 5_style には image_a のみ所属 -> image_a の 3 件だけ削除され、image_b の 2 件は残る
+    result = repo.revoke_learning_texts_from_tags(version_id, dir_names=["5_style"])
+
+    assert (result.folders, result.images, result.tags_removed) == (1, 1, 3)
+    assert _tags_by_image(session_factory) == {
+        image_b: [
+            ("(smile:1.2)", KOHYA_DATASET_LITELLM_ID),
+            ("Kariginu", KOHYA_DATASET_LITELLM_ID),
+        ],
+    }
+
+
+def test_revoke_learning_texts_from_tags_project_wide(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    """version_id=None ならプロジェクト全体の KOHYA_DATASET 行を一括削除する。"""
+    v1, image_a, _ = _two_folder_version(repo, session_factory)
+    image_c = _insert_image(session_factory, "img-c")
+    dataset_id = repo.ensure_dataset("other")
+    v2 = repo.create_version(dataset_id, "v01")
+    repo.add_folder(
+        v2,
+        _folder("1_other", 0),
+        [FolderImageSpec(image_id=image_c, file_stem="c", texts=[_text("other_tag")])],
+    )
+    repo.copy_learning_texts_to_tags(v1)
+    repo.copy_learning_texts_to_tags(v2)
+    with session_factory() as session:
+        manual = Model(name="MANUAL_EDIT", provider="user", litellm_model_id=MANUAL_EDIT_LITELLM_ID)
+        session.add(manual)
+        session.flush()
+        session.add(
+            Tag(
+                image_id=image_a, model_id=manual.id, tag="keep_me", existing=False, is_edited_manually=True
+            )
+        )
+        session.commit()
+
+    result = repo.revoke_copied_tags(version_id=None)
+
+    assert (result.folders, result.images, result.tags_removed) == (0, 3, 6)
+    assert _tags_by_image(session_factory) == {
+        image_a: [("keep_me", MANUAL_EDIT_LITELLM_ID)],
+    }
+
+
+def test_revoke_learning_texts_from_tags_dry_run_writes_nothing(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    version_id, _, _ = _two_folder_version(repo, session_factory)
+    # モデル未作成時の dry_run でもモデル行を作らない
+    empty_preview = repo.revoke_learning_texts_from_tags(version_id, dry_run=True)
+    assert (empty_preview.tags_removed, empty_preview.dry_run) == (0, True)
+    assert _count(session_factory, Model) == 0
+
+    repo.copy_learning_texts_to_tags(version_id)
+    preview = repo.revoke_learning_texts_from_tags(version_id, dry_run=True)
+
+    assert (preview.folders, preview.images, preview.tags_removed, preview.dry_run) == (2, 2, 5, True)
+    assert _count(session_factory, Tag) == 5
+
+
+def test_revoke_learning_texts_from_tags_errors_and_chunking(
+    repo: DatasetRepository, session_factory: Callable[[], Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    version_id, _, _ = _two_folder_version(repo, session_factory)
+    with pytest.raises(ValueError):
+        repo.revoke_learning_texts_from_tags(version_id=None, dir_names=["10_kariginu"])
+    with pytest.raises(LookupError):
+        repo.revoke_learning_texts_from_tags(9999)
+    with pytest.raises(LookupError):
+        repo.revoke_learning_texts_from_tags(version_id, dir_names=["nope"])
+
+    repo.copy_learning_texts_to_tags(version_id)
+    monkeypatch.setattr(repo, "BATCH_CHUNK_SIZE", 1)
+    result = repo.revoke_learning_texts_from_tags(version_id)
+    assert result.tags_removed == 5
+    assert _count(session_factory, Tag) == 0
+
+
 # --- 版の一覧 (Issue #1456) ---
 
 
