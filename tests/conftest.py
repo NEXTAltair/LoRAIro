@@ -1044,6 +1044,21 @@ def _redirect_real_log_sink(tmp_path_factory: pytest.TempPathFactory) -> Iterato
 #  「モジュール境界」であることに合わせて module スコープで収集する)
 
 
+@pytest.fixture(autouse=True)
+def reset_service_container_singleton() -> Iterator[None]:
+    """各テストの前後で ServiceContainer シングルトンと保持中 Engine を破棄・リセットする (#1498)。
+
+    CLI テスト等で `set_active_project` が作成した一時 DB の SQLAlchemy Engine (WAL/SHM) が
+    テスト終了後もシングルトンに残り、tmp_path 削除やモジュール境界の `gc.collect()` /
+    別スレッドの GC ファイナライザと競合するのを防ぐ。
+    """
+    from lorairo.services.service_container import ServiceContainer
+
+    ServiceContainer.reset_for_testing()
+    yield
+    ServiceContainer.reset_for_testing()
+
+
 @pytest.fixture(scope="module", autouse=True)
 def _collect_qt_wrappers_on_main_thread() -> Iterator[None]:
     """モジュール終端ごとにメインスレッドで gc.collect() を実行する (#1077/#1090)。"""

@@ -200,6 +200,8 @@ addopts = [
     "--showlocals",
 ]
 qt_api = "pyside6"
+# Issue #1498: futex 待ち等でテストが 60 秒以上無応答になった際、全スレッドのスタックを自動出力する。
+faulthandler_timeout = 60
 norecursedirs = [
     ".venv",
     ".venv_*",
