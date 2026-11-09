@@ -781,3 +781,33 @@ class TestBatchJobErrorHelpers:
 
         assert _is_batch_job_error(BatchJobError(code="x", message="y")) is True
         assert _is_batch_job_error(ValueError("z")) is False
+
+    def test_fetch_remote_status_readonly_does_not_mutate_db(
+        self, test_provider_batch_repository: ProviderBatchRepository
+    ) -> None:
+        adapter = FakeProviderBatchAdapter()
+        service = ProviderBatchJobService(test_provider_batch_repository, {"openai": adapter})
+        job_id = service.submit_batch(make_submit_request())
+
+        remote = service.fetch_remote_status_readonly(job_id, api_keys={"openai_key": "sk-test"})
+
+        assert remote.provider_status == "completed"
+        assert remote.succeeded_count == 2
+        persisted = test_provider_batch_repository.get_provider_batch_job(job_id)
+        assert persisted is not None
+        assert persisted.status == "validating"
+        assert persisted.succeeded_count == 0
+
+    def test_retrieve_404_converts_to_provider_batch_job_not_found_error(
+        self, test_provider_batch_repository: ProviderBatchRepository
+    ) -> None:
+        from lorairo.services.provider_batch_service import ProviderBatchJobNotFoundError
+
+        error = BatchJobError(code="retrieve_failed", message="Error code: 404 - No such batch")
+        adapter = _FetchRaisingAdapter(error)
+        service = ProviderBatchJobService(test_provider_batch_repository, {"openai": adapter})
+        job_id = service.submit_batch(make_submit_request())
+
+        with pytest.raises(ProviderBatchJobNotFoundError) as exc_info:
+            service.inspect_remote_job(job_id)
+        assert exc_info.value.details == {"reason": "provider_job_missing"}

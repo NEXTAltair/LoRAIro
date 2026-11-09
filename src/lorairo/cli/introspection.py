@@ -597,8 +597,11 @@ class MaintenanceCheckItem(BaseModel):
         "batch_unlinked_items",
         "image_file_missing",
         "processed_file_missing",
+        "provider_status_mismatch",
+        "provider_job_missing",
+        "provider_counts_mismatch",
     ]
-    scope: Literal["batch", "files"]
+    scope: Literal["batch", "files", "provider"]
     id_type: Literal["job_id", "image_id"]
     count: int
     ids: list[int]
@@ -608,17 +611,17 @@ class MaintenanceCheckItem(BaseModel):
 
 class MaintenanceCheckResult(BaseModel):
     kind: Literal["result"] = "result"
-    ok: Literal[True] = True
+    ok: bool = True
     message: str
     project: str
     read_only: Literal[True]
-    status: Literal["success"]
-    scopes: list[Literal["batch", "files"]]
+    status: Literal["success", "partial_success"] = "success"
+    scopes: list[Literal["batch", "files", "provider"]]
     limit: int
     checked_batch_jobs: int | None
     checked_images: int | None
     checked_processed_images: int | None
-    provider_queried: Literal[False]
+    provider_queried: bool
     repaired: Literal[False]
     checks_run: int
     issue_count: int
@@ -3439,9 +3442,12 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "maintenance check": ToolSpec(
         name="maintenance check",
         path="maintenance check",
-        summary="Read-only provider batch DB consistency and missing image file checks; no repair, no provider API calls. See [DB maintenance check](cli-maintenance-check.md).",
+        summary=(
+            "Read-only provider batch DB consistency, missing image file, and optional remote "
+            "provider status checks (`--scope provider`); no repair. See [DB maintenance check](cli-maintenance-check.md)."
+        ),
         read_only=True,
-        side_effects=("db_read",),
+        side_effects=("db_read", "network"),
         inputs=(
             _input(
                 "MaintenanceCheckInput",
@@ -3450,7 +3456,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f(
                         "scope",
                         "list[str]?",
-                        description="Repeat for several scopes: batch, files. Default runs all scopes.",
+                        description="Repeat for several scopes: batch, files, provider. Default runs batch and files.",
                     ),
                     _f(
                         "limit",

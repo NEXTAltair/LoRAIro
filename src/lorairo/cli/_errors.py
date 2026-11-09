@@ -196,10 +196,17 @@ _AUTH_NAMES = frozenset({"AuthenticationError", "PermissionDeniedError"})
 _RATE_NAMES = frozenset({"RateLimitError"})
 _OOM_NAMES = frozenset({"OutOfMemoryError", "ImageLoadMemoryError", "MemoryError"})
 _APIKEY_NAMES = frozenset({"APIKeyNotConfiguredError"})
+_BATCH_AUTH_CODES = frozenset(
+    {"auth_error", "authentication_error", "authentication_failed", "unauthorized", "invalid_api_key"}
+)
+_BATCH_RATE_CODES = frozenset({"rate_limited", "rate_limit", "rate_limit_exceeded", "too_many_requests"})
+_BATCH_NETWORK_CODES = frozenset({"network_error", "connection_error", "connection_failed"})
 
 
 def _matches_network(exc: BaseException) -> bool:
     if _module_chain_matches(exc, _NETWORK_MODULES):
+        return True
+    if str(getattr(exc, "code", "") or "").lower() in _BATCH_NETWORK_CODES:
         return True
     return _name_in_mro(exc, _NETWORK_NAMES)
 
@@ -235,17 +242,23 @@ def _is_auth_error(exc: BaseException) -> bool:
         # LoRAIro 独自の APIKeyNotConfiguredError (SDK 到達前にキー未設定で送出)
         if _name_in_mro(item, _APIKEY_NAMES):
             return True
+        if str(getattr(item, "code", "") or "").lower() in _BATCH_AUTH_CODES:
+            return True
         # プロバイダ SDK の AuthenticationError / PermissionDeniedError
-        if _name_in_mro(item, _AUTH_NAMES) and _module_chain_matches(item, _AUTH_SDK_MODULES):
+        if _name_in_mro(item, _AUTH_NAMES) and (
+            _module_chain_matches(item, _AUTH_SDK_MODULES) or not isinstance(item, PermissionError)
+        ):
             return True
     return False
 
 
 def _is_rate_limited(exc: BaseException) -> bool:
-    return any(
-        _name_in_mro(item, _RATE_NAMES) and _module_chain_matches(item, _AUTH_SDK_MODULES)
-        for item in _iter_cause_chain(exc)
-    )
+    for item in _iter_cause_chain(exc):
+        if str(getattr(item, "code", "") or "").lower() in _BATCH_RATE_CODES:
+            return True
+        if _name_in_mro(item, _RATE_NAMES):
+            return True
+    return False
 
 
 def _is_resource_exhausted(exc: BaseException) -> bool:
