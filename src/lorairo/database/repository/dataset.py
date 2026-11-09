@@ -18,13 +18,14 @@ from dataclasses import dataclass, fields
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import Session, selectinload
 
 from ...utils.log import logger
 from ..schema import (
     Dataset,
     DatasetFolder,
     DatasetFolderImage,
+    DatasetImage,
     DatasetLearningText,
     DatasetVersion,
     Tag,
@@ -32,6 +33,24 @@ from ..schema import (
 )
 from .base import BaseRepository
 from .model import ModelRepository
+
+__all__ = [
+    "DatasetConflictError",
+    "DatasetFolderImage",
+    "DatasetImage",
+    "DatasetRepository",
+    "FolderImageSnapshot",
+    "FolderImageSpec",
+    "FolderSnapshot",
+    "FolderSpec",
+    "LearningTextSnapshot",
+    "LearningTextSpec",
+    "TagCopyResult",
+    "TrainingConfigSnapshot",
+    "TrainingConfigSpec",
+    "VersionSnapshot",
+    "VersionSummary",
+]
 
 
 class DatasetConflictError(ValueError):
@@ -108,6 +127,7 @@ class VersionSnapshot:
     version_name: str
     parent_version_id: int | None
     folders: list[FolderSnapshot]
+    is_working: bool = False
 
 
 @dataclass(frozen=True)
@@ -122,6 +142,7 @@ class VersionSummary:
     created_at: datetime.datetime | None
     folder_count: int
     image_count: int
+    is_working: bool = False
 
 
 @dataclass(frozen=True)
@@ -204,6 +225,18 @@ def _load_elements(elements_json: str) -> list[str]:
     return [str(element) for element in loaded]
 
 
+def _join_elements(elements: list[str]) -> str:
+    return ", ".join(elements)
+
+
+def _resolve_version_id(version_or_id: int | DatasetVersion) -> int:
+    return version_or_id.id if isinstance(version_or_id, DatasetVersion) else version_or_id
+
+
+def _normalize_extension(extension: str) -> str:
+    return extension if extension.startswith(".") else f".{extension}"
+
+
 def _collect_elements_by_image(folders: list[DatasetFolder], extension: str) -> dict[int, list[str]]:
     """フォルダ群の学習テキストの要素を、画像ごとの和集合 (最初に現れた順) にまとめる。"""
     elements_by_image: dict[int, list[str]] = {}
@@ -238,6 +271,67 @@ def _to_config_snapshot(config: TrainingConfig) -> TrainingConfigSnapshot:
         learning_rate=config.learning_rate,
         created_at=config.created_at,
     )
+
+
+def _copy_folders_from_version(base_version: DatasetVersion) -> list[DatasetFolder]:
+    """派生元の版のフォルダ・画像所属・学習テキストを全量コピーした新しい ORM 行群を返す。"""
+    copied_folders: list[DatasetFolder] = []
+    for base_folder in sorted(base_version.folders, key=lambda f: (f.position, f.id)):
+        folder = DatasetFolder(
+            dir_name=base_folder.dir_name,
+            name=base_folder.name,
+            num_repeats=base_folder.num_repeats,
+            trigger_word=base_folder.trigger_word,
+            position=base_folder.position,
+        )
+        for base_image in sorted(base_folder.images, key=lambda i: i.id):
+            folder_image = DatasetFolderImage(
+                image_id=base_image.image_id,
+                file_stem=base_image.file_stem,
+            )
+            folder_image.learning_texts = [
+                DatasetLearningText(
+                    extension=base_text.extension,
+                    raw_text=base_text.raw_text,
+                    elements_json=base_text.elements_json,
+                    is_edited=base_text.is_edited,
+                )
+                for base_text in sorted(base_image.learning_texts, key=lambda t: t.id)
+            ]
+            folder.images.append(folder_image)
+        copied_folders.append(folder)
+    return copied_folders
+
+
+def _reset_folder_image_texts(folder_image: DatasetFolderImage, trigger_word: str | None) -> None:
+    """画像の差し替え時に学習テキストをリセットする (`.txt` はトリガーワードがあればそれだけ残す)。"""
+    has_txt = False
+    for text in folder_image.learning_texts:
+        if text.extension == ".txt":
+            has_txt = True
+            reset_elements = [trigger_word] if trigger_word else []
+        else:
+            reset_elements = []
+        text.elements_json = _dump_elements(reset_elements)
+        text.raw_text = _join_elements(reset_elements)
+        text.is_edited = True
+    if not has_txt and trigger_word:
+        folder_image.learning_texts.append(
+            DatasetLearningText(
+                extension=".txt",
+                raw_text=trigger_word,
+                elements_json=_dump_elements([trigger_word]),
+                is_edited=True,
+            )
+        )
+
+
+def _image_has_trigger_word(folder_image: DatasetFolderImage, trigger_word: str, extension: str) -> bool:
+    """指定拡張子の学習テキスト要素にトリガーワードが含まれるか判定する。"""
+    for text in folder_image.learning_texts:
+        if text.extension == extension and trigger_word in _load_elements(text.elements_json):
+            return True
+    return False
 
 
 class DatasetRepository(BaseRepository):
@@ -419,48 +513,484 @@ class DatasetRepository(BaseRepository):
                 version_name=version.name,
                 parent_version_id=version.parent_version_id,
                 folders=folders,
+                is_working=version.is_working,
             )
 
-    def update_learning_text_elements(self, text_id: int, elements: list[str]) -> None:
-        """学習テキストの要素を更新し、編集済みにする。`raw_text` は変更しない。
+    def create_working_version(
+        self,
+        dataset_id: int,
+        base_version_id: int | None = None,
+        version_name: str | None = None,
+    ) -> DatasetVersion:
+        """確定済みの版を全量コピーして、編集可能な「作業中の版」(`is_working=True`) を作成する。
 
-        既存の行を直接書き換えるため、確定した版に対して呼ぶと ADR 0098 の「版は後から書き換えない」
-        に反する。現在 service・CLI・GUI からは呼ばれていない (Issue #1455 で外部編集 + 取り込み直しを採用)。
-        LoRAIro 内での編集 (作業中の版を編集して確定する案) を実装するときは、確定前の版にだけ使う。
+        Args:
+            dataset_id: `datasets.id`。
+            base_version_id: 派生元の確定済み版の ID。`None` なら最新の確定済み版を使う。
+            version_name: 作業中の版の名前。`None` なら派生元の名前から自動採番する。
+
+        Returns:
+            作成した作業中の版 (`DatasetVersion`)。
+
+        Raises:
+            ValueError: 同じデータセットに未確定の作業中の版が既にある、派生元の確定済み版が
+                存在しない、または同名の版と衝突した場合。
+        """
+        if version_name is not None and not version_name.strip():
+            raise ValueError("版の名前を空にはできません")
+
+        with self.session_factory() as session:
+            existing_working_id = session.execute(
+                select(DatasetVersion.id).where(
+                    DatasetVersion.dataset_id == dataset_id,
+                    DatasetVersion.is_working.is_(True),
+                )
+            ).scalar_one_or_none()
+            if existing_working_id is not None:
+                raise ValueError(
+                    f"作業中の版が既に存在します: dataset_id={dataset_id}, version_id={existing_working_id}"
+                )
+
+            base_stmt = (
+                select(DatasetVersion)
+                .where(
+                    DatasetVersion.dataset_id == dataset_id,
+                    DatasetVersion.is_working.is_(False),
+                )
+                .options(
+                    selectinload(DatasetVersion.folders)
+                    .selectinload(DatasetFolder.images)
+                    .selectinload(DatasetFolderImage.learning_texts)
+                )
+            )
+            if base_version_id is not None:
+                base_stmt = base_stmt.where(DatasetVersion.id == base_version_id)
+            else:
+                base_stmt = base_stmt.order_by(DatasetVersion.id.desc()).limit(1)
+            base_version = session.execute(base_stmt).scalar_one_or_none()
+            if base_version is None:
+                raise ValueError(
+                    f"派生元となる確定済みの版が見つかりません: dataset_id={dataset_id}, "
+                    f"base_version_id={base_version_id}"
+                )
+
+            resolved_name = version_name or self._propose_working_version_name(
+                dataset_id, base_version.name, session
+            )
+            working = DatasetVersion(
+                dataset_id=dataset_id,
+                name=resolved_name,
+                parent_version_id=base_version.id,
+                is_working=True,
+                folders=_copy_folders_from_version(base_version),
+            )
+            session.add(working)
+            try:
+                session.commit()
+            except IntegrityError as e:
+                session.rollback()
+                raise DatasetConflictError(
+                    f"作業中の版を作成できません: dataset_id={dataset_id}, name='{resolved_name}'"
+                ) from e
+
+            loaded = self._load_detached_version(session, working.id)
+            logger.debug(
+                f"作業中の版を作成: id={loaded.id}, dataset_id={dataset_id}, "
+                f"base_version_id={loaded.parent_version_id}, name='{loaded.name}'"
+            )
+            return loaded
+
+    @staticmethod
+    def _propose_working_version_name(dataset_id: int, base_name: str, session: Session) -> str:
+        existing_names = set(
+            session.execute(
+                select(DatasetVersion.name).where(DatasetVersion.dataset_id == dataset_id)
+            ).scalars()
+        )
+        candidate = f"{base_name}-working"
+        suffix = 2
+        while candidate in existing_names:
+            candidate = f"{base_name}-working-{suffix}"
+            suffix += 1
+        return candidate
+
+    @staticmethod
+    def _load_detached_version(session: Session, version_id: int) -> DatasetVersion:
+        stmt = (
+            select(DatasetVersion)
+            .where(DatasetVersion.id == version_id)
+            .options(
+                selectinload(DatasetVersion.dataset),
+                selectinload(DatasetVersion.folders)
+                .selectinload(DatasetFolder.images)
+                .selectinload(DatasetFolderImage.learning_texts),
+            )
+        )
+        loaded = session.execute(stmt).scalar_one()
+        session.expunge_all()
+        return loaded
+
+    @staticmethod
+    def _get_working_folder(session: Session, folder_id: int) -> DatasetFolder:
+        stmt = (
+            select(DatasetFolder)
+            .where(DatasetFolder.id == folder_id)
+            .options(selectinload(DatasetFolder.version))
+        )
+        folder = session.execute(stmt).scalar_one_or_none()
+        if folder is None:
+            raise LookupError(f"フォルダが見つかりません: folder_id={folder_id}")
+        if not folder.version.is_working:
+            raise ValueError(f"確定済みの版は編集できません: version_id={folder.version.id}")
+        return folder
+
+    def update_learning_text_elements(
+        self,
+        text_id: int | None = None,
+        elements: list[str] | None = None,
+        *,
+        learning_text_id: int | None = None,
+    ) -> None:
+        """作業中の版の学習テキスト要素を更新し、編集済みにする。`raw_text` は変更しない。
+
+        確定済みの版 (`is_working=False`) に対して呼ぶと ADR 0098 の「版は後から書き換えない」に
+        反するため `ValueError` で拒否する。
 
         Args:
             text_id: `dataset_learning_texts.id`。
             elements: 新しい要素のリスト。
+            learning_text_id: `text_id` のキーワード別名。
 
         Raises:
             LookupError: 学習テキストが存在しない場合。
+            ValueError: 確定済みの版 (`is_working=False`) の学習テキストを編集しようとした場合。
         """
+        resolved_id = text_id if text_id is not None else learning_text_id
+        if resolved_id is None or elements is None:
+            raise TypeError("text_id (または learning_text_id) と elements を指定してください")
         with self.session_factory() as session:
-            text = session.get(DatasetLearningText, text_id)
+            stmt = (
+                select(DatasetLearningText)
+                .where(DatasetLearningText.id == resolved_id)
+                .options(
+                    selectinload(DatasetLearningText.folder_image)
+                    .selectinload(DatasetFolderImage.folder)
+                    .selectinload(DatasetFolder.version)
+                )
+            )
+            text = session.execute(stmt).scalar_one_or_none()
             if text is None:
-                raise LookupError(f"学習テキストが見つかりません: text_id={text_id}")
+                raise LookupError(f"学習テキストが見つかりません: text_id={resolved_id}")
+            version = text.folder_image.folder.version
+            if not version.is_working:
+                raise ValueError(f"確定済みの版は編集できません: version_id={version.id}")
             text.elements_json = _dump_elements(elements)
             text.is_edited = True
             session.commit()
-            logger.debug(f"学習テキストの要素を更新: id={text_id}, elements={len(elements)}")
+            logger.debug(f"学習テキストの要素を更新: id={resolved_id}, elements={len(elements)}")
 
-    def set_folder_trigger_word(self, folder_id: int, trigger_word: str | None) -> None:
-        """フォルダのトリガーワードを設定する。
+    def update_working_folder_trigger_word(self, folder_id: int, trigger_word: str | None) -> None:
+        """作業中の版のフォルダのトリガーワードを更新する。
 
         Args:
             folder_id: `dataset_folders.id`。
-            trigger_word: トリガーワード。`None` で解除する。
+            trigger_word: トリガーワード。`None` または空文字で解除する。
 
         Raises:
             LookupError: フォルダが存在しない場合。
+            ValueError: 確定済みの版 (`is_working=False`) のフォルダを編集しようとした場合。
         """
         with self.session_factory() as session:
-            folder = session.get(DatasetFolder, folder_id)
-            if folder is None:
-                raise LookupError(f"フォルダが見つかりません: folder_id={folder_id}")
-            folder.trigger_word = trigger_word
+            folder = self._get_working_folder(session, folder_id)
+            cleaned = trigger_word.strip() if trigger_word is not None else None
+            folder.trigger_word = cleaned or None
             session.commit()
-            logger.debug(f"トリガーワードを設定: folder_id={folder_id}, trigger_word={trigger_word!r}")
+            logger.debug(
+                f"トリガーワードを設定: folder_id={folder_id}, trigger_word={folder.trigger_word!r}"
+            )
+
+    def set_folder_trigger_word(self, folder_id: int, trigger_word: str | None) -> None:
+        """作業中の版のフォルダのトリガーワードを設定する (`update_working_folder_trigger_word` の別名)。"""
+        self.update_working_folder_trigger_word(folder_id, trigger_word)
+
+    def add_image_to_working_folder(
+        self,
+        folder_id: int,
+        image_id: int,
+        file_stem: str,
+        elements: list[str] | None = None,
+        extension: str = ".txt",
+        auto_prepend_trigger_word: bool = True,
+    ) -> DatasetFolderImage:
+        """作業中の版のフォルダに画像と学習テキストを追加する。
+
+        `auto_prepend_trigger_word=True` かつフォルダに `trigger_word` が設定されていて、
+        まだ `elements` に含まれていない場合は先頭に付与する。
+
+        Args:
+            folder_id: `dataset_folders.id`。
+            image_id: 追加する `images.id`。
+            file_stem: フォルダ内でのファイル名 (拡張子なし)。
+            elements: 学習テキストの要素リスト。
+            extension: 学習テキストの拡張子 (既定 `.txt`)。
+            auto_prepend_trigger_word: トリガーワードを先頭に自動付与するか。
+
+        Returns:
+            追加した `DatasetFolderImage`。
+
+        Raises:
+            LookupError: フォルダが存在しない場合。
+            ValueError: 確定済みの版に対して呼んだ場合、または同名 `file_stem`・不正 `image_id` 等の制約違反。
+        """
+        normalized_ext = _normalize_extension(extension)
+        with self.session_factory() as session:
+            folder = self._get_working_folder(session, folder_id)
+            final_elements = list(elements) if elements is not None else []
+            if (
+                auto_prepend_trigger_word
+                and folder.trigger_word
+                and folder.trigger_word not in final_elements
+            ):
+                final_elements = [folder.trigger_word, *final_elements]
+
+            folder_image = DatasetFolderImage(
+                folder_id=folder.id,
+                image_id=image_id,
+                file_stem=file_stem,
+                learning_texts=[
+                    DatasetLearningText(
+                        extension=normalized_ext,
+                        raw_text=_join_elements(final_elements),
+                        elements_json=_dump_elements(final_elements),
+                        is_edited=True,
+                    )
+                ],
+            )
+            session.add(folder_image)
+            try:
+                session.commit()
+            except IntegrityError as e:
+                session.rollback()
+                raise DatasetConflictError(
+                    f"フォルダに画像を追加できません: folder_id={folder_id}, file_stem='{file_stem}'"
+                ) from e
+
+            loaded = session.execute(
+                select(DatasetFolderImage)
+                .where(DatasetFolderImage.id == folder_image.id)
+                .options(selectinload(DatasetFolderImage.learning_texts))
+            ).scalar_one()
+            session.expunge_all()
+            logger.debug(
+                f"作業中のフォルダに画像を追加: folder_id={folder_id}, image_id={image_id}, "
+                f"file_stem='{file_stem}'"
+            )
+            return loaded
+
+    def replace_image_in_working_folder(
+        self,
+        folder_id: int,
+        old_file_stem: str,
+        new_image_id: int,
+        new_file_stem: str | None = None,
+        inherit_texts: bool = True,
+    ) -> DatasetFolderImage:
+        """作業中の版のフォルダ内の画像を別画像に差し替える。
+
+        `inherit_texts=True` (既定) のときは旧画像の学習テキスト (`raw_text`・`elements`) をそのまま
+        引き継ぐ。`False` のときは学習テキストをリセットする (フォルダに `trigger_word` があれば
+        `.txt` にそのトリガーワードだけを残し、無ければ空にする)。
+
+        Args:
+            folder_id: `dataset_folders.id`。
+            old_file_stem: 差し替え元の `file_stem`。
+            new_image_id: 差し替え先の `images.id`。
+            new_file_stem: 新しい `file_stem`。`None` なら `old_file_stem` を維持する。
+            inherit_texts: 旧画像の学習テキストを引き継ぐか (既定 `True`)。
+
+        Returns:
+            更新後の `DatasetFolderImage`。
+
+        Raises:
+            LookupError: フォルダまたは差し替え元の画像が存在しない場合。
+            ValueError: 確定済みの版に対して呼んだ場合、または制約違反。
+        """
+        with self.session_factory() as session:
+            folder = self._get_working_folder(session, folder_id)
+            folder_image = session.execute(
+                select(DatasetFolderImage)
+                .where(
+                    DatasetFolderImage.folder_id == folder_id,
+                    DatasetFolderImage.file_stem == old_file_stem,
+                )
+                .options(selectinload(DatasetFolderImage.learning_texts))
+            ).scalar_one_or_none()
+            if folder_image is None:
+                raise LookupError(
+                    f"フォルダ内に画像が見つかりません: folder_id={folder_id}, file_stem='{old_file_stem}'"
+                )
+
+            folder_image.image_id = new_image_id
+            if new_file_stem is not None:
+                folder_image.file_stem = new_file_stem
+            if not inherit_texts:
+                _reset_folder_image_texts(folder_image, folder.trigger_word)
+
+            try:
+                session.commit()
+            except IntegrityError as e:
+                session.rollback()
+                raise DatasetConflictError(
+                    f"フォルダ内の画像を差し替えできません: folder_id={folder_id}, "
+                    f"old_file_stem='{old_file_stem}'"
+                ) from e
+
+            loaded = session.execute(
+                select(DatasetFolderImage)
+                .where(DatasetFolderImage.id == folder_image.id)
+                .options(selectinload(DatasetFolderImage.learning_texts))
+            ).scalar_one()
+            session.expunge_all()
+            logger.debug(
+                f"作業中のフォルダの画像を差し替え: folder_id={folder_id}, "
+                f"file_stem='{loaded.file_stem}', new_image_id={new_image_id}, "
+                f"inherit_texts={inherit_texts}"
+            )
+            return loaded
+
+    def remove_image_from_working_folder(self, folder_id: int, file_stem: str) -> None:
+        """作業中の版のフォルダから画像とその学習テキストを削除する。
+
+        Args:
+            folder_id: `dataset_folders.id`。
+            file_stem: 削除する画像の `file_stem`。
+
+        Raises:
+            LookupError: フォルダまたは対象の画像が存在しない場合。
+            ValueError: 確定済みの版に対して呼んだ場合。
+        """
+        with self.session_factory() as session:
+            self._get_working_folder(session, folder_id)
+            folder_image = session.execute(
+                select(DatasetFolderImage).where(
+                    DatasetFolderImage.folder_id == folder_id,
+                    DatasetFolderImage.file_stem == file_stem,
+                )
+            ).scalar_one_or_none()
+            if folder_image is None:
+                raise LookupError(
+                    f"フォルダ内に画像が見つかりません: folder_id={folder_id}, file_stem='{file_stem}'"
+                )
+            session.delete(folder_image)
+            session.commit()
+            logger.debug(f"作業中のフォルダから画像を削除: folder_id={folder_id}, file_stem='{file_stem}'")
+
+    def find_images_missing_trigger_word(
+        self,
+        version_id: int | DatasetVersion,
+        extension: str = ".txt",
+    ) -> list[DatasetFolderImage]:
+        """トリガーワードが設定されたフォルダ内で、学習テキスト要素にそのトリガーワードを含まない画像を返す。
+
+        Args:
+            version_id: `dataset_versions.id` または `DatasetVersion`。
+            extension: 検査する学習テキストの拡張子 (既定 `.txt`)。
+
+        Returns:
+            トリガーワードが欠落している `DatasetFolderImage` のリスト。
+
+        Raises:
+            LookupError: 版が存在しない場合。
+        """
+        resolved_id = _resolve_version_id(version_id)
+        normalized_ext = _normalize_extension(extension)
+        with self.session_factory() as session:
+            if session.get(DatasetVersion, resolved_id) is None:
+                raise LookupError(f"版が見つかりません: version_id={resolved_id}")
+            stmt = (
+                select(DatasetFolder)
+                .where(DatasetFolder.version_id == resolved_id)
+                .options(
+                    selectinload(DatasetFolder.images).selectinload(DatasetFolderImage.learning_texts),
+                    selectinload(DatasetFolder.images).selectinload(DatasetFolderImage.image),
+                    selectinload(DatasetFolder.images).selectinload(DatasetFolderImage.folder),
+                )
+                .order_by(DatasetFolder.position, DatasetFolder.id)
+            )
+            folders = list(session.execute(stmt).scalars())
+            missing: list[DatasetFolderImage] = []
+            for folder in folders:
+                if not folder.trigger_word:
+                    continue
+                for folder_image in sorted(folder.images, key=lambda i: i.id):
+                    if not _image_has_trigger_word(folder_image, folder.trigger_word, normalized_ext):
+                        missing.append(folder_image)
+            session.expunge_all()
+            return missing
+
+    def commit_working_version(
+        self,
+        version_id: int | DatasetVersion,
+        version_name: str | None = None,
+    ) -> DatasetVersion:
+        """作業中の版を確定して不変 (`is_working=False`) にする。
+
+        Args:
+            version_id: 確定する作業中の版の ID または `DatasetVersion`。
+            version_name: 確定時の新しい版名。`None` なら現在の名前を維持する。
+
+        Returns:
+            確定した `DatasetVersion` (`is_working=False`)。
+
+        Raises:
+            LookupError: 版が存在しない場合。
+            ValueError: 既に確定済みの版に対して呼んだ場合、版名が空の場合、または版名が衝突した場合。
+        """
+        resolved_id = _resolve_version_id(version_id)
+        if version_name is not None and not version_name.strip():
+            raise ValueError("版の名前を空にはできません")
+        with self.session_factory() as session:
+            version = session.get(DatasetVersion, resolved_id)
+            if version is None:
+                raise LookupError(f"版が見つかりません: version_id={resolved_id}")
+            if not version.is_working:
+                raise ValueError(f"既に確定済みの版です: version_id={resolved_id}")
+            if version_name is not None:
+                version.name = version_name
+            version.is_working = False
+            try:
+                session.commit()
+            except IntegrityError as e:
+                session.rollback()
+                raise DatasetConflictError(
+                    f"作業中の版を確定できません: version_id={resolved_id}, name={version.name!r}"
+                ) from e
+            loaded = self._load_detached_version(session, resolved_id)
+            logger.debug(f"作業中の版を確定: id={loaded.id}, name='{loaded.name}'")
+            return loaded
+
+    def discard_working_version(self, version_id: int | DatasetVersion) -> None:
+        """作業中の版 (`is_working=True`) を破棄し、そのフォルダ・画像所属・学習テキストを削除する。
+
+        確定済みの版 (`is_working=False`) は破棄できない。
+
+        Args:
+            version_id: 破棄する作業中の版の ID または `DatasetVersion`。
+
+        Raises:
+            LookupError: 版が存在しない場合。
+            ValueError: 確定済みの版 (`is_working=False`) を破棄しようとした場合。
+        """
+        resolved_id = _resolve_version_id(version_id)
+        with self.session_factory() as session:
+            version = session.get(DatasetVersion, resolved_id)
+            if version is None:
+                raise LookupError(f"版が見つかりません: version_id={resolved_id}")
+            if not version.is_working:
+                raise ValueError(f"確定済みの版は破棄できません: version_id={resolved_id}")
+            session.delete(version)
+            session.commit()
+            logger.debug(f"作業中の版を破棄: id={resolved_id}")
 
     def add_training_config(self, dataset_id: int, version_id: int | None, spec: TrainingConfigSpec) -> int:
         """学習設定を追加する。
@@ -648,6 +1178,7 @@ class DatasetRepository(BaseRepository):
                     DatasetVersion.created_at,
                     func.coalesce(folder_counts.c.folders, 0),
                     func.coalesce(image_counts.c.images, 0),
+                    DatasetVersion.is_working,
                 )
                 .join(Dataset, Dataset.id == DatasetVersion.dataset_id)
                 .outerjoin(folder_counts, folder_counts.c.version_id == DatasetVersion.id)
@@ -664,6 +1195,7 @@ class DatasetRepository(BaseRepository):
                     created_at=row[5],
                     folder_count=int(row[6]),
                     image_count=int(row[7]),
+                    is_working=bool(row[8]),
                 )
                 for row in session.execute(stmt).all()
             ]

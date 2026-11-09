@@ -237,7 +237,7 @@ class Dataset(Base):
 
 
 class DatasetVersion(Base):
-    """データセットの版。取り込み後の `raw_text` は書き換えない (固めた中身)。"""
+    """データセットの版。確定後の版 (`is_working=False`) は書き換えない (固めた中身)。"""
 
     __tablename__ = "dataset_versions"
 
@@ -248,6 +248,8 @@ class DatasetVersion(Base):
         ForeignKey("dataset_versions.id", ondelete="SET NULL")
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
+    # True = 編集可能な「作業中の版」(未確定)、False = 取り込み済みまたは確定済みの不変な版 (#1486)
+    is_working: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     created_at: Mapped[datetime.datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
     )
@@ -260,7 +262,10 @@ class DatasetVersion(Base):
     __table_args__ = (UniqueConstraint("dataset_id", "name", name="uix_dataset_versions_dataset_name"),)
 
     def __repr__(self) -> str:
-        return f"<DatasetVersion(id={self.id}, dataset_id={self.dataset_id}, name='{self.name}')>"
+        return (
+            f"<DatasetVersion(id={self.id}, dataset_id={self.dataset_id}, "
+            f"name='{self.name}', is_working={self.is_working})>"
+        )
 
 
 class DatasetFolder(Base):
@@ -321,6 +326,9 @@ class DatasetFolderImage(Base):
             f"<DatasetFolderImage(id={self.id}, folder_id={self.folder_id}, "
             f"image_id={self.image_id}, file_stem='{self.file_stem}')>"
         )
+
+
+DatasetImage = DatasetFolderImage
 
 
 class DatasetLearningText(Base):

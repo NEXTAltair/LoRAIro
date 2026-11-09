@@ -129,16 +129,21 @@ def test_unedited_export_matches_raw_text_exactly(
 def test_edited_text_is_exported_from_elements(
     service: KohyaDatasetExportService, repo: DatasetRepository, version_id: int, tmp_path: Path
 ) -> None:
-    snapshot = repo.get_version_snapshot(version_id)
+    dataset_id = repo.ensure_dataset("ds")
+    working = repo.create_working_version(dataset_id, base_version_id=version_id, version_name="v2")
+    snapshot = repo.get_version_snapshot(working.id)
     text_id = snapshot.folders[0].images[0].texts[0].id
     repo.update_learning_text_elements(text_id, ["Kariginu", "new_tag"])
+    committed = repo.commit_working_version(working.id)
 
     out = tmp_path / "out"
-    service.export_version(version_id, out)
+    service.export_version(committed.id, out)
 
     assert (out / "10_a" / "x.txt").read_text(encoding="utf-8", newline="") == "Kariginu, new_tag"
     # 編集していない側は raw_text のまま
     assert (out / "5_b" / "x.txt").read_text(encoding="utf-8", newline="") == "other, tags"
+    # 派生元の確定済み版は書き換わっていない
+    assert repo.get_version_snapshot(version_id).folders[0].images[0].texts[0].is_edited is False
 
 
 def test_export_layout_and_images(
