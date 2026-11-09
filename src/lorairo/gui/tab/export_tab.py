@@ -200,8 +200,21 @@ class ExportTabWidget(QWidget):
             return
         repository = DatasetRepository(session_factory=self._db_manager.image_repo.session_factory)
         dialog = KohyaVersionExportDialog(repository, self)
+        dialog.tags_mutated.connect(self._on_kohya_tags_mutated)
         dialog.exec()
         dialog.deleteLater()
+
+    @Slot()
+    def _on_kohya_tags_mutated(self) -> None:
+        """Kohya 学習テキストのタグ反映・取り消し後に集計・選択状態・プレビューを更新する (#1490)。"""
+        if not self._image_ids:
+            return
+        active = self._active_filter_tag
+        if self._aggregation_service is not None:
+            self._staging_tag_panel.load_tags(self._image_ids)
+        if self._dataset_state_manager is not None:
+            self._dataset_state_manager.refresh_images(self._image_ids)
+        self._on_filter_tag_changed(active)
 
     def _setup_widgets(self) -> None:
         """再利用ウィジェットを各 manager へ接続する (検索タブ _setup_widgets と同型)。"""

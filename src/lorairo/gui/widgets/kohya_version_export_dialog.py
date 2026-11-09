@@ -67,6 +67,9 @@ def _unmapped_keys(config: TrainingConfigSnapshot) -> list[str]:
 class KohyaVersionExportDialog(QDialog):
     """データセットの版の一覧と、選んだ版の Kohya-ss 形式での書き出し。"""
 
+    # タグの反映・取り消しで DB のタグ行が変化したときに親タブへ通知する
+    tags_mutated = Signal()
+
     # worker スレッドから GUI スレッドへ結果を渡す (受け手はダイアログ = GUI スレッド)
     _versions_loaded = Signal(object)
     _detail_loaded = Signal(int, object)
@@ -414,6 +417,8 @@ class KohyaVersionExportDialog(QDialog):
             f"学習テキストのタグ反映完了: folders={result.folders}, images={result.images}, "
             f"added={result.tags_added}, skipped={result.tags_skipped}"
         )
+        if result.tags_added > 0:
+            self.tags_mutated.emit()
         show_information(self, "学習テキストのタグ反映完了", "\n".join(lines))
 
     @Slot()
@@ -492,6 +497,8 @@ class KohyaVersionExportDialog(QDialog):
             f"KOHYA_DATASET タグ取り消し完了: folders={result.folders}, images={result.images}, "
             f"removed={result.tags_removed}"
         )
+        if result.tags_removed > 0:
+            self.tags_mutated.emit()
         show_information(self, "写したタグの取り消し完了", "\n".join(lines))
 
     @Slot()
