@@ -409,11 +409,15 @@ def create_db_engine(database_url: str | None = None) -> Engine:
 
     # --- イベントリスナー設定 ---
     # リスナー関数をエンジン作成時に動的に定義・登録する
+    # Note: listener クロージャが engine インスタンス自体を捕捉すると参照サイクル
+    # (engine -> dispatch -> listener -> engine) が生じ、dispose 忘れ時に GC 回収まで
+    # 接続プールと -wal/-shm が解放されないため、backend 判定は事前評価する (#1498)。
+    is_sqlite = engine.url.get_backend_name() == "sqlite"
 
     @event.listens_for(engine, "connect")
     def configure_sqlite_listener(dbapi_connection: Any, connection_record: Any) -> None:
         """SQLite の外部キー制約と低 I/O 向け PRAGMA を設定します。"""
-        if engine.url.get_backend_name() != "sqlite":
+        if not is_sqlite:
             return
 
         cursor = dbapi_connection.cursor()

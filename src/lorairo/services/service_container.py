@@ -36,6 +36,61 @@ from .model_sync_service import ModelSyncService
 from .project_management_service import ProjectManagementService
 
 
+def _get_attr_if_present(obj: object, name: str) -> Any:
+    """Mock の自動属性生成を避けつつ、設定済み属性のみ安全に取得する (#1498)。"""
+    if obj is None:
+        return None
+    obj_dict = getattr(obj, "__dict__", {})
+    if name in obj_dict:
+        return getattr(obj, name, None)
+    mock_children = obj_dict.get("_mock_children")
+    if isinstance(mock_children, dict) and name in mock_children:
+        return mock_children[name]
+    if hasattr(type(obj), name):
+        return getattr(obj, name, None)
+    return None
+
+
+def _extract_engines(target: object) -> list[Any]:
+    """Repository / SessionFactory / DBManager から dispose 可能な Engine を抽出する (#1498)。"""
+    if target is None:
+        return []
+    engines: list[Any] = []
+
+    direct_engine = _get_attr_if_present(target, "engine")
+    if direct_engine is not None:
+        engines.append(direct_engine)
+
+    direct_bind = _get_attr_if_present(target, "bind")
+    if direct_bind is not None:
+        engines.append(direct_bind)
+
+    kw = _get_attr_if_present(target, "kw")
+    if isinstance(kw, dict) and kw.get("bind") is not None:
+        engines.append(kw["bind"])
+
+    session_factory = _get_attr_if_present(target, "session_factory")
+    if session_factory is not None and session_factory is not target:
+        engines.extend(_extract_engines(session_factory))
+
+    for repo_attr in (
+        "image_repo",
+        "model_repo",
+        "project_repo",
+        "error_record_repo",
+        "annotation_repo",
+        "provider_batch_repo",
+        "crop_relation_repo",
+        "generation_metadata_repo",
+        "_ignore_repo",
+    ):
+        repo = _get_attr_if_present(target, repo_attr)
+        if repo is not None and repo is not target:
+            engines.extend(_extract_engines(repo))
+
+    return engines
+
+
 class ServiceContainer:
     """LoRAIroサービス依存関係一元管理コンテナ
 
@@ -160,6 +215,7 @@ class ServiceContainer:
     @image_repository.deleter
     def image_repository(self) -> None:
         """画像リポジトリ削除（テスト用）"""
+        self._dispose_active_engines()
         self._image_repository = None
 
     @property
@@ -428,6 +484,10 @@ class ServiceContainer:
         project_info = self.project_management_service.get_project(project_name)
         db_path = project_info.path / "image_database.db"
 
+        # 既存プロジェクトや直前呼び出しの SQLAlchemy Engine を先に破棄して
+        # WAL/SHM ロックや接続プールを GC ファイナライザへ漏らさない (#1498)
+        self._dispose_active_engines()
+
         # P1: _get_current_project_id() が get_current_project_root() → IMG_DB_PATH.parent を
         # 参照するため、セッション切り替えと同時にグローバルも更新して project_id が
         # 正しいプロジェクトに紐付くようにする
@@ -485,12 +545,38 @@ class ServiceContainer:
             "environment": "CLI" if self._cli_mode else "GUI",
         }
 
+    def _dispose_active_engines(self) -> None:
+        """初期化済みの Repository / DBManager が保持する SQLAlchemy Engine を明示破棄する (#1498)。
+
+        プロジェクト切替やテスト終了時のシングルトンリセットで Engine を未破棄のまま
+        参照解放すると、SQLite WAL/SHM ファイルディスクリプタや QueuePool 接続が
+        循環参照 GC 回収まで生存し、任意スレッドの GC ファイナライザでロック競合を
+        起こすため、参照クリア前に明示的に ``engine.dispose()`` を呼ぶ。
+        """
+        seen_ids: set[int] = set()
+        for source in (self._image_repository, self._db_manager, self._refinement_service):
+            for engine in _extract_engines(source):
+                engine_id = id(engine)
+                if engine_id in seen_ids:
+                    continue
+                seen_ids.add(engine_id)
+                dispose = getattr(engine, "dispose", None)
+                if callable(dispose):
+                    try:
+                        dispose()
+                        logger.debug(f"Disposed SQLAlchemy engine: {engine}")
+                    except Exception:
+                        logger.opt(exception=True).warning("Failed to dispose SQLAlchemy engine")
+
     def reset_container(self) -> None:
         """ServiceContainer状態リセット（主にテスト用）
 
         注意: 本番環境では使用しないこと
         """
         logger.warning("ServiceContainer状態リセット実行")
+
+        # 保持中の SQLAlchemy Engine を明示破棄してから参照をクリア (#1498)
+        self._dispose_active_engines()
 
         # 全サービスインスタンスクリア
         self._config_service = None
@@ -592,6 +678,7 @@ def service_container_scope() -> Iterator[ServiceContainer]:
         try:
             yield container
         finally:
+            container._dispose_active_engines()
             db_core.IMG_DB_PATH = previous_db_path
             _SCOPED_CONTAINER.reset(token)
             if strict:
