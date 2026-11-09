@@ -1404,7 +1404,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     # Placeholder methods for UI actions - implement these based on your requirements
     def select_dataset_directory(self) -> DatasetSelection | None:
         """データセット選択（ディレクトリ + 任意の Kohya 設定 JSON）"""
-        return DatasetSelectDialog.get_selection(self)
+        parent_versions = (
+            self.dataset_controller.get_parent_versions_by_dataset()
+            if self.dataset_controller is not None
+            else None
+        )
+        return DatasetSelectDialog.get_selection(self, parent_versions_by_dataset=parent_versions)
 
     def select_and_process_dataset(self) -> None:
         """データセット選択と自動処理開始（DatasetControllerに委譲）"""

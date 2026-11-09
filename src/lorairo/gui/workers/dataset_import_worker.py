@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
@@ -37,6 +38,7 @@ class DatasetImportWorker(LoRAIroWorkerBase[DatasetImportResult]):
         db_manager: ImageDatabaseManager,
         fsm: FileSystemManager,
         folder_overrides: list[FolderOverride] | None = None,
+        parent_version_id: int | None = None,
     ) -> None:
         """ワーカー初期化。
 
@@ -49,6 +51,7 @@ class DatasetImportWorker(LoRAIroWorkerBase[DatasetImportResult]):
             fsm: 初期化済み FileSystemManager。
             folder_overrides: 確認画面で確定したフォルダごとの値 (取捨・繰り返し回数・トリガーワード)。
                 `None` ならスキャン結果の計画のまま取り込む。
+            parent_version_id: 親の版 ID。未指定なら `None`。
         """
         super().__init__(db_manager=db_manager)
         self._root = root
@@ -57,6 +60,7 @@ class DatasetImportWorker(LoRAIroWorkerBase[DatasetImportResult]):
         self._config_files = config_files
         self._fsm = fsm
         self._folder_overrides = folder_overrides
+        self._parent_version_id = parent_version_id
 
     def execute(self) -> DatasetImportResult:
         """取り込みを実行する。
@@ -79,6 +83,8 @@ class DatasetImportWorker(LoRAIroWorkerBase[DatasetImportResult]):
         # 版名の候補 (output_name) も選択された JSON から作る
         config_files = [path.resolve() for path in self._config_files]
         plan = service.propose_plan(self._root, self._dataset_name, self._version_name, config_files)
+        if self._parent_version_id is not None:
+            plan = replace(plan, parent_version_id=self._parent_version_id)
         if self._folder_overrides is not None:
             plan = apply_folder_overrides(plan, self._folder_overrides)
 

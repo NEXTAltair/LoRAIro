@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import QWidget
 
+from ...database.repository.dataset import DatasetRepository
 from ...utils.log import logger
 from ..message_box import show_critical, show_information, show_warning
 from ..widgets.dataset_select_dialog import DatasetSelection
@@ -89,6 +90,28 @@ class DatasetController:
         # 2. バッチ登録処理開始
         self._start_batch_registration(directory, folder_tags)
 
+    def get_parent_versions_by_dataset(self) -> dict[str, list[tuple[int, str]]]:
+        """既存データセットごとの版一覧 `(version_id, version_name)` を取得する。
+
+        ダイアログ自身は DB に直接アクセスしないため、Controller 側で取得して渡す (#1478)。
+        """
+        image_repo = getattr(self.db_manager, "image_repo", None) if self.db_manager is not None else None
+        session_factory = getattr(image_repo, "session_factory", None) if image_repo is not None else None
+        if not callable(session_factory):
+            return {}
+        try:
+            repository = DatasetRepository(session_factory=session_factory)
+            versions = repository.list_versions()
+        except Exception:
+            logger.opt(exception=True).warning("親の版一覧の取得に失敗しました")
+            return {}
+        by_dataset: dict[str, list[tuple[int, str]]] = {}
+        for version in versions:
+            by_dataset.setdefault(version.dataset_name, []).append(
+                (version.version_id, version.version_name)
+            )
+        return by_dataset
+
     def _start_dataset_import(self, selection: DatasetSelection) -> None:
         """Kohya データセット取り込みを開始する（内部メソッド）。
 
@@ -105,14 +128,26 @@ class DatasetController:
             assert worker_service is not None
 
             file_system_manager.initialize_from_dataset_selection(selection.directory)
-            worker_id = worker_service.start_dataset_import(
-                selection.directory,
-                selection.dataset_name or selection.directory.name,
-                selection.version_name,
-                list(selection.config_files),
-                file_system_manager,
-                list(selection.folder_overrides) if selection.folder_overrides is not None else None,
-            )
+            overrides = list(selection.folder_overrides) if selection.folder_overrides is not None else None
+            if selection.parent_version_id is not None:
+                worker_id = worker_service.start_dataset_import(
+                    selection.directory,
+                    selection.dataset_name or selection.directory.name,
+                    selection.version_name,
+                    list(selection.config_files),
+                    file_system_manager,
+                    overrides,
+                    parent_version_id=selection.parent_version_id,
+                )
+            else:
+                worker_id = worker_service.start_dataset_import(
+                    selection.directory,
+                    selection.dataset_name or selection.directory.name,
+                    selection.version_name,
+                    list(selection.config_files),
+                    file_system_manager,
+                    overrides,
+                )
             logger.info(f"Kohya取り込み開始: worker_id={worker_id}, directory={selection.directory}")
         except (RuntimeError, OSError, ValueError) as e:
             error_msg = f"データセット取り込みの開始に失敗しました: {e}"

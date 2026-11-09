@@ -723,6 +723,7 @@ class WorkerService(QObject):
         config_files: list[Path],
         fsm: FileSystemManager,
         folder_overrides: list[FolderOverride] | None = None,
+        parent_version_id: int | None = None,
     ) -> str:
         """Kohya データセット取り込みワーカーを開始する。
 
@@ -733,6 +734,7 @@ class WorkerService(QObject):
             config_files: 版に紐づける設定 JSON。
             fsm: 初期化済み FileSystemManager。
             folder_overrides: 確認画面で確定したフォルダごとの値。`None` ならスキャン結果のまま。
+            parent_version_id: 親の版 ID。未指定なら `None`。
 
         Returns:
             ワーカーID。
@@ -741,7 +743,14 @@ class WorkerService(QObject):
             RuntimeError: ワーカーを開始できなかった場合。
         """
         worker = DatasetImportWorker(
-            root, dataset_name, version_name, config_files, self.db_manager, fsm, folder_overrides
+            root,
+            dataset_name,
+            version_name,
+            config_files,
+            self.db_manager,
+            fsm,
+            folder_overrides,
+            parent_version_id=parent_version_id,
         )
         worker_id = f"dataset_import_{uuid.uuid4().hex[:8]}"
         self._register_operation(worker_id, OperationType.DATASET_IMPORT)
