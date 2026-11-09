@@ -33,7 +33,10 @@ from lorairo.database.access_policy import read_only_scope
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.database.repository.annotation_record import AnnotationRepository
 from lorairo.domain.crop_request import DEFAULT_CROP_ORIGIN, CropCreateRequest, CropRect
-from lorairo.domain.generation_metadata import GenerationMetadataAnalysisItem
+from lorairo.domain.generation_metadata import (
+    AiGeneratedTagBatchResult,
+    GenerationMetadataAnalysisItem,
+)
 from lorairo.public_api.exceptions import ImageNotFoundError, ResultSetTooLargeError
 from lorairo.public_api.images import register_images as api_register_images
 from lorairo.public_api.project import get_project as api_get_project
@@ -849,8 +852,8 @@ def analyze_metadata(
             raise typer.Exit(result_exit_code("partial_success" if counts.get("analyzed") else "failed"))
 
 
-def _parse_analyze_image_ids(positional: list[str] | None, csv: str | None, force: bool) -> list[int]:
-    """analyze-metadata の画像 ID 指定を検証して返す。省略時は空リスト。"""
+def _parse_optional_image_ids(positional: list[str] | None, csv: str | None) -> list[int]:
+    """任意の画像 ID 指定を検証して返す。省略時は空リスト。"""
     id_sources = list(positional or [])
     if csv:
         id_sources.append(csv)
@@ -859,6 +862,12 @@ def _parse_analyze_image_ids(positional: list[str] | None, csv: str | None, forc
         raise click.UsageError("画像 ID に有効な値がありません。")
     if len(image_ids) > MAX_IMAGE_IDS:
         raise click.UsageError(f"画像 ID は最大 {MAX_IMAGE_IDS} 件まで。")
+    return image_ids
+
+
+def _parse_analyze_image_ids(positional: list[str] | None, csv: str | None, force: bool) -> list[int]:
+    """analyze-metadata の画像 ID 指定を検証して返す。省略時は空リスト。"""
+    image_ids = _parse_optional_image_ids(positional, csv)
     if force and not image_ids:
         raise click.UsageError("--force は画像 ID と一緒に指定してください。")
     return image_ids
@@ -905,6 +914,79 @@ def _report_generation_analysis(
             + f", remaining_unanalyzed={remaining}, next_after_id={next_after_id}"
         )
     return counts
+
+
+@app.command("tag-ai-generated")
+def tag_ai_generated(
+    image_ids_positional: list[str] | None = typer.Argument(
+        None,
+        metavar="[IMAGE_IDS]...",
+        help="Image IDs (space or comma separated). Omit to target all images in the project.",
+    ),
+    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    image_ids_csv: str | None = typer.Option(None, "--image-ids", help="Comma-separated image IDs"),
+    revoke: bool = typer.Option(
+        False,
+        "--revoke",
+        help="Delete ai generated tag rows added by GENERATION_METADATA instead of adding.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Count tags that would be added or revoked without writing.",
+    ),
+) -> None:
+    """Apply or revoke the ai generated tag in bulk from saved generation metadata (ADR 0107).
+
+    保存済みの生成メタデータを根拠 (`is_ai_generation_evidence`) に、既存の画像へ擬似モデル
+    GENERATION_METADATA の `ai generated` タグを一括で付けます。他のモデルや手入力・関連ファイルの
+    同じタグ (大小・アンダースコア違いや soft-reject 済みを含む) が既にある画像は飛ばします。
+    --revoke は GENERATION_METADATA のタグ行だけを一括で削除します。--dry-run は書き込まずに件数を返します。
+    """
+    with command_boundary():
+        image_ids = _parse_optional_image_ids(image_ids_positional, image_ids_csv)
+        api_get_project(project)
+
+        container = get_service_container()
+        container.set_active_project(project)
+        if image_ids:
+            validate_image_ids_exist(container, image_ids)
+        target_ids = image_ids or None
+        db_manager = container.db_manager
+        result = (
+            db_manager.revoke_ai_generated_tags_batch(target_ids, dry_run=dry_run)
+            if revoke
+            else db_manager.apply_ai_generated_tags_batch(target_ids, dry_run=dry_run)
+        )
+        _report_ai_generated_tag_batch(result)
+
+
+def _report_ai_generated_tag_batch(result: AiGeneratedTagBatchResult) -> None:
+    """tag-ai-generated の結果を出力する。"""
+    if result.revoked:
+        verb = "Would revoke" if result.dry_run else "Revoked"
+        message = f"{verb} {result.tags_revoked} GENERATION_METADATA tag(s)"
+    else:
+        verb = "Would add" if result.dry_run else "Added"
+        message = f"{verb} ai generated tag to {result.tags_added} image(s)"
+    if is_json_mode():
+        emit_result(
+            message,
+            dry_run=result.dry_run,
+            revoked=result.revoked,
+            target_images=result.target_images,
+            evidence_images=result.evidence_images,
+            tags_added=result.tags_added,
+            tags_skipped=result.tags_skipped,
+            tags_revoked=result.tags_revoked,
+        )
+        return
+    console.print(message)
+    console.print(
+        f"target_images={result.target_images}, evidence_images={result.evidence_images}, "
+        f"tags_added={result.tags_added}, tags_skipped={result.tags_skipped}, "
+        f"tags_revoked={result.tags_revoked}, dry_run={result.dry_run}, revoked={result.revoked}"
+    )
 
 
 @app.command("crop")

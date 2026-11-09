@@ -152,3 +152,16 @@ class GenerationMetadataAnalysisItem:
     action: str
     status: GenerationMetadataStatus | None = None
     tool: str | None = None
+
+
+@dataclass(frozen=True)
+class AiGeneratedTagBatchResult:
+    """保存済みの生成メタデータを根拠に ``ai generated`` を一括付与・取消した結果 (ADR 0107, #1502)。"""
+
+    target_images: int
+    evidence_images: int = 0
+    tags_added: int = 0
+    tags_skipped: int = 0
+    tags_revoked: int = 0
+    dry_run: bool = False
+    revoked: bool = False

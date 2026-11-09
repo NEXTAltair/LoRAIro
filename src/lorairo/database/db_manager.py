@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from ..domain.crop_request import DEFAULT_CROP_ORIGIN
 from ..domain.generation_metadata import (
+    AiGeneratedTagBatchResult,
     GenerationEvidence,
     GenerationMetadataAnalysisItem,
     GenerationMetadataResult,
@@ -2040,6 +2041,34 @@ class ImageDatabaseManager:
                 f"ai generated タグの付与に失敗 (画像登録は継続): image_id={image_id}"
             )
             return False
+
+    def apply_ai_generated_tags_batch(
+        self, image_ids: list[int] | None = None, *, dry_run: bool = False
+    ) -> AiGeneratedTagBatchResult:
+        """保存済みの生成メタデータを根拠に、既存画像へ `ai generated` を一括で付ける (#1502, ADR 0107)。
+
+        Args:
+            image_ids: 対象の画像 ID。None ならプロジェクト内の全画像。
+            dry_run: True なら件数だけ数えて書き込まない。
+
+        Returns:
+            対象画像数・根拠あり画像数・追加件数・重複による skip 件数。
+        """
+        return self.generation_metadata_repo.apply_ai_generated_tags_batch(image_ids, dry_run=dry_run)
+
+    def revoke_ai_generated_tags_batch(
+        self, image_ids: list[int] | None = None, *, dry_run: bool = False
+    ) -> AiGeneratedTagBatchResult:
+        """`GENERATION_METADATA` で付けたタグ行を一括で削除する (#1502, ADR 0107)。
+
+        Args:
+            image_ids: 対象の画像 ID。None ならプロジェクト内の全画像。
+            dry_run: True なら件数だけ数えて削除しない。
+
+        Returns:
+            対象画像数・削除件数。
+        """
+        return self.generation_metadata_repo.revoke_ai_generated_tags_batch(image_ids, dry_run=dry_run)
 
     def get_generation_evidence(self, image_id: int) -> GenerationEvidence | None:
         """AI 生成の判定に使う解析結果の要約を返す (#1396 向け, ADR 0106)。

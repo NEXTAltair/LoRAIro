@@ -1493,6 +1493,56 @@ Structured error payload emitted as kind=error by the CLI boundary.
 - `hint`: `str?` (optional, default `None`)
 - `details`: `dict?` (optional, default `None`)
 
+### `images tag-ai-generated`
+
+Apply or revoke the ai generated tag in bulk from saved generation metadata (pseudo model GENERATION_METADATA, ADR 0107). Use --dry-run to preview counts.
+
+- Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
+- Side effects: `db_read`, `db_write`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "images tag-ai-generated"
+```
+
+#### Models
+
+**Input `ImagesTagAiGeneratedInput`**
+
+- `image_ids`: `str?` (optional, default `None`) - Comma-separated image IDs, max 500. Omit to target all images in the project. (CLI: `image_ids_positional`, `--image-ids`)
+- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `revoke`: `bool` (optional, default `False`) - Delete ai generated tag rows added by GENERATION_METADATA instead of adding. (CLI: `--revoke`)
+- `dry_run`: `bool` (optional, default `False`) - Count tags that would be added or revoked without writing. (CLI: `--dry-run`)
+
+**Output `ImagesTagAiGeneratedResult`**
+
+- `kind`: `result` (optional, default `result`)
+- `ok`: `true` (optional, default `True`)
+- `message`: `str` (required)
+- `dry_run`: `bool` (required)
+- `revoked`: `bool` (required)
+- `target_images`: `int` (required)
+- `evidence_images`: `int` (required)
+- `tags_added`: `int` (required)
+- `tags_skipped`: `int` (required)
+- `tags_revoked`: `int` (required)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (optional, default `error`)
+- `ok`: `false` (optional, default `False`)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional, default `None`)
+- `details`: `dict?` (optional, default `None`)
+
 ### `images update`
 
 Add tags to images in a project.

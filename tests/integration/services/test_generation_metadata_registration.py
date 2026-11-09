@@ -347,3 +347,41 @@ def test_tag_failure_does_not_stop_registration(tmp_path, gen_db, fs_manager, mo
 
     assert result.outcome is RegistrationOutcome.REGISTERED
     assert _tags(factory, "img.png") == []
+
+
+def test_backfill_and_revoke_after_analyze_metadata(tmp_path, gen_db, fs_manager) -> None:
+    """機能追加前の画像に analyze_generation_metadata → apply_ai_generated_tags_batch で付与・取り消しできる (#1502)。"""
+    manager, factory = gen_db
+    webui = manager.register_image_with_side_effects(
+        _png(tmp_path / "webui.png", A1111_TEXT, size=(64, 64)), fs_manager
+    )
+    plain = manager.register_image_with_side_effects(
+        _png(tmp_path / "plain.png", None, size=(80, 64)), fs_manager
+    )
+    assert webui.image_id is not None and plain.image_id is not None
+
+    # 機能追加前に登録された状態を模して、生成メタデータと自動付与タグを消す
+    with factory() as session:
+        session.query(Tag).delete()
+        session.query(GenerationMetadataSource).delete()
+        session.query(GenerationMetadata).delete()
+        session.commit()
+
+    # 再解析はタグに触れない (ADR 0106)
+    manager.analyze_generation_metadata([webui.image_id, plain.image_id])
+    assert _tags(factory, "webui.png") == []
+
+    # dry-run で件数だけ確認し、本番で付与する
+    assert manager.apply_ai_generated_tags_batch(dry_run=True).tags_added == 1
+    assert _tags(factory, "webui.png") == []
+
+    applied = manager.apply_ai_generated_tags_batch()
+    assert (applied.target_images, applied.evidence_images, applied.tags_added) == (2, 1, 1)
+    assert _tags(factory, "webui.png") == [("ai generated", "__generation_metadata__")]
+    assert _tags(factory, "plain.png") == []
+
+    # 手動タグを足した後、GENERATION_METADATA だけを一括で取り消せる
+    manager.add_manual_tag(webui.image_id, "1girl")
+    revoked = manager.revoke_ai_generated_tags_batch()
+    assert revoked.tags_revoked == 1
+    assert _tags(factory, "webui.png") == [("1girl", "__manual_edit__")]

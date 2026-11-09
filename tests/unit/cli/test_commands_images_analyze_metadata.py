@@ -7,7 +7,11 @@ import pytest
 from typer.testing import CliRunner
 
 from lorairo.cli.main import app
-from lorairo.domain.generation_metadata import GenerationMetadataAnalysisItem, GenerationMetadataStatus
+from lorairo.domain.generation_metadata import (
+    AiGeneratedTagBatchResult,
+    GenerationMetadataAnalysisItem,
+    GenerationMetadataStatus,
+)
 
 runner = CliRunner()
 
@@ -83,3 +87,77 @@ class TestImagesAnalyzeMetadata:
 
         assert result.exit_code == 3
         assert "file_missing" in result.output
+
+
+@pytest.mark.unit
+class TestImagesTagAiGenerated:
+    def test_apply_across_project_and_json_output(self, container: MagicMock) -> None:
+        container.db_manager.apply_ai_generated_tags_batch.return_value = AiGeneratedTagBatchResult(
+            target_images=10,
+            evidence_images=4,
+            tags_added=3,
+            tags_skipped=1,
+            tags_revoked=0,
+            dry_run=False,
+            revoked=False,
+        )
+
+        result = runner.invoke(app, ["--json", "images", "tag-ai-generated", "-p", "proj"])
+
+        assert result.exit_code == 0, result.output
+        container.db_manager.apply_ai_generated_tags_batch.assert_called_once_with(None, dry_run=False)
+        summary = next(r for r in _rows(result.output) if r.get("kind") == "result")
+        assert summary == {
+            "kind": "result",
+            "ok": True,
+            "message": "Added ai generated tag to 3 image(s)",
+            "dry_run": False,
+            "revoked": False,
+            "target_images": 10,
+            "evidence_images": 4,
+            "tags_added": 3,
+            "tags_skipped": 1,
+            "tags_revoked": 0,
+        }
+
+    def test_dry_run_with_image_ids_validates_and_forwards(self, container: MagicMock) -> None:
+        container.db_manager.apply_ai_generated_tags_batch.return_value = AiGeneratedTagBatchResult(
+            target_images=2,
+            evidence_images=2,
+            tags_added=1,
+            tags_skipped=1,
+            tags_revoked=0,
+            dry_run=True,
+            revoked=False,
+        )
+
+        result = runner.invoke(
+            app, ["images", "tag-ai-generated", "42", "--image-ids", "57", "-p", "proj", "--dry-run"]
+        )
+
+        assert result.exit_code == 0, result.output
+        container.db_manager.apply_ai_generated_tags_batch.assert_called_once_with([42, 57], dry_run=True)
+        assert "Would add ai generated tag to 1 image(s)" in result.output
+        assert "tags_added=1" in result.output
+
+    def test_revoke_forwards_to_revoke_batch(self, container: MagicMock) -> None:
+        container.db_manager.revoke_ai_generated_tags_batch.return_value = AiGeneratedTagBatchResult(
+            target_images=2,
+            evidence_images=0,
+            tags_added=0,
+            tags_skipped=0,
+            tags_revoked=2,
+            dry_run=True,
+            revoked=True,
+        )
+
+        result = runner.invoke(
+            app, ["--json", "images", "tag-ai-generated", "42,57", "-p", "proj", "--revoke", "--dry-run"]
+        )
+
+        assert result.exit_code == 0, result.output
+        container.db_manager.revoke_ai_generated_tags_batch.assert_called_once_with([42, 57], dry_run=True)
+        summary = next(r for r in _rows(result.output) if r.get("kind") == "result")
+        assert summary["revoked"] is True
+        assert summary["dry_run"] is True
+        assert summary["tags_revoked"] == 2
