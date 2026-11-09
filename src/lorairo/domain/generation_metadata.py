@@ -1,4 +1,4 @@
-"""生成メタデータの共有型 (ADR 0105, Issue #1481)。
+"""生成メタデータの共有型 (ADR 0105, Issue #1481 / #1503)。
 
 parser (`services/generation_metadata_parser.py`)・Repository・登録経路が共有する plain な型。
 Qt / DB / service を import しない。
@@ -9,8 +9,10 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Any
 
-PARSER_VERSION = "1"
+PARSER_VERSION = "2"
+GENERATION_METADATA_PARSER_VERSION = PARSER_VERSION
 
 
 class GenerationMetadataStatus(StrEnum):
@@ -55,7 +57,7 @@ class GenerationMetadataSource:
 
 @dataclass(frozen=True)
 class LoraReference:
-    """プロンプト内の LoRA 参照。重みは表記のまま文字列で持つ。"""
+    """プロンプトまたはノード内の LoRA 参照。重みは表記のまま文字列で持つ。"""
 
     name: str
     weight: str | None
@@ -76,7 +78,7 @@ class GenerationParameters:
     cfg_scale: float | None = None
     loras: tuple[LoraReference, ...] = ()
     # 共通項目に含めなかった key: value (原文の値のまま)
-    extra: dict[str, str] = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -90,6 +92,11 @@ class GenerationMetadataResult:
     sources: tuple[GenerationMetadataSource, ...] = ()
     parameters: GenerationParameters | None = None
     error_message: str | None = None
+
+    @property
+    def error_reason(self) -> str | None:
+        """エラー理由 (``error_message`` の別名)。"""
+        return self.error_message
 
     @property
     def input_sha256(self) -> str | None:

@@ -1,4 +1,4 @@
-"""`GenerationMetadataRepository` の単体テスト (ADR 0105, Issue #1481)。"""
+"""`GenerationMetadataRepository` の単体テスト (ADR 0105, Issue #1481 / #1503)。"""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from lorairo.database.repository.generation_metadata import GenerationMetadataRepository
 from lorairo.database.schema import Image
 from lorairo.domain.generation_metadata import (
+    PARSER_VERSION,
     GenerationMetadataResult,
     GenerationMetadataSource,
     GenerationMetadataStatus,
@@ -75,7 +76,7 @@ def test_save_and_read_back_parsed_result(repo, db_session_factory) -> None:
     assert row.status == "parsed"
     assert row.tool == "sd_webui"
     assert row.parser_name == "sd_webui"
-    assert row.parser_version == "1"
+    assert row.parser_version == PARSER_VERSION
     assert row.positive_prompt == "cat,\n(dog:1.2)"
     assert row.seed == "18446744073709551615"
     assert row.steps == 20
