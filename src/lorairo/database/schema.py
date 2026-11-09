@@ -960,6 +960,10 @@ class GenerationMetadata(Base):
         return f"<GenerationMetadata(id={self.id}, image_id={self.image_id}, status='{self.status}')>"
 
 
+# 互換エイリアス
+ImageGenerationMetadata = GenerationMetadata
+
+
 class ProviderBatchJob(Base):
     """プロバイダ Batch API の永続 job 状態。"""
 

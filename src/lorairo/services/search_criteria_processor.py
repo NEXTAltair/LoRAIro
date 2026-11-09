@@ -262,6 +262,28 @@ class SearchCriteriaProcessor:
             logger.opt(exception=True).error(f"タグフィルターロジック処理中にエラー: {e}")
             return {}
 
+    def process_generation_metadata_filter(self, conditions: SearchConditions) -> dict[str, str]:
+        """生成メタデータフィルター条件の抽出 (Issue #1483)。
+
+        Args:
+            conditions: 検索条件。
+
+        Returns:
+            指定されている生成メタデータ条件の辞書。
+        """
+        result: dict[str, str] = {}
+        for attr in (
+            "generation_status",
+            "generation_tool",
+            "generation_model",
+            "generation_lora",
+            "generation_prompt",
+        ):
+            value = getattr(conditions, attr, None)
+            if isinstance(value, str) and value.strip():
+                result[attr] = value.strip()
+        return result
+
     def _apply_simple_frontend_filters(
         self, images: list[dict[str, Any]], conditions: SearchConditions
     ) -> list[dict[str, Any]]:

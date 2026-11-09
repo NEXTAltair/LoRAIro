@@ -29,8 +29,12 @@ from PySide6.QtWidgets import (
     QBoxLayout,
     QButtonGroup,
     QComboBox,
+    QFormLayout,
+    QGroupBox,
     QHBoxLayout,
+    QLabel,
     QLayout,
+    QLineEdit,
     QPushButton,
     QScrollArea,
     QWidget,
@@ -104,6 +108,47 @@ _DATE_PRESET_OPTIONS: list[tuple[str, str]] = [
     (PRESET_LAST_30_DAYS, "30日"),
     (PRESET_CUSTOM, "カスタム"),
 ]
+
+_GENERATION_STATUS_OPTIONS: list[tuple[str | None, str]] = [
+    (None, "全て"),
+    ("none", "生成メタデータなし (none)"),
+    ("parsed", "解析済み (parsed)"),
+    ("partial", "部分解析 (partial)"),
+    ("unsupported", "未対応形式 (unsupported)"),
+    ("failed", "解析失敗 (failed)"),
+]
+
+_GENERATION_TOOL_OPTIONS: list[tuple[str | None, str]] = [
+    (None, "全て"),
+    ("a1111", "A1111 / SD WebUI"),
+    ("comfyui", "ComfyUI"),
+    ("unknown", "不明 (unknown)"),
+]
+
+
+class _ValueComboBox(QComboBox):
+    """表示ラベルと内部 userData のどちらでも選択できる QComboBox (Issue #1483)。"""
+
+    def setCurrentText(self, text: str) -> None:
+        normalized = (text or "").strip()
+        if not normalized or normalized == "全て":
+            self.setCurrentIndex(0)
+            return
+        for i in range(self.count()):
+            if self.itemText(i) == normalized:
+                self.setCurrentIndex(i)
+                return
+        lower = normalized.lower()
+        if lower == "no_metadata":
+            lower = "none"
+        elif lower == "sd_webui":
+            lower = "a1111"
+        for i in range(self.count()):
+            data = self.itemData(i)
+            if isinstance(data, str) and data.lower() == lower:
+                self.setCurrentIndex(i)
+                return
+        super().setCurrentText(text)
 
 
 def _rating_chip_qss(active: bool) -> str:
@@ -335,6 +380,9 @@ class FilterSearchPanel(QScrollArea):
         # レーティング chip トグル群 (Issue #811: dropdown → マルチセレクト chip)
         self._setup_rating_chips()
 
+        # 生成メタデータフィルター群 (Issue #1483)
+        self._setup_generation_metadata_filters()
+
         # 廃止フラグ (レーティング選択から自動判定)
         self.ui.checkboxIncludeNSFW.setChecked(False)
         self.ui.checkboxIncludeNSFW.setVisible(False)
@@ -364,6 +412,51 @@ class FilterSearchPanel(QScrollArea):
         self._replace_placeholder(self.ui.ratingChipPlaceholder, self._rating_chips)
         self._replace_placeholder(self.ui.aiRatingChipPlaceholder, self._ai_rating_chips)
         self._replace_placeholder(self.ui.ratingCombinePlaceholder, self._rating_combine_toggle)
+
+    def _setup_generation_metadata_filters(self) -> None:
+        """生成メタデータのコンパクトなフィルター入力群を構築して配置する (Issue #1483)。"""
+        self.generation_metadata_group = QGroupBox("生成メタデータ", self)
+        form = QFormLayout(self.generation_metadata_group)
+        form.setContentsMargins(8, 8, 8, 8)
+        form.setSpacing(4)
+
+        self.combo_generation_status = _ValueComboBox(self.generation_metadata_group)
+        for value, label in _GENERATION_STATUS_OPTIONS:
+            self.combo_generation_status.addItem(label, value)
+
+        self.combo_generation_tool = _ValueComboBox(self.generation_metadata_group)
+        for value, label in _GENERATION_TOOL_OPTIONS:
+            self.combo_generation_tool.addItem(label, value)
+
+        self.line_edit_generation_model = QLineEdit(self.generation_metadata_group)
+        self.line_edit_generation_model.setPlaceholderText("モデル名 (部分一致)...")
+
+        self.line_edit_generation_lora = QLineEdit(self.generation_metadata_group)
+        self.line_edit_generation_lora.setPlaceholderText("LoRA名 (部分一致)...")
+
+        self.line_edit_generation_prompt = QLineEdit(self.generation_metadata_group)
+        self.line_edit_generation_prompt.setPlaceholderText("プロンプト (部分一致)...")
+
+        form.addRow(QLabel("状態:"), self.combo_generation_status)
+        form.addRow(QLabel("ツール:"), self.combo_generation_tool)
+        form.addRow(QLabel("モデル:"), self.line_edit_generation_model)
+        form.addRow(QLabel("LoRA:"), self.line_edit_generation_lora)
+        form.addRow(QLabel("プロンプト:"), self.line_edit_generation_prompt)
+
+        # UI / テストから別名でもアクセスできるようにエイリアスを設定
+        self.edit_generation_model = self.line_edit_generation_model
+        self.edit_generation_lora = self.line_edit_generation_lora
+        self.edit_generation_prompt = self.line_edit_generation_prompt
+        self.ui.comboGenerationStatus = self.combo_generation_status  # type: ignore[attr-defined]
+        self.ui.comboGenerationTool = self.combo_generation_tool  # type: ignore[attr-defined]
+        self.ui.lineEditGenerationModel = self.line_edit_generation_model  # type: ignore[attr-defined]
+        self.ui.lineEditGenerationLora = self.line_edit_generation_lora  # type: ignore[attr-defined]
+        self.ui.lineEditGenerationPrompt = self.line_edit_generation_prompt  # type: ignore[attr-defined]
+
+        if hasattr(self.ui, "filterGroup"):
+            filter_layout = self.ui.filterGroup.layout()
+            if isinstance(filter_layout, QBoxLayout):
+                filter_layout.addWidget(self.generation_metadata_group)
 
     @staticmethod
     def _replace_placeholder(placeholder: QWidget, widget: QWidget) -> None:
@@ -454,6 +547,16 @@ class FilterSearchPanel(QScrollArea):
         self.ui.checkboxOnlyUncaptioned.toggled.connect(self._on_filter_value_changed)
         self.date_range_slider.valueChanged.connect(self._on_filter_value_changed)
         self.score_range_slider.valueChanged.connect(self._on_filter_value_changed)
+
+        # 生成メタデータフィルター (Issue #1483)
+        self.combo_generation_status.currentIndexChanged.connect(self._on_filter_value_changed)
+        self.combo_generation_tool.currentIndexChanged.connect(self._on_filter_value_changed)
+        self.line_edit_generation_model.textChanged.connect(self._on_filter_value_changed)
+        self.line_edit_generation_lora.textChanged.connect(self._on_filter_value_changed)
+        self.line_edit_generation_prompt.textChanged.connect(self._on_filter_value_changed)
+        self.line_edit_generation_model.returnPressed.connect(self._on_search_requested)
+        self.line_edit_generation_lora.returnPressed.connect(self._on_search_requested)
+        self.line_edit_generation_prompt.returnPressed.connect(self._on_search_requested)
 
         # Phase 4: facets サイドバー
         self._search_facets_sidebar.facets_changed.connect(self._on_facets_changed)
@@ -908,6 +1011,53 @@ class FilterSearchPanel(QScrollArea):
             return None, None
         return score_min_internal / 100.0, score_max_internal / 100.0
 
+    def _get_generation_status_value(self) -> str | None:
+        """生成状態フィルター値を取得 (Issue #1483)。"""
+        combo = getattr(self, "combo_generation_status", None)
+        if combo is None:
+            return None
+        data = combo.currentData()
+        if isinstance(data, str) and data.strip():
+            return data.strip()
+        if combo.currentIndex() > 0:
+            text = combo.currentText().strip()
+            return text or None
+        return None
+
+    def _get_generation_tool_value(self) -> str | None:
+        """生成ツールフィルター値を取得 (Issue #1483)。"""
+        combo = getattr(self, "combo_generation_tool", None)
+        if combo is None:
+            return None
+        data = combo.currentData()
+        if isinstance(data, str) and data.strip():
+            return data.strip()
+        if combo.currentIndex() > 0:
+            text = combo.currentText().strip()
+            return text or None
+        return None
+
+    def _get_generation_model_value(self) -> str | None:
+        """生成モデルフィルター値を取得 (Issue #1483)。"""
+        edit = getattr(self, "line_edit_generation_model", None)
+        if edit is None:
+            return None
+        return edit.text().strip() or None
+
+    def _get_generation_lora_value(self) -> str | None:
+        """生成LoRAフィルター値を取得 (Issue #1483)。"""
+        edit = getattr(self, "line_edit_generation_lora", None)
+        if edit is None:
+            return None
+        return edit.text().strip() or None
+
+    def _get_generation_prompt_value(self) -> str | None:
+        """生成プロンプトフィルター値を取得 (Issue #1483)。"""
+        edit = getattr(self, "line_edit_generation_prompt", None)
+        if edit is None:
+            return None
+        return edit.text().strip() or None
+
     @staticmethod
     def _normalize_rating_values(rating_filter: str | list[str] | None) -> list[str]:
         """レーティングフィルタ値を非空文字列のリストへ正規化する (単一値/複数値/None 共通)。"""
@@ -1007,6 +1157,14 @@ class FilterSearchPanel(QScrollArea):
         score_min_internal, score_max_internal = self.score_range_slider.get_range()
         has_score_filter = score_min_internal != 0 or score_max_internal != 1000
         has_facet_filter = any(v is not None for v in self._facet_values.values())
+        generation_status = self._get_generation_status_value()
+        generation_tool = self._get_generation_tool_value()
+        generation_model = self._get_generation_model_value()
+        generation_lora = self._get_generation_lora_value()
+        generation_prompt = self._get_generation_prompt_value()
+        has_generation_filter = any(
+            [generation_status, generation_tool, generation_model, generation_lora, generation_prompt]
+        )
 
         if not keywords and not any(
             [
@@ -1019,6 +1177,7 @@ class FilterSearchPanel(QScrollArea):
                 bool(self._get_ai_rating_filter_value()),
                 has_score_filter,
                 has_facet_filter,
+                has_generation_filter,
                 # 重複除外は単独フィルタとして成立する (SearchCriteriaProcessor が対応, #1106)
                 self.ui.checkboxExcludeDuplicates.isChecked(),
             ],
@@ -1063,6 +1222,11 @@ class FilterSearchPanel(QScrollArea):
             error_state_filter=cast(str | None, self._facet_values.get("error_state_filter")),
             model_filter=cast(list[str] | None, self._facet_values.get("model_filter")),
             annotation_review_warnings_only=bool(self._facet_values.get("annotation_review_warnings_only")),
+            generation_status=generation_status,
+            generation_tool=generation_tool,
+            generation_model=generation_model,
+            generation_lora=generation_lora,
+            generation_prompt=generation_prompt,
         )
 
     def _on_facets_changed(self, facets: dict[str, object]) -> None:
@@ -1210,8 +1374,24 @@ class FilterSearchPanel(QScrollArea):
         else:
             self._reset_range_slider(self.score_range_slider)
 
+        # 生成メタデータフィルター復元 (Issue #1483)
+        self._restore_generation_metadata_filters(conditions)
+
         # 復元した条件で件数見積もりを更新する
         self._count_estimate.schedule_update()
+
+    def _restore_generation_metadata_filters(self, conditions: dict[str, Any]) -> None:
+        """生成メタデータフィルターの入力状態を条件辞書から復元する (Issue #1483)。"""
+        if hasattr(self, "combo_generation_status"):
+            self.combo_generation_status.setCurrentText(str(conditions.get("generation_status") or ""))
+        if hasattr(self, "combo_generation_tool"):
+            self.combo_generation_tool.setCurrentText(str(conditions.get("generation_tool") or ""))
+        if hasattr(self, "line_edit_generation_model"):
+            self.line_edit_generation_model.setText(str(conditions.get("generation_model") or ""))
+        if hasattr(self, "line_edit_generation_lora"):
+            self.line_edit_generation_lora.setText(str(conditions.get("generation_lora") or ""))
+        if hasattr(self, "line_edit_generation_prompt"):
+            self.line_edit_generation_prompt.setText(str(conditions.get("generation_prompt") or ""))
 
     @staticmethod
     def _coerce_saved_day_range(value: Any) -> LocalDayRange | None:
@@ -1352,6 +1532,18 @@ class FilterSearchPanel(QScrollArea):
         self._ai_rating_chips.clear()
         self._rating_combine_toggle.set_value("and")
 
+        # 生成メタデータフィルターをリセット (Issue #1483)
+        if hasattr(self, "combo_generation_status"):
+            self.combo_generation_status.setCurrentIndex(0)
+        if hasattr(self, "combo_generation_tool"):
+            self.combo_generation_tool.setCurrentIndex(0)
+        if hasattr(self, "line_edit_generation_model"):
+            self.line_edit_generation_model.clear()
+        if hasattr(self, "line_edit_generation_lora"):
+            self.line_edit_generation_lora.clear()
+        if hasattr(self, "line_edit_generation_prompt"):
+            self.line_edit_generation_prompt.clear()
+
     # ============================================================
     # ===  Public API (外部から呼ばれるもの)
     # ============================================================
@@ -1398,7 +1590,20 @@ class FilterSearchPanel(QScrollArea):
             "rating_combine": self._rating_combine_toggle.value() or "and",
             "include_unrated": self.ui.checkboxIncludeUnrated.isChecked(),
             "score_range": [score_min, score_max],
+            "generation_status": self._get_generation_status_value(),
+            "generation_tool": self._get_generation_tool_value(),
+            "generation_model": self._get_generation_model_value(),
+            "generation_lora": self._get_generation_lora_value(),
+            "generation_prompt": self._get_generation_prompt_value(),
         }
+
+    def get_filter_conditions(self) -> dict[str, Any]:
+        """現在の検索・フィルター条件辞書を返す (Issue #1483 公開エイリアス)。"""
+        return self.get_current_conditions()
+
+    def clear_filters(self) -> None:
+        """全検索・フィルター条件をクリアする (Issue #1483 公開エイリアス)。"""
+        self._on_clear_requested()
 
     def apply_conditions(self, conditions: dict[str, Any]) -> None:
         """条件を適用する。"""

@@ -131,3 +131,14 @@ class ImageFilterCriteria:
     # Issue #697: images search で使用するソート条件
     sort_field: str = "image_id"  # "image_id" または "file_path"
     sort_direction: str = "asc"  # "asc" または "desc"
+    # Issue #1483: 生成メタデータ検索条件
+    generation_status: str | None = (
+        None  # "none" | "no_metadata" | "parsed" | "partial" | "unsupported" | "failed"
+    )
+    generation_tool: str | None = None  # "a1111" | "sd_webui" | "comfyui" | "unknown" 等
+    generation_model: str | None = None  # model_name 部分一致 (大小無視)
+    generation_lora: str | None = None  # loras_json 部分一致 (大小無視)
+    generation_prompt: str | None = None  # positive_prompt / negative_prompt 部分一致 (大小無視)
+
+
+FilterCriteria = ImageFilterCriteria
