@@ -8,13 +8,17 @@ Kohya 取り込みでは、`<数字>_<名前>` フォルダごとに取捨・繰
 従来の画像登録では、画像を直接含むサブフォルダごとに共通タグを入力できる (Issue #1409)。
 """
 
+import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QCoreApplication, Qt, QThread, Signal, Slot
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -36,6 +40,7 @@ from ...services.dataset_import_service import FolderOverride, FolderScanSummary
 from ...services.folder_common_tags import list_image_subfolders, parse_common_tags
 from ...services.kohya_scanner import scan_kohya_directory
 from ...utils.log import logger
+from ..workers.base import LoRAIroWorkerBase
 
 # サブフォルダ共通タグ表の列
 _FOLDER_COLUMN = 0
@@ -53,6 +58,104 @@ _K_CANDIDATE_COLUMN = 6
 _K_ADOPT_COLUMN = 7
 _K_HEADERS = ("取り込む", "フォルダ", "繰り返し", "画像数", "テキスト無し", "トリガーワード", "候補", "")
 _MAX_REPEATS = 9999
+_NO_PARENT_VERSION_LABEL = "なし (親の版を指定しない)"
+_SCANNING_STATUS_TEXT = "フォルダをスキャン中..."
+_SCAN_SHUTDOWN_WAIT_MS = 5000
+
+FolderScanEntry = tuple[str, int, FolderScanSummary]
+FolderScanner = Callable[[Path], Sequence[FolderScanEntry]]
+ParentVersionEntry = tuple[int, str]
+ParentVersionsByDataset = Mapping[str, Sequence[ParentVersionEntry]]
+ParentVersionsProvider = Callable[[str], Sequence[ParentVersionEntry]]
+
+
+@dataclass(frozen=True)
+class KohyaFolderScanResult:
+    """Kohya フォルダ表の非同期スキャン結果。
+
+    Attributes:
+        directory: スキャンしたディレクトリ。
+        summaries: `(dir_name, num_repeats, summary)` のタプル列。
+        error_text: 読み取り失敗時の表示文。成功時は空文字。
+    """
+
+    directory: Path
+    summaries: tuple[FolderScanEntry, ...]
+    error_text: str = ""
+
+
+def _scan_kohya_folders(directory: Path) -> list[FolderScanEntry]:
+    """ディレクトリを Kohya 形式として走査し、フォルダごとの要約を返す。"""
+    if not directory.is_dir():
+        return []
+    return [
+        (folder.dir_name, folder.num_repeats, summarize_folder(folder))
+        for folder in scan_kohya_directory(directory)
+    ]
+
+
+class KohyaFolderScanWorker(LoRAIroWorkerBase[KohyaFolderScanResult]):
+    """Kohya フォルダ表のスキャンを背景スレッドで行う worker。"""
+
+    _OPERATION_TYPE = "kohya_folder_scan"
+
+    def __init__(
+        self,
+        directory: Path,
+        scanner: FolderScanner | None = None,
+    ) -> None:
+        """Worker を初期化する。
+
+        Args:
+            directory: スキャン対象ディレクトリ。
+            scanner: 差し替え可能なスキャン関数 (テスト用)。`None` なら既定の走査を使う。
+        """
+        super().__init__()
+        self._directory = directory
+        self._scanner = scanner
+
+    def execute(self) -> KohyaFolderScanResult:
+        """対象ディレクトリをスキャンして要約を返す。"""
+        summaries: tuple[FolderScanEntry, ...] = ()
+        error_text = ""
+        scanner = self._scanner or _scan_kohya_folders
+        try:
+            summaries = tuple(scanner(self._directory))
+        except OSError as e:
+            logger.opt(exception=True).warning(f"Kohya フォルダのスキャンに失敗: {self._directory}")
+            error_text = f"フォルダを読めませんでした: {type(e).__name__}"
+        return KohyaFolderScanResult(
+            directory=self._directory,
+            summaries=summaries,
+            error_text=error_text,
+        )
+
+    def _should_cancel_completed_result(self) -> bool:
+        # 世代カウンタ (_scan_generation) で古い結果の破棄をダイアログ側が判定するため、
+        # 完了したスキャン結果は常に finished シグナルで通知する。
+        return False
+
+
+# 実行中の (QThread, KohyaFolderScanWorker) を GC から守るモジュールレベル保持
+_ACTIVE_SCAN_RUNNERS: set[tuple[QThread, KohyaFolderScanWorker]] = set()
+
+
+def _normalize_parent_version_entries(
+    entries: Sequence[object],
+) -> tuple[ParentVersionEntry, ...]:
+    """`(version_id, version_name)` または `VersionSummary` 互換オブジェクトの列を正規化する。"""
+    normalized: list[ParentVersionEntry] = []
+    for entry in entries:
+        if isinstance(entry, tuple) and len(entry) == 2:
+            vid, vname = entry
+            if isinstance(vid, int | str):
+                normalized.append((int(vid), str(vname)))
+        else:
+            vid_attr = getattr(entry, "version_id", None)
+            vname_attr = getattr(entry, "version_name", None)
+            if isinstance(vid_attr, int) and isinstance(vname_attr, str):
+                normalized.append((vid_attr, vname_attr))
+    return tuple(normalized)
 
 
 @dataclass(frozen=True)
@@ -69,6 +172,7 @@ class DatasetSelection:
         kohya_import: Kohya データセットとして取り込むか (ダイアログのチェックボックス)。
         folder_overrides: Kohya フォルダごとの確定値 (取捨・繰り返し回数・トリガーワード)。
             フォルダ表が選択ディレクトリのものでない場合は `None` (スキャン結果のまま取り込む)。
+        parent_version_id: 親の版 ID (Kohya 取り込み時のみ。未指定なら `None`)。
     """
 
     directory: Path
@@ -78,6 +182,7 @@ class DatasetSelection:
     folder_tags: dict[Path, tuple[str, ...]] = field(default_factory=dict)
     kohya_import: bool = False
     folder_overrides: tuple[FolderOverride, ...] | None = None
+    parent_version_id: int | None = None
 
     @property
     def is_kohya_import(self) -> bool:
@@ -88,11 +193,29 @@ class DatasetSelection:
 class DatasetSelectDialog(QDialog):
     """画像ディレクトリと設定 JSON を選ぶモーダルダイアログ。"""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    # worker スレッドから GUI スレッドへスキャン結果を渡す内部シグナル
+    _kohya_scan_completed = Signal(int, object)
+    _kohya_scan_failed = Signal(int, object, str)
+    # テストや外部からスキャン完了を監視できる公開シグナル (世代番号)
+    kohya_scan_finished = Signal(int)
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        parent_versions_by_dataset: ParentVersionsByDataset | Sequence[ParentVersionEntry] | None = None,
+        *,
+        parent_versions_provider: ParentVersionsProvider | None = None,
+        folder_scanner: FolderScanner | None = None,
+    ) -> None:
         """ダイアログを初期化する。
 
         Args:
             parent: 親ウィジェット。
+            parent_versions_by_dataset: データセット名 → 親の版候補 `(version_id, version_name)` の辞書
+                (または現在のデータセットに対する `(version_id, version_name)` の列)。
+                ダイアログは DB に直接触れず、外から渡された一覧を表示する。
+            parent_versions_provider: データセット名を受け取り `(version_id, version_name)` の列を返す関数。
+            folder_scanner: Kohya フォルダ走査関数 (テストでの差し替え用)。
         """
         super().__init__(parent)
         self.setWindowTitle("データセットを選択")
@@ -106,7 +229,26 @@ class DatasetSelectDialog(QDialog):
         self._kohya_scanned_directory: Path | None = None
         # Kohya フォルダのスキャンに失敗したときの表示文
         self._kohya_error_text = ""
+        # 非同期 Kohya フォルダスキャンの世代管理と状態
+        self._scan_generation = 0
+        self._scanning_kohya = False
+        self._scanning_directory: Path | None = None
+        self._scan_runners: dict[int, tuple[QThread, KohyaFolderScanWorker]] = {}
+        self._folder_scanner = folder_scanner
+        # 親の版候補 (DB 非依存で外から受け取る)
+        self._parent_versions_by_dataset: dict[str, tuple[ParentVersionEntry, ...]] = {}
+        self._direct_parent_versions: tuple[ParentVersionEntry, ...] | None = None
+        self._parent_versions_provider = parent_versions_provider
+        self._combo_dataset_name: str | None = None
+        self._combo_versions: tuple[ParentVersionEntry, ...] = ()
+
+        self._kohya_scan_completed.connect(self._on_kohya_scan_finished)
+        self._kohya_scan_failed.connect(self._on_kohya_scan_error)
         self._setup_ui()
+        if parent_versions_by_dataset is not None:
+            self.set_available_parent_versions(parent_versions_by_dataset)
+        else:
+            self._refresh_parent_version_combo()
         self._update_state()
 
     def _setup_ui(self) -> None:
@@ -153,14 +295,16 @@ class DatasetSelectDialog(QDialog):
         config_buttons.addStretch()
         layout.addLayout(config_buttons)
 
-        # データセット名 / 版名
+        # データセット名 / 版名 / 親の版
         form = QFormLayout()
         self.dataset_name_edit = QLineEdit()
-        self.dataset_name_edit.textChanged.connect(self._update_state)
+        self.dataset_name_edit.textChanged.connect(self._on_dataset_name_changed)
         self.version_name_edit = QLineEdit()
         self.version_name_edit.setPlaceholderText("空なら設定 JSON の output_name かフォルダ名から決定")
+        self.parent_version_combo = QComboBox()
         form.addRow("データセット名", self.dataset_name_edit)
         form.addRow("版名", self.version_name_edit)
+        form.addRow("親の版", self.parent_version_combo)
         layout.addLayout(form)
 
         # Kohya フォルダ表 (Kohya 取り込みのみ)
@@ -224,7 +368,109 @@ class DatasetSelectDialog(QDialog):
         self.kohya_summary_label.setWordWrap(True)
         layout.addWidget(self.kohya_summary_label)
 
+    # --- 親の版 ---
+
+    def set_available_parent_versions(
+        self,
+        versions: ParentVersionsByDataset | Sequence[object],
+    ) -> None:
+        """外で取得した親の版の候補を設定し、コンボボックスを更新する。
+
+        Args:
+            versions: データセット名 → `(version_id, version_name)` 列の辞書、
+                `VersionSummary` 互換オブジェクトの列、または `(version_id, version_name)` の列。
+        """
+        if isinstance(versions, Mapping):
+            self._parent_versions_by_dataset = {
+                str(dataset_name): _normalize_parent_version_entries(entries)
+                for dataset_name, entries in versions.items()
+            }
+            self._direct_parent_versions = None
+        else:
+            entries_list = list(versions)
+            if entries_list and all(
+                hasattr(item, "dataset_name")
+                and hasattr(item, "version_id")
+                and hasattr(item, "version_name")
+                for item in entries_list
+            ):
+                grouped: dict[str, list[ParentVersionEntry]] = {}
+                for item in entries_list:
+                    ds_name = str(getattr(item, "dataset_name", ""))
+                    v_id = int(getattr(item, "version_id", 0))
+                    v_name = str(getattr(item, "version_name", ""))
+                    grouped.setdefault(ds_name, []).append((v_id, v_name))
+                self._parent_versions_by_dataset = {k: tuple(v) for k, v in grouped.items()}
+                self._direct_parent_versions = None
+            else:
+                self._parent_versions_by_dataset = {}
+                self._direct_parent_versions = _normalize_parent_version_entries(entries_list)
+        self._combo_dataset_name = None
+        self._refresh_parent_version_combo(preserve_selection=True)
+
+    def _resolve_parent_versions(self, dataset_name: str) -> tuple[ParentVersionEntry, ...]:
+        """データセット名に対する親の版の候補を返す。"""
+        if self._parent_versions_provider is not None:
+            if not dataset_name:
+                return ()
+            return _normalize_parent_version_entries(self._parent_versions_provider(dataset_name))
+        if dataset_name in self._parent_versions_by_dataset:
+            return self._parent_versions_by_dataset[dataset_name]
+        if self._direct_parent_versions is not None and not self._parent_versions_by_dataset:
+            return self._direct_parent_versions
+        return ()
+
+    def _refresh_parent_version_combo(self, *, preserve_selection: bool = False) -> None:
+        """現在のデータセット名に対応する親の版の候補でコンボボックスを更新する。"""
+        dataset_name = self.dataset_name_edit.text().strip()
+        versions = self._resolve_parent_versions(dataset_name)
+        if (
+            not preserve_selection
+            and dataset_name == self._combo_dataset_name
+            and versions == self._combo_versions
+        ):
+            return
+        previous_id = (
+            self.selected_parent_version_id()
+            if (preserve_selection or dataset_name == self._combo_dataset_name)
+            else None
+        )
+        self._combo_dataset_name = dataset_name
+        self._combo_versions = versions
+
+        self.parent_version_combo.blockSignals(True)
+        try:
+            self.parent_version_combo.clear()
+            self.parent_version_combo.addItem(_NO_PARENT_VERSION_LABEL, None)
+            selected_index = 0
+            for index, (version_id, version_name) in enumerate(versions, start=1):
+                label = f"{version_name} (#{version_id})" if version_name else f"#{version_id}"
+                self.parent_version_combo.addItem(label, int(version_id))
+                if previous_id is not None and int(version_id) == previous_id:
+                    selected_index = index
+            self.parent_version_combo.setCurrentIndex(selected_index)
+        finally:
+            self.parent_version_combo.blockSignals(False)
+
+    def selected_parent_version_id(self) -> int | None:
+        """選択中の親の版 ID を返す (「なし」なら None)。"""
+        data = self.parent_version_combo.currentData()
+        return int(data) if isinstance(data, int) else None
+
+    def set_selected_parent_version_id(self, version_id: int | None) -> bool:
+        """親の版 ID を選択する。選択肢にあれば True を返す。"""
+        index = self.parent_version_combo.findData(version_id)
+        if index < 0:
+            return False
+        self.parent_version_combo.setCurrentIndex(index)
+        return True
+
     # --- 操作 ---
+
+    @property
+    def is_scanning_kohya(self) -> bool:
+        """Kohya フォルダ表の非同期スキャンが進行中か。"""
+        return self._scanning_kohya
 
     def _browse_directory(self) -> None:
         """ディレクトリ選択ダイアログを開く。"""
@@ -259,18 +505,33 @@ class DatasetSelectDialog(QDialog):
         for item in self.config_list.selectedItems():
             self.config_list.takeItem(self.config_list.row(item))
 
+    def _on_dataset_name_changed(self, _text: str) -> None:
+        """データセット名変更時、親の版の候補と画面状態を更新する。"""
+        self._refresh_parent_version_combo()
+        self._update_state()
+
     def _on_directory_changed(self, text: str) -> None:
         """ディレクトリ変更時、データセット名が未編集ならディレクトリ名を既定にする。"""
         current = self.dataset_name_edit.text()
         if current == "" or current == self._auto_dataset_name:
             self._auto_dataset_name = Path(text).name if text.strip() else ""
             self.dataset_name_edit.setText(self._auto_dataset_name)
+        new_directory = self._current_directory()
+        if self._scanning_kohya and new_directory != self._scanning_directory:
+            # スキャン中にルートが変わったら世代を進め、進行中の古いスキャン結果を破棄する
+            self._scan_generation += 1
+            self._scanning_kohya = False
+            self._scanning_directory = None
         self._update_state()
 
     def _on_kohya_toggled(self, checked: bool) -> None:
         """Kohya 取り込みに切り替えたら、フォルダ表を作る。"""
         if checked:
             self.refresh_kohya_folders()
+        elif self._scanning_kohya:
+            self._scan_generation += 1
+            self._scanning_kohya = False
+            self._scanning_directory = None
         self._update_state()
 
     def _current_directory(self) -> Path | None:
@@ -305,37 +566,138 @@ class DatasetSelectDialog(QDialog):
         self._update_state()
 
     def refresh_kohya_folders(self) -> None:
-        """入力中のディレクトリを Kohya 形式としてスキャンし、フォルダ表を作り直す。
+        """入力中のディレクトリを Kohya 形式として非同期スキャンし、フォルダ表を作り直す。
 
         同じディレクトリなら作り直さず、入力済みの値を保つ。トリガーワード欄は空のままにし、
         候補は「候補」列に表示するだけにする (確認なしに確定しない。ADR 0098)。
         """
         directory = self._current_directory()
-        if directory == self._kohya_scanned_directory:
+        if not self._scanning_kohya and directory == self._kohya_scanned_directory:
             return
-        self._kohya_scanned_directory = directory
-        summaries: list[tuple[str, int, FolderScanSummary]] = []
-        error_text = ""
-        if directory is not None and directory.is_dir():
-            try:
-                summaries = [
-                    (folder.dir_name, folder.num_repeats, summarize_folder(folder))
-                    for folder in scan_kohya_directory(directory)
-                ]
-            except OSError as e:
-                logger.opt(exception=True).warning(f"Kohya フォルダのスキャンに失敗: {directory}")
-                error_text = f"フォルダを読めませんでした: {type(e).__name__}"
+        if self._scanning_kohya and directory == self._scanning_directory:
+            return
+
+        self._scan_generation += 1
+        generation = self._scan_generation
+        self._kohya_scanned_directory = None
+        self._kohya_error_text = ""
 
         self.kohya_table.blockSignals(True)
         try:
             self.kohya_table.setRowCount(0)
-            self.kohya_table.setRowCount(len(summaries))
-            for row, (dir_name, num_repeats, summary) in enumerate(summaries):
+        finally:
+            self.kohya_table.blockSignals(False)
+
+        if directory is None:
+            self._scanning_kohya = False
+            self._scanning_directory = None
+            self._update_state()
+            return
+
+        self._scanning_kohya = True
+        self._scanning_directory = directory
+        self._update_state()
+        self._start_kohya_scan_worker(generation, directory)
+
+    def _start_kohya_scan_worker(self, generation: int, directory: Path) -> None:
+        """専用 QThread で KohyaFolderScanWorker を起動する。"""
+        thread = QThread()
+        worker = KohyaFolderScanWorker(directory, scanner=self._folder_scanner)
+        worker.moveToThread(thread)
+        runner = (thread, worker)
+        _ACTIVE_SCAN_RUNNERS.add(runner)
+        self._scan_runners[generation] = runner
+
+        thread.started.connect(worker.run)
+        worker.finished.connect(lambda result, gen=generation: self._kohya_scan_completed.emit(gen, result))
+        worker.error_occurred.connect(
+            lambda message, gen=generation, d=directory: self._kohya_scan_failed.emit(gen, d, str(message))
+        )
+        worker.finished.connect(thread.quit)
+        worker.error_occurred.connect(thread.quit)
+        worker.canceled.connect(thread.quit)
+        # worker.deleteLater は worker スレッドで繋がない (GIL / signal-slot mutex の ABBA デッドロック防止)。
+        # thread.finished で GUI スレッド側の参照を切ることで安全に破棄する。
+        thread.finished.connect(lambda gen=generation, r=runner: self._on_scan_thread_finished(gen, r))
+        thread.finished.connect(thread.deleteLater)
+        thread.start()
+
+    def _on_scan_thread_finished(
+        self, generation: int, runner: tuple[QThread, KohyaFolderScanWorker]
+    ) -> None:
+        """スキャン用 QThread の終了時に GUI スレッドで参照を解放する。"""
+        self._scan_runners.pop(generation, None)
+        _ACTIVE_SCAN_RUNNERS.discard(runner)
+
+    @Slot(int, object)
+    def _on_kohya_scan_finished(self, generation: int, result: object) -> None:
+        """非同期スキャン完了時に最新世代の結果だけをフォルダ表へ反映する。"""
+        if generation != self._scan_generation or not isinstance(result, KohyaFolderScanResult):
+            return
+        if result.directory != self._current_directory():
+            return
+
+        self._scanning_kohya = False
+        self._scanning_directory = None
+        self._kohya_scanned_directory = result.directory
+        self._kohya_error_text = result.error_text
+
+        self.kohya_table.blockSignals(True)
+        try:
+            self.kohya_table.setRowCount(0)
+            self.kohya_table.setRowCount(len(result.summaries))
+            for row, (dir_name, num_repeats, summary) in enumerate(result.summaries):
                 self._fill_kohya_row(row, dir_name, num_repeats, summary)
         finally:
             self.kohya_table.blockSignals(False)
-        self._kohya_error_text = error_text
         self._update_state()
+        self.kohya_scan_finished.emit(generation)
+
+    @Slot(int, object, str)
+    def _on_kohya_scan_error(self, generation: int, directory: object, message: str) -> None:
+        """非同期スキャンの予期しない失敗を最新世代に限り反映する。"""
+        if generation != self._scan_generation:
+            return
+        self._scanning_kohya = False
+        self._scanning_directory = None
+        self._kohya_scanned_directory = directory if isinstance(directory, Path) else None
+        self._kohya_error_text = f"フォルダを読めませんでした: {message}"
+        self._update_state()
+        self.kohya_scan_finished.emit(generation)
+
+    def wait_for_scan(self, timeout_ms: int = _SCAN_SHUTDOWN_WAIT_MS) -> bool:
+        """進行中の Kohya フォルダスキャンが終わるまでイベントを処理して待つ。
+
+        Args:
+            timeout_ms: 最大待機ミリ秒。
+
+        Returns:
+            スキャンが完了していれば True。
+        """
+        deadline = time.monotonic() + (timeout_ms / 1000.0)
+        while self._scanning_kohya and time.monotonic() < deadline:
+            QCoreApplication.processEvents()
+            time.sleep(0.005)
+        QCoreApplication.processEvents()
+        return not self._scanning_kohya
+
+    def _stop_scan_workers(self) -> None:
+        """実行中の Kohya フォルダスキャン worker スレッドを停止し、GUI スレッドで参照を解放する。"""
+        if self._scanning_kohya or self._scan_runners:
+            self._scan_generation += 1
+        self._scanning_kohya = False
+        self._scanning_directory = None
+        for generation, runner in list(self._scan_runners.items()):
+            thread, worker = runner
+            worker.cancel()
+            thread.quit()
+            if thread.wait(_SCAN_SHUTDOWN_WAIT_MS):
+                self._scan_runners.pop(generation, None)
+                _ACTIVE_SCAN_RUNNERS.discard(runner)
+            else:
+                logger.warning(
+                    f"Kohya フォルダスキャン worker が時間内に停止しませんでした (gen={generation})"
+                )
 
     def _fill_kohya_row(
         self, row: int, dir_name: str, num_repeats: int, summary: FolderScanSummary
@@ -429,9 +791,13 @@ class DatasetSelectDialog(QDialog):
         return tuple(overrides)
 
     def _kohya_table_is_current(self) -> bool:
-        """Kohya フォルダ表が、入力中のディレクトリをスキャンしたものか。"""
+        """Kohya フォルダ表が、入力中のディレクトリをスキャン完了したものか。"""
         directory = self._current_directory()
-        return directory is not None and directory == self._kohya_scanned_directory
+        return (
+            not self._scanning_kohya
+            and directory is not None
+            and directory == self._kohya_scanned_directory
+        )
 
     def set_folder_tags_text(self, relative_path: Path, text: str) -> bool:
         """サブフォルダの共通タグ欄へ文字列を入れる。
@@ -473,6 +839,7 @@ class DatasetSelectDialog(QDialog):
         self.config_list.setEnabled(is_kohya)
         self.dataset_name_edit.setEnabled(is_kohya)
         self.version_name_edit.setEnabled(is_kohya)
+        self.parent_version_combo.setEnabled(is_kohya)
         # 共通タグは普段の画像のタグ (Tag) に付く。Kohya 取り込みとは独立 (Issue #1409)
         self.folder_tags_label.setVisible(not is_kohya)
         self.folder_table.setEnabled(not is_kohya)
@@ -485,14 +852,18 @@ class DatasetSelectDialog(QDialog):
         has_directory = bool(self.directory_edit.text().strip())
         # Kohya 取り込みではデータセット名が必須
         name_ok = not is_kohya or bool(self.dataset_name_edit.text().strip())
-        # フォルダ表が今のディレクトリのものなら、取り込むフォルダが 1 つ以上必要 (空の版を作らない)
+        # Kohya 取り込みではスキャン完了かつ取り込むフォルダが 1 つ以上必要 (スキャン中・0 フォルダ時は不可)
         folders_ok = True
-        if is_kohya and self._kohya_table_is_current():
+        if is_kohya and self._scanning_kohya:
+            folders_ok = False
+            self.kohya_summary_label.setText(_SCANNING_STATUS_TEXT)
+        elif is_kohya and self._kohya_table_is_current():
             overrides = self._collect_folder_overrides()
             included = [override for override in overrides if override.include]
             folders_ok = len(included) > 0
             self.kohya_summary_label.setText(self._kohya_summary_text(len(overrides), len(included)))
         elif is_kohya:
+            folders_ok = False
             self.kohya_summary_label.setText("ディレクトリを確定するとフォルダを一覧します")
         ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
         ok_button.setEnabled(has_directory and name_ok and folders_ok)
@@ -516,6 +887,23 @@ class DatasetSelectDialog(QDialog):
         if without_text:
             text += f"。学習テキストの無い画像 {without_text} 枚もそのまま取り込みます"
         return text
+
+    # --- 終了 ---
+
+    def accept(self) -> None:
+        """OK で閉じるときに実行中のスキャン worker を停止する。"""
+        self._stop_scan_workers()
+        super().accept()
+
+    def reject(self) -> None:
+        """キャンセルで閉じるときに実行中のスキャン worker を停止する。"""
+        self._stop_scan_workers()
+        super().reject()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """ウィンドウ閉鎖時に実行中のスキャン worker を停止する。"""
+        self._stop_scan_workers()
+        super().closeEvent(event)
 
     # --- 結果 ---
 
@@ -543,22 +931,35 @@ class DatasetSelectDialog(QDialog):
                 version_name=self.version_name_edit.text().strip(),
                 kohya_import=True,
                 folder_overrides=overrides,
+                parent_version_id=self.selected_parent_version_id(),
             )
         # 表が別ディレクトリのものなら共通タグは渡さない (入力欄だけ書き換えて OK した場合)
         folder_tags = self._collect_folder_tags() if directory == self._scanned_directory else {}
         return DatasetSelection(directory=directory, folder_tags=folder_tags)
 
     @classmethod
-    def get_selection(cls, parent: QWidget | None = None) -> DatasetSelection | None:
+    def get_selection(
+        cls,
+        parent: QWidget | None = None,
+        parent_versions_by_dataset: ParentVersionsByDataset | Sequence[ParentVersionEntry] | None = None,
+        *,
+        parent_versions_provider: ParentVersionsProvider | None = None,
+    ) -> DatasetSelection | None:
         """ダイアログを表示し、OK なら選択結果を返す。
 
         Args:
             parent: 親ウィジェット。
+            parent_versions_by_dataset: データセットごとの親の版候補。
+            parent_versions_provider: データセット名から親の版候補を返す関数。
 
         Returns:
             選択結果。キャンセル時は None。
         """
-        dialog = cls(parent)
+        dialog = cls(
+            parent,
+            parent_versions_by_dataset=parent_versions_by_dataset,
+            parent_versions_provider=parent_versions_provider,
+        )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             return dialog.selection()
         return None

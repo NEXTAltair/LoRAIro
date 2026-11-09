@@ -156,3 +156,15 @@ def test_apply_folder_overrides_excludes_folders_not_confirmed():
     )
     applied = apply_folder_overrides(plan, [FolderOverride("10_a", True, 10, None)])
     assert [(f.dir_name, f.include) for f in applied.folders] == [("10_a", True), ("3_new", False)]
+
+
+def test_execute_applies_parent_version_id_to_plan(tmp_path, result):
+    """指定された parent_version_id を計画に反映して import_directory へ渡す (#1478)。"""
+    worker = DatasetImportWorker(tmp_path, "ds", "v2", [], Mock(), Mock(), parent_version_id=15)
+    with patch(_SERVICE) as service_cls, patch(_REPO):
+        service = service_cls.return_value
+        service.propose_plan.return_value = _plan()
+        service.import_directory.return_value = result
+        worker.execute()
+    applied = service.import_directory.call_args.args[1]
+    assert applied.parent_version_id == 15

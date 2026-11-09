@@ -349,3 +349,40 @@ class TestDatasetControllerKohyaImport:
         with patch("lorairo.gui.controllers.dataset_controller.show_warning") as warn:
             controller._on_dataset_import_error("failed")
         assert warn.call_args.args[2] == "failed"
+
+    def test_selection_with_parent_version_passes_parent_version_id(
+        self, controller, mock_worker_service, mock_file_system_manager
+    ):
+        """選択結果に親の版 ID があれば start_dataset_import へ渡す (#1478)。"""
+        from dataclasses import replace
+
+        sel = replace(self._selection([]), parent_version_id=42)
+        controller.select_and_register_images(Mock(return_value=sel))
+        mock_worker_service.start_dataset_import.assert_called_once_with(
+            Path("/data/set"),
+            "ds",
+            "v1",
+            [],
+            mock_file_system_manager,
+            None,
+            parent_version_id=42,
+        )
+
+    def test_get_parent_versions_by_dataset_groups_repository_versions(self, controller, mock_db_manager):
+        """DatasetRepository.list_versions の結果をデータセット名ごとにまとめる (#1478)。"""
+        from lorairo.database.repository.dataset import VersionSummary
+
+        mock_db_manager.image_repo.session_factory = lambda: None
+        summaries = [
+            VersionSummary(1, "v01", 10, "ds_a", None, None, 1, 5),
+            VersionSummary(2, "v02", 10, "ds_a", 1, None, 1, 5),
+            VersionSummary(3, "v01", 20, "ds_b", None, None, 2, 8),
+        ]
+        with patch("lorairo.gui.controllers.dataset_controller.DatasetRepository") as repo_cls:
+            repo_cls.return_value.list_versions.return_value = summaries
+            grouped = controller.get_parent_versions_by_dataset()
+
+        assert grouped == {
+            "ds_a": [(1, "v01"), (2, "v02")],
+            "ds_b": [(3, "v01")],
+        }

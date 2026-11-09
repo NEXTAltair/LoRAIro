@@ -181,6 +181,7 @@ def _make_kohya_tree(root: Path) -> None:
 def _kohya_dialog(dialog, root: Path) -> DatasetSelectDialog:
     dialog.directory_edit.setText(str(root))
     dialog.kohya_check.setChecked(True)
+    assert dialog.wait_for_scan()
     return dialog
 
 
@@ -290,3 +291,217 @@ def test_kohya_overrides_dropped_when_directory_changed_without_rescan(dialog, t
     selection = dialog.selection()
     assert selection.is_kohya_import
     assert selection.folder_overrides is None
+
+
+# --- 親の版の選択 & 非同期フォルダスキャン (Issue #1478) ---
+
+
+def test_parent_version_defaults_to_none_and_updates_by_dataset_name(qtbot, tmp_path):
+    """外から渡したデータセット別の版一覧から親の版を選べ、データセット名変更で切り替わる (#1478)。"""
+    _make_kohya_tree(tmp_path)
+    dlg = DatasetSelectDialog(
+        parent_versions_by_dataset={
+            tmp_path.name: [(11, "v01"), (12, "v02")],
+            "other_ds": [(21, "v10")],
+        }
+    )
+    qtbot.addWidget(dlg)
+
+    assert not dlg.parent_version_combo.isEnabled()
+    assert dlg.selected_parent_version_id() is None
+
+    _kohya_dialog(dlg, tmp_path)
+    assert dlg.parent_version_combo.isEnabled()
+    items = [dlg.parent_version_combo.itemText(i) for i in range(dlg.parent_version_combo.count())]
+    assert items == ["なし (親の版を指定しない)", "v01 (#11)", "v02 (#12)"]
+    assert dlg.selected_parent_version_id() is None
+    assert dlg.selection().parent_version_id is None
+
+    assert dlg.set_selected_parent_version_id(12)
+    assert dlg.selected_parent_version_id() == 12
+    assert dlg.selection().parent_version_id == 12
+
+    # 別データセット名に変えると候補が切り替わり、選択は「なし」に戻る
+    dlg.dataset_name_edit.setText("other_ds")
+    other_items = [dlg.parent_version_combo.itemText(i) for i in range(dlg.parent_version_combo.count())]
+    assert other_items == ["なし (親の版を指定しない)", "v10 (#21)"]
+    assert dlg.selected_parent_version_id() is None
+
+    # 未知のデータセット名では「なし」のみ
+    dlg.dataset_name_edit.setText("brand_new")
+    new_items = [dlg.parent_version_combo.itemText(i) for i in range(dlg.parent_version_combo.count())]
+    assert new_items == ["なし (親の版を指定しない)"]
+    assert dlg.selected_parent_version_id() is None
+
+
+def test_parent_version_provider_and_set_available_parent_versions(qtbot, tmp_path):
+    """provider や後から set_available_parent_versions で渡した候補も反映される (#1478)。"""
+    _make_kohya_tree(tmp_path)
+    dlg = DatasetSelectDialog(
+        parent_versions_provider=lambda name: [(31, f"{name}_v1")] if name == "custom" else []
+    )
+    qtbot.addWidget(dlg)
+    _kohya_dialog(dlg, tmp_path)
+    dlg.dataset_name_edit.setText("custom")
+    assert dlg.parent_version_combo.count() == 2
+    dlg.parent_version_combo.setCurrentIndex(1)
+    assert dlg.selected_parent_version_id() == 31
+    assert dlg.selection().parent_version_id == 31
+
+    # 通常の画像登録に戻すと選択結果に parent_version_id は載らない
+    dlg.kohya_check.setChecked(False)
+    assert dlg.selection().parent_version_id is None
+
+
+def test_async_scan_in_flight_shows_status_and_disables_ok(qtbot, tmp_path):
+    """非同期スキャン進行中はステータスメッセージを表示し OK ボタンを無効化する (#1478)。"""
+    import threading
+
+    from lorairo.services.dataset_import_service import FolderScanSummary
+
+    _make_kohya_tree(tmp_path)
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_scanner(_directory: Path):
+        started.set()
+        release.wait(timeout=5.0)
+        return [
+            (
+                "10_a",
+                10,
+                FolderScanSummary(
+                    image_count=3,
+                    images_without_text=1,
+                    trigger_candidate="trig_a",
+                    trigger_match_rate=2 / 3,
+                ),
+            ),
+            (
+                "5_b",
+                5,
+                FolderScanSummary(
+                    image_count=1,
+                    images_without_text=1,
+                    trigger_candidate=None,
+                    trigger_match_rate=0.0,
+                ),
+            ),
+        ]
+
+    dlg = DatasetSelectDialog(folder_scanner=slow_scanner)
+    qtbot.addWidget(dlg)
+    dlg.directory_edit.setText(str(tmp_path))
+    dlg.kohya_check.setChecked(True)
+
+    assert started.wait(timeout=5.0)
+    # スキャン中は進行中表示が出ており、OK ボタンは無効
+    assert dlg.is_scanning_kohya
+    assert "スキャン中" in dlg.kohya_summary_label.text()
+    assert not _ok_enabled(dlg)
+
+    release.set()
+    qtbot.waitUntil(lambda: not dlg.is_scanning_kohya, timeout=5000)
+
+    assert dlg.kohya_table.rowCount() == 2
+    assert _ok_enabled(dlg)
+
+
+def test_stale_scan_result_discarded_when_root_changes_mid_scan(qtbot, tmp_path):
+    """スキャン中にルートを変えた場合、世代を進め古いスキャン結果を破棄して最新だけ反映する (#1478)。"""
+    import threading
+
+    from lorairo.services.dataset_import_service import FolderScanSummary
+
+    root_a = tmp_path / "root_a"
+    root_b = tmp_path / "root_b"
+    root_a.mkdir()
+    root_b.mkdir()
+
+    started_a = threading.Event()
+    release_a = threading.Event()
+    finished_a = threading.Event()
+
+    def scanner(directory: Path):
+        if directory == root_a:
+            started_a.set()
+            release_a.wait(timeout=5.0)
+            finished_a.set()
+            return [
+                (
+                    "10_only_a",
+                    10,
+                    FolderScanSummary(
+                        image_count=2,
+                        images_without_text=0,
+                        trigger_candidate="a_word",
+                        trigger_match_rate=1.0,
+                    ),
+                )
+            ]
+        return [
+            (
+                "7_only_b",
+                7,
+                FolderScanSummary(
+                    image_count=4,
+                    images_without_text=0,
+                    trigger_candidate="b_word",
+                    trigger_match_rate=1.0,
+                ),
+            )
+        ]
+
+    dlg = DatasetSelectDialog(folder_scanner=scanner)
+    qtbot.addWidget(dlg)
+    dlg.directory_edit.setText(str(root_a))
+    dlg.kohya_check.setChecked(True)
+    assert started_a.wait(timeout=5.0)
+    gen_a = dlg._scan_generation
+
+    # スキャン中にルートを root_b へ変更して再スキャン開始
+    dlg.directory_edit.setText(str(root_b))
+    dlg.refresh_kohya_folders()
+    assert dlg._scan_generation > gen_a
+
+    # root_b のスキャンが先に完了するのを待つ
+    qtbot.waitUntil(lambda: not dlg.is_scanning_kohya, timeout=5000)
+    assert dlg.kohya_row("7_only_b") == 0
+    assert dlg.kohya_row("10_only_a") is None
+
+    # 遅れて完了した root_a (旧世代) の結果が届いても破棄され、root_b の表示が保たれる
+    release_a.set()
+    assert finished_a.wait(timeout=5.0)
+    qtbot.waitUntil(lambda: gen_a not in dlg._scan_runners, timeout=5000)
+
+    assert dlg.kohya_table.rowCount() == 1
+    assert dlg.kohya_row("7_only_b") == 0
+    assert dlg.kohya_row("10_only_a") is None
+    assert dlg.selection().folder_overrides == (
+        FolderOverride("7_only_b", include=True, num_repeats=7, trigger_word=None),
+    )
+
+
+def test_reject_stops_in_flight_scan_worker_cleanly(qtbot, tmp_path):
+    """スキャン中にダイアログを閉じても worker スレッドを安全に停止し参照を解放する (#1478)。"""
+    import threading
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking_scanner(_directory: Path):
+        started.set()
+        release.wait(timeout=1.0)
+        return []
+
+    dlg = DatasetSelectDialog(folder_scanner=blocking_scanner)
+    qtbot.addWidget(dlg)
+    dlg.directory_edit.setText(str(tmp_path))
+    dlg.kohya_check.setChecked(True)
+    assert started.wait(timeout=5.0)
+
+    release.set()
+    dlg.reject()
+
+    assert not dlg.is_scanning_kohya
+    assert dlg._scan_runners == {}
