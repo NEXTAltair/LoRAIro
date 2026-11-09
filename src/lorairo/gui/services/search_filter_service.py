@@ -145,6 +145,11 @@ class SearchFilterService:
         error_state_filter: str | None = None,
         model_filter: list[str] | None = None,
         annotation_review_warnings_only: bool = False,
+        generation_status: str | None = None,
+        generation_tool: str | None = None,
+        generation_model: str | None = None,
+        generation_lora: str | None = None,
+        generation_prompt: str | None = None,
     ) -> SearchConditions:
         """UIフォームデータからSearchConditionsオブジェクトを作成
 
@@ -185,6 +190,11 @@ class SearchFilterService:
             error_state_filter=error_state_filter,
             model_filter=model_filter,
             annotation_review_warnings_only=annotation_review_warnings_only,
+            generation_status=generation_status,
+            generation_tool=generation_tool,
+            generation_model=generation_model,
+            generation_lora=generation_lora,
+            generation_prompt=generation_prompt,
         )
 
         self.current_conditions = conditions
@@ -305,6 +315,21 @@ class SearchFilterService:
             parts.append(f"モデル: {', '.join(conditions.model_filter)}")
         return parts
 
+    def _format_generation_parts(self, conditions: SearchConditions) -> list[str]:
+        """生成メタデータ検索条件のプレビューパーツを返す (Issue #1483)。"""
+        parts: list[str] = []
+        if conditions.generation_status:
+            parts.append(f"生成状態: {conditions.generation_status}")
+        if conditions.generation_tool:
+            parts.append(f"生成ツール: {conditions.generation_tool}")
+        if conditions.generation_model:
+            parts.append(f"生成モデル: {conditions.generation_model}")
+        if conditions.generation_lora:
+            parts.append(f"LoRA: {conditions.generation_lora}")
+        if conditions.generation_prompt:
+            parts.append(f"プロンプト: {conditions.generation_prompt}")
+        return parts
+
     def create_search_preview(self, conditions: SearchConditions) -> str:
         """人間が読みやすい検索条件プレビューの生成
 
@@ -322,6 +347,7 @@ class SearchFilterService:
         preview_parts.extend(self._format_rating_parts(conditions))
         preview_parts.extend(self._format_model_parts(conditions))
         preview_parts.extend(self._format_phase4_parts(conditions))
+        preview_parts.extend(self._format_generation_parts(conditions))
 
         if not preview_parts:
             return "すべての画像"

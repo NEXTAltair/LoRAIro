@@ -2133,7 +2133,7 @@ class ImageDatabaseManager:
         return self.generation_metadata_repo.get_by_image_id(image_id)
 
     def get_generation_metadata_sources(self, image_id: int) -> list[GenerationMetadataSource]:
-        """画像の生成メタデータの原データを保存順に返す。無ければ空リスト (ADR 0105)。"""
+        """画像の生成メタデータ原データ一覧を返す (ADR 0105)。"""
         return self.generation_metadata_repo.get_sources(image_id)
 
     def get_crop_children(self, parent_image_id: int) -> list[CropRelation]:

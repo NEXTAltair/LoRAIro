@@ -53,6 +53,7 @@ from .annotation_data_display_widget import (
     ImageDetails,
 )
 from .annotation_review_widget import AnnotationReviewWidget
+from .generation_metadata_display_widget import GenerationMetadataDisplayWidget
 from .rating_score_edit_widget import RatingScoreEditWidget
 from .related_images_widget import RelatedImagesWidget
 from .tag_panel_widget import ACTION_TOOL_BUTTON_QSS
@@ -328,6 +329,11 @@ class SelectedImageDetailsWidget(QWidget):
         self._related_images_widget.image_activated.connect(self.related_image_activated.emit)
         self._related_images_widget.setVisible(False)
         layout.addWidget(self._related_images_widget)
+
+        # 生成メタデータ詳細表示 (#1483)
+        self.generation_metadata_widget = GenerationMetadataDisplayWidget(container)
+        self._generation_metadata_widget = self.generation_metadata_widget
+        layout.addWidget(self.generation_metadata_widget)
         # 全 widget をトップ詰めにし、余剰高さは末尾 spacer (= プレーン背景) へ逃がす (#827)。
         # widgetResizable=True で Qt が FlowLayout の heightForWidth を正しく計算するため、
         # レーティング詳細と評価スコア編集の間に隙間が出ず、タグが多くてもクリップしない
@@ -1490,6 +1496,7 @@ class SelectedImageDetailsWidget(QWidget):
         self._update_details_display(details)
         self._populate_rejected_tags()
         self.refresh_related_images()
+        self._update_generation_metadata(image_id, image_data)
         # 翻訳/使用頻度/type を background で解決し、完了時に反映する (#1046)
         self._current_tags_list = list(image_data.get("tags", []))
         self._trigger_tag_metadata_fetch(self._current_tags_list)
@@ -1498,6 +1505,67 @@ class SelectedImageDetailsWidget(QWidget):
             t["tag"] for t in image_data.get("tags", []) if isinstance(t, dict) and t.get("tag")
         ]
         self._trigger_refinement_evaluation()
+
+    def set_generation_metadata(self, metadata: Any, sources: Any = None) -> None:
+        """生成メタデータを詳細ウィジェットに直接設定する (Issue #1483)。"""
+        self.generation_metadata_widget.set_generation_metadata(metadata, sources)
+
+    def _update_generation_metadata(
+        self, image_id: int | None, image_data: dict[str, Any] | None = None
+    ) -> None:
+        """現在選択中の画像の生成メタデータを取得して表示を更新する (Issue #1483)。"""
+        if image_data and "generation_metadata" in image_data:
+            self.generation_metadata_widget.set_generation_metadata(
+                image_data.get("generation_metadata"),
+                image_data.get("generation_metadata_sources"),
+            )
+            return
+
+        db_manager = getattr(self, "_db_manager", None)
+        if db_manager is None or image_id is None:
+            self.generation_metadata_widget.clear_display()
+            return
+
+        get_meta = getattr(db_manager, "get_generation_metadata", None)
+        if not callable(get_meta):
+            self.generation_metadata_widget.clear_display()
+            return
+
+        try:
+            gen_meta = get_meta(image_id)
+        except Exception as e:
+            logger.warning(f"生成メタデータの取得に失敗: image_id={image_id}, error={e}")
+            self.generation_metadata_widget.clear_display()
+            return
+
+        if not self._is_valid_generation_metadata(gen_meta):
+            self.generation_metadata_widget.clear_display()
+            return
+
+        sources: list[Any] | None = None
+        get_sources = getattr(db_manager, "get_generation_metadata_sources", None)
+        if callable(get_sources):
+            try:
+                raw_sources = get_sources(image_id)
+                if isinstance(raw_sources, list | tuple):
+                    sources = list(raw_sources)
+            except Exception as e:
+                logger.debug(f"生成メタデータ原データの取得をスキップ: image_id={image_id}, error={e}")
+
+        self.generation_metadata_widget.set_generation_metadata(gen_meta, sources)
+
+    @staticmethod
+    def _is_valid_generation_metadata(gen_meta: Any) -> bool:
+        """ORM / Domain / dict の有効な生成メタデータかを検証する (未設定 Mock を除外)。"""
+        if gen_meta is None:
+            return False
+        if isinstance(gen_meta, dict):
+            return True
+        status = getattr(gen_meta, "status", None)
+        if isinstance(status, str):
+            return True
+        status_val = getattr(status, "value", None)
+        return isinstance(status_val, str)
 
     def _build_image_details_from_metadata(self, metadata: dict[str, Any]) -> ImageDetails:
         """
@@ -1867,6 +1935,8 @@ class SelectedImageDetailsWidget(QWidget):
         self.annotation_display.clear_data()
         # 関連画像 (クロップ親子) のクリア (#1346)
         self._related_images_widget.clear()
+        # 生成メタデータ表示のクリア (#1483)
+        self.generation_metadata_widget.clear_display()
         if self._copy_details_button:
             self._copy_details_button.setEnabled(False)
         if self._reload_from_db_button:

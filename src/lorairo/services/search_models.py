@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -21,9 +21,9 @@ if TYPE_CHECKING:
 class SearchConditions:
     """検索条件データクラス"""
 
-    search_type: str  # 後方互換の主検索タイプ ("tags" or "caption")。search_tags/search_caption 未指定時のフォールバック。
-    keywords: list[str]
-    tag_logic: str  # "and" or "or"
+    search_type: str = "tags"  # 後方互換の主検索タイプ ("tags" or "caption")。search_tags/search_caption 未指定時のフォールバック。
+    keywords: list[str] = field(default_factory=list)
+    tag_logic: str = "and"  # "and" or "or"
     # Issue #1093: タグ / キャプションを独立した検索対象として ON/OFF する。
     # 両方 ON の場合は OR 結合 (どちらかにヒットで表示)。None のときは search_type から導出する。
     search_tags: bool | None = None
@@ -64,6 +64,13 @@ class SearchConditions:
     error_state_filter: str | None = None  # "has_error" | "no_error" | None=全て
     model_filter: list[str] | None = None  # litellm_id リスト。None=全モデル
     annotation_review_warnings_only: bool = False  # 現在の保存済み Clef 警告のみ
+
+    # Issue #1483: 生成メタデータ検索条件
+    generation_status: str | None = None
+    generation_tool: str | None = None
+    generation_model: str | None = None
+    generation_lora: str | None = None
+    generation_prompt: str | None = None
 
     def is_tag_search_enabled(self) -> bool:
         """タグを検索対象にするか。search_tags 未指定時は search_type から導出 (後方互換)。"""
@@ -138,6 +145,11 @@ class SearchConditions:
             reviewed_at_filter=self.reviewed_at_filter,
             error_state_filter=self.error_state_filter,
             model_filter=self.model_filter,
+            generation_status=self.generation_status,
+            generation_tool=self.generation_tool,
+            generation_model=self.generation_model,
+            generation_lora=self.generation_lora,
+            generation_prompt=self.generation_prompt,
             # Issue #965: 検索フェーズではアノテーションを先読みしない。
             # tags/captions/scores 等はサムネ選択 → プレビュー表示時に遅延取得する。
             include_annotations=False,

@@ -44,6 +44,7 @@ from sqlalchemy import (
     not_,
     or_,
     select,
+    text,
 )
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -63,6 +64,7 @@ from ..schema import (
     Caption,
     CropRelation,
     ErrorRecord,
+    GenerationMetadata,
     Image,
     ImageFilenameAlias,
     Model,
@@ -3258,6 +3260,117 @@ class ImageRepository(BaseRepository):
             query = query.where(Image.filename.ilike(criteria.filename_pattern))
         if criteria.format_name:
             query = query.where(func.lower(Image.format) == criteria.format_name.strip().lower())
+        return self._apply_generation_metadata_filter(query, criteria)
+
+    @staticmethod
+    def _escape_like_substring(value: str) -> str:
+        """LIKE 部分一致パターン用にワイルドカード文字をエスケープする。"""
+        escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        return f"%{escaped}%"
+
+    def _apply_generation_metadata_filter(
+        self, query: Select[Any], criteria: ImageFilterCriteria
+    ) -> Select[Any]:
+        """生成メタデータ条件 (status/tool/model/lora/prompt) を適用する (Issue #1483)。
+
+        Args:
+            query: ``select(Image.id)`` ベースのクエリ。
+            criteria: フィルタ条件。
+
+        Returns:
+            生成メタデータ条件を AND 追加したクエリ。
+        """
+        if criteria.generation_status is not None and criteria.generation_status.strip():
+            status_val = criteria.generation_status.strip().lower()
+            if status_val in ("none", "no_metadata"):
+                no_row = ~exists().where(GenerationMetadata.image_id == Image.id)
+                none_row = exists().where(
+                    and_(
+                        GenerationMetadata.image_id == Image.id,
+                        func.lower(GenerationMetadata.status).in_(("none", "no_metadata")),
+                    )
+                )
+                query = query.where(or_(no_row, none_row))
+            else:
+                query = query.where(
+                    exists().where(
+                        and_(
+                            GenerationMetadata.image_id == Image.id,
+                            func.lower(GenerationMetadata.status) == status_val,
+                        )
+                    )
+                )
+
+        if criteria.generation_tool is not None and criteria.generation_tool.strip():
+            tool_val = criteria.generation_tool.strip().lower()
+            tool_cond: Any
+            if tool_val in ("a1111", "sd_webui"):
+                tool_cond = func.lower(GenerationMetadata.tool).in_(("a1111", "sd_webui"))
+            elif tool_val == "unknown":
+                tool_cond = or_(
+                    func.lower(GenerationMetadata.tool) == "unknown",
+                    and_(
+                        GenerationMetadata.tool.is_(None),
+                        func.lower(GenerationMetadata.status).not_in(("none", "no_metadata")),
+                    ),
+                )
+            else:
+                tool_cond = func.lower(GenerationMetadata.tool) == tool_val
+            query = query.where(
+                exists().where(
+                    and_(
+                        GenerationMetadata.image_id == Image.id,
+                        tool_cond,
+                    )
+                )
+            )
+
+        if criteria.generation_model is not None and criteria.generation_model.strip():
+            pattern = self._escape_like_substring(criteria.generation_model.strip())
+            query = query.where(
+                exists().where(
+                    and_(
+                        GenerationMetadata.image_id == Image.id,
+                        GenerationMetadata.model_name.ilike(pattern, escape="\\"),
+                    )
+                )
+            )
+
+        if criteria.generation_lora is not None and criteria.generation_lora.strip():
+            pattern = self._escape_like_substring(criteria.generation_lora.strip())
+            query = query.where(
+                exists().where(
+                    and_(
+                        GenerationMetadata.image_id == Image.id,
+                        GenerationMetadata.loras_json.is_not(None),
+                        text(
+                            "json_valid(generation_metadata.loras_json) AND EXISTS ("
+                            "SELECT 1 FROM json_each(generation_metadata.loras_json) AS j "
+                            "WHERE COALESCE("
+                            "CASE WHEN json_type(j.value) = 'object' "
+                            "THEN json_extract(j.value, '$.name') "
+                            "ELSE CAST(j.value AS TEXT) END, ''"
+                            ") LIKE :gen_lora_pattern ESCAPE '\\'"
+                            ")"
+                        ).bindparams(gen_lora_pattern=pattern),
+                    )
+                )
+            )
+
+        if criteria.generation_prompt is not None and criteria.generation_prompt.strip():
+            pattern = self._escape_like_substring(criteria.generation_prompt.strip())
+            query = query.where(
+                exists().where(
+                    and_(
+                        GenerationMetadata.image_id == Image.id,
+                        or_(
+                            GenerationMetadata.positive_prompt.ilike(pattern, escape="\\"),
+                            GenerationMetadata.negative_prompt.ilike(pattern, escape="\\"),
+                        ),
+                    )
+                )
+            )
+
         return query
 
     def _build_filtered_id_query(self, session: Session, criteria: ImageFilterCriteria) -> Select[Any]:
