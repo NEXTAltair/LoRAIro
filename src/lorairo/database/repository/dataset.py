@@ -304,18 +304,21 @@ def _copy_folders_from_version(base_version: DatasetVersion) -> list[DatasetFold
 
 
 def _reset_folder_image_texts(folder_image: DatasetFolderImage, trigger_word: str | None) -> None:
-    """画像の差し替え時に学習テキストをリセットする (`.txt` はトリガーワードがあればそれだけ残す)。"""
-    has_txt = False
+    """画像の差し替え時に学習テキストをリセットする (既存拡張子を保ちトリガーワードがあればそれだけ残す)。"""
+    target_ext: str | None = None
+    if any(t.extension == ".txt" for t in folder_image.learning_texts):
+        target_ext = ".txt"
+    elif folder_image.learning_texts:
+        target_ext = folder_image.learning_texts[0].extension
     for text in folder_image.learning_texts:
-        if text.extension == ".txt":
-            has_txt = True
+        if text.extension == target_ext:
             reset_elements = [trigger_word] if trigger_word else []
         else:
             reset_elements = []
         text.elements_json = _dump_elements(reset_elements)
         text.raw_text = _join_elements(reset_elements)
         text.is_edited = True
-    if not has_txt and trigger_word:
+    if target_ext is None and trigger_word:
         folder_image.learning_texts.append(
             DatasetLearningText(
                 extension=".txt",
