@@ -573,3 +573,27 @@ class TestWorkerGuiThreadDestruction:
         qtbot.waitUntil(lambda: len(destroyed_thread_ids) == total_workers, timeout=10000)
         assert all(tid == main_tid for tid in destroyed_thread_ids)
         assert manager._retiring_workers == {}
+
+    def test_worker_terminal_signals_are_emitted_on_gui_thread(self, manager, qtbot):
+        """WorkerManager の終端シグナルは worker スレッドではなく GUI スレッド上で発行される。"""
+        import threading
+
+        from lorairo.gui.workers.base import LoRAIroWorkerBase
+
+        class _SimpleWorker(LoRAIroWorkerBase[int]):
+            def execute(self) -> int:
+                return 7
+
+        main_tid = threading.get_ident()
+        terminal_tids: list[int] = []
+        finished_tids: list[int] = []
+        manager.worker_terminal.connect(lambda _event: terminal_tids.append(threading.get_ident()))
+        manager.worker_finished.connect(lambda _wid, _res: finished_tids.append(threading.get_ident()))
+
+        worker = _SimpleWorker()
+        assert manager.start_worker("w_tid", worker)
+        del worker
+
+        qtbot.waitUntil(lambda: bool(finished_tids), timeout=5000)
+        assert terminal_tids == [main_tid]
+        assert finished_tids == [main_tid]

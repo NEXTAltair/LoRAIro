@@ -52,6 +52,7 @@ class WorkerManager(QObject):
         self.active_workers: dict[str, dict[str, Any]] = {}
         self._deferred_thread_workers: dict[str, dict[str, Any]] = {}
         self._retiring_workers: dict[int, dict[str, Any]] = {}
+        self._worker_ids_by_worker: dict[int, str] = {}
         self._thread_release_timer = QTimer(self)
         self._thread_release_timer.setInterval(1)
         self._thread_release_timer.timeout.connect(self._poll_deferred_thread_release)
@@ -88,14 +89,9 @@ class WorkerManager(QObject):
         thread = QThread()
         worker.moveToThread(thread)
 
-        # シグナル接続
-        thread.started.connect(worker.run)
-        worker.finished.connect(lambda result: self._on_worker_finished(worker_id, result))
-        worker.error_occurred.connect(lambda error: self._on_worker_error(worker_id, error))
-        worker.canceled.connect(lambda: self._on_worker_canceled(worker_id))
-
         # ワーカー登録・開始
         worker_info: dict[str, Any] = {
+            "worker_id": worker_id,
             "worker": worker,
             "thread": thread,
             "auto_cleanup": auto_cleanup,
@@ -104,11 +100,22 @@ class WorkerManager(QObject):
             "unresponsive": False,
         }
         self.active_workers[worker_id] = worker_info
+        self._worker_ids_by_worker[id(worker)] = worker_id
+
+        # シグナル接続: worker スレッド上で lambda を直接実行すると GIL 保持のまま
+        # GUI スレッド QObject の signalSlotLock を取りに行き ABBA デッドロックし得るため、
+        # WorkerManager 自身の Slot へ QueuedConnection で配送する (#1492 / #1497)。
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._on_worker_finished_slot, Qt.ConnectionType.QueuedConnection)
+        worker.error_occurred.connect(self._on_worker_error_slot, Qt.ConnectionType.QueuedConnection)
+        worker.canceled.connect(self._on_worker_canceled_slot, Qt.ConnectionType.QueuedConnection)
 
         if auto_cleanup:
-            worker.finished.connect(thread.quit)
-            worker.error_occurred.connect(thread.quit)
-            worker.canceled.connect(thread.quit)
+            # thread.quit はスレッド安全。DirectConnection で worker スレッド側から即座に
+            # quit フラグを立てることで、GUI イベントループが回る前でも QThread.exec() を抜ける。
+            worker.finished.connect(thread.quit, Qt.ConnectionType.DirectConnection)
+            worker.error_occurred.connect(thread.quit, Qt.ConnectionType.DirectConnection)
+            worker.canceled.connect(thread.quit, Qt.ConnectionType.DirectConnection)
             # worker.deleteLater は繋がない: Python 製 QObject を worker スレッドで破棄すると
             # ~QObject (signalSlotLock 保持) と GUI スレッド (GIL 保持) が ABBA デッドロックする
             # (#1492 / #1496 / #1497)。thread 終了後に GUI スレッドで参照解放して破棄する。
@@ -120,7 +127,9 @@ class WorkerManager(QObject):
                 )
             else:
                 self._retiring_workers[id(thread)] = worker_info
-                thread.finished.connect(lambda: self._cleanup_thread(worker_id, thread))
+                thread.finished.connect(
+                    self._on_retiring_thread_finished, Qt.ConnectionType.QueuedConnection
+                )
                 thread.finished.connect(thread.deleteLater)
 
         thread.start()
@@ -235,12 +244,13 @@ class WorkerManager(QObject):
                 None なら `_CANCEL_ALL_TOTAL_GRACE_MS`。
         """
         self._park_deferred_threads()
+        grace_ms = self._CANCEL_ALL_TOTAL_GRACE_MS if total_grace_ms is None else total_grace_ms
+        deadline = time.monotonic() + grace_ms / 1000
         worker_ids = list(self.active_workers.keys())
         if not worker_ids:
+            self._wait_retiring_threads(deadline)
             logger.info("全ワーカーキャンセル: 0個")
             return
-
-        grace_ms = self._CANCEL_ALL_TOTAL_GRACE_MS if total_grace_ms is None else total_grace_ms
 
         # 1) 協調キャンセル + quit を全ワーカーへブロードキャスト (待機しない)
         for worker_id in worker_ids:
@@ -254,7 +264,6 @@ class WorkerManager(QObject):
                 thread.quit()
 
         # 2) 共有 deadline まで停止を待つ。残りは見捨てて終了する。
-        deadline = time.monotonic() + grace_ms / 1000
         abandoned = 0
         for worker_id in worker_ids:
             worker_info = self.active_workers.get(worker_id)
@@ -274,6 +283,8 @@ class WorkerManager(QObject):
                 error=f"シャットダウン期限内に停止しませんでした: {worker_id}",
                 cancel_reason=reason,
             )
+
+        self._wait_retiring_threads(deadline)
 
         if abandoned:
             logger.warning(
@@ -320,6 +331,7 @@ class WorkerManager(QObject):
             return False
 
         worker_info = self.active_workers.pop(worker_id)
+        self._worker_ids_by_worker.pop(id(worker_info.get("worker")), None)
         thread = worker_info["thread"]
         self._retiring_workers.pop(id(thread), None)
 
@@ -371,18 +383,65 @@ class WorkerManager(QObject):
             thread = worker_info["thread"]
             if not thread.wait(0):
                 self._park_abandoned_worker(worker_info, release_on_finished=False)
-        for worker_info in list(self._retiring_workers.values()):
-            thread = worker_info["thread"]
-            if not thread.wait(0):
-                self._park_abandoned_worker(worker_info, release_on_finished=True)
         if self._deferred_thread_workers:
             self._thread_release_timer.start()
+
+    def _wait_retiring_threads(self, deadline: float) -> None:
+        """terminal 発火済みで終了途中の retiring スレッドを共有 deadline まで待機・解放する。"""
+        for thread_id, worker_info in list(self._retiring_workers.items()):
+            thread = worker_info["thread"]
+            if thread.isRunning():
+                thread.quit()
+            remaining_ms = max(0, int((deadline - time.monotonic()) * 1000))
+            if not thread.isRunning() or (remaining_ms > 0 and thread.wait(remaining_ms)):
+                self._retiring_workers.pop(thread_id, None)
+                _ABANDONED_WORKERS.pop(thread_id, None)
+                self._release_stopped_worker(worker_info)
+            else:
+                self._park_abandoned_worker(worker_info, release_on_finished=True)
 
     @Slot()
     def _on_deferred_thread_finished(self) -> None:
         # finished precedes native thread exit. Reuse this timer's
         # existing signal receiver instead of connecting a new one (#1384).
         self._thread_release_timer.start()
+
+    @Slot()
+    def _on_retiring_thread_finished(self) -> None:
+        sender = self.sender()
+        if isinstance(sender, QThread):
+            worker_info = self._retiring_workers.get(id(sender))
+            worker_id = worker_info.get("worker_id", "unknown") if worker_info else "unknown"
+            self._cleanup_thread(worker_id, sender)
+            return
+        for worker_info in list(self._retiring_workers.values()):
+            thread = worker_info["thread"]
+            if not thread.isRunning():
+                self._cleanup_thread(worker_info.get("worker_id", "unknown"), thread)
+
+    def _resolve_sender_worker_id(self) -> str | None:
+        sender = self.sender()
+        if sender is None:
+            return None
+        return self._worker_ids_by_worker.get(id(sender))
+
+    @Slot(object)
+    def _on_worker_finished_slot(self, result: object) -> None:
+        worker_id = self._resolve_sender_worker_id()
+        if worker_id is not None:
+            self._on_worker_finished(worker_id, result)
+
+    @Slot(str)
+    def _on_worker_error_slot(self, error: str) -> None:
+        worker_id = self._resolve_sender_worker_id()
+        if worker_id is not None:
+            self._on_worker_error(worker_id, error)
+
+    @Slot()
+    def _on_worker_canceled_slot(self) -> None:
+        worker_id = self._resolve_sender_worker_id()
+        if worker_id is not None:
+            self._on_worker_canceled(worker_id)
 
     @Slot()
     def _poll_deferred_thread_release(self) -> None:
@@ -615,7 +674,8 @@ class WorkerManager(QObject):
         if worker_id not in self.active_workers:
             return False
 
-        self.active_workers.pop(worker_id)
+        worker_info = self.active_workers.pop(worker_id)
+        self._worker_ids_by_worker.pop(id(worker_info.get("worker")), None)
         self.active_worker_count_changed.emit(len(self.active_workers))
 
         if len(self.active_workers) == 0:

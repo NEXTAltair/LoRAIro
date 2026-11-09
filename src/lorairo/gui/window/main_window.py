@@ -1732,10 +1732,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._tag_db_ready.connect(self._on_tag_db_warmup_done)
         self.statusBar().showMessage("タグDBを準備中です (翻訳表示とタグ補完は準備完了後に有効になります)")
         worker = TagDbWarmupWorker(self.service_container)
-        # lambda は worker スレッドで走るが Signal を emit するだけ (queued で GUI スレッドへ配送)。
-        worker.finished.connect(lambda result: self._tag_db_ready.emit(result))
-        worker.error_occurred.connect(lambda message: self._tag_db_ready.emit(str(message)))
-        worker.canceled.connect(lambda: self._tag_db_ready.emit(None))
+        self._tag_db_manager.worker_finished.connect(lambda _wid, result: self._tag_db_ready.emit(result))
+        self._tag_db_manager.worker_error.connect(
+            lambda _wid, message: self._tag_db_ready.emit(str(message))
+        )
+        self._tag_db_manager.worker_canceled.connect(lambda _wid: self._tag_db_ready.emit(None))
         self._tag_db_manager.start_worker("tag_db_warmup", worker)
         logger.info("タグDBの背景初期化を開始")
 
