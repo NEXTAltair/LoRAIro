@@ -170,34 +170,50 @@ class ExampleWidget(QWidget):
         self._ui.okButton.clicked.connect(self._on_ok_clicked)
 ```
 
-### 5. Async Worker Integration
+### 5. Async Worker Integration (`LoRAIroWorkerBase` + `QThread` + `moveToThread`)
 
-**Worker coordination:**
+**Worker coordination (`WorkerManager` / `WorkerService`):**
 ```python
-class AsyncWidget(QWidget):
-    def __init__(self):
+from lorairo.gui.workers.base import LoRAIroWorkerBase, WorkerProgress
+from lorairo.gui.workers.manager import WorkerManager
+
+class MyAsyncWorker(LoRAIroWorkerBase[dict]):
+    def __init__(self, data: str) -> None:
         super().__init__()
-        self._worker_manager = None
+        self._data = data
+
+    def execute(self) -> dict:
+        self._check_cancellation()
+        self._report_progress_throttled(50, "処理中...", processed_count=1, total_count=2)
+        return {"status": "ok", "data": self._data}
+
+class AsyncWidget(QWidget):
+    def __init__(self, worker_manager: WorkerManager, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._worker_manager = worker_manager
 
     def start_async_operation(self) -> None:
-        worker = MyAsyncWorker(data=self._data)
-        worker.signals.progress.connect(self._on_progress)
-        worker.signals.finished.connect(self._on_finished)
-        self._worker_manager.submit(worker)
+        worker = MyAsyncWorker(data="sample")
+        worker.progress_updated.connect(self._on_progress)
+        worker.finished.connect(self._on_finished)
+        worker.error_occurred.connect(self._on_error)
+        self._worker_manager.start_worker("my-async-op", worker)
 
-    @Slot(int, int)
-    def _on_progress(self, current: int, total: int) -> None:
-        progress = int(current / total * 100)
-        self._ui.progressBar.setValue(progress)
+    @Slot(object)
+    def _on_progress(self, progress: WorkerProgress) -> None:
+        self._ui.progressBar.setValue(progress.percentage)
 ```
 
 ## LoRAIro Conventions
 
 ### File Structure
-- **Widgets**: `src/lorairo/gui/widgets/`
+- **Tab Widgets (1 tab = 1 widget)**: `src/lorairo/gui/tab/` (`search_tab.py`, `annotate_tab.py`, `jobs_tab.py`, `results_tab.py`, `export_tab.py`, `map_tab.py`, `errors_tab.py`, `cli_tab.py`)
+- **Reusable Widgets**: `src/lorairo/gui/widgets/` (`thumbnail_selector_widget.py`, `selected_image_details_widget.py`, `image_preview.py`, `filter_search_panel.py`, etc.)
 - **Designer**: `src/lorairo/gui/designer/*.ui`
 - **Generated UI**: `src/lorairo/gui/designer/*_ui.py`
-- **Main Window**: `src/lorairo/gui/window/main_window.py`
+- **Main Window (glue / orchestrator)**: `src/lorairo/gui/window/main_window.py`
+- **Workers & Manager**: `src/lorairo/gui/workers/` (`base.py`, `manager.py`, `annotation_worker.py`, `registration_worker.py`, `search_worker.py`, `thumbnail_worker.py`)
+- **GUI Services & Theme**: `src/lorairo/gui/services/` (`worker_service.py`), `src/lorairo/gui/theme.py`
 
 ### Naming Rules
 - **Classes**: `{Name}Widget` (e.g., `ThumbnailWidget`)

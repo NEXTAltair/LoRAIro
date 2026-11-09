@@ -305,7 +305,8 @@ Anti-patterns:
   right, structure wrong = visual divergence.
 
 Tokens are the **only** thing the two implementations share. Keep their values in sync between
-the design tool's stylesheet and the app's token module — this is **not automatic**; verify it.
+the design tool's stylesheet and the app's token module (`src/lorairo/gui/theme.py` and `docs/design/theme-v1/hifi-mock.html`, plus the Claude Design mirror under `docs/design/lorairo-design-system/` and operation prototype `docs/design/wireframes/wireframes.html`) — this is **not automatic**; verify it.
+For capturing render-time navigation/screen structure from the operation prototype, use `lorairo-design-capture`.
 For the extraction/Qt mechanics of the mirror widgets, use the `lorairo-qt-widget` skill.
 
 ---

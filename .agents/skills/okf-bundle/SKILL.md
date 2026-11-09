@@ -64,10 +64,11 @@ CI 自走に頼らず Agent の判断で回す。許容するのは「実行漏�
 ## LoRAIro での使用例
 
 ```bash
-# ADR バンドル検証 (全件 frontmatter 必須)
-python3 .claude/skills/okf-bundle/scripts/okf_validate.py --bundle-root docs/decisions --exclude README.md
+# ADR バンドル検証 (全件 frontmatter 必須: type,title,status,timestamp + index/README 一致確認)
+python3 .agents/skills/okf-bundle/scripts/okf_validate.py --bundle-root docs/decisions --require type,title,status,timestamp --exclude README.md
+make adr-okf     # 上記 validate + okf_index.py --check を一括実行
 # index.md + README テーブルを再生成
-make adr-index   # 内部で okf_index.py を呼ぶ
+make adr-index   # 内部で .agents/skills/okf-bundle/scripts/okf_index.py を呼ぶ
 
 # 通常ドキュメント検証 (lazy migration: 未付与は skip、付与済みのみ検証。ADR 0082)
 make docs-okf    # docs / iam-lib docs / genai-tag docs を --skip-missing で検証

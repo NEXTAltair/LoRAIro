@@ -202,15 +202,19 @@ def batch_size(request):
 
 **DO:**
 - Use AAA pattern (Arrange, Act, Assert)
-- Single assertion per test
+- Single assertion per test (or tightly coupled assertions on one outcome)
 - Use fixtures for setup/teardown
-- Apply appropriate pytest markers
+- Apply appropriate pytest markers (`unit`, `integration`, `gui`, `cli`, `bdd`)
+- Mock `QMessageBox` (`monkeypatch`) in GUI tests so modal dialogs never block headless runs
+- Use `qtbot.waitSignal()` or `qtbot.waitUntil()` instead of fixed `qtbot.wait()`
+- Respect package test boundaries (ADR 0024: run LoRAIro main tests with `make test`, `image-annotator-lib` with `make test-iam-lib`, `genai-tag-db-tools` with `make test-genai-tag`)
 - Maintain 75%+ code coverage
 
 **DON'T:**
 - Create dependencies between tests
-- Call external APIs (use mocks)
-- Hardcode paths (use `tests/resources/`)
+- Call external APIs or download models in standard test runs (`not downloads_and_runs_model and not calls_real_webapi`)
+- Leave `QMessageBox.question` / `warning` / `critical` unmocked
+- Hardcode paths (use `tests/resources/` or `tmp_path`)
 - Use print statements (use logger or assert messages)
 - Write slow unit tests (keep under 1 second)
 
@@ -218,12 +222,12 @@ def batch_size(request):
 
 ```bash
 # Generate coverage report
-uv run pytest --cov=src --cov-report=html
+uv run --no-sync pytest --cov=src --cov-report=html
 
 # View in browser: htmlcov/index.html
 
 # Requirements:
-# - Minimum: 75%
+# - Minimum: 75% (configured in pyproject.toml [tool.coverage.report] fail_under = 75)
 # - Target: Unit 90%+, Integration 80%+, GUI 70%+
 ```
 
@@ -231,19 +235,19 @@ uv run pytest --cov=src --cov-report=html
 
 ```
 tests/
-├── conftest.py              # Shared fixtures
-├── resources/               # Test data
-│   ├── sample.jpg
-│   └── test_config.toml
-├── database/                # Database tests
-│   └── test_db_repository.py
-├── services/                # Service tests
-│   └── test_image_processing_service.py
-└── gui/                     # GUI tests
-    ├── widgets/
-    │   └── test_thumbnail_widget.py
-    └── window/
-        └── test_main_window.py
+├── resources/               # Test assets (images, sample configs)
+├── unit/                    # Unit & headless GUI tests
+│   ├── cli/                 # CLI command unit tests
+│   ├── database/            # Database & repository unit tests
+│   │   └── repository/      # Aggregate repository tests (test_image_repository.py, etc.)
+│   ├── gui/                 # PySide6 GUI tests
+│   │   ├── tab/             # Tab widget tests (test_search_tab.py, test_annotate_tab.py, etc.)
+│   │   ├── widgets/         # Reusable widget tests
+│   │   ├── window/          # MainWindow tests (test_main_window.py, test_main_window_coverage.py)
+│   │   └── workers/         # Worker & WorkerManager tests
+│   └── services/            # Service layer unit tests
+├── integration/             # Multi-component integration tests
+└── bdd/                     # pytest-bdd feature scenarios
 ```
 
 ## Test Sync (diff-driven, 旧 /test sync)
@@ -260,15 +264,16 @@ tests/
    - `A` (Added) → 対応テストを**追加**
    - `M` (Modified) → シグネチャ/振る舞い変更ならテストを**修正**（内部実装のみなら実行で確認、変更不要のことが多い）
    - `D` (Deleted) → 対応テストを**削除**（削除前にユーザー確認）
-2. **影響範囲の特定**: `investigation` agent または `Grep` で変更シンボルの参照元を追い、波及するテストを洗う。
+2. **影響範囲の特定**: `Grep` で変更シンボルの参照元を追い、波及するテストを洗う。
 3. **テストファイル対応表**:
+   - `src/lorairo/database/repository/foo.py` → `tests/unit/database/repository/test_foo_repository.py`
    - `src/lorairo/services/foo.py` → `tests/unit/services/test_foo.py`
+   - `src/lorairo/gui/tab/foo_tab.py` → `tests/unit/gui/tab/test_foo_tab.py`
    - `src/lorairo/gui/widgets/bar.py` → `tests/unit/gui/widgets/test_bar.py`
 4. **同期アクション実行**: 追加は本 skill の Core Patterns に従い生成。修正は変更 API に合わせ更新。削除は確認後に実施。
-5. **検証**: 新規/修正テストと回帰テストを `uv run pytest` で確認（CI-equivalent filter は `.claude/rules/testing.md`）。
+5. **検証**: 新規/修正テストと回帰テストを `make test` または `uv run --no-sync pytest -m "not downloads_and_runs_model and not calls_real_webapi"` で確認（定義は `scripts/dev_tasks.py` および `pyproject.toml`）。
 
-クイック品質チェック（Ruff/mypy/pytest）は `make format` / `make mypy` / `uv run pytest` で直接実行する（専用コマンドは不要）。
-エラー診断は superpowers `systematic-debugging` + `build-error-resolver` agent に委ねる。
+クイック品質チェック（Ruff/mypy/pytest）は `make lint` / `make mypy` / `make test` で直接実行する。
 
 ## Before Writing Tests
 

@@ -28,7 +28,7 @@ LoRAIro のプロジェクト DB (`lorairo_data/<project>/image_database.db`) �
 uv run --no-sync lorairo-cli --json <group> <command> [args]   # JSONL 出力 (エージェント向け)
 uv run --no-sync lorairo-cli <group> <command> --help          # 各コマンドの引数確認
 uv run --no-sync lorairo-cli list-commands                     # 機械可読なコマンド一覧
-uv run --no-sync lorairo-cli describe <command>                # エージェント/CI 向けコマンド仕様
+uv run --no-sync lorairo-cli describe "<group> <command>"      # エージェント/CI 向けコマンド仕様 (空白を含む場合はクォート必須)
 ```
 
 主なコマンド群:
@@ -36,12 +36,14 @@ uv run --no-sync lorairo-cli describe <command>                # エージェン
 | group | 用途 |
 |---|---|
 | `project` | プロジェクト一覧・作成 |
-| `images` | `list` / `search` (read-only, JSON search schema) / `register` / `update` |
-| `tags` | タグ編集 (agent-friendly) |
-| `annotate` / `batch` | アノテーション実行 / Provider Batch job |
-| `models` | モデルレジストリ参照 |
+| `images` | `list` / `search` (read-only, JSON search schema) / `show` / `register` / `update` / `reanalyze-generation` / `crop` |
+| `tags` | タグ編集 (`add` / `remove` / `replace` / `translations` / `alias`, agent-friendly) |
+| `annotate` / `batch` | アノテーション実行 (`run` / `review` / `import-batch`) / Provider Batch job |
+| `dataset` | Kohya-ss データセット (`import` / `export` / `show` / `diff` / `copy-tags`) |
+| `models` | モデルレジストリ参照・同期 |
 | `errors` | エラーレコード管理 |
 | `export` | データセットエクスポート |
+| `maintenance` | 読み取り専用 DB メンテナンス点検 (`check`) |
 | `status` | システム状態 |
 
 ## 運用ルール
