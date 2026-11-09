@@ -6,6 +6,7 @@
 
 import re
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
@@ -113,15 +114,24 @@ def _detect_trigger(images: list[ScannedImage]) -> tuple[str | None, float]:
     return (element if rate >= TRIGGER_CANDIDATE_MIN_RATE else None), rate
 
 
-def _scan_folder(dir_path: Path, num_repeats: int, name: str) -> ScannedFolder:
-    """1 フォルダ直下の画像と学習テキストを読む。"""
+def _scan_folder(
+    dir_path: Path,
+    num_repeats: int,
+    name: str,
+    cancel_check: Callable[[], bool] | None = None,
+) -> ScannedFolder | None:
+    """1 フォルダ直下の画像と学習テキストを読む。キャンセル時は None を返す。"""
     image_extensions = {ext.lower() for ext in FileSystemManager.image_extensions}
     images: list[ScannedImage] = []
     for image_path in sorted(dir_path.iterdir(), key=lambda p: p.name):
+        if cancel_check is not None and cancel_check():
+            return None
         if not image_path.is_file() or image_path.suffix.lower() not in image_extensions:
             continue
         texts: list[ScannedText] = []
         for extension in TEXT_EXTENSIONS:
+            if cancel_check is not None and cancel_check():
+                return None
             text_path = image_path.with_suffix(extension)
             if not text_path.is_file():
                 continue
@@ -143,19 +153,25 @@ def _scan_folder(dir_path: Path, num_repeats: int, name: str) -> ScannedFolder:
 
 
 def scan_kohya_directory(
-    root: Path, exclude_patterns: tuple[str, ...] = DEFAULT_EXCLUDE_PATTERNS
+    root: Path,
+    exclude_patterns: tuple[str, ...] = DEFAULT_EXCLUDE_PATTERNS,
+    *,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> list[ScannedFolder]:
     """Kohya 形式のルートディレクトリをスキャンする。
 
     Args:
         root: `<数字>_<名前>` フォルダを含むディレクトリ。
         exclude_patterns: 除外するフォルダ名の fnmatch パターン。
+        cancel_check: 協調キャンセル判定コールバック。True を返したら即座に走査を打ち切る。
 
     Returns:
         スキャンしたフォルダのリスト (フォルダ名順)。
     """
     folders: list[ScannedFolder] = []
     for dir_path in sorted(root.iterdir(), key=lambda p: p.name):
+        if cancel_check is not None and cancel_check():
+            break
         if not dir_path.is_dir():
             continue
         if any(fnmatch(dir_path.name, pattern) for pattern in exclude_patterns):
@@ -165,6 +181,9 @@ def scan_kohya_directory(
         if parsed is None:
             logger.debug(f"繰り返し数接頭辞なし、スキップ: {dir_path.name}")
             continue
-        folders.append(_scan_folder(dir_path, parsed[0], parsed[1]))
+        scanned = _scan_folder(dir_path, parsed[0], parsed[1], cancel_check=cancel_check)
+        if scanned is None:
+            break
+        folders.append(scanned)
     logger.info(f"Kohya スキャン完了: {len(folders)}フォルダ ({root})")
     return folders

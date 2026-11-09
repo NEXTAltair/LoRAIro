@@ -84,14 +84,19 @@ class KohyaFolderScanResult:
     error_text: str = ""
 
 
-def _scan_kohya_folders(directory: Path) -> list[FolderScanEntry]:
+def _scan_kohya_folders(
+    directory: Path,
+    cancel_check: Callable[[], bool] | None = None,
+) -> list[FolderScanEntry]:
     """ディレクトリを Kohya 形式として走査し、フォルダごとの要約を返す。"""
     if not directory.is_dir():
         return []
-    return [
-        (folder.dir_name, folder.num_repeats, summarize_folder(folder))
-        for folder in scan_kohya_directory(directory)
-    ]
+    entries: list[FolderScanEntry] = []
+    for folder in scan_kohya_directory(directory, cancel_check=cancel_check):
+        if cancel_check is not None and cancel_check():
+            break
+        entries.append((folder.dir_name, folder.num_repeats, summarize_folder(folder)))
+    return entries
 
 
 class KohyaFolderScanWorker(LoRAIroWorkerBase[KohyaFolderScanResult]):
@@ -116,11 +121,22 @@ class KohyaFolderScanWorker(LoRAIroWorkerBase[KohyaFolderScanResult]):
 
     def execute(self) -> KohyaFolderScanResult:
         """対象ディレクトリをスキャンして要約を返す。"""
+        self._check_cancellation()
         summaries: tuple[FolderScanEntry, ...] = ()
         error_text = ""
-        scanner = self._scanner or _scan_kohya_folders
         try:
-            summaries = tuple(scanner(self._directory))
+            if self._scanner is not None:
+                raw_entries = self._scanner(self._directory)
+                collected: list[FolderScanEntry] = []
+                for entry in raw_entries:
+                    self._check_cancellation()
+                    collected.append(entry)
+                summaries = tuple(collected)
+            else:
+                summaries = tuple(
+                    _scan_kohya_folders(self._directory, cancel_check=self.cancellation.is_canceled)
+                )
+                self._check_cancellation()
         except OSError as e:
             logger.opt(exception=True).warning(f"Kohya フォルダのスキャンに失敗: {self._directory}")
             error_text = f"フォルダを読めませんでした: {type(e).__name__}"
@@ -579,6 +595,8 @@ class DatasetSelectDialog(QDialog):
 
         self._scan_generation += 1
         generation = self._scan_generation
+        for _old_gen, (_old_thread, old_worker) in list(self._scan_runners.items()):
+            old_worker.cancel()
         self._kohya_scanned_directory = None
         self._kohya_error_text = ""
 
@@ -682,16 +700,20 @@ class DatasetSelectDialog(QDialog):
         return not self._scanning_kohya
 
     def _stop_scan_workers(self) -> None:
-        """実行中の Kohya フォルダスキャン worker スレッドを停止し、GUI スレッドで参照を解放する。"""
+        """実行中の Kohya フォルダスキャン worker スレッドへ協調キャンセルを送り、共通デッドライン内で待機する。"""
         if self._scanning_kohya or self._scan_runners:
             self._scan_generation += 1
         self._scanning_kohya = False
         self._scanning_directory = None
-        for generation, runner in list(self._scan_runners.items()):
-            thread, worker = runner
+        runners = list(self._scan_runners.items())
+        for _generation, (thread, worker) in runners:
             worker.cancel()
             thread.quit()
-            if thread.wait(_SCAN_SHUTDOWN_WAIT_MS):
+        deadline = time.monotonic() + (_SCAN_SHUTDOWN_WAIT_MS / 1000.0)
+        for generation, runner in runners:
+            thread, _worker = runner
+            remaining_ms = max(0, int((deadline - time.monotonic()) * 1000))
+            if thread.wait(remaining_ms):
                 self._scan_runners.pop(generation, None)
                 _ACTIVE_SCAN_RUNNERS.discard(runner)
             else:
