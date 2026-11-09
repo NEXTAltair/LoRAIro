@@ -51,6 +51,7 @@ class WorkerManager(QObject):
         super().__init__(parent)
         self.active_workers: dict[str, dict[str, Any]] = {}
         self._deferred_thread_workers: dict[str, dict[str, Any]] = {}
+        self._retiring_workers: dict[int, dict[str, Any]] = {}
         self._thread_release_timer = QTimer(self)
         self._thread_release_timer.setInterval(1)
         self._thread_release_timer.timeout.connect(self._poll_deferred_thread_release)
@@ -93,24 +94,8 @@ class WorkerManager(QObject):
         worker.error_occurred.connect(lambda error: self._on_worker_error(worker_id, error))
         worker.canceled.connect(lambda: self._on_worker_canceled(worker_id))
 
-        if auto_cleanup:
-            worker.finished.connect(thread.quit)
-            worker.finished.connect(worker.deleteLater)
-            worker.error_occurred.connect(thread.quit)
-            worker.error_occurred.connect(worker.deleteLater)
-            worker.canceled.connect(thread.quit)
-            worker.canceled.connect(worker.deleteLater)
-            # スレッドの適切な終了処理
-            if defer_thread_release:
-                thread.finished.connect(
-                    self._on_deferred_thread_finished, Qt.ConnectionType.QueuedConnection
-                )
-            else:
-                thread.finished.connect(lambda: self._cleanup_thread(worker_id, thread))
-                thread.finished.connect(thread.deleteLater)
-
         # ワーカー登録・開始
-        self.active_workers[worker_id] = {
+        worker_info: dict[str, Any] = {
             "worker": worker,
             "thread": thread,
             "auto_cleanup": auto_cleanup,
@@ -118,9 +103,25 @@ class WorkerManager(QObject):
             "terminal_emitted": False,
             "unresponsive": False,
         }
-        if auto_cleanup and defer_thread_release:
-            # Keep both wrappers alive even after terminal pops active_workers.
-            self._deferred_thread_workers[worker_id] = self.active_workers[worker_id]
+        self.active_workers[worker_id] = worker_info
+
+        if auto_cleanup:
+            worker.finished.connect(thread.quit)
+            worker.error_occurred.connect(thread.quit)
+            worker.canceled.connect(thread.quit)
+            # worker.deleteLater は繋がない: Python 製 QObject を worker スレッドで破棄すると
+            # ~QObject (signalSlotLock 保持) と GUI スレッド (GIL 保持) が ABBA デッドロックする
+            # (#1492 / #1496 / #1497)。thread 終了後に GUI スレッドで参照解放して破棄する。
+            if defer_thread_release:
+                # Keep both wrappers alive even after terminal pops active_workers.
+                self._deferred_thread_workers[worker_id] = worker_info
+                thread.finished.connect(
+                    self._on_deferred_thread_finished, Qt.ConnectionType.QueuedConnection
+                )
+            else:
+                self._retiring_workers[id(thread)] = worker_info
+                thread.finished.connect(lambda: self._cleanup_thread(worker_id, thread))
+                thread.finished.connect(thread.deleteLater)
 
         thread.start()
         self.worker_started.emit(worker_id)
@@ -320,16 +321,21 @@ class WorkerManager(QObject):
 
         worker_info = self.active_workers.pop(worker_id)
         thread = worker_info["thread"]
-        worker = worker_info["worker"]
+        self._retiring_workers.pop(id(thread), None)
 
         # スレッド終了待機
+        stopped = True
         if thread.isRunning():
             thread.quit()
-            thread.wait(3000)  # 3秒でタイムアウト
+            stopped = thread.wait(3000)  # 3秒でタイムアウト
 
-        # リソース解放
-        worker.deleteLater()
-        thread.deleteLater()
+        if stopped:
+            # worker.deleteLater() は worker スレッド宛のイベントになるため呼ばず、
+            # GUI スレッド上の参照解放で ~QObject を GUI スレッド実行させる (#1497)。
+            self._release_stopped_worker(worker_info)
+            thread.deleteLater()
+        else:
+            self._park_abandoned_worker(worker_info)
 
         self.active_worker_count_changed.emit(len(self.active_workers))
         logger.debug(f"ワーカークリーンアップ: {worker_id}")
@@ -345,6 +351,19 @@ class WorkerManager(QObject):
 
     # === Private Event Handlers ===
 
+    @staticmethod
+    def _release_stopped_worker(worker_info: dict[str, Any] | None) -> None:
+        """停止済み QThread から worker.run 接続を外し、GUI スレッド上で worker 参照を解放可能にする。"""
+        if worker_info is None:
+            return
+        thread = worker_info.get("thread")
+        worker = worker_info.get("worker")
+        if thread is not None and worker is not None and hasattr(thread, "started"):
+            try:
+                thread.started.disconnect(worker.run)
+            except (RuntimeError, TypeError):
+                pass
+
     def _park_deferred_threads(self) -> None:
         # Terminal can precede native QObject destruction. Such threads are no
         # longer active, but still need ownership transfer on window teardown.
@@ -352,24 +371,30 @@ class WorkerManager(QObject):
             thread = worker_info["thread"]
             if not thread.wait(0):
                 self._park_abandoned_worker(worker_info, release_on_finished=False)
+        for worker_info in list(self._retiring_workers.values()):
+            thread = worker_info["thread"]
+            if not thread.wait(0):
+                self._park_abandoned_worker(worker_info, release_on_finished=True)
         if self._deferred_thread_workers:
             self._thread_release_timer.start()
 
     @Slot()
     def _on_deferred_thread_finished(self) -> None:
-        # finished precedes deferred QObject destruction. Reuse this timer's
-        # existing signal receiver instead of connecting a new one while a
-        # worker destructor can be waiting for the Python GIL (#1384).
+        # finished precedes native thread exit. Reuse this timer's
+        # existing signal receiver instead of connecting a new one (#1384).
         self._thread_release_timer.start()
 
     @Slot()
     def _poll_deferred_thread_release(self) -> None:
-        for worker_id, worker_info in list(self._deferred_thread_workers.items()):
+        for worker_id in list(self._deferred_thread_workers.keys()):
+            worker_info = self._deferred_thread_workers[worker_id]
             thread = worker_info["thread"]
             if not thread.wait(0):
                 continue
             del self._deferred_thread_workers[worker_id]
             _ABANDONED_WORKERS.pop(id(thread), None)
+            self._release_stopped_worker(worker_info)
+            del worker_info
             thread.deleteLater()
             self.worker_thread_released.emit(worker_id)
             logger.debug(f"ワーカー native thread 終了確認: {worker_id}")
@@ -383,12 +408,21 @@ class WorkerManager(QObject):
 
     def _cleanup_thread(self, worker_id: str, thread: QThread) -> None:
         """スレッドのクリーンアップ処理"""
+        worker_info = self._retiring_workers.get(id(thread))
         try:
+            stopped = True
             if thread.isRunning():
                 # スレッドが まだ実行中の場合は適切に終了を待機
-                if not thread.wait(self._CLEANUP_GRACE_MS):
+                stopped = thread.wait(self._CLEANUP_GRACE_MS)
+                if not stopped:
                     logger.warning(f"スレッド終了タイムアウト: {worker_id}")
-                    self._terminate_thread_last_resort(worker_id, thread)
+                    stopped = self._terminate_thread_last_resort(worker_id, thread)
+            if stopped:
+                self._retiring_workers.pop(id(thread), None)
+                _ABANDONED_WORKERS.pop(id(thread), None)
+                self._release_stopped_worker(worker_info)
+            elif worker_info is not None:
+                self._park_abandoned_worker(worker_info)
             logger.debug(f"スレッドクリーンアップ完了: {worker_id}")
         except Exception as cleanup_error:
             logger.error(f"スレッドクリーンアップエラー ({worker_id}): {cleanup_error}")

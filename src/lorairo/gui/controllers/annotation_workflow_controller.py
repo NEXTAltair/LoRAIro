@@ -41,9 +41,22 @@ if TYPE_CHECKING:
     from lorairo.gui.widgets.run_settings_dialog import RunOptions
     from lorairo.services.service_container import ServiceContainer
 
-# async batch dispatch worker thread の GC 防止用 (ProviderBatchJobWidget と同方式)。
+# async batch dispatch worker (thread, worker) の GC 防止用 (ProviderBatchJobWidget と同方式)。
 # 受け手 (controller) は QObject なので worker → slot は queued 接続でメインスレッド実行。
 _ACTIVE_DISPATCH_THREADS: set[QThread] = set()
+_ACTIVE_DISPATCH_RUNNERS: set[tuple[QThread, AsyncBatchDispatchWorker]] = set()
+
+
+def _release_dispatch_runner(runner: tuple[QThread, AsyncBatchDispatchWorker]) -> None:
+    """停止した dispatch QThread / worker のモジュールレベル GC 保護を解除する。"""
+    thread, worker = runner
+    thread.wait()
+    try:
+        thread.started.disconnect(worker.run)
+    except (RuntimeError, TypeError):
+        pass
+    _ACTIVE_DISPATCH_THREADS.discard(thread)
+    _ACTIVE_DISPATCH_RUNNERS.discard(runner)
 
 
 def _resolve_dispatch_task_type(
@@ -1056,21 +1069,25 @@ class AnnotationWorkflowController(QObject):
 
         worker → slot の connect は受け手 (本 controller = QObject、メインスレッド
         affinity) と worker (専用 QThread) が別スレッドのため queued 接続となり、
-        slot はメインスレッドで実行される。``_ACTIVE_DISPATCH_THREADS`` で thread を
-        GC から守り、終了時に discard する (忘れると worker 即 GC でクラッシュ)。
+        slot はメインスレッドで実行される。``_ACTIVE_DISPATCH_RUNNERS`` で (thread, worker)
+        を GC から守り、終了時に GUI スレッドで参照解放して破棄する (#1496 / #1497)。
         """
         thread = QThread()
         worker = AsyncBatchDispatchWorker(workflow_service, projection.entries)
         worker.moveToThread(thread)
+        runner = (thread, worker)
         _ACTIVE_DISPATCH_THREADS.add(thread)
+        _ACTIVE_DISPATCH_RUNNERS.add(runner)
 
         thread.started.connect(worker.run)
         worker.succeeded.connect(self._on_async_dispatch_succeeded)
         worker.failed.connect(self._on_async_dispatch_failed)
         worker.finished.connect(thread.quit)
-        worker.finished.connect(worker.deleteLater)
+        # worker.deleteLater は繋がない: Python 製 QObject を worker スレッドで破棄すると
+        # ~QObject (signalSlotLock 保持) と GUI スレッド (GIL 保持) が ABBA デッドロックする
+        # (#1496 / #1497)。thread 終了後に GUI スレッドで参照解放されたときに破棄される。
         thread.finished.connect(self._on_async_dispatch_thread_finished)
-        thread.finished.connect(lambda: _ACTIVE_DISPATCH_THREADS.discard(thread))
+        thread.finished.connect(lambda: _release_dispatch_runner(runner))
         thread.finished.connect(thread.deleteLater)
 
         self._async_dispatch_thread = thread

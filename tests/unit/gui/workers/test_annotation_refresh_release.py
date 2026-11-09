@@ -4,7 +4,7 @@ import threading
 from unittest.mock import Mock
 
 import pytest
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 
 from lorairo.gui.workers.base import LoRAIroWorkerBase
 from lorairo.gui.workers.manager import _ABANDONED_WORKERS, WorkerManager
@@ -13,6 +13,23 @@ from lorairo.gui.workers.manager import _ABANDONED_WORKERS, WorkerManager
 class ImmediateWorker(LoRAIroWorkerBase[None]):
     def execute(self):
         return None
+
+
+class PostTerminalHoldWorker(LoRAIroWorkerBase[None]):
+    """terminal シグナル発行後に native thread の終了だけを引き延ばすテスト用 worker。"""
+
+    def __init__(self, entered: threading.Event, release: threading.Event) -> None:
+        super().__init__()
+        self._entered = entered
+        self._release = release
+
+    def execute(self):
+        return None
+
+    def run(self) -> None:
+        super().run()
+        self._entered.set()
+        assert self._release.wait(5), "Native thread exit was not released"
 
 
 def test_worker_id_cannot_be_reused_before_native_release(qapp):
@@ -26,21 +43,22 @@ def test_worker_id_cannot_be_reused_before_native_release(qapp):
 
 def test_release_signal_waits_for_native_exit_after_deferred_worker_destruction(qapp, qtbot):
     manager = WorkerManager()
-    worker = ImmediateWorker()
-    destruction_entered = threading.Event()
-    destruction_release = threading.Event()
+    post_terminal_entered = threading.Event()
+    post_terminal_release = threading.Event()
+    worker = PostTerminalHoldWorker(post_terminal_entered, post_terminal_release)
+    destroyed_thread_ids: list[int] = []
     released = []
 
-    def hold_native_destruction():
-        destruction_entered.set()
-        assert destruction_release.wait(5), "Native destruction was not released"
-
-    worker.destroyed.connect(hold_native_destruction)
+    worker.destroyed.connect(
+        lambda: destroyed_thread_ids.append(threading.get_ident()),
+        Qt.ConnectionType.DirectConnection,
+    )
     manager.worker_thread_released.connect(released.append)
     assert manager.start_worker("annotation_refresh_test", worker, defer_thread_release=True)
+    del worker
     thread = manager.active_workers["annotation_refresh_test"]["thread"]
     try:
-        qtbot.waitUntil(destruction_entered.is_set)
+        qtbot.waitUntil(post_terminal_entered.is_set)
         qtbot.waitUntil(lambda: manager.get_active_worker_count() == 0)
         assert manager.get_pending_thread_release_count() == 1
         assert not thread.wait(0)
@@ -48,18 +66,21 @@ def test_release_signal_waits_for_native_exit_after_deferred_worker_destruction(
         QTimer.singleShot(0, lambda: ticks.append(True))
         qtbot.waitUntil(lambda: bool(ticks))
         assert released == []
+        assert destroyed_thread_ids == []
 
         # Terminal has already removed this worker from active_workers. Window
         # teardown must nevertheless park its still-running native thread.
         manager.cancel_all_workers(total_grace_ms=0)
         assert id(thread) in _ABANDONED_WORKERS
         assert released == []
-        destruction_release.set()
+        post_terminal_release.set()
         qtbot.waitUntil(lambda: released == ["annotation_refresh_test"])
+        qtbot.waitUntil(lambda: bool(destroyed_thread_ids))
+        assert destroyed_thread_ids == [threading.get_ident()]
         assert manager.get_pending_thread_release_count() == 0
         assert id(thread) not in _ABANDONED_WORKERS
     finally:
-        destruction_release.set()
+        post_terminal_release.set()
         qtbot.waitUntil(lambda: manager.get_pending_thread_release_count() == 0)
 
 

@@ -565,10 +565,9 @@ class CropDialog(QDialog):
         # worker は別スレッドにいるので、既定の AutoConnection で GUI スレッドへ queued 配送される
         worker.succeeded.connect(self._on_save_succeeded)
         worker.failed.connect(self._on_save_failed)
-        # 終端 Signal で worker を所属スレッド側で破棄予約し、スレッドを止める。
-        # スレッド自身は finished 後に GUI スレッドで破棄する (再試行で蓄積させない)。
-        worker.succeeded.connect(worker.deleteLater)
-        worker.failed.connect(worker.deleteLater)
+        # worker.deleteLater は繋がない: Python 製 QObject を worker スレッドで破棄すると
+        # ~QObject (signalSlotLock 保持) と GUI スレッド (GIL 保持) が ABBA デッドロックする
+        # (#1496 / #1497)。thread 終了後に _finish_save (GUI スレッド) で参照解放して破棄する。
         worker.succeeded.connect(thread.quit)
         worker.failed.connect(thread.quit)
         thread.finished.connect(thread.deleteLater)
@@ -599,17 +598,20 @@ class CropDialog(QDialog):
         self._show_error(f"保存に失敗しました: {exc}")
 
     def _finish_save(self) -> None:
-        """保存スレッドの終了を待って参照を解放し、保存中フラグを下ろす。
-
-        worker / thread の破棄は Signal 配線 (deleteLater) に任せ、ここでは
-        Python 側の参照だけ切る。
-        """
+        """保存スレッドの終了を待って GUI スレッドで参照を解放し、保存中フラグを下ろす。"""
         thread = self._save_thread
+        worker = self._save_worker
         if thread is not None:
             thread.quit()
             thread.wait()
+            if worker is not None:
+                try:
+                    thread.started.disconnect(worker.run)
+                except (RuntimeError, TypeError):
+                    pass
         self._save_thread = None
         self._save_worker = None
+        del worker
         self._save_in_progress = False
         self._set_editing_enabled(True)
         self._update_save_enabled()

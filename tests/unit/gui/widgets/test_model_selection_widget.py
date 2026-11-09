@@ -315,6 +315,45 @@ class TestModelSelectionWidgetRefreshThread:
         mock_warning.assert_called_once()
         assert event.isAccepted() is False
 
+    def test_refresh_worker_is_destroyed_on_gui_thread_not_worker_thread(self, qtbot, widget, monkeypatch):
+        """Issue #1497: _ModelRefreshWorker の ~QObject は GUI スレッドで実行される。"""
+        import threading
+
+        from PySide6.QtCore import Qt
+
+        import lorairo.gui.widgets.model_selection_widget as msw_module
+
+        started = threading.Event()
+        release = threading.Event()
+
+        def _blocking_run(self):
+            started.set()
+            release.wait(5)
+            self.succeeded.emit(0, "ok")
+            self.finished.emit()
+
+        monkeypatch.setattr(msw_module._ModelRefreshWorker, "run", _blocking_run)
+        monkeypatch.setattr(msw_module.QMessageBox, "information", Mock())
+
+        destroyed_thread_ids: list[int] = []
+        try:
+            widget.refresh_model_registry(automatic=True)
+            qtbot.waitUntil(started.is_set, timeout=5000)
+            worker = widget._refresh_worker
+            assert worker is not None
+            worker.destroyed.connect(
+                lambda: destroyed_thread_ids.append(threading.get_ident()),
+                Qt.ConnectionType.DirectConnection,
+            )
+            del worker
+        finally:
+            release.set()
+
+        qtbot.waitUntil(lambda: widget._refresh_thread is None, timeout=5000)
+        qtbot.waitUntil(lambda: bool(destroyed_thread_ids), timeout=5000)
+        assert destroyed_thread_ids == [threading.get_ident()]
+        assert widget._refresh_worker is None
+
 
 class TestModelSelectionWidgetLitellmIdKeying:
     """Issue #245 リグレッション防止: 同 name 異 provider の行が共存しても

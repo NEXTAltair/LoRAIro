@@ -471,6 +471,30 @@ class TestSave:
         assert dialog._save_thread is None
         assert dialog._save_worker is None
 
+    def test_save_worker_is_destroyed_on_gui_thread_not_worker_thread(self, qtbot, dialog, recorder):
+        """Issue #1497: _CropSaveWorker の ~QObject は GUI スレッドで実行される。"""
+        from PySide6.QtCore import Qt
+
+        recorder.gate = threading.Event()
+        dialog.set_rect(CropRect(0, 0, 1024, 768))
+        destroyed_thread_ids: list[int] = []
+        try:
+            dialog._save_button.click()
+            qtbot.waitUntil(recorder.started.is_set, timeout=WAIT_MS)
+            worker = dialog._save_worker
+            assert worker is not None
+            worker.destroyed.connect(
+                lambda: destroyed_thread_ids.append(threading.get_ident()),
+                Qt.ConnectionType.DirectConnection,
+            )
+            del worker
+        finally:
+            recorder.gate.set()
+
+        _wait_save_finished(qtbot, dialog)
+        qtbot.waitUntil(lambda: bool(destroyed_thread_ids), timeout=WAIT_MS)
+        assert destroyed_thread_ids == [threading.get_ident()]
+
     def test_stopped_threads_are_deleted_after_failures(self, qtbot, dialog, recorder):
         """失敗を繰り返しても止まった QThread がダイアログの子として蓄積しない。"""
         recorder.error = ValueError("一時的な失敗")
