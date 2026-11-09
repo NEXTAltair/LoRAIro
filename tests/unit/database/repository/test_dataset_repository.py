@@ -34,6 +34,7 @@ from lorairo.database.schema import (
     Model,
     Tag,
 )
+from lorairo.services.dataset_version_diff import ChangeStatus, DatasetVersionDiffService
 
 pytestmark = pytest.mark.unit
 
@@ -185,15 +186,25 @@ def test_update_learning_text_elements_keeps_raw_text(
         _folder(),
         [FolderImageSpec(image_id=image_id, file_stem="a", texts=[_text("Kariginu, 1girl")])],
     )
-    text = repo.get_version_snapshot(version_id).folders[0].images[0].texts[0]
+    committed_text = repo.get_version_snapshot(version_id).folders[0].images[0].texts[0]
+    assert committed_text.is_edited is False
+
+    # 確定済みの版に対する直接編集は拒否される
+    with pytest.raises(ValueError, match="確定済みの版は編集できません"):
+        repo.update_learning_text_elements(committed_text.id, ["Kariginu", "狩衣"])
+
+    working = repo.create_working_version(dataset_id, base_version_id=version_id)
+    text = repo.get_version_snapshot(working.id).folders[0].images[0].texts[0]
     assert text.is_edited is False
 
     repo.update_learning_text_elements(text.id, ["Kariginu", "狩衣"])
 
-    updated = repo.get_version_snapshot(version_id).folders[0].images[0].texts[0]
+    updated = repo.get_version_snapshot(working.id).folders[0].images[0].texts[0]
     assert updated.raw_text == "Kariginu, 1girl"
     assert updated.elements == ["Kariginu", "狩衣"]
     assert updated.is_edited is True
+    # 派生元の確定済み版は書き換わらない
+    assert repo.get_version_snapshot(version_id).folders[0].images[0].texts[0] == committed_text
     with session_factory() as session:
         stored = session.get(DatasetLearningText, text.id)
         assert stored is not None
@@ -204,13 +215,21 @@ def test_update_learning_text_elements_keeps_raw_text(
 def test_set_folder_trigger_word(repo: DatasetRepository) -> None:
     dataset_id = repo.ensure_dataset("kariginu")
     version_id = repo.create_version(dataset_id, "v01")
-    folder_id = repo.add_folder(version_id, _folder(), [])
+    committed_folder_id = repo.add_folder(version_id, _folder(), [])
+
+    # 確定済みの版のフォルダは書き換えできない
+    with pytest.raises(ValueError, match="確定済みの版は編集できません"):
+        repo.set_folder_trigger_word(committed_folder_id, None)
+
+    working = repo.create_working_version(dataset_id, base_version_id=version_id)
+    folder_id = repo.get_version_snapshot(working.id).folders[0].id
 
     repo.set_folder_trigger_word(folder_id, None)
 
-    folder = repo.get_version_snapshot(version_id).folders[0]
+    folder = repo.get_version_snapshot(working.id).folders[0]
     assert folder.id == folder_id
     assert folder.trigger_word is None
+    assert repo.get_version_snapshot(version_id).folders[0].trigger_word == "Kariginu"
 
 
 def test_version_parent_is_recorded(repo: DatasetRepository) -> None:
@@ -482,6 +501,290 @@ def test_list_versions_returns_counts_per_version(
 
 def test_list_versions_empty(repo: DatasetRepository) -> None:
     assert repo.list_versions() == []
+
+
+# --- 作業中の版の編集・確定・破棄と確定済み版の不変性 (Issue #1486 / ADR 0098) ---
+
+
+def test_committed_version_rejects_all_edit_and_discard_operations(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    """確定済みの版 (`is_working=False`) はどの操作でも書き換わらず、編集・破棄・再確定は拒否される。"""
+    image_a = _insert_image(session_factory, "img-a")
+    image_b = _insert_image(session_factory, "img-b")
+    dataset_id = repo.ensure_dataset("kariginu")
+    version_id = repo.create_version(dataset_id, "v01")
+    folder_id = repo.add_folder(
+        version_id,
+        _folder("10_kariginu", 0),
+        [FolderImageSpec(image_id=image_a, file_stem="a", texts=[_text("Kariginu, 1girl")])],
+    )
+    before = repo.get_version_snapshot(version_id)
+    assert before.is_working is False
+    text_id = before.folders[0].images[0].texts[0].id
+
+    with pytest.raises(ValueError, match="確定済みの版は編集できません"):
+        repo.update_learning_text_elements(text_id, ["Kariginu", "edited"])
+    with pytest.raises(ValueError, match="確定済みの版は編集できません"):
+        repo.update_learning_text_elements(learning_text_id=text_id, elements=["Kariginu", "edited"])
+    with pytest.raises(ValueError, match="確定済みの版は編集できません"):
+        repo.add_image_to_working_folder(folder_id, image_b, "b", elements=["1girl"])
+    with pytest.raises(ValueError, match="確定済みの版は編集できません"):
+        repo.replace_image_in_working_folder(folder_id, "a", image_b)
+    with pytest.raises(ValueError, match="確定済みの版は編集できません"):
+        repo.remove_image_from_working_folder(folder_id, "a")
+    with pytest.raises(ValueError, match="確定済みの版は編集できません"):
+        repo.update_working_folder_trigger_word(folder_id, "NewTrig")
+    with pytest.raises(ValueError, match="既に確定済みの版です"):
+        repo.commit_working_version(version_id)
+    with pytest.raises(ValueError, match="確定済みの版は破棄できません"):
+        repo.discard_working_version(version_id)
+
+    after = repo.get_version_snapshot(version_id)
+    assert after == before
+
+
+def test_create_working_version_copies_latest_or_specified_base_and_blocks_duplicate(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    """作業中の版は最新または指定した確定済み版から全量コピーで作られ、同時に 2 つは作れない。"""
+    dataset_id = repo.ensure_dataset("kariginu")
+    # 確定済みの版が 1 つも無いときは作れない
+    with pytest.raises(ValueError, match="派生元となる確定済みの版が見つかりません"):
+        repo.create_working_version(dataset_id)
+
+    image_a = _insert_image(session_factory, "img-a")
+    image_b = _insert_image(session_factory, "img-b")
+    v1 = repo.create_version(dataset_id, "v01")
+    repo.add_folder(
+        v1,
+        _folder("10_kariginu", 0),
+        [FolderImageSpec(image_id=image_a, file_stem="a", texts=[_text("Kariginu, 1girl")])],
+    )
+    v2 = repo.create_version(dataset_id, "v02", parent_version_id=v1)
+    repo.add_folder(
+        v2,
+        _folder("10_kariginu", 0),
+        [FolderImageSpec(image_id=image_b, file_stem="b", texts=[_text("Kariginu, solo")])],
+    )
+
+    # base_version_id 省略時は最新の確定済み版 (v2) から作られる
+    working = repo.create_working_version(dataset_id)
+    assert working.is_working is True
+    assert working.parent_version_id == v2
+    assert working.name == "v02-working"
+    snap = repo.get_version_snapshot(working.id)
+    assert snap.is_working is True
+    assert snap.parent_version_id == v2
+    assert [img.file_stem for img in snap.folders[0].images] == ["b"]
+
+    # 未確定の作業中の版がある間は 2 つ目を作れない
+    with pytest.raises(ValueError, match="作業中の版が既に存在します"):
+        repo.create_working_version(dataset_id, base_version_id=v1)
+
+    repo.discard_working_version(working.id)
+
+    # 明示指定した base_version_id (v1) から作れる
+    working_from_v1 = repo.create_working_version(dataset_id, base_version_id=v1, version_name="v03-draft")
+    assert working_from_v1.parent_version_id == v1
+    assert working_from_v1.name == "v03-draft"
+    snap_v1 = repo.get_version_snapshot(working_from_v1.id)
+    assert [img.file_stem for img in snap_v1.folders[0].images] == ["a"]
+
+
+def test_working_version_edits_commit_and_diff_against_parent(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    """作業中の版を編集して確定すると新しい版になり、親の版との diff で編集内容が出る。"""
+    image_a = _insert_image(session_factory, "img-a")
+    image_b = _insert_image(session_factory, "img-b")
+    image_b2 = _insert_image(session_factory, "img-b2")
+    image_c = _insert_image(session_factory, "img-c")
+    image_d = _insert_image(session_factory, "img-d")
+    dataset_id = repo.ensure_dataset("kariginu")
+    base_id = repo.create_version(dataset_id, "v01")
+    repo.add_folder(
+        base_id,
+        _folder("10_kariginu", 0),
+        [
+            FolderImageSpec(image_id=image_a, file_stem="a", texts=[_text("Kariginu, 1girl, smile")]),
+            FolderImageSpec(image_id=image_b, file_stem="b", texts=[_text("Kariginu, old_b")]),
+            FolderImageSpec(image_id=image_d, file_stem="d", texts=[_text("Kariginu, remove_me")]),
+        ],
+    )
+    base_snapshot_before = repo.get_version_snapshot(base_id)
+
+    working = repo.create_working_version(dataset_id, base_version_id=base_id)
+    working_snap = repo.get_version_snapshot(working.id)
+    folder_id = working_snap.folders[0].id
+    text_a_id = working_snap.folders[0].images[0].texts[0].id
+
+    # 1. 学習テキスト要素の編集
+    repo.update_learning_text_elements(
+        learning_text_id=text_a_id, elements=["Kariginu", "1girl", "serious"]
+    )
+    # 2. 画像の追加 (トリガーワード自動先頭付与)
+    added_c = repo.add_image_to_working_folder(folder_id, image_c, "c", elements=["long_sleeves"])
+    assert _load_json_elements(added_c.learning_texts[0].elements_json) == ["Kariginu", "long_sleeves"]
+    # 3. 画像の差し替え (既定 inherit_texts=True で旧学習テキストを引き継ぐ)
+    replaced_b = repo.replace_image_in_working_folder(folder_id, "b", image_b2)
+    assert replaced_b.image_id == image_b2
+    assert _load_json_elements(replaced_b.learning_texts[0].elements_json) == ["Kariginu", "old_b"]
+    # 4. 画像の削除
+    repo.remove_image_from_working_folder(folder_id, "d")
+    # 5. トリガーワードの変更
+    repo.update_working_folder_trigger_word(folder_id, "Kariginu_v2")
+
+    # 確定する
+    committed = repo.commit_working_version(working.id, version_name="v02")
+    assert committed.is_working is False
+    assert committed.name == "v02"
+    assert committed.parent_version_id == base_id
+
+    # 確定後は編集も破棄も拒否される
+    with pytest.raises(ValueError, match="確定済みの版は編集できません"):
+        repo.update_learning_text_elements(text_a_id, ["nope"])
+    with pytest.raises(ValueError, match="確定済みの版は破棄できません"):
+        repo.discard_working_version(committed.id)
+
+    # 親の確定済み版は一切書き換わっていない
+    assert repo.get_version_snapshot(base_id) == base_snapshot_before
+
+    # 親の版との diff で編集内容が出る
+    diff = DatasetVersionDiffService(repo).diff_versions(base_id, committed.id)
+    assert diff.has_changes is True
+    (folder_diff,) = diff.folders
+    assert folder_diff.dir_name == "10_kariginu"
+    assert folder_diff.trigger_word == ("Kariginu", "Kariginu_v2")
+    by_stem = {img.file_stem: img for img in folder_diff.images}
+    assert by_stem["a"].status is ChangeStatus.CHANGED
+    assert by_stem["a"].texts[0].added_elements == ["serious"]
+    assert by_stem["a"].texts[0].removed_elements == ["smile"]
+    assert by_stem["b"].status is ChangeStatus.REPLACED
+    assert (by_stem["b"].base_image_id, by_stem["b"].target_image_id) == (image_b, image_b2)
+    assert by_stem["b"].texts == []
+    assert by_stem["c"].status is ChangeStatus.ADDED
+    assert by_stem["d"].status is ChangeStatus.REMOVED
+    assert diff.summary.images_added == 1
+    assert diff.summary.images_removed == 1
+    assert diff.summary.images_replaced == 1
+    assert diff.summary.images_changed == 1
+
+
+def _load_json_elements(elements_json: str) -> list[str]:
+    return [str(x) for x in json.loads(elements_json)]
+
+
+def test_replace_image_without_inheriting_texts_resets_to_trigger_or_empty(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    """差し替え時に inherit_texts=False を指定すると、トリガーワードがあればそれだけ、無ければ空になる。"""
+    image_1 = _insert_image(session_factory, "img-1")
+    image_2 = _insert_image(session_factory, "img-2")
+    image_3 = _insert_image(session_factory, "img-3")
+    dataset_id = repo.ensure_dataset("kariginu")
+    base_id = repo.create_version(dataset_id, "v01")
+    repo.add_folder(
+        base_id,
+        _folder("10_kariginu", 0),
+        [FolderImageSpec(image_id=image_1, file_stem="a", texts=[_text("Kariginu, 1girl")])],
+    )
+    repo.add_folder(
+        base_id,
+        FolderSpec(dir_name="5_notrig", name="notrig", num_repeats=5, trigger_word=None, position=1),
+        [FolderImageSpec(image_id=image_1, file_stem="b", texts=[_text("solo, smile")])],
+    )
+
+    working = repo.create_working_version(dataset_id, base_version_id=base_id)
+    snap = repo.get_version_snapshot(working.id)
+    folder_with_trig = snap.folders[0].id
+    folder_no_trig = snap.folders[1].id
+
+    replaced_a = repo.replace_image_in_working_folder(
+        folder_with_trig, "a", image_2, new_file_stem="a_new", inherit_texts=False
+    )
+    assert replaced_a.file_stem == "a_new"
+    assert _load_json_elements(replaced_a.learning_texts[0].elements_json) == ["Kariginu"]
+    assert replaced_a.learning_texts[0].raw_text == "Kariginu"
+    assert replaced_a.learning_texts[0].is_edited is True
+
+    replaced_b = repo.replace_image_in_working_folder(folder_no_trig, "b", image_3, inherit_texts=False)
+    assert _load_json_elements(replaced_b.learning_texts[0].elements_json) == []
+    assert replaced_b.learning_texts[0].raw_text == ""
+
+
+def test_add_image_trigger_word_prepend_and_find_missing_trigger_word(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    """トリガーワード自動付与の有効/無効と、トリガーワード欠落画像の検出を検証する。"""
+    image_1 = _insert_image(session_factory, "img-1")
+    image_2 = _insert_image(session_factory, "img-2")
+    image_3 = _insert_image(session_factory, "img-3")
+    dataset_id = repo.ensure_dataset("kariginu")
+    base_id = repo.create_version(dataset_id, "v01")
+    repo.add_folder(
+        base_id,
+        _folder("10_kariginu", 0),
+        [FolderImageSpec(image_id=image_1, file_stem="a", texts=[_text("Kariginu, 1girl")])],
+    )
+    repo.add_folder(
+        base_id,
+        FolderSpec(dir_name="5_notrig", name="notrig", num_repeats=5, trigger_word=None, position=1),
+        [FolderImageSpec(image_id=image_1, file_stem="x", texts=[_text("no_trigger_needed")])],
+    )
+
+    working = repo.create_working_version(dataset_id, base_version_id=base_id)
+    folder_id = repo.get_version_snapshot(working.id).folders[0].id
+
+    # 既にトリガーワードが含まれている場合は重複付与しない
+    added_dup = repo.add_image_to_working_folder(folder_id, image_2, "b", elements=["Kariginu", "smile"])
+    assert _load_json_elements(added_dup.learning_texts[0].elements_json) == ["Kariginu", "smile"]
+
+    # auto_prepend_trigger_word=False でトリガーワードを付けずに追加
+    repo.add_image_to_working_folder(
+        folder_id, image_3, "c", elements=["smile"], auto_prepend_trigger_word=False
+    )
+
+    missing = repo.find_images_missing_trigger_word(working.id)
+    assert [(m.folder.dir_name, m.file_stem, m.image_id) for m in missing] == [
+        ("10_kariginu", "c", image_3)
+    ]
+
+
+def test_discard_working_version_deletes_working_rows_without_affecting_committed(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    """作業中の版を破棄すると、確定した版に影響せず作業中の行だけがすべて消える。"""
+    image_a = _insert_image(session_factory, "img-a")
+    image_b = _insert_image(session_factory, "img-b")
+    dataset_id = repo.ensure_dataset("kariginu")
+    base_id = repo.create_version(dataset_id, "v01")
+    repo.add_folder(
+        base_id,
+        _folder("10_kariginu", 0),
+        [FolderImageSpec(image_id=image_a, file_stem="a", texts=[_text("Kariginu, 1girl")])],
+    )
+    base_before = repo.get_version_snapshot(base_id)
+
+    working = repo.create_working_version(dataset_id, base_version_id=base_id)
+    working_folder_id = repo.get_version_snapshot(working.id).folders[0].id
+    repo.add_image_to_working_folder(working_folder_id, image_b, "b", elements=["extra"])
+    assert _count(session_factory, DatasetFolder) == 2
+    assert _count(session_factory, DatasetFolderImage) == 3
+
+    repo.discard_working_version(working.id)
+
+    with pytest.raises(LookupError):
+        repo.get_version_snapshot(working.id)
+    assert repo.get_version_snapshot(base_id) == base_before
+    assert _count(session_factory, DatasetFolder) == 1
+    assert _count(session_factory, DatasetFolderImage) == 1
+    assert _count(session_factory, DatasetLearningText) == 1
+
+    # 破棄した後は再び作業中の版を作れる
+    recreated = repo.create_working_version(dataset_id, base_version_id=base_id)
+    assert recreated.is_working is True
+    assert recreated.parent_version_id == base_id
 
 
 # --- 画像から使われたデータセット・版・フォルダ・学習テキストを引く (Issue #1461) ---

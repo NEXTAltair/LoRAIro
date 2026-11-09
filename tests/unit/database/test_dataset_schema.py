@@ -148,6 +148,7 @@ def test_dataset_tables_have_expected_constraints(tmp_path: Path) -> None:
     assert ("ix_dataset_folder_images_image_id", ("image_id",), False) in described[
         "dataset_folder_images"
     ].indexes
+    assert described["dataset_versions"].columns["is_working"] == ("BOOLEAN", False)
     assert described["dataset_versions"].uniques == [("dataset_id", "name")]
     assert described["dataset_folders"].uniques == [("version_id", "dir_name")]
     assert described["dataset_folder_images"].uniques == [("folder_id", "file_stem")]
