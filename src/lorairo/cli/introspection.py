@@ -3447,7 +3447,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
             "provider status checks (`--scope provider`); no repair. See [DB maintenance check](cli-maintenance-check.md)."
         ),
         read_only=True,
-        side_effects=("db_read",),
+        side_effects=("db_read", "network"),
         inputs=(
             _input(
                 "MaintenanceCheckInput",

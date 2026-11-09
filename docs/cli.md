@@ -1600,7 +1600,7 @@ Read-only provider batch DB consistency, missing image file, and optional remote
 - Read only: `true`
 - Strict read only: `true` (root `--read-only`; see [contract](cli-read-only.md))
 - Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
-- Side effects: `db_read`
+- Side effects: `db_read`, `network`
 
 #### Compact Introspection
 
