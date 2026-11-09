@@ -125,6 +125,25 @@ class VersionSummary:
 
 
 @dataclass(frozen=True)
+class ImageDatasetUsage:
+    """画像が使われたデータセット・版・フォルダ・学習テキストの 1 件 (フォルダ所属単位)。"""
+
+    image_id: int
+    dataset_id: int
+    dataset_name: str
+    version_id: int
+    version_name: str
+    parent_version_id: int | None
+    folder_id: int
+    dir_name: str
+    folder_name: str
+    num_repeats: int
+    trigger_word: str | None
+    file_stem: str
+    texts: list[LearningTextSnapshot]
+
+
+@dataclass(frozen=True)
 class TrainingConfigSpec:
     """追加する学習設定 (`TrainingConfig` の列と同名)。秘密の値は呼び出し側で除去済みであること。"""
 
@@ -647,4 +666,62 @@ class DatasetRepository(BaseRepository):
                     image_count=int(row[7]),
                 )
                 for row in session.execute(stmt).all()
+            ]
+
+    def list_image_usage(self, image_id: int) -> list[ImageDatasetUsage]:
+        """画像が使われたデータセット・版・フォルダ・学習テキストの一覧を返す。
+
+        使われていない画像 (または存在しない画像 ID) では空のリストを返す。
+        所属行と親テーブルは JOIN の 1 クエリ、学習テキストは `selectinload` の 1 クエリで
+        まとめて引き、N+1 にしない。
+
+        Args:
+            image_id: `images.id`。
+
+        Returns:
+            データセット名、版 ID、フォルダ順 (`position`, `id`)、所属 ID 順に並べた一覧。
+        """
+        with self.session_factory() as session:
+            stmt = (
+                select(DatasetFolderImage, DatasetFolder, DatasetVersion, Dataset)
+                .join(DatasetFolder, DatasetFolder.id == DatasetFolderImage.folder_id)
+                .join(DatasetVersion, DatasetVersion.id == DatasetFolder.version_id)
+                .join(Dataset, Dataset.id == DatasetVersion.dataset_id)
+                .where(DatasetFolderImage.image_id == image_id)
+                .options(selectinload(DatasetFolderImage.learning_texts))
+                .order_by(
+                    Dataset.name,
+                    DatasetVersion.id,
+                    DatasetFolder.position,
+                    DatasetFolder.id,
+                    DatasetFolderImage.id,
+                )
+            )
+            rows = session.execute(stmt).all()
+            return [
+                ImageDatasetUsage(
+                    image_id=folder_image.image_id,
+                    dataset_id=dataset.id,
+                    dataset_name=dataset.name,
+                    version_id=version.id,
+                    version_name=version.name,
+                    parent_version_id=version.parent_version_id,
+                    folder_id=folder.id,
+                    dir_name=folder.dir_name,
+                    folder_name=folder.name,
+                    num_repeats=folder.num_repeats,
+                    trigger_word=folder.trigger_word,
+                    file_stem=folder_image.file_stem,
+                    texts=[
+                        LearningTextSnapshot(
+                            id=text.id,
+                            extension=text.extension,
+                            raw_text=text.raw_text,
+                            elements=_load_elements(text.elements_json),
+                            is_edited=text.is_edited,
+                        )
+                        for text in sorted(folder_image.learning_texts, key=lambda t: t.id)
+                    ],
+                )
+                for folder_image, folder, version, dataset in rows
             ]

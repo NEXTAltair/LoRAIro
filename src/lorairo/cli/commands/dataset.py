@@ -15,7 +15,7 @@ from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._output_mode import is_json_mode
-from lorairo.database.repository.dataset import DatasetRepository
+from lorairo.database.repository.dataset import DatasetRepository, ImageDatasetUsage
 from lorairo.public_api.project import get_project as api_get_project
 from lorairo.services.dataset_import_service import (
     DatasetImportPlan,
@@ -507,3 +507,87 @@ def copy_tags(
         console.print(f"images: {result.images}")
         console.print(f"tags_added: {result.tags_added}")
         console.print(f"tags_skipped: {result.tags_skipped}")
+
+
+def _resolve_usage_image_id(positional: int | None, option: int | None) -> int:
+    """位置引数と `--image-id` から対象の `image_id` を 1 つに決める。"""
+    if positional is not None and option is not None and positional != option:
+        raise typer.BadParameter("Specify either IMAGE_ID or --image-id, not different values.")
+    target = positional if positional is not None else option
+    if target is None:
+        raise typer.BadParameter("Specify IMAGE_ID or --image-id.")
+    if target <= 0:
+        raise typer.BadParameter("image_id must be a positive integer.")
+    return target
+
+
+def _usage_item(usage: ImageDatasetUsage) -> dict[str, object]:
+    return {
+        "image_id": usage.image_id,
+        "dataset_id": usage.dataset_id,
+        "dataset": usage.dataset_name,
+        "version_id": usage.version_id,
+        "version": usage.version_name,
+        "parent_version_id": usage.parent_version_id,
+        "folder_id": usage.folder_id,
+        "dir_name": usage.dir_name,
+        "folder_name": usage.folder_name,
+        "num_repeats": usage.num_repeats,
+        "trigger_word": usage.trigger_word,
+        "file_stem": usage.file_stem,
+        "texts": [
+            {
+                "extension": text.extension,
+                "raw_text": text.raw_text,
+                "elements": text.elements,
+                "is_edited": text.is_edited,
+            }
+            for text in usage.texts
+        ],
+    }
+
+
+def _print_usage(image_id: int, usages: list[ImageDatasetUsage]) -> None:
+    """画像の使われたデータセット・版・フォルダ・学習テキストを人間向けに表示する。"""
+    console.print(f"image_id: {image_id}")
+    for usage in usages:
+        trigger = usage.trigger_word if usage.trigger_word else "-"
+        console.print(
+            f"{usage.dataset_name} / {usage.version_name} (version_id={usage.version_id})  "
+            f"{usage.dir_name}/{usage.file_stem}  repeats={usage.num_repeats}  trigger={trigger}",
+            markup=False,
+        )
+        for text in usage.texts:
+            console.print(f"  {text.extension}: {text.raw_text}", markup=False)
+    console.print(f"total: {len(usages)} usage(s)")
+
+
+@app.command("usage")
+def usage_dataset(
+    image_id_positional: int | None = typer.Argument(
+        None, metavar="[IMAGE_ID]", help="Image ID (alternative to --image-id)"
+    ),
+    image_id: int | None = typer.Option(None, "--image-id", help="Image ID"),
+    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+) -> None:
+    """Show dataset versions, folders and learning texts where an image is used (Issue #1461).
+
+    Returns an empty list without error when the image is not used in any dataset version.
+    """
+    with command_boundary():
+        target_image_id = _resolve_usage_image_id(image_id_positional, image_id)
+        repository = _build_repository(project)
+        usages = repository.list_image_usage(target_image_id)
+        if not is_json_mode():
+            _print_usage(target_image_id, usages)
+            return
+        for usage in usages:
+            emit_item(_usage_item(usage))
+        emit_result(
+            f"Image {target_image_id}: {len(usages)} usage(s)",
+            image_id=target_image_id,
+            usages=len(usages),
+            datasets=len({u.dataset_id for u in usages}),
+            versions=len({u.version_id for u in usages}),
+            folders=len(usages),
+        )
