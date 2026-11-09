@@ -517,16 +517,31 @@ class FilterSearchPanel(QScrollArea):
             return
         if self._facets_manager is None:
             self._facets_manager = WorkerManager(self)
+            self._facets_manager.worker_finished.connect(self._on_facets_worker_finished)
+            self._facets_manager.worker_error.connect(self._on_facets_worker_error)
         self._facets_generation += 1
         generation = self._facets_generation
         worker_id = f"search_facets_{generation}"
         worker = SearchFacetsWorker(service)
-        # 以下の lambda は worker スレッドで走るが Signal を emit するだけ (スレッド安全)。
-        worker.finished.connect(lambda result, gen=generation: self._facets_loaded.emit(gen, result))
-        worker.error_occurred.connect(
-            lambda message, gen=generation: self._on_facets_error(gen, str(message))
-        )
         self._facets_manager.start_worker(worker_id, worker)
+
+    def _on_facets_worker_finished(self, worker_id: str, result: object) -> None:
+        if not worker_id.startswith("search_facets_"):
+            return
+        try:
+            generation = int(worker_id.removeprefix("search_facets_"))
+        except ValueError:
+            return
+        self._facets_loaded.emit(generation, result)
+
+    def _on_facets_worker_error(self, worker_id: str, message: str) -> None:
+        if not worker_id.startswith("search_facets_"):
+            return
+        try:
+            generation = int(worker_id.removeprefix("search_facets_"))
+        except ValueError:
+            return
+        self._on_facets_error(generation, str(message))
 
     def _on_facets_error(self, generation: int, message: str) -> None:
         logger.warning(f"検索ファセットの取得に失敗 (ファセットなしで継続): {message}")
@@ -625,7 +640,9 @@ class FilterSearchPanel(QScrollArea):
         super().closeEvent(event)
 
     def shutdown(self) -> None:
-        """ファセット取得 worker を止める。親ウィンドウ閉鎖時は closeEvent が届かないため公開する。"""
+        """ファセット取得 worker 等を止める。親ウィンドウ閉鎖時は closeEvent が届かないため公開する。"""
+        self._tag_suggestion.cleanup()
+        self._count_estimate.cleanup()
         self._facets_generation += 1  # 以降に届く結果は捨てる
         if self._facets_manager is not None:
             self._facets_manager.cancel_all_workers()

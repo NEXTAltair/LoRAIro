@@ -1226,6 +1226,75 @@ class TestFinalizeSubmittedJobs:
 
         ctrl._finalize_submitted_jobs.assert_not_called()
 
+    def test_async_dispatch_worker_is_destroyed_on_gui_thread(
+        self,
+        qtbot,
+        mock_worker_service,
+        mock_selection_state_service,
+        mock_config_service,
+    ) -> None:
+        """Issue #1497: AsyncBatchDispatchWorker の ~QObject は GUI スレッドで実行される。"""
+        import threading
+
+        from PySide6.QtCore import Qt
+
+        from lorairo.gui.controllers.annotation_workflow_controller import (
+            _ACTIVE_DISPATCH_RUNNERS,
+            _ACTIVE_DISPATCH_THREADS,
+            AnnotationWorkflowController,
+        )
+        from lorairo.services.dispatch_projection_service import DispatchEntry, DispatchProjection
+
+        started = threading.Event()
+        release = threading.Event()
+
+        class _BlockingWorkflowService:
+            def submit_images(self, *args, **kwargs):
+                started.set()
+                release.wait(5)
+                return 101
+
+        ctrl = AnnotationWorkflowController(
+            worker_service=mock_worker_service,
+            selection_state_service=mock_selection_state_service,
+            config_service=mock_config_service,
+            parent=None,
+        )
+        entry = DispatchEntry(
+            provider="openai",
+            endpoint="/v1/chat/completions",
+            litellm_model_id="openai/gpt-4o",
+            model_id=1,
+            prompt_profile="default",
+            image_ids=(1,),
+            description=None,
+            task_type="annotation",
+            image_paths=None,
+        )
+        projection = DispatchProjection(entries=(entry,), ineligible_litellm_model_ids=())
+        destroyed_thread_ids: list[int] = []
+        try:
+            ctrl._async_dispatch_in_progress = True
+            ctrl._start_async_dispatch_worker(_BlockingWorkflowService(), projection)
+            qtbot.waitUntil(started.is_set, timeout=5000)
+            worker = ctrl._async_dispatch_worker
+            assert worker is not None
+            worker.destroyed.connect(
+                lambda: destroyed_thread_ids.append(threading.get_ident()),
+                Qt.ConnectionType.DirectConnection,
+            )
+            del worker
+        finally:
+            release.set()
+
+        qtbot.waitUntil(lambda: not ctrl._async_dispatch_in_progress, timeout=5000)
+        qtbot.waitUntil(lambda: bool(destroyed_thread_ids), timeout=5000)
+        assert destroyed_thread_ids == [threading.get_ident()]
+        assert ctrl._async_dispatch_worker is None
+        assert ctrl._async_dispatch_thread is None
+        assert len(_ACTIVE_DISPATCH_RUNNERS) == 0
+        assert len(_ACTIVE_DISPATCH_THREADS) == 0
+
 
 class TestStartAnnotationEntry:
     """start_annotation の dispatch mode 分岐テスト (ADR 0076 §1)。

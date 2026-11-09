@@ -263,6 +263,7 @@ if not __name__ == "__main__":
         def _stop_refresh_thread(self) -> bool:
             """実行中のモデル更新Threadを停止し、破棄前に待機する。"""
             thread = self._refresh_thread
+            worker = self._refresh_worker
             if thread is None:
                 return True
 
@@ -273,6 +274,11 @@ if not __name__ == "__main__":
                     logger.warning("モデル一覧更新Threadが30秒以内に終了しませんでした")
                     return False
 
+            if worker is not None and hasattr(thread, "started"):
+                try:
+                    thread.started.disconnect(worker.run)
+                except (RuntimeError, TypeError):
+                    pass
             self._refresh_thread = None
             self._refresh_worker = None
             return True
@@ -316,7 +322,10 @@ if not __name__ == "__main__":
                 self._refresh_thread.quit,
                 Qt.ConnectionType.DirectConnection,
             )
-            self._refresh_worker.finished.connect(self._refresh_worker.deleteLater)
+            # _refresh_worker.deleteLater は繋がない: Python 製 QObject を worker スレッドで
+            # 破棄すると ~QObject (signalSlotLock 保持) と GUI スレッド (GIL 保持) が ABBA
+            # デッドロックする (#1496 / #1497)。thread 終了後に _on_model_refresh_finished
+            # (GUI スレッド) で参照解放して破棄する。
             self._refresh_thread.finished.connect(self._on_model_refresh_finished)
             self._refresh_thread.finished.connect(self._refresh_thread.deleteLater)
             self._refresh_thread.start()
@@ -353,8 +362,18 @@ if not __name__ == "__main__":
             """モデル一覧更新Worker終了時のUI復帰。"""
             self.btnRefreshModels.setEnabled(True)
             self.refreshProgressBar.setVisible(False)
+            thread = self._refresh_thread
+            worker = self._refresh_worker
+            if thread is not None:
+                thread.wait()
+                if worker is not None and hasattr(thread, "started"):
+                    try:
+                        thread.started.disconnect(worker.run)
+                    except (RuntimeError, TypeError):
+                        pass
             self._refresh_thread = None
             self._refresh_worker = None
+            del worker
             self._refresh_is_automatic = False
             self._update_selection_count()
 

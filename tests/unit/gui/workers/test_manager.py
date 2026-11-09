@@ -466,3 +466,134 @@ class TestCancelLogReason:
         assert not any(m.startswith("ワーカーキャンセル: worker-1") for m in info_msgs)
         debug_msgs = [r["message"] for r in loguru_records if r["level"].name == "DEBUG"]
         assert any("search_replaced" in m for m in debug_msgs)
+
+
+class TestWorkerGuiThreadDestruction:
+    """Issue #1497 / #1492: Python 製 QObject worker は GUI スレッド上で破棄される。"""
+
+    @pytest.mark.parametrize("outcome", ["finished", "error", "canceled"])
+    def test_auto_cleanup_worker_destroyed_on_gui_thread(self, manager, qtbot, outcome: str):
+        import threading
+
+        from PySide6.QtCore import Qt
+
+        from lorairo.gui.workers.base import CancellationError, LoRAIroWorkerBase
+
+        class _TestWorker(LoRAIroWorkerBase[int]):
+            def execute(self) -> int:
+                if outcome == "error":
+                    raise RuntimeError("boom")
+                if outcome == "canceled":
+                    raise CancellationError("canceled")
+                return 42
+
+        worker = _TestWorker()
+        destroyed_thread_ids: list[int] = []
+        worker.destroyed.connect(
+            lambda: destroyed_thread_ids.append(threading.get_ident()),
+            Qt.ConnectionType.DirectConnection,
+        )
+        assert manager.start_worker(f"w_{outcome}", worker)
+        del worker
+
+        qtbot.waitUntil(lambda: manager.get_active_worker_count() == 0, timeout=5000)
+        qtbot.waitUntil(lambda: bool(destroyed_thread_ids), timeout=5000)
+        assert destroyed_thread_ids == [threading.get_ident()]
+        assert manager._retiring_workers == {}
+
+    def test_cleanup_worker_method_destroys_on_gui_thread(self, manager, qtbot):
+        import threading
+
+        from PySide6.QtCore import Qt
+
+        from lorairo.gui.workers.base import LoRAIroWorkerBase
+
+        started = threading.Event()
+        release = threading.Event()
+
+        class _HoldWorker(LoRAIroWorkerBase[int]):
+            def execute(self) -> int:
+                started.set()
+                release.wait(5)
+                return 1
+
+        worker = _HoldWorker()
+        destroyed_thread_ids: list[int] = []
+        worker.destroyed.connect(
+            lambda: destroyed_thread_ids.append(threading.get_ident()),
+            Qt.ConnectionType.DirectConnection,
+        )
+        assert manager.start_worker("w_cleanup", worker, auto_cleanup=False)
+        del worker
+
+        try:
+            qtbot.waitUntil(started.is_set, timeout=5000)
+            release.set()
+            assert manager.cleanup_worker("w_cleanup") is True
+        finally:
+            release.set()
+
+        qtbot.waitUntil(lambda: bool(destroyed_thread_ids), timeout=5000)
+        assert destroyed_thread_ids == [threading.get_ident()]
+
+    def test_rapid_selection_workers_with_gui_label_size_hint_do_not_deadlock(self, manager, qtbot):
+        """Issue #1492: 画像連続選択 (3ワーカー並行起動 + GUI 側 QLabel.sizeHint ループ) でデッドロックしない。"""
+        import threading
+
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QLabel
+
+        from lorairo.gui.workers.base import LoRAIroWorkerBase
+
+        class _FastSelectionWorker(LoRAIroWorkerBase[int]):
+            def execute(self) -> int:
+                return 1
+
+        main_tid = threading.get_ident()
+        destroyed_thread_ids: list[int] = []
+        total_workers = 60
+
+        for gen in range(20):
+            for kind in ("saved_review", "tag_metadata", "refinement"):
+                worker = _FastSelectionWorker()
+                worker.destroyed.connect(
+                    lambda: destroyed_thread_ids.append(threading.get_ident()),
+                    Qt.ConnectionType.DirectConnection,
+                )
+                assert manager.start_worker(f"{kind}_{gen}", worker)
+                del worker
+            # GUI スレッド側で FlowLayout._do_layout 相当の QLabel 生成 + sizeHint() を回す
+            labels = [QLabel(f"tag_{gen}_{idx}") for idx in range(12)]
+            for lbl in labels:
+                lbl.ensurePolished()
+                _ = lbl.sizeHint()
+                lbl.deleteLater()
+
+        qtbot.waitUntil(lambda: manager.get_active_worker_count() == 0, timeout=10000)
+        qtbot.waitUntil(lambda: len(destroyed_thread_ids) == total_workers, timeout=10000)
+        assert all(tid == main_tid for tid in destroyed_thread_ids)
+        assert manager._retiring_workers == {}
+
+    def test_worker_terminal_signals_are_emitted_on_gui_thread(self, manager, qtbot):
+        """WorkerManager の終端シグナルは worker スレッドではなく GUI スレッド上で発行される。"""
+        import threading
+
+        from lorairo.gui.workers.base import LoRAIroWorkerBase
+
+        class _SimpleWorker(LoRAIroWorkerBase[int]):
+            def execute(self) -> int:
+                return 7
+
+        main_tid = threading.get_ident()
+        terminal_tids: list[int] = []
+        finished_tids: list[int] = []
+        manager.worker_terminal.connect(lambda _event: terminal_tids.append(threading.get_ident()))
+        manager.worker_finished.connect(lambda _wid, _res: finished_tids.append(threading.get_ident()))
+
+        worker = _SimpleWorker()
+        assert manager.start_worker("w_tid", worker)
+        del worker
+
+        qtbot.waitUntil(lambda: bool(finished_tids), timeout=5000)
+        assert terminal_tids == [main_tid]
+        assert finished_tids == [main_tid]
