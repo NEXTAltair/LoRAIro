@@ -37,24 +37,21 @@ Use this skill when:
 ### Basic Structure
 
 ```python
-from typing import Optional
-from sqlalchemy.orm import Session
-from src.lorairo.database.schema import Entity
+from sqlalchemy import select
+from lorairo.database.repository.base import BaseRepository
+from lorairo.database.schema import Image
 
-class EntityRepository:
-    """Data access repository for Entity"""
+class ImageRepository(BaseRepository):
+    """Data access repository for Image aggregate (inherits BaseRepository)."""
 
-    def __init__(self, session_factory):
-        """Args: session_factory - SQLAlchemy scoped_session"""
-        self.session_factory = session_factory
-
-    def get_by_id(self, entity_id: int) -> Optional[Entity]:
-        """Retrieve entity by ID"""
+    def get_by_id(self, image_id: int) -> Image | None:
+        """Retrieve entity by ID using SQLAlchemy 2.0 select()."""
         with self.session_factory() as session:
-            return session.query(Entity).filter(Entity.id == entity_id).first()
+            stmt = select(Image).where(Image.id == image_id)
+            return session.execute(stmt).scalar_one_or_none()
 
-    def add(self, entity: Entity) -> Entity:
-        """Add new entity"""
+    def add(self, entity: Image) -> Image:
+        """Add new entity."""
         with self.session_factory() as session:
             session.add(entity)
             session.commit()
@@ -63,9 +60,10 @@ class EntityRepository:
 ```
 
 **Key Principles:**
-- Session management via `with` statement (automatic commit/rollback)
-- Type hints for all parameters and returns
-- Single responsibility (one repository per entity)
+- Inherit `BaseRepository` (`src/lorairo/database/repository/base.py`) for `session_factory` and `BATCH_CHUNK_SIZE`
+- Session management via `with self.session_factory() as session:` (automatic cleanup)
+- SQLAlchemy 2.0 `select()` API (`session.execute(select(...))`) rather than legacy `session.query()`
+- Aggregate-scoped repositories composed by `ImageDatabaseManager` (ADR 0035)
 - Transaction safety (related operations in single transaction)
 
 ## Implementation Patterns
@@ -175,13 +173,23 @@ def add_safe(self, entity: Entity) -> Optional[Entity]:
 
 ## LoRAIro-Specific Guidelines
 
-### File Structure
+### File Structure (ADR 0035 Aggregate Split)
 ```
 src/lorairo/database/
-├── db_repository.py    # Repository implementations
-├── schema.py           # SQLAlchemy models
-├── db_manager.py       # High-level database operations
-└── db_core.py          # Session factory, engine initialization
+├── repository/                 # Aggregate-scoped Repository implementations (ADR 0035)
+│   ├── base.py                 # BaseRepository (session_factory, BATCH_CHUNK_SIZE)
+│   ├── image.py                # ImageRepository (Image, ProcessedImage, ImageFilenameAlias)
+│   ├── annotation_record.py    # AnnotationRepository (Tag, Caption, Score, ScoreLabel, Rating)
+│   ├── model.py                # ModelRepository (Model, ModelType)
+│   ├── project.py              # ProjectRepository (Project)
+│   ├── error_record.py         # ErrorRecordRepository (ErrorRecord)
+│   ├── provider_batch.py       # ProviderBatchRepository (ProviderBatchJob, ProviderBatchItem)
+│   ├── crop_relation.py        # CropRelationRepository (CropRelation)
+│   └── generation_metadata.py  # GenerationMetadataRepository (GenerationMetadata)
+├── filter_criteria.py          # ImageFilterCriteria / KeywordSearchGroup
+├── schema.py                   # SQLAlchemy models
+├── db_manager.py               # ImageDatabaseManager (composes the aggregate repositories)
+└── db_core.py                  # Session factory, engine initialization (QueuePool / WAL)
 ```
 
 ### Naming Conventions
@@ -273,12 +281,12 @@ def get_cached_config(self) -> dict:
 
 **Essential Patterns:**
 - Session: `with self.session_factory() as session:`
-- Query: `session.query(Entity).filter(Entity.field == value).first()`
+- Query: `session.execute(select(Entity).where(Entity.field == value)).scalar_one_or_none()`
 - Add: `session.add(entity); session.commit(); session.refresh(entity)`
 - Update: `session.merge(entity); session.commit()`
 - Delete: `session.delete(entity); session.commit()`
 
 **File Locations:**
-- Implementation: `src/lorairo/database/db_repository.py`
+- Implementation: `src/lorairo/database/repository/*.py` (composed by `src/lorairo/database/db_manager.py`)
 - Schema: `src/lorairo/database/schema.py`
-- Tests: `tests/database/test_db_repository.py`
+- Tests: `tests/unit/database/repository/test_*_repository.py`

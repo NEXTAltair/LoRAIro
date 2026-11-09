@@ -37,19 +37,25 @@ Use this skill when:
 ## LoRAIro データベース構成
 
 ```
-Image ──┬── Tag (1:N)         - タグアノテーション
-        ├── Caption (1:N)     - キャプション
-        ├── Score (1:N)       - 品質スコア
-        ├── Rating (1:N)      - レーティング
-        ├── ProcessedImage (1:N) - 加工済み画像
-        └── ErrorRecord (1:N) - エラー記録
+Project ── Image (1:N) ──┬── Tag (1:N)                - タグアノテーション (soft-reject 対応)
+                         ├── Caption (1:N)            - キャプション (soft-reject 対応)
+                         ├── Score (1:N)              - 品質スコア (数値)
+                         ├── ScoreLabel (1:N)         - 品質スコアラベル (カテゴリ)
+                         ├── Rating (1:N)             - レーティング (normalized_rating)
+                         ├── ProcessedImage (1:N)     - 加工済み画像
+                         ├── ImageFilenameAlias (1:N) - 重複スキップ画像のファイル名別名
+                         ├── GenerationMetadata (1:1) - 生成メタデータ (原データ + 解析結果)
+                         ├── CropRelation (1:N)       - クロップ親子関係
+                         └── ErrorRecord (1:N)        - エラー記録
 
-Model ──── ModelType (M:N)    - AIモデルと機能タイプ
+Model ──── ModelType (M:N)                            - AIモデルと機能タイプ
+ProviderBatchJob ── ProviderBatchItem (1:N)           - Provider Batch API ジョブ台帳
 ```
 
 **ファイル構成:**
 - Schema: `src/lorairo/database/schema.py`
-- Repository: `src/lorairo/database/db_repository.py`
+- Repositories (ADR 0035): `src/lorairo/database/repository/` (`base.py`, `image.py`, `annotation_record.py`, `model.py`, `project.py`, `error_record.py`, `provider_batch.py`, `crop_relation.py`, `generation_metadata.py`)
+- Manager: `src/lorairo/database/db_manager.py`
 - Core: `src/lorairo/database/db_core.py`
 
 ## 1. N+1 クエリ回避

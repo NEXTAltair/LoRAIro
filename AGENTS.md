@@ -45,19 +45,25 @@ Repository-specific skills live in `.agents/skills/` (tracked); `.claude/skills/
 External skills (kit / third-party, e.g. `check-existing`, `pr-maintainer`, `pr-autoloop`) are untracked
 and restored from `skills-lock.json` by `make setup` / `make skills-install`. Read the skill's `SKILL.md`
 before starting the matching task; the skill holds the steps, safety constraints and verification.
+See [`docs/development/agent-skills-guide.md`](docs/development/agent-skills-guide.md) for the full 32-skill
+inventory, overlap resolution rules, workflow-by-workflow minimal checklists, and verified walkthroughs.
 
 | Task | Skill | Key constraint |
 |---|---|---|
 | Read or edit the image DB (images, tags, annotations, errors) | `lorairo-cli-db-access` | Use `lorairo-cli`, never raw `sqlite3` against `lorairo_data/*` (9p mount + WAL) |
-| New repository / persistence code | `lorairo-repository-pattern` | Typed transactions via the repository layer |
-| New or slow queries, N+1 review | `sqlalchemy-query-patterns` | Batch lookups; check with EXPLAIN |
-| PySide6 widget / worker / Qt Designer work | `lorairo-qt-widget` | QObject + `moveToThread`; regenerate UI with `scripts/generate_ui.py` |
-| UI design intent before Qt work | `interface-design` | Then implement with `lorairo-qt-widget` |
+| New repository / persistence code | `lorairo-repository-pattern` | Typed transactions via `src/lorairo/database/repository/` (`BaseRepository`) |
+| New or slow queries, N+1 review | `sqlalchemy-query-patterns` | Batch lookups (`selectinload`); check with EXPLAIN |
+| PySide6 widget / worker / Qt Designer work | `lorairo-qt-widget` | `LoRAIroWorkerBase` (QObject + `moveToThread`); regenerate UI with `scripts/generate_ui.py` |
+| UI design intent before Qt work | `interface-design` | Define intent/tokens (`src/lorairo/gui/theme.py`), then implement with `lorairo-qt-widget` |
 | Sync app layout with the wireframes / claude.ai design | `lorairo-design-capture` | Capture the render-time state, not static HTML |
 | Write tests | `lorairo-test-generator` | Mock `QMessageBox`; `qtbot.waitUntil`, no fixed waits |
 | Add or edit ADRs / concept docs | `okf-bundle` | Frontmatter is the SSoT; regenerate the index (`make adr-index`) |
 | Scope a feature (reuse vs build) | `check-existing` (external) | Check `local_packages/` first |
 | Maintain an agent-created PR | `pr-maintainer` / `pr-autoloop` (external) | See "Agent Git Workflow" below |
+
+**Skill Priority & Overlap Rules:**
+- **Tracked LoRAIro skills first**: When a tracked skill in `.agents/skills/` overlaps with a generic external skill in `skills-lock.json`, always follow the LoRAIro skill (`lorairo-repository-pattern` + `sqlalchemy-query-patterns` over `sql-optimization-patterns` / `database-migration`; `lorairo-test-generator` over `python-testing-patterns` / `qa-expert`).
+- **GUI workflow order**: Follow `interface-design` (intent/tokens) → `lorairo-design-capture` (render-time prototype state) → `lorairo-qt-widget` (PySide6 implementation). Do not apply React/Vercel external skills (`vercel-*`, `deploy-to-vercel`) to Python/Qt code; `web-design-guidelines` applies only to the `site/` Starlight web guide.
 
 ## Agent Git Workflow
 - Issue resolution, feature work, PR preparation, and any multi-file implementation must start from a dedicated git worktree under `.agents/worktree/`.

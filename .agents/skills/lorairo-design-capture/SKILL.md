@@ -52,9 +52,8 @@ recreation から nav・レイアウト・順序・グルーピングを取り�
 ### Phase 2: repo 側を実効状態へ揃える
 
 - **Qt タブ順**: `src/lorairo/gui/designer/MainWindow.ui` の `tabWidgetMainMode` 直下の
-  `<widget>` 宣言順が静的順。runtime 挿入（ジョブ=`insertTab(indexOf(tabResults))` / CLI=`addTab` 末尾）を
-  考慮した**実行時順**を実効順に一致させる。`TabReorganizationService` は順序非依存の存在検証のみで
-  順序を制御しない。.ui 変更後は `uv run python scripts/generate_ui.py` で `_ui.py` を再生成する。
+  `<widget>` 宣言順が静的順。runtime 挿入（`MainWindow._setup_*_tab()` による `src/lorairo/gui/tab/*_tab.py` の埋め込み・挿入: ジョブ=`insertTab(indexOf(tabResults))` / CLI=`addTab` 末尾）を
+  考慮した**実行時順**を実効順に一致させる。.ui 変更後は `uv run --no-sync python scripts/generate_ui.py` で `_ui.py` を再生成する。
 - **DS ミラー**: `docs/design/lorairo-design-system/ui_kits/lorairo-app/AppShell.jsx` 等の静的順も、
   必要なら実効順へ更新する（DesignSync は静的 markup を mirror するため JS 変換は反映されない）。
 
@@ -62,12 +61,12 @@ recreation から nav・レイアウト・順序・グルーピングを取り�
 
 - Qt タブ順は headless で実測する:
   ```bash
-  QT_QPA_PLATFORM=offscreen .venv/bin/python -c "from PySide6.QtWidgets import QApplication,QMainWindow; \
+  QT_QPA_PLATFORM=offscreen uv run --no-sync python -c "from PySide6.QtWidgets import QApplication,QMainWindow; \
   from lorairo.gui.designer.MainWindow_ui import Ui_MainWindow; a=QApplication([]); w=QMainWindow(); \
   u=Ui_MainWindow(); u.setupUi(w); t=u.tabWidgetMainMode; print([t.tabText(i) for i in range(t.count())])"
   ```
-  （runtime 挿入を含む完全順は `main_window.py` のロジックを再現して確認する。）
-- GUI テスト（`test_main_window_coverage.py` を含む）を CI-equivalent filter で実行する。
+  （runtime 挿入を含む完全順は `src/lorairo/gui/window/main_window.py` のロジックを再現して確認する。）
+- GUI テスト（`tests/unit/gui/window/test_main_window_coverage.py` および `tests/unit/gui/tab/test_*_tab.py` を含む）を実行する。
 
 ## 落とし穴
 
