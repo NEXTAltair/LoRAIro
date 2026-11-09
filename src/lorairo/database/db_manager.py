@@ -40,6 +40,7 @@ from .schema import (
     CaptionAnnotationData,
     CropRelation,
     GenerationMetadata,
+    GenerationMetadataSource,
     RatingAnnotationData,
     ScoreAnnotationData,
     TagAnnotationData,
@@ -2130,6 +2131,10 @@ class ImageDatabaseManager:
     def get_generation_metadata(self, image_id: int) -> GenerationMetadata | None:
         """画像の生成メタデータの解析結果を返す。未解析なら None (ADR 0105)。"""
         return self.generation_metadata_repo.get_by_image_id(image_id)
+
+    def get_generation_metadata_sources(self, image_id: int) -> list[GenerationMetadataSource]:
+        """画像の生成メタデータの原データを保存順に返す。無ければ空リスト (ADR 0105)。"""
+        return self.generation_metadata_repo.get_sources(image_id)
 
     def get_crop_children(self, parent_image_id: int) -> list[CropRelation]:
         """親画像から切り出された子の関係行を作成順に返す (Manager 層 Facade)。

@@ -36,13 +36,26 @@ COMPARE_MENU_TEXT = "選択した画像を比較…"
 class _FakeSource:
     """読み取りだけを記録する画像メタデータの取得元。書き込み API は持たない。"""
 
-    def __init__(self, data: dict[int, dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        data: dict[int, dict[str, Any]],
+        gen_data: dict[int, Any] | None = None,
+        sources_data: dict[int, list[Any]] | None = None,
+    ) -> None:
         self.data = data
+        self.gen_data = gen_data or {}
+        self.sources_data = sources_data or {}
         self.calls: list[int] = []
 
     def get_image_metadata(self, image_id: int) -> dict[str, Any] | None:
         self.calls.append(image_id)
         return self.data.get(image_id)
+
+    def get_generation_metadata(self, image_id: int) -> Any:
+        return self.gen_data.get(image_id)
+
+    def get_generation_metadata_sources(self, image_id: int) -> list[Any]:
+        return self.sources_data.get(image_id, [])
 
 
 def _write_image(path: Path, size: tuple[int, int], color: tuple[int, int, int]) -> str:
@@ -376,3 +389,129 @@ def test_staging_compare_button(qtbot) -> None:
     with qtbot.waitSignal(widget.compare_requested, timeout=1000) as blocker:
         button.click()
     assert blocker.args[0] == [5, 6, 7]
+
+
+# --- 生成メタデータの差分 (Issue #1485) -------------------------------------
+
+
+def test_dialog_shows_generation_metadata_diff_and_raw_sources(qtbot, source: _FakeSource) -> None:
+    raw_left = (
+        "masterpiece, (best quality:1.2), 1girl,\nsolo, <lora:styleA:0.8>\n"
+        "Negative prompt: lowres, [bad hands:0.9]\n"
+        "Steps: 28, Sampler: DPM++ 2M, Schedule type: Karras, CFG scale: 7.5, Seed: 111, Model: anime_v1"
+    )
+    raw_right = (
+        "masterpiece, (best quality:1.0), 1girl,\nsolo, <lora:styleA:0.5>\n"
+        "Negative prompt: lowres, [bad hands:0.9]\n"
+        "Steps: 35, Sampler: Euler a, Schedule type: Karras, CFG scale: 6, Seed: 222, Model: anime_v2"
+    )
+    source.gen_data[1] = {
+        "status": "parsed",
+        "tool": "sd_webui",
+        "positive_prompt": "masterpiece, (best quality:1.2), 1girl,\nsolo, <lora:styleA:0.8>",
+        "negative_prompt": "lowres, [bad hands:0.9]",
+        "model_name": "anime_v1",
+        "model_hash": "hash1",
+        "loras": [{"name": "styleA", "weight": "0.8", "kind": "lora"}],
+        "seed": "111",
+        "steps": 28,
+        "sampler": "DPM++ 2M",
+        "cfg_scale": 7.5,
+        "extra": {"Schedule type": "Karras", "Denoising strength": "0.5"},
+    }
+    source.gen_data[2] = {
+        "status": "parsed",
+        "tool": "sd_webui",
+        "positive_prompt": "masterpiece, (best quality:1.0), 1girl,\nsolo, <lora:styleA:0.5>",
+        "negative_prompt": "lowres, [bad hands:0.9]",
+        "model_name": "anime_v2",
+        "model_hash": "hash1",
+        "loras": [{"name": "styleA", "weight": "0.5", "kind": "lora"}],
+        "seed": "222",
+        "steps": 35,
+        "sampler": "Euler a",
+        "cfg_scale": 6.0,
+        "extra": {"Schedule type": "Karras", "Denoising strength": "0.7"},
+    }
+    source.sources_data[1] = [{"kind": "png_text", "key": "parameters", "raw_text": raw_left}]
+    source.sources_data[2] = [{"kind": "png_text", "key": "parameters", "raw_text": raw_right}]
+
+    widget = ImageComparisonDialog(ImageComparisonService(source))
+    qtbot.addWidget(widget)
+    try:
+        widget.set_candidates([1, 2])
+        _wait_loaded(qtbot, widget, 1, 2)
+
+        assert "差分あり:" in widget._generation_message.text()
+        assert widget.generation_field_row("tool") == ("同じ", "SD WebUI", "SD WebUI")
+        assert widget.generation_field_row("model_name") == ("差分あり", "anime_v1", "anime_v2")
+        assert widget.generation_field_row("model_hash") == ("同じ", "hash1", "hash1")
+        assert widget.generation_field_row("loras") == ("差分あり", "styleA:0.8", "styleA:0.5")
+        assert widget.generation_field_row("seed") == ("差分あり", "111", "222")
+        assert widget.generation_field_row("steps") == ("差分あり", "28", "35")
+        assert widget.generation_field_row("sampler") == ("差分あり", "DPM++ 2M", "Euler a")
+        assert widget.generation_field_row("scheduler") == ("同じ", "Karras", "Karras")
+        assert widget.generation_field_row("cfg_scale") == ("差分あり", "7.5", "6")
+        assert widget.generation_field_row("denoise") == ("差分あり", "0.5", "0.7")
+
+        # プロンプトの改行・重み表記・<lora:...> タグが壊れずに表示される
+        assert widget._prompt_browsers[Side.LEFT].toPlainText() == (
+            "masterpiece, (best quality:1.2), 1girl,\nsolo, <lora:styleA:0.8>"
+        )
+        assert widget._prompt_browsers[Side.RIGHT].toPlainText() == (
+            "masterpiece, (best quality:1.0), 1girl,\nsolo, <lora:styleA:0.5>"
+        )
+        assert widget._negative_prompt_browsers[Side.LEFT].toPlainText() == "lowres, [bad hands:0.9]"
+
+        # 原データの展開と確認
+        assert not widget._raw_metadata_container.isVisibleTo(widget)
+        widget._raw_metadata_toggle.click()
+        assert widget._raw_metadata_toggle.isChecked()
+        assert raw_left in widget._raw_metadata_views[Side.LEFT].toPlainText()
+        assert raw_right in widget._raw_metadata_views[Side.RIGHT].toPlainText()
+    finally:
+        widget.shutdown()
+
+
+def test_dialog_generation_metadata_missing_side_shows_nashi_not_same(qtbot, source: _FakeSource) -> None:
+    source.gen_data[1] = {
+        "status": "parsed",
+        "tool": "sd_webui",
+        "positive_prompt": "1girl",
+        "model_name": "anime_v1",
+        "seed": "111",
+        "steps": 20,
+        "sampler": "Euler a",
+        "cfg_scale": 7.0,
+    }
+    source.gen_data[2] = {"status": "no_metadata"}
+    source.gen_data[3] = None
+
+    widget = ImageComparisonDialog(ImageComparisonService(source))
+    qtbot.addWidget(widget)
+    try:
+        # 片側 (右) が生成メタデータなし
+        widget.set_candidates([1, 2])
+        _wait_loaded(qtbot, widget, 1, 2)
+        assert "右の画像に生成メタデータが無いため比較できません" in widget._generation_message.text()
+        assert "同じ" not in widget._generation_message.text()
+        assert widget.generation_field_row("model_name") == ("左のみ", "anime_v1", "なし")
+        assert widget.generation_field_row("negative_prompt") == ("なし", "なし", "なし")
+        assert widget._prompt_browsers[Side.LEFT].toPlainText() == "1girl"
+        assert widget._prompt_browsers[Side.RIGHT].toPlainText() == "なし"
+        assert widget._raw_metadata_views[Side.RIGHT].toPlainText() == "なし"
+
+        # 両側とも生成メタデータなし (画像と現在注釈の比較はそのまま動く)
+        widget.set_candidates([2, 3])
+        _wait_loaded(qtbot, widget, 2, 3)
+        assert "左右どちらの画像にも生成メタデータがありません" in widget._generation_message.text()
+        assert "同じ" not in widget._generation_message.text()
+        for row in range(widget._generation_table.rowCount()):
+            assert widget._generation_table.item(row, 1).text() == "なし"
+            assert widget._generation_table.item(row, 2).text() == "なし"
+            assert widget._generation_table.item(row, 3).text() == "なし"
+        # タグ・キャプションの比較表示は引き続き使える
+        assert widget._caption_browsers[Side.LEFT].toPlainText() == "a dog sitting"
+        assert widget._caption_browsers[Side.RIGHT].toPlainText() == "(キャプションなし)"
+    finally:
+        widget.shutdown()

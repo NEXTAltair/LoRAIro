@@ -16,18 +16,22 @@ import html
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, Qt, Slot
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtGui import QBrush, QCloseEvent, QColor
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDialog,
     QGridLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QListWidget,
     QPlainTextEdit,
     QPushButton,
     QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
     QTabWidget,
     QTextBrowser,
     QToolButton,
@@ -41,6 +45,7 @@ from ...services.image_comparison import (
     CaptionDiff,
     ComparisonSelection,
     DiffKind,
+    GenerationMetadataDiff,
     ImageComparisonService,
     ImageMetadataSource,
     Side,
@@ -285,7 +290,101 @@ class ImageComparisonDialog(QDialog):
             self._caption_browsers[side] = browser
         caption_layout.addLayout(browsers, 1)
         tabs.addTab(caption_page, "キャプションの差分")
+
+        tabs.addTab(self._build_generation_diff_page(tabs), "生成メタデータの差分")
+        self._diff_tabs = tabs
         return tabs
+
+    def _build_generation_diff_page(self, parent: QWidget) -> QWidget:
+        generation_page = QWidget(parent)
+        generation_layout = QVBoxLayout(generation_page)
+
+        self._generation_message = QLabel(generation_page)
+        self._generation_message.setObjectName("generationDiffMessage")
+        self._generation_message.setWordWrap(True)
+        generation_layout.addWidget(self._generation_message)
+
+        self._generation_table = QTableWidget(0, 4, generation_page)
+        self._generation_table.setObjectName("generationDiffTable")
+        self._generation_table.setHorizontalHeaderLabels(["項目", "状態", "左", "右"])
+        self._generation_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._generation_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._generation_table.verticalHeader().setVisible(False)
+        header = self._generation_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        generation_layout.addWidget(self._generation_table, 2)
+
+        prompt_grid = QGridLayout()
+        self._prompt_browsers: dict[Side, QTextBrowser] = {}
+        self._negative_prompt_browsers: dict[Side, QTextBrowser] = {}
+        prompt_grid.addWidget(QLabel("正プロンプト差分:", generation_page), 0, 0, 1, 2)
+        for col, side in enumerate((Side.LEFT, Side.RIGHT)):
+            browser = QTextBrowser(generation_page)
+            browser.setObjectName(f"{side.value}PromptBrowser")
+            browser.setOpenLinks(False)
+            browser.setMaximumHeight(90)
+            prompt_grid.addWidget(browser, 1, col)
+            self._prompt_browsers[side] = browser
+        prompt_grid.addWidget(QLabel("負プロンプト差分:", generation_page), 2, 0, 1, 2)
+        for col, side in enumerate((Side.LEFT, Side.RIGHT)):
+            browser = QTextBrowser(generation_page)
+            browser.setObjectName(f"{side.value}NegativePromptBrowser")
+            browser.setOpenLinks(False)
+            browser.setMaximumHeight(70)
+            prompt_grid.addWidget(browser, 3, col)
+            self._negative_prompt_browsers[side] = browser
+        generation_layout.addLayout(prompt_grid, 1)
+
+        self._raw_metadata_toggle = QToolButton(generation_page)
+        self._raw_metadata_toggle.setObjectName("rawMetadataToggle")
+        self._raw_metadata_toggle.setText("原データを表示")
+        self._raw_metadata_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self._raw_metadata_toggle.setArrowType(Qt.ArrowType.RightArrow)
+        self._raw_metadata_toggle.setCheckable(True)
+        self._raw_metadata_toggle.setChecked(False)
+        self._raw_metadata_toggle.toggled.connect(self._toggle_raw_metadata)
+        generation_layout.addWidget(self._raw_metadata_toggle)
+
+        self._raw_metadata_container = QWidget(generation_page)
+        self._raw_metadata_container.setObjectName("rawMetadataContainer")
+        self._raw_metadata_container.setVisible(False)
+        raw_layout = QHBoxLayout(self._raw_metadata_container)
+        raw_layout.setContentsMargins(0, 0, 0, 0)
+        self._raw_metadata_views: dict[Side, QPlainTextEdit] = {}
+        for side in (Side.LEFT, Side.RIGHT):
+            raw_view = QPlainTextEdit(self._raw_metadata_container)
+            raw_view.setObjectName(f"{side.value}RawMetadataView")
+            raw_view.setReadOnly(True)
+            raw_view.setMaximumHeight(120)
+            raw_layout.addWidget(raw_view)
+            self._raw_metadata_views[side] = raw_view
+        generation_layout.addWidget(self._raw_metadata_container)
+
+        return generation_page
+
+    def _toggle_raw_metadata(self, expanded: bool) -> None:
+        self._raw_metadata_toggle.setArrowType(
+            Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow
+        )
+        self._raw_metadata_container.setVisible(expanded)
+
+    def generation_field_row(self, key: str) -> tuple[str, str, str] | None:
+        """生成メタデータの項目キーに対応する表の (状態, 左, 右) を返す。"""
+        for row in range(self._generation_table.rowCount()):
+            key_item = self._generation_table.item(row, 0)
+            if key_item is not None and key_item.data(Qt.ItemDataRole.UserRole) == key:
+                status_item = self._generation_table.item(row, 1)
+                left_item = self._generation_table.item(row, 2)
+                right_item = self._generation_table.item(row, 3)
+                return (
+                    status_item.text() if status_item else "",
+                    left_item.text() if left_item else "",
+                    right_item.text() if right_item else "",
+                )
+        return None
 
     # -- 公開 API ----------------------------------------------------------
 
@@ -466,6 +565,7 @@ class ImageComparisonDialog(QDialog):
         self._panels[Side.RIGHT].show_side(result.right)
         self._show_tag_diff(result.comparison.tags)
         self._show_caption_diff(result.comparison.caption, result)
+        self._show_generation_diff(result.comparison.generation, result)
         self._status_label.setText(
             f"左: 画像 ID {result.left.snapshot.image_id} / 右: 画像 ID {result.right.snapshot.image_id}"
             "  (読み取り専用。比較してもタグや採用状態は変わりません)"
@@ -499,6 +599,15 @@ class ImageComparisonDialog(QDialog):
         self._caption_message.setVisible(True)
         for browser in self._caption_browsers.values():
             browser.clear()
+        self._generation_message.setText(message)
+        self._generation_message.setVisible(True)
+        self._generation_table.setRowCount(0)
+        for browser in self._prompt_browsers.values():
+            browser.clear()
+        for browser in self._negative_prompt_browsers.values():
+            browser.clear()
+        for raw_view in self._raw_metadata_views.values():
+            raw_view.setPlainText("")
 
     @staticmethod
     def _tag_header_text(key: str, count: int | None) -> str:
@@ -535,6 +644,73 @@ class ImageComparisonDialog(QDialog):
                 )
             self._caption_message.setText(_missing_message(diff.availability, "キャプション"))
         self._caption_message.setVisible(bool(self._caption_message.text()))
+
+    def _show_generation_diff(
+        self, diff: GenerationMetadataDiff, result: ImageComparisonLoadResult
+    ) -> None:
+        self._generation_table.setRowCount(len(diff.fields))
+        left_brush = QBrush(QColor(theme.ERR_SOFT))
+        right_brush = QBrush(QColor(theme.OK_SOFT))
+        for row, field_diff in enumerate(diff.fields):
+            label_item = QTableWidgetItem(field_diff.label)
+            label_item.setData(Qt.ItemDataRole.UserRole, field_diff.key)
+            status_item = QTableWidgetItem(field_diff.status_label)
+            left_item = QTableWidgetItem(field_diff.left_display)
+            right_item = QTableWidgetItem(field_diff.right_display)
+            if field_diff.changed:
+                left_item.setBackground(left_brush)
+                right_item.setBackground(right_brush)
+            for col, item in enumerate((label_item, status_item, left_item, right_item)):
+                self._generation_table.setItem(row, col, item)
+
+        snapshots = {
+            Side.LEFT: result.left.snapshot.generation_metadata,
+            Side.RIGHT: result.right.snapshot.generation_metadata,
+        }
+        self._update_prompt_browsers(
+            self._prompt_browsers,
+            diff.positive_prompt,
+            {
+                side: snapshots[side].positive_prompt if snapshots[side].has_metadata else None
+                for side in (Side.LEFT, Side.RIGHT)
+            },
+        )
+        self._update_prompt_browsers(
+            self._negative_prompt_browsers,
+            diff.negative_prompt,
+            {
+                side: snapshots[side].negative_prompt if snapshots[side].has_metadata else None
+                for side in (Side.LEFT, Side.RIGHT)
+            },
+        )
+        for side, raw_view in self._raw_metadata_views.items():
+            raw_view.setPlainText(snapshots[side].raw_sources_text())
+
+        if diff.availability is not Availability.BOTH:
+            self._generation_message.setText(_missing_message(diff.availability, "生成メタデータ"))
+        elif diff.identical:
+            self._generation_message.setText("左右の生成メタデータは同じです")
+        elif diff.differing_fields:
+            self._generation_message.setText(
+                f"差分あり: {len(diff.differing_fields)} 項目 / 同じ: {len(diff.matching_fields)} 項目"
+            )
+        else:
+            self._generation_message.setText("原データを確認してください")
+        self._generation_message.setVisible(bool(self._generation_message.text()))
+
+    @staticmethod
+    def _update_prompt_browsers(
+        browsers: dict[Side, QTextBrowser],
+        prompt_diff: CaptionDiff,
+        texts: dict[Side, str | None],
+    ) -> None:
+        if prompt_diff.availability is Availability.BOTH:
+            for side, browser in browsers.items():
+                browser.setHtml(_caption_side_html(prompt_diff, side))
+            return
+        for side, browser in browsers.items():
+            text = texts[side]
+            browser.setHtml(_plain_html(text) if text else _placeholder_html("なし"))
 
 
 class ImageComparisonLauncher(QObject):
