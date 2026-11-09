@@ -200,7 +200,9 @@ class ExportTabWidget(QWidget):
             return
         repository = DatasetRepository(session_factory=self._db_manager.image_repo.session_factory)
         dialog = KohyaVersionExportDialog(repository, self)
-        dialog.tags_mutated.connect(self._on_kohya_tags_mutated)
+        tags_mutated = getattr(dialog, "tags_mutated", None)
+        if tags_mutated is not None:
+            tags_mutated.connect(self._on_kohya_tags_mutated)
         dialog.exec()
         dialog.deleteLater()
 
