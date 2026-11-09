@@ -28,17 +28,34 @@ LoRAIro では学習用の `.txt` / `.caption` (タグ・キャプション) を
   - 行が無い画像は「未解析」。解析状態は `parsed` (主要項目が揃った) / `partial` (対応形式だが欠けがある) /
     `unsupported` (原データはあるが抽出できる形式ではない) / `no_metadata` (原データが無い) / `failed`
     (取得・復号・解析に失敗) の 5 つで、CHECK 制約で固定する。
-- **初期対応形式と判定根拠** (parser 版 `1`):
+- **対応形式と判定根拠** (parser 版 `2`):
   - 取得元は PNG のテキストチャンク `parameters` / `prompt` / `workflow` (Pillow の `img.info` を参照するだけで pop しない)
     と、JPEG / WebP の EXIF UserComment。付属ファイル (`.txt` / `.caption`) は読まない。
   - SD WebUI (A1111 / Forge など) 形式: 最後の行が `Steps` を含む 3 個以上の `key: value` であるときだけ認める。
     それ以外のテキストは `unsupported` とし、生成ツールを特定しない (汎用の fallback 一致を生成の証拠にしない)。
     主要項目はプロンプト・steps・sampler・seed・CFG。値を解釈できない項目は NULL にし、推測で補完しない。
     seed は 64 bit を超えることがあるため文字列で持つ。
-  - ComfyUI: `prompt` が全ノード `class_type` 付きの JSON、または `workflow` が `nodes` 配列を持つ JSON なら
-    ComfyUI と判定する。ノードグラフからは項目を抽出せず `unsupported` とする (複数 sampler や独自ノードを
-    単一の設定へ統合しない)。同じ画像に SD WebUI 形式の `parameters` もあれば、その要約から項目を取り、
-    グラフは未解析なので `partial` とする。JSON として読めない `prompt` は ComfyUI と判定しない。
+  - ComfyUI (版 `1` で判定のみ、版 `2` / #1503 で単一 sampler グラフの項目抽出を追加):
+    - `prompt` が全ノード `class_type` 付きの JSON、または `workflow` が `nodes` 配列を持つ JSON なら
+      ComfyUI と判定する。
+    - **単一 sampler 経路** (`KSampler` / `KSamplerAdvanced` が 1 つのみ): sampler ノードの `seed`
+      (`seed` または `noise_seed`)、`steps`、`sampler_name`、`cfg` を取り出し、`positive` / `negative` リンクを
+      `CLIPTextEncode` (`CLIPTextEncodeSDXL`・標準の conditioning / 文字列 primitive を含む) まで辿って
+      正/負プロンプトを、`model` リンクを `LoraLoader` / `LoraLoaderModelOnly` (`lora_name` と `strength_model` を
+      ベースモデルからの適用順に記録) を経由して `CheckpointLoaderSimple` / `CheckpointLoader` / `UNETLoader` 等まで
+      辿って `model_name` を抽出する。`EmptyLatentImage` / `EmptySD3LatentImage` の寸法 (`Size`) と
+      `scheduler` / `denoise` は `extra` に記録する。主要項目 (正プロンプト・モデル名・seed・steps・sampler・CFG)
+      がすべて揃い未知ノードが無ければ `parsed`、一部欠落や未知・動的ノードへの参照があれば `partial` とする。
+    - **複数 sampler 経路** (`KSampler` / `KSamplerAdvanced` が 2 つ以上): 複数の生成経路を誤って単一の設定へ
+      統合せず、`status="partial"`、`error_message="multiple_samplers"` とし、`extra` に `sampler_count` と
+      `sampler_node_ids` を記録する (全 sampler が同一のモデル/LoRA 経路を参照する場合のみそのモデル・LoRA を残し、
+      sampler 固有の seed / steps / CFG / プロンプトは NULL にする)。
+    - **workflow のみ / sampler なし**: `prompt` ノード辞書を持たない `workflow` のみの画像や sampler ノードが
+      0 個のグラフは `unsupported` とする。同じ画像に SD WebUI 形式の `parameters` もあれば、その要約から項目を
+      取り `partial` とする。
+    - **壊れた JSON と非 ComfyUI テキストの区別**: JSON オブジェクト/配列として始まりながら構文が壊れている
+      `prompt` / `workflow` チャンクは `failed` とし、別ツールが書いた平文の `prompt` チャンクは ComfyUI と
+      判定せず `unsupported` (`tool=None`) とする。
   - 画像寸法は判定に使わない。
 - **層の分け方**: 共有の結果型は `domain/generation_metadata.py` (Qt / DB 非依存)、読み取りと解析は
   `services/generation_metadata_parser.py` (Qt / DB 非依存、Pillow のみ)、保存は
@@ -55,10 +72,11 @@ LoRAIro では学習用の `.txt` / `.caption` (タグ・キャプション) を
   最新の parser で置き換わる。
 - IDAT より後ろに置かれた PNG テキストチャンクは読まない (Pillow が画像の展開まで読み込まないため)。
   主要な生成ツールは IDAT より前に書く。
-- ComfyUI のノードグラフ解析、NovelAI など他の形式は後続。追加するときは parser 版を上げる。
+- NovelAI など他の形式や ComfyUI の独自拡張ノードは後続。追加するときは parser 版を上げ、
+  `lorairo-cli images analyze-metadata <ID...> --force` で既存の解析結果を置き換える。
 - 生成モデル・LoRA・プロンプトでの検索用の index は、検索を入れる #1483 で決める (今は `tool` のみ)。
 
 ## Related
 
-- Issue #1481, #1482, #1483, #1396, #1398
+- Issue #1481, #1482, #1483, #1503, #1396, #1398
 - ADR 0061 (登録時の分類と副作用の統一)

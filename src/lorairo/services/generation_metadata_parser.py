@@ -1,16 +1,18 @@
-"""画像に埋め込まれた生成メタデータの読み取りと解析 (ADR 0105, Issue #1481)。
+"""画像に埋め込まれた生成メタデータの読み取りと解析 (ADR 0105, Issue #1481 / #1503)。
 
 Qt にも DB にも依存しない純粋な処理。画像ファイルから生成情報の原データ (PNG の
 テキストチャンク、EXIF の UserComment) を整形前のまま取り出し、別の結果型として
 共通項目 (生成ツール、正/負プロンプト、生成モデル、LoRA 参照、seed、steps、sampler、CFG)
 へ解析する。
 
-初期対応:
+対応形式:
 - SD WebUI (A1111 / Forge 等) 形式の生成情報テキスト。PNG の ``parameters`` チャンク、
   または JPEG / WebP の EXIF UserComment。最後の行に ``Steps:`` を含む 3 個以上の
   ``key: value`` があるときだけ SD WebUI 形式と認める。
-- ComfyUI の ``prompt`` / ``workflow`` チャンクは、原データを保存して ComfyUI と判定するが、
-  ノードグラフからは項目を抽出しない (複数 sampler 等を単一設定へ統合しないため)。
+- ComfyUI の ``prompt`` (API ノードグラフ) / ``workflow`` (UI ノード配置) チャンク。
+  sampler ノード (``KSampler`` / ``KSamplerAdvanced``) が 1 つのときだけ、その入力と
+  上流の標準ノード (``CLIPTextEncode``、``LoraLoader``、``CheckpointLoaderSimple`` 等)
+  を辿って共通項目を抽出する。sampler が複数ある場合は単一設定へ統合せず ``partial`` とする。
 
 取得できない項目は推測で補完しない。学習用の付属ファイル (``.txt`` / ``.caption``) は
 生成情報として読まない。
@@ -21,6 +23,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any, TypeGuard
 
 from PIL import Image
 
@@ -61,6 +64,35 @@ _RE_PARAM = re.compile(r'\s*(\w[\w \-/]+):\s*("(?:\\.|[^\\"])+"|[^,]*)(?:,|$)')
 # プロンプト内の LoRA / LyCORIS 参照 (<lora:name:weight> / <lyco:name:weight:...>)
 _RE_LORA = re.compile(r"<(lora|lyco):([^:>]+)(?::([^:>]+))?[^>]*>")
 _NEGATIVE_PREFIX = "Negative prompt:"
+
+# ComfyUI の対象ノード種別
+_COMFY_SAMPLER_CLASSES: frozenset[str] = frozenset({"KSampler", "KSamplerAdvanced"})
+_COMFY_CHECKPOINT_CLASSES: frozenset[str] = frozenset(
+    {"CheckpointLoaderSimple", "CheckpointLoader", "ImageOnlyCheckpointLoader"}
+)
+_COMFY_UNET_CLASSES: frozenset[str] = frozenset({"UNETLoader", "DiffusionModelLoader"})
+_COMFY_LORA_CLASSES: frozenset[str] = frozenset({"LoraLoader", "LoraLoaderModelOnly"})
+_COMFY_MODEL_PASSTHROUGH_CLASSES: frozenset[str] = frozenset(
+    {
+        "ModelSamplingDiscrete",
+        "ModelSamplingContinuousEDM",
+        "ModelSamplingFlux",
+        "ModelSamplingSD3",
+        "PatchModelAddDownscale",
+        "FreeU",
+        "FreeU_V2",
+    }
+)
+_COMFY_CONDITIONING_PASSTHROUGH_CLASSES: frozenset[str] = frozenset(
+    {
+        "ConditioningSetTimestepRange",
+        "ConditioningSetArea",
+        "ConditioningSetMask",
+        "FluxGuidance",
+    }
+)
+_COMFY_STRING_PRIMITIVE_CLASSES: frozenset[str] = frozenset({"PrimitiveNode", "String", "StringLiteral"})
+_COMFY_LATENT_CLASSES: frozenset[str] = frozenset({"EmptyLatentImage", "EmptySD3LatentImage"})
 
 
 def read_generation_sources(image_path: Path) -> tuple[GenerationMetadataSource, ...]:
@@ -177,9 +209,12 @@ def _result_for_comfyui(
     comfy_sources: list[GenerationMetadataSource],
     webui_params: GenerationParameters | None,
 ) -> GenerationMetadataResult:
-    """ComfyUI のチャンクがある場合の結果。ノードグラフからは項目を抽出しない。"""
-    invalid = [s.key for s in comfy_sources if not _is_comfyui_graph(s.key, s.raw_text)]
-    if invalid and len(invalid) == len(comfy_sources):
+    """ComfyUI のチャンクがある場合の解析結果を返す。"""
+    parsed_chunks = {s.key: _parse_comfyui_chunk(s.key, s.raw_text) for s in comfy_sources}
+    valid_graphs = {k: data for k, (state, data) in parsed_chunks.items() if state == "valid" and data}
+    broken_keys = [k for k, (state, _) in parsed_chunks.items() if state == "broken_json"]
+
+    if not valid_graphs:
         if webui_params is not None:
             # ComfyUI と断定できないため、SD WebUI 形式の結果として扱う
             return GenerationMetadataResult(
@@ -189,6 +224,14 @@ def _result_for_comfyui(
                 sources=sources,
                 parameters=webui_params,
             )
+        if broken_keys:
+            return GenerationMetadataResult(
+                GenerationMetadataStatus.FAILED,
+                PARSER_COMFYUI,
+                sources=sources,
+                error_message=f"ComfyUI の JSON が壊れています: {', '.join(broken_keys)}",
+            )
+        invalid = [s.key for s in comfy_sources]
         # 同じキー名を別の用途で使うツールもあるため、ComfyUI とは判定しない
         return GenerationMetadataResult(
             GenerationMetadataStatus.UNSUPPORTED,
@@ -196,6 +239,29 @@ def _result_for_comfyui(
             sources=sources,
             error_message=f"ComfyUI のノードグラフとして解釈できません: {', '.join(invalid)}",
         )
+
+    if PNG_KEY_COMFY_PROMPT in broken_keys and webui_params is None:
+        return GenerationMetadataResult(
+            GenerationMetadataStatus.FAILED,
+            PARSER_COMFYUI,
+            tool=TOOL_COMFYUI,
+            sources=sources,
+            error_message="ComfyUI の prompt JSON が壊れています",
+        )
+
+    prompt_graph = _resolve_comfy_prompt_graph(valid_graphs)
+    if prompt_graph is not None:
+        status, comfy_params, error_message = parse_comfyui_prompt(prompt_graph)
+        if status is GenerationMetadataStatus.PARSED or webui_params is None:
+            return GenerationMetadataResult(
+                status,
+                PARSER_COMFYUI,
+                tool=TOOL_COMFYUI,
+                sources=sources,
+                parameters=comfy_params,
+                error_message=error_message,
+            )
+
     if webui_params is not None:
         # ComfyUI のノードが書いた SD WebUI 形式の要約。グラフ全体は未解析なので partial。
         return GenerationMetadataResult(
@@ -210,19 +276,379 @@ def _result_for_comfyui(
     )
 
 
-def _is_comfyui_graph(key: str, raw_text: str | None) -> bool:
-    """ComfyUI の prompt (API 形式) / workflow (UI 形式) の JSON かを判定する。"""
+def _parse_comfyui_chunk(key: str, raw_text: str | None) -> tuple[str, dict[str, Any] | None]:
+    """チャンク文字列を判定し、``("valid" | "broken_json" | "not_comfyui", dict | None)`` を返す。"""
     if raw_text is None:
-        return False
+        return "not_comfyui", None
+    stripped = raw_text.lstrip()
     try:
         data = json.loads(raw_text)
     except json.JSONDecodeError:
-        return False
+        if stripped.startswith(("{", "[")):
+            return "broken_json", None
+        return "not_comfyui", None
+    if not isinstance(data, dict) or not data:
+        return "not_comfyui", None
+    if key == PNG_KEY_COMFY_WORKFLOW:
+        if isinstance(data.get("nodes"), list) or _is_prompt_graph(data.get("prompt")):
+            return "valid", data
+        return "not_comfyui", None
+    if _is_prompt_graph(data):
+        return "valid", data
+    return "not_comfyui", None
+
+
+def _is_prompt_graph(data: object) -> TypeGuard[dict[str, Any]]:
+    """ComfyUI の API 形式の prompt ノード辞書かを判定する。"""
     if not isinstance(data, dict) or not data:
         return False
-    if key == PNG_KEY_COMFY_WORKFLOW:
-        return isinstance(data.get("nodes"), list)
-    return all(isinstance(node, dict) and "class_type" in node for node in data.values())
+    return all(isinstance(node, dict) and isinstance(node.get("class_type"), str) for node in data.values())
+
+
+def _resolve_comfy_prompt_graph(valid_graphs: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    """利用可能なチャンクから API 形式の prompt ノード辞書を取り出す。"""
+    prompt_graph = valid_graphs.get(PNG_KEY_COMFY_PROMPT)
+    if prompt_graph is not None:
+        return prompt_graph
+    workflow = valid_graphs.get(PNG_KEY_COMFY_WORKFLOW)
+    if workflow is None:
+        return None
+    embedded = workflow.get("prompt")
+    if _is_prompt_graph(embedded):
+        return embedded
+    extra = workflow.get("extra")
+    if isinstance(extra, dict):
+        extra_prompt = extra.get("prompt")
+        if _is_prompt_graph(extra_prompt):
+            return extra_prompt
+    return None
+
+
+def _node_id_sort_key(node_id: str) -> tuple[int, int | str]:
+    return (0, int(node_id)) if node_id.isdigit() else (1, node_id)
+
+
+def parse_comfyui_prompt(
+    prompt_graph: dict[str, Any],
+) -> tuple[GenerationMetadataStatus, GenerationParameters | None, str | None]:
+    """ComfyUI の prompt ノード辞書から生成メタデータの共通項目を抽出する (ADR 0105, #1503)。
+
+    sampler ノードが 1 つのときだけ共通項目を抽出し、複数あるときは単一設定へ統合せず
+    ``partial`` として sampler ノード情報だけを ``extra`` に記録する。
+    """
+    sampler_ids = sorted(
+        (
+            str(node_id)
+            for node_id, node in prompt_graph.items()
+            if isinstance(node, dict) and node.get("class_type") in _COMFY_SAMPLER_CLASSES
+        ),
+        key=_node_id_sort_key,
+    )
+    if not sampler_ids:
+        return GenerationMetadataStatus.UNSUPPORTED, None, None
+    if len(sampler_ids) >= 2:
+        params = _params_for_multiple_samplers(prompt_graph, sampler_ids)
+        return GenerationMetadataStatus.PARTIAL, params, "multiple_samplers"
+    return _parse_single_comfy_sampler(prompt_graph, prompt_graph[sampler_ids[0]])
+
+
+def _params_for_multiple_samplers(
+    prompt_graph: dict[str, Any], sampler_ids: list[str]
+) -> GenerationParameters:
+    """複数 sampler があるとき、誤って単一の sampler 設定へ統合せず経路情報だけを記録する。"""
+    model_results = [
+        _trace_comfy_model_input(prompt_graph, prompt_graph[sid].get("inputs", {}).get("model"))
+        for sid in sampler_ids
+        if isinstance(prompt_graph[sid].get("inputs"), dict)
+        and "model" in prompt_graph[sid].get("inputs", {})
+    ]
+    shared_model: str | None = None
+    shared_loras: tuple[LoraReference, ...] = ()
+    if model_results and all(ok and name is not None for name, _, ok in model_results):
+        distinct = {(name, loras) for name, loras, _ in model_results}
+        if len(distinct) == 1:
+            shared_model, shared_loras = next(iter(distinct))
+    return GenerationParameters(
+        model_name=shared_model,
+        loras=shared_loras,
+        extra={
+            "sampler_count": len(sampler_ids),
+            "sampler_node_ids": sampler_ids,
+        },
+    )
+
+
+def _parse_single_comfy_sampler(
+    prompt_graph: dict[str, Any], sampler_node: dict[str, Any]
+) -> tuple[GenerationMetadataStatus, GenerationParameters, str | None]:
+    """単一の sampler ノードから入力と上流リンクを辿って共通項目を抽出する。"""
+    raw_inputs = sampler_node.get("inputs")
+    inputs: dict[str, Any] = raw_inputs if isinstance(raw_inputs, dict) else {}
+    links_ok = True
+
+    seed, seed_ok = _extract_comfy_seed(prompt_graph, inputs)
+    links_ok = links_ok and seed_ok
+    steps = _extract_comfy_int(inputs.get("steps"))
+    cfg_scale = _extract_comfy_float(inputs.get("cfg"))
+    sampler_raw = inputs.get("sampler_name")
+    sampler = sampler_raw.strip() if isinstance(sampler_raw, str) and sampler_raw.strip() else None
+
+    positive_prompt, pos_ok = _resolve_optional_prompt(prompt_graph, inputs, "positive")
+    negative_prompt, neg_ok = _resolve_optional_prompt(prompt_graph, inputs, "negative")
+    model_name, loras, model_ok = _resolve_optional_model(prompt_graph, inputs)
+    links_ok = links_ok and pos_ok and neg_ok and model_ok
+
+    extra = _extract_comfy_extra(prompt_graph, inputs)
+    params = GenerationParameters(
+        positive_prompt=positive_prompt,
+        negative_prompt=negative_prompt,
+        model_name=model_name,
+        seed=seed,
+        steps=steps,
+        sampler=sampler,
+        cfg_scale=cfg_scale,
+        loras=loras,
+        extra=extra,
+    )
+    core = (positive_prompt, model_name, seed, steps, sampler, cfg_scale)
+    if links_ok and all(value is not None for value in core):
+        return GenerationMetadataStatus.PARSED, params, None
+    error_msg = None if links_ok else "unresolved_comfyui_node"
+    return GenerationMetadataStatus.PARTIAL, params, error_msg
+
+
+def _extract_comfy_seed(prompt_graph: dict[str, Any], inputs: dict[str, Any]) -> tuple[str | None, bool]:
+    """sampler の ``seed`` または ``noise_seed`` を文字列として取り出す。"""
+    raw = inputs.get("seed") if "seed" in inputs else inputs.get("noise_seed")
+    if raw is None:
+        return None, True
+    if isinstance(raw, int) and not isinstance(raw, bool):
+        return str(raw), True
+    if isinstance(raw, str):
+        parsed = _parse_seed(raw)
+        return parsed, parsed is not None
+    node_id = _linked_node_id(raw)
+    if node_id is None:
+        return None, False
+    node = prompt_graph.get(node_id)
+    node_inputs = node.get("inputs") if isinstance(node, dict) else None
+    if isinstance(node, dict) and isinstance(node_inputs, dict):
+        if node.get("class_type") in ("PrimitiveNode", "Seed", "Int", "IntLiteral"):
+            for key in ("value", "seed", "noise_seed"):
+                val = node_inputs.get(key)
+                if isinstance(val, int) and not isinstance(val, bool):
+                    return str(val), True
+    return None, False
+
+
+def _extract_comfy_int(value: object) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return None
+
+
+def _extract_comfy_float(value: object) -> float | None:
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return float(value)
+    return None
+
+
+def _resolve_optional_prompt(
+    prompt_graph: dict[str, Any], inputs: dict[str, Any], key: str
+) -> tuple[str | None, bool]:
+    if key not in inputs:
+        return None, True
+    return _trace_comfy_prompt_input(prompt_graph, inputs[key])
+
+
+def _resolve_optional_model(
+    prompt_graph: dict[str, Any], inputs: dict[str, Any]
+) -> tuple[str | None, tuple[LoraReference, ...], bool]:
+    if "model" not in inputs:
+        return None, (), True
+    return _trace_comfy_model_input(prompt_graph, inputs["model"])
+
+
+def _extract_comfy_extra(prompt_graph: dict[str, Any], inputs: dict[str, Any]) -> dict[str, Any]:
+    extra: dict[str, Any] = {}
+    scheduler = inputs.get("scheduler")
+    if isinstance(scheduler, str) and scheduler.strip():
+        extra["scheduler"] = scheduler.strip()
+    denoise = _extract_comfy_float(inputs.get("denoise"))
+    if denoise is not None:
+        extra["denoise"] = str(inputs["denoise"])
+    if "latent_image" in inputs:
+        size = _trace_comfy_latent_size(prompt_graph, inputs["latent_image"])
+        if size is not None:
+            extra["Size"] = size
+    return extra
+
+
+def _linked_node_id(value: object) -> str | None:
+    """ComfyUI の入力リンク ``[node_id, slot_index]`` から参照先ノード ID を返す。"""
+    if (
+        isinstance(value, list)
+        and len(value) == 2
+        and isinstance(value[0], str | int)
+        and not isinstance(value[0], bool)
+        and isinstance(value[1], int)
+        and not isinstance(value[1], bool)
+    ):
+        return str(value[0])
+    return None
+
+
+def _get_comfy_node(prompt_graph: dict[str, Any], node_id: str) -> tuple[str, dict[str, Any]] | None:
+    """ノード辞書から ``(class_type, inputs)`` を取り出す。無ければ None。"""
+    node = prompt_graph.get(node_id)
+    if not isinstance(node, dict):
+        return None
+    class_type = node.get("class_type")
+    node_inputs = node.get("inputs")
+    if not isinstance(class_type, str) or not isinstance(node_inputs, dict):
+        return None
+    return class_type, node_inputs
+
+
+def _trace_comfy_prompt_input(prompt_graph: dict[str, Any], raw_input: object) -> tuple[str | None, bool]:
+    """conditioning / テキストリンクを辿ってプロンプト文字列を返す。"""
+    if isinstance(raw_input, str):
+        return raw_input.strip("\n") or None, True
+    node_id = _linked_node_id(raw_input)
+    if node_id is None:
+        return None, False
+
+    visited: set[str] = set()
+    while node_id is not None and node_id not in visited:
+        visited.add(node_id)
+        node_info = _get_comfy_node(prompt_graph, node_id)
+        if node_info is None:
+            return None, False
+        next_id, result = _step_comfy_prompt_node(*node_info)
+        if result is not None:
+            return result
+        node_id = next_id
+    return None, False
+
+
+def _step_comfy_prompt_node(
+    class_type: str, node_inputs: dict[str, Any]
+) -> tuple[str | None, tuple[str | None, bool] | None]:
+    """プロンプト経路の 1 ノードを処理し、(次のノード ID, 確定結果) を返す。"""
+    if class_type == "CLIPTextEncode":
+        text = node_inputs.get("text")
+        if isinstance(text, str):
+            return None, (text.strip("\n") or None, True)
+        return _linked_node_id(text), None
+    if class_type in ("CLIPTextEncodeSDXL", "CLIPTextEncodeSDXLRefiner"):
+        return None, _extract_sdxl_clip_text(node_inputs)
+    if class_type in _COMFY_CONDITIONING_PASSTHROUGH_CLASSES:
+        return _linked_node_id(node_inputs.get("conditioning")), None
+    if class_type in _COMFY_STRING_PRIMITIVE_CLASSES:
+        return None, _extract_string_primitive(node_inputs)
+    return None, (None, False)
+
+
+def _extract_sdxl_clip_text(node_inputs: dict[str, Any]) -> tuple[str | None, bool]:
+    text = node_inputs.get("text")
+    if isinstance(text, str):
+        return text.strip("\n") or None, True
+    text_g = node_inputs.get("text_g")
+    text_l = node_inputs.get("text_l")
+    if isinstance(text_g, str) and isinstance(text_l, str):
+        if text_g == text_l or not text_l:
+            combined = text_g
+        elif not text_g:
+            combined = text_l
+        else:
+            combined = f"{text_g}\n{text_l}"
+        return combined.strip("\n") or None, True
+    return None, False
+
+
+def _extract_string_primitive(node_inputs: dict[str, Any]) -> tuple[str | None, bool]:
+    for key in ("value", "string", "text"):
+        val = node_inputs.get(key)
+        if isinstance(val, str):
+            return val.strip("\n") or None, True
+    return None, False
+
+
+def _trace_comfy_model_input(
+    prompt_graph: dict[str, Any], raw_input: object
+) -> tuple[str | None, tuple[LoraReference, ...], bool]:
+    """sampler の ``model`` リンクを上流へ辿り、(モデル名, LoRA 列, 解釈成否) を返す。"""
+    node_id = _linked_node_id(raw_input)
+    if node_id is None:
+        return None, (), False
+
+    loras_reversed: list[LoraReference] = []
+    visited: set[str] = set()
+    while node_id is not None and node_id not in visited:
+        visited.add(node_id)
+        node_info = _get_comfy_node(prompt_graph, node_id)
+        if node_info is None:
+            break
+        next_id, model_name, ok = _step_comfy_model_node(*node_info, loras_reversed)
+        if not ok:
+            break
+        if model_name is not None:
+            return model_name, tuple(reversed(loras_reversed)), True
+        node_id = next_id
+    return None, tuple(reversed(loras_reversed)), False
+
+
+def _step_comfy_model_node(
+    class_type: str,
+    node_inputs: dict[str, Any],
+    loras_reversed: list[LoraReference],
+) -> tuple[str | None, str | None, bool]:
+    """モデル経路の 1 ノードを処理し、(次のノード ID, モデル名, 継続可否) を返す。"""
+    if class_type in _COMFY_CHECKPOINT_CLASSES:
+        ckpt = node_inputs.get("ckpt_name")
+        if isinstance(ckpt, str) and ckpt.strip():
+            return None, ckpt.strip(), True
+        return None, None, False
+    if class_type in _COMFY_UNET_CLASSES:
+        unet = node_inputs.get("unet_name") or node_inputs.get("model_name")
+        if isinstance(unet, str) and unet.strip():
+            return None, unet.strip(), True
+        return None, None, False
+    if class_type in _COMFY_LORA_CLASSES:
+        lora = _extract_comfy_lora_node(node_inputs)
+        if lora is None:
+            return None, None, False
+        loras_reversed.append(lora)
+        return _linked_node_id(node_inputs.get("model")), None, True
+    if class_type in _COMFY_MODEL_PASSTHROUGH_CLASSES:
+        return _linked_node_id(node_inputs.get("model")), None, True
+    return None, None, False
+
+
+def _extract_comfy_lora_node(node_inputs: dict[str, Any]) -> LoraReference | None:
+    lora_name = node_inputs.get("lora_name")
+    if not isinstance(lora_name, str) or not lora_name.strip():
+        return None
+    strength = node_inputs.get("strength_model")
+    weight = str(strength) if isinstance(strength, int | float) and not isinstance(strength, bool) else None
+    return LoraReference(name=lora_name.strip(), weight=weight)
+
+
+def _trace_comfy_latent_size(prompt_graph: dict[str, Any], raw_input: object) -> str | None:
+    node_id = _linked_node_id(raw_input)
+    if node_id is None:
+        return None
+    node = prompt_graph.get(node_id)
+    if not isinstance(node, dict) or node.get("class_type") not in _COMFY_LATENT_CLASSES:
+        return None
+    node_inputs = node.get("inputs")
+    if not isinstance(node_inputs, dict):
+        return None
+    width = _extract_comfy_int(node_inputs.get("width"))
+    height = _extract_comfy_int(node_inputs.get("height"))
+    if width is not None and height is not None:
+        return f"{width}x{height}"
+    return None
 
 
 def _webui_status(params: GenerationParameters) -> GenerationMetadataStatus:
