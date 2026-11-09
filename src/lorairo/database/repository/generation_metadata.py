@@ -10,13 +10,27 @@ import datetime
 import json
 from dataclasses import asdict
 
-from sqlalchemy import func
+from sqlalchemy import delete, func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.future import select
+from sqlalchemy.orm import Session
 
-from ...domain.generation_metadata import GenerationMetadataResult
+from ...domain.generation_metadata import (
+    AiGeneratedTagBatchResult,
+    GenerationMetadataResult,
+    GenerationMetadataStatus,
+    is_ai_generation_evidence,
+)
 from ...utils.log import logger
-from ..schema import AI_GENERATED_TAG, GenerationMetadata, GenerationMetadataSource, Image, Tag
+from ..schema import (
+    AI_GENERATED_TAG,
+    GENERATION_METADATA_LITELLM_ID,
+    GenerationMetadata,
+    GenerationMetadataSource,
+    Image,
+    Model,
+    Tag,
+)
 from .base import BaseRepository
 from .model import ModelRepository
 
@@ -246,3 +260,172 @@ class GenerationMetadataRepository(BaseRepository):
                 session.rollback()
                 logger.opt(exception=True).error(f"ai generated タグの付与に失敗: image_id={image_id}")
                 raise
+
+    def apply_ai_generated_tags_batch(
+        self, image_ids: list[int] | None = None, *, dry_run: bool = False
+    ) -> AiGeneratedTagBatchResult:
+        """保存済みの生成メタデータを根拠に ``ai generated`` を一括で付ける (ADR 0107, #1502)。
+
+        判定条件は ``is_ai_generation_evidence`` と同じ。同じタグ (大小・アンダースコア・余分な空白の
+        違いを含む、soft-reject 済みを含む) がどのモデルの行にも無いときだけ、擬似モデル
+        ``GENERATION_METADATA`` の行として足す。``dry_run=True`` なら件数だけ数えて書き込まず、
+        擬似モデル行も作らない。
+
+        Args:
+            image_ids: 対象の画像 ID。``None`` なら全画像。
+            dry_run: True なら書き込まない。
+
+        Raises:
+            SQLAlchemyError: 予期しない DB エラー。
+        """
+        target = _normalize_tag(AI_GENERATED_TAG)
+        with self.session_factory() as session:
+            try:
+                target_images = self._count_target_images(session, image_ids)
+                evidence_ids = self._find_evidence_image_ids(session, image_ids)
+                already_tagged = self._find_already_tagged_image_ids(session, evidence_ids, target)
+                to_add_ids = [image_id for image_id in evidence_ids if image_id not in already_tagged]
+
+                result = AiGeneratedTagBatchResult(
+                    target_images=target_images,
+                    evidence_images=len(evidence_ids),
+                    tags_added=len(to_add_ids),
+                    tags_skipped=len(already_tagged),
+                    dry_run=dry_run,
+                )
+                if dry_run or not to_add_ids:
+                    session.rollback()
+                    return result
+
+                model_id = ModelRepository.get_or_create_generation_metadata_model(session)
+                session.add_all(
+                    [
+                        Tag(
+                            image_id=image_id,
+                            model_id=model_id,
+                            tag=AI_GENERATED_TAG,
+                            tag_id=None,
+                            confidence_score=None,
+                            existing=False,
+                            is_edited_manually=False,
+                        )
+                        for image_id in to_add_ids
+                    ]
+                )
+                session.commit()
+                logger.debug(
+                    f"ai generated タグを一括付与: target={target_images}, "
+                    f"evidence={len(evidence_ids)}, added={len(to_add_ids)}, skipped={len(already_tagged)}"
+                )
+                return result
+            except SQLAlchemyError:
+                session.rollback()
+                logger.opt(exception=True).error("ai generated タグの一括付与に失敗")
+                raise
+
+    def revoke_ai_generated_tags_batch(
+        self, image_ids: list[int] | None = None, *, dry_run: bool = False
+    ) -> AiGeneratedTagBatchResult:
+        """擬似モデル ``GENERATION_METADATA`` のタグ行を一括で取り消す (ADR 0107, #1502)。
+
+        他のモデルや手入力・関連ファイル由来の ``ai generated`` 行には触れない。``dry_run=True`` なら
+        件数だけ数えて削除しない。
+
+        Args:
+            image_ids: 対象の画像 ID。``None`` なら全画像。
+            dry_run: True なら削除しない。
+
+        Raises:
+            SQLAlchemyError: 予期しない DB エラー。
+        """
+        with self.session_factory() as session:
+            try:
+                target_images = self._count_target_images(session, image_ids)
+                model_id = session.execute(
+                    select(Model.id).where(Model.litellm_model_id == GENERATION_METADATA_LITELLM_ID)
+                ).scalar_one_or_none()
+                revoked_count = (
+                    0
+                    if model_id is None
+                    else self._count_or_delete_model_tags(session, model_id, image_ids, dry_run=dry_run)
+                )
+                if dry_run or revoked_count == 0:
+                    session.rollback()
+                else:
+                    session.commit()
+                    logger.debug(
+                        f"GENERATION_METADATA タグを一括取消: target={target_images}, revoked={revoked_count}"
+                    )
+                return AiGeneratedTagBatchResult(
+                    target_images=target_images,
+                    tags_revoked=revoked_count,
+                    dry_run=dry_run,
+                    revoked=True,
+                )
+            except SQLAlchemyError:
+                session.rollback()
+                logger.opt(exception=True).error("GENERATION_METADATA タグの一括取消に失敗")
+                raise
+
+    def _count_target_images(self, session: Session, image_ids: list[int] | None) -> int:
+        if image_ids is not None:
+            return len(image_ids)
+        return int(session.execute(select(func.count(Image.id))).scalar_one())
+
+    def _find_evidence_image_ids(self, session: Session, image_ids: list[int] | None) -> list[int]:
+        rows: list[tuple[int, str | None, str]] = []
+        if image_ids is None:
+            stmt = select(
+                GenerationMetadata.image_id, GenerationMetadata.tool, GenerationMetadata.status
+            ).order_by(GenerationMetadata.image_id)
+            rows = [(int(r[0]), r[1], str(r[2])) for r in session.execute(stmt).all()]
+        else:
+            for start in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
+                chunk = image_ids[start : start + self.BATCH_CHUNK_SIZE]
+                stmt = (
+                    select(GenerationMetadata.image_id, GenerationMetadata.tool, GenerationMetadata.status)
+                    .where(GenerationMetadata.image_id.in_(chunk))
+                    .order_by(GenerationMetadata.image_id)
+                )
+                rows.extend((int(r[0]), r[1], str(r[2])) for r in session.execute(stmt).all())
+        return [
+            image_id
+            for image_id, tool, status in rows
+            if is_ai_generation_evidence(tool, GenerationMetadataStatus(status))
+        ]
+
+    def _find_already_tagged_image_ids(
+        self, session: Session, evidence_ids: list[int], normalized_target: str
+    ) -> set[int]:
+        already_tagged: set[int] = set()
+        for start in range(0, len(evidence_ids), self.BATCH_CHUNK_SIZE):
+            chunk = evidence_ids[start : start + self.BATCH_CHUNK_SIZE]
+            rows = session.execute(select(Tag.image_id, Tag.tag).where(Tag.image_id.in_(chunk))).all()
+            for image_id, tag in rows:
+                if image_id is not None and _normalize_tag(tag) == normalized_target:
+                    already_tagged.add(int(image_id))
+        return already_tagged
+
+    def _count_or_delete_model_tags(
+        self, session: Session, model_id: int, image_ids: list[int] | None, *, dry_run: bool
+    ) -> int:
+        if image_ids is None:
+            count = int(
+                session.execute(select(func.count(Tag.id)).where(Tag.model_id == model_id)).scalar_one()
+            )
+            if not dry_run and count > 0:
+                session.execute(delete(Tag).where(Tag.model_id == model_id))
+            return count
+
+        total = 0
+        for start in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
+            chunk = image_ids[start : start + self.BATCH_CHUNK_SIZE]
+            count = int(
+                session.execute(
+                    select(func.count(Tag.id)).where(Tag.model_id == model_id, Tag.image_id.in_(chunk))
+                ).scalar_one()
+            )
+            total += count
+            if not dry_run and count > 0:
+                session.execute(delete(Tag).where(Tag.model_id == model_id, Tag.image_id.in_(chunk)))
+        return total

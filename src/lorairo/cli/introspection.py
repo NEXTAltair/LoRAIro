@@ -376,6 +376,46 @@ class ImagesAnalyzeMetadataResult(BaseModel):
     model_config = ConfigDict(title="ImagesAnalyzeMetadataResult")
 
 
+class ImagesTagAiGeneratedInputSchema(BaseModel):
+    """Implemented options surface accepted by ``images tag-ai-generated`` (ADR 0107)."""
+
+    project: str
+    image_ids: str | None = Field(
+        default=None,
+        description=(
+            "Comma-separated image IDs, max 500. Positional form also works. "
+            "Omit to target all images in the project."
+        ),
+    )
+    revoke: bool = Field(
+        default=False,
+        description="Delete ai generated tag rows added by GENERATION_METADATA instead of adding.",
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="Count tags that would be added or revoked without writing.",
+    )
+
+    model_config = ConfigDict(title="ImagesTagAiGeneratedInput")
+
+
+class ImagesTagAiGeneratedResult(BaseModel):
+    """JSONL result payload emitted by ``images tag-ai-generated --json``."""
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    dry_run: bool
+    revoked: bool
+    target_images: int
+    evidence_images: int
+    tags_added: int
+    tags_skipped: int
+    tags_revoked: int
+
+    model_config = ConfigDict(title="ImagesTagAiGeneratedResult")
+
+
 class ImagesShowInputSchema(BaseModel):
     """Implemented options surface accepted by ``images show``."""
 
@@ -2265,6 +2305,60 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("next_after_id", "int?", description="Pass to --after-id to continue."),
                 ),
                 schema=ImagesAnalyzeMetadataResult,
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "images tag-ai-generated": ToolSpec(
+        name="images tag-ai-generated",
+        path="images tag-ai-generated",
+        summary=(
+            "Apply or revoke the ai generated tag in bulk from saved generation metadata "
+            "(pseudo model GENERATION_METADATA, ADR 0107). Use --dry-run to preview counts."
+        ),
+        read_only=False,
+        side_effects=("db_read", "db_write"),
+        inputs=(
+            _input(
+                "ImagesTagAiGeneratedInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "image_ids",
+                        "csv[int]?",
+                        description=(
+                            "Comma-separated image IDs, max 500. Omit to target all images in the project."
+                        ),
+                    ),
+                    _f(
+                        "revoke",
+                        "bool",
+                        default=False,
+                        description="Delete ai generated tag rows added by GENERATION_METADATA instead of adding.",
+                    ),
+                    _f(
+                        "dry_run",
+                        "bool",
+                        default=False,
+                        description="Count tags that would be added or revoked without writing.",
+                    ),
+                ),
+                schema=ImagesTagAiGeneratedInputSchema,
+            ),
+        ),
+        outputs=(
+            _output(
+                "ImagesTagAiGeneratedResult",
+                (
+                    _f("dry_run", "bool"),
+                    _f("revoked", "bool"),
+                    _f("target_images", "int"),
+                    _f("evidence_images", "int"),
+                    _f("tags_added", "int"),
+                    _f("tags_skipped", "int"),
+                    _f("tags_revoked", "int"),
+                ),
+                schema=ImagesTagAiGeneratedResult,
             ),
         ),
         errors=(ERROR_MODEL,),
