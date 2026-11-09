@@ -11,7 +11,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, event, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from lorairo.database.db_core import create_db_engine
@@ -482,3 +482,115 @@ def test_list_versions_returns_counts_per_version(
 
 def test_list_versions_empty(repo: DatasetRepository) -> None:
     assert repo.list_versions() == []
+
+
+# --- 画像から使われたデータセット・版・フォルダ・学習テキストを引く (Issue #1461) ---
+
+
+def test_list_image_usage_across_datasets_versions_and_folders(
+    repo: DatasetRepository, session_factory: Callable[[], Session], fk_engine: Engine
+) -> None:
+    """複数データセット・複数版・複数フォルダに入る画像の所属と学習テキストを 2 クエリ以内で返す。"""
+    image_a = _insert_image(session_factory, "img-a")
+    image_b = _insert_image(session_factory, "img-b")
+    ds_kariginu = repo.ensure_dataset("kariginu")
+    v1 = repo.create_version(ds_kariginu, "v01")
+    f_v1_main = repo.add_folder(
+        v1,
+        _folder("10_kariginu", 0),
+        [
+            FolderImageSpec(image_id=image_a, file_stem="a", texts=[_text("Kariginu, 1girl")]),
+            FolderImageSpec(image_id=image_b, file_stem="b", texts=[_text("Kariginu, solo")]),
+        ],
+    )
+    f_v1_style = repo.add_folder(
+        v1,
+        FolderSpec(dir_name="5_style", name="style", num_repeats=5, trigger_word=None, position=1),
+        [
+            FolderImageSpec(
+                image_id=image_a,
+                file_stem="a_style",
+                texts=[
+                    _text("(style:1.2), long_sleeves"),
+                    LearningTextSpec(extension=".caption", raw_text="a girl", elements=["a girl"]),
+                ],
+            )
+        ],
+    )
+    v2 = repo.create_version(ds_kariginu, "v02", parent_version_id=v1)
+    f_v2_main = repo.add_folder(
+        v2,
+        _folder("10_kariginu", 0),
+        [FolderImageSpec(image_id=image_a, file_stem="a", texts=[_text("Kariginu, 1girl, smile")])],
+    )
+    ds_other = repo.ensure_dataset("another")
+    v_other = repo.create_version(ds_other, "init")
+    f_other = repo.add_folder(
+        v_other,
+        FolderSpec(dir_name="3_sub", name="sub", num_repeats=3, trigger_word="SubTrig", position=0),
+        [FolderImageSpec(image_id=image_a, file_stem="sub_a", texts=[])],
+    )
+
+    select_statements: list[str] = []
+
+    def _record_select(
+        conn: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: object,
+    ) -> None:
+        if statement.lstrip().upper().startswith("SELECT"):
+            select_statements.append(statement)
+
+    event.listen(fk_engine, "before_cursor_execute", _record_select)
+    try:
+        usages = repo.list_image_usage(image_a)
+    finally:
+        event.remove(fk_engine, "before_cursor_execute", _record_select)
+
+    # N+1 にならない (所属+親テーブルの JOIN 1 クエリ + 学習テキストの selectinload 1 クエリ)
+    assert len(select_statements) <= 2
+
+    # データセット名 -> 版 ID -> フォルダ position 順
+    assert [
+        (u.dataset_name, u.version_name, u.dir_name, u.file_stem, [t.raw_text for t in u.texts])
+        for u in usages
+    ] == [
+        ("another", "init", "3_sub", "sub_a", []),
+        ("kariginu", "v01", "10_kariginu", "a", ["Kariginu, 1girl"]),
+        ("kariginu", "v01", "5_style", "a_style", ["(style:1.2), long_sleeves", "a girl"]),
+        ("kariginu", "v02", "10_kariginu", "a", ["Kariginu, 1girl, smile"]),
+    ]
+    assert [u.folder_id for u in usages] == [f_other, f_v1_main, f_v1_style, f_v2_main]
+    assert usages[0].dataset_id == ds_other
+    assert usages[0].version_id == v_other
+    assert usages[0].trigger_word == "SubTrig"
+    assert usages[1].dataset_id == ds_kariginu
+    assert usages[1].version_id == v1
+    assert usages[1].parent_version_id is None
+    assert usages[1].folder_name == "kariginu"
+    assert usages[1].num_repeats == 10
+    assert usages[1].trigger_word == "Kariginu"
+    assert [t.extension for t in usages[2].texts] == [".txt", ".caption"]
+    assert usages[2].texts[0].elements == ["(style:1.2)", "long_sleeves"]
+    assert usages[3].parent_version_id == v1
+
+
+def test_list_image_usage_unused_image_returns_empty_list(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    """使われていない画像や未登録の image_id でもエラーにせず空リストを返す。"""
+    unused_id = _insert_image(session_factory, "img-unused")
+    used_id = _insert_image(session_factory, "img-used")
+    dataset_id = repo.ensure_dataset("kariginu")
+    version_id = repo.create_version(dataset_id, "v01")
+    repo.add_folder(
+        version_id,
+        _folder("10_kariginu", 0),
+        [FolderImageSpec(image_id=used_id, file_stem="u", texts=[_text("Kariginu")])],
+    )
+
+    assert repo.list_image_usage(unused_id) == []
+    assert repo.list_image_usage(999999) == []

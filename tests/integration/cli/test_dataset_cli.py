@@ -426,3 +426,67 @@ def test_cli_copy_tags_unknown_folder_exits_nonzero(
     assert result.exit_code != 0
     assert "Traceback" not in result.stdout + result.stderr
     assert _tag_count(project_dir) == 0
+
+
+def _first_image_id(project_dir: Path) -> int:
+    with sqlite3.connect(project_dir / "image_database.db") as conn:
+        image_id: int = conn.execute("SELECT id FROM images ORDER BY id LIMIT 1").fetchone()[0]
+    return image_id
+
+
+def test_cli_usage_returns_versions_folders_and_texts_for_image(
+    cli_runner: CliRunner, project_dir: Path, kohya_root: Path
+) -> None:
+    """同じ画像を複数フォルダ・複数版に入れたとき、dataset usage で一覧を引ける (#1461)。"""
+    # a1.png と同じ画像を 5_b にも別名で置き、フォルダごとに別の学習テキストを持たせる
+    (kohya_root / "5_b" / "a1_in_b.png").write_bytes((kohya_root / "10_a" / "a1.png").read_bytes())
+    (kohya_root / "5_b" / "a1_in_b.txt").write_text("trig_b, shared image in b", encoding="utf-8")
+    v1 = _import(
+        cli_runner, kohya_root, "--exclude-dir", "3_skipme", "--trigger", "10_a=Trig_A", version="v1"
+    )
+
+    (kohya_root / "10_a" / "a1.txt").write_text("Trig_A, updated in v2", encoding="utf-8")
+    v2 = _import(
+        cli_runner,
+        kohya_root,
+        "--exclude-dir",
+        "3_skipme",
+        "--exclude-dir",
+        "5_b",
+        "--parent-version",
+        str(v1),
+        version="v2",
+    )
+
+    image_id = _first_image_id(project_dir)
+    result = cli_runner.invoke(
+        app, ["--json", "dataset", "usage", "--image-id", str(image_id), "-p", PROJECT]
+    )
+    assert result.exit_code == 0, result.stdout + result.stderr
+    lines = [json.loads(line) for line in result.stdout.strip().splitlines()]
+    items = [line for line in lines if line["kind"] == "item"]
+    summary = lines[-1]
+
+    assert [
+        (
+            item["version"],
+            item["version_id"],
+            item["dir_name"],
+            item["file_stem"],
+            item["texts"][0]["raw_text"],
+        )
+        for item in items
+    ] == [
+        ("v1", v1, "10_a", "a1", TEXT_A.decode("utf-8")),
+        ("v1", v1, "5_b", "a1_in_b", "trig_b, shared image in b"),
+        ("v2", v2, "10_a", "a1", "Trig_A, updated in v2"),
+    ]
+    assert summary["usages"] == 3
+    assert summary["versions"] == 2
+
+    # 使われていない image_id でもエラーにせず空の一覧を返す
+    unused = cli_runner.invoke(app, ["--json", "dataset", "usage", "99999", "-p", PROJECT])
+    assert unused.exit_code == 0, unused.stdout + unused.stderr
+    unused_lines = [json.loads(line) for line in unused.stdout.strip().splitlines()]
+    assert [line for line in unused_lines if line["kind"] == "item"] == []
+    assert unused_lines[-1]["usages"] == 0
