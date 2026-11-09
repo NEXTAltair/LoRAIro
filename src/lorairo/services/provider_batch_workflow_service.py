@@ -443,6 +443,20 @@ class ProviderBatchWorkflowService:
         )
         return self._job_service.submit_batch(request)
 
+    def fetch_remote_status_readonly(self, job: int | ProviderBatchJob | Any) -> Any:
+        """Fetch remote provider batch status in read-only mode without updating the DB (#1476)."""
+        target = self._require_job(job) if isinstance(job, int) else job
+        provider = ProviderBatchJobService._normalize_provider_name(str(getattr(target, "provider", "")))
+        api_keys = self._config_service.get_api_keys()
+        normalized_keys = ProviderBatchJobService._normalize_api_keys(api_keys or {})
+        if provider and provider not in normalized_keys:
+            from lorairo.public_api.exceptions import APIKeyNotConfiguredError
+
+            raise APIKeyNotConfiguredError(provider)
+        return self._job_service.fetch_remote_status_readonly(target, api_keys=api_keys)
+
+    inspect_remote_job = fetch_remote_status_readonly
+
     def refresh(self, job_id: int) -> ProviderBatchJob:
         """Refresh a provider batch job using configured API keys."""
         logger.debug(f"ProviderBatch refresh: job_id={job_id}")  # #1150: 操作突合用

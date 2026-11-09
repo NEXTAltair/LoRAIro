@@ -16,11 +16,21 @@ from lorairo.database.schema import (
     ProviderBatchItem,
     ProviderBatchJob,
 )
-from lorairo.public_api.exceptions import InvalidInputError
+from lorairo.public_api.exceptions import (
+    APIKeyNotConfiguredError,
+    InvalidInputError,
+    ResultSetTooLargeError,
+)
 from lorairo.services.db_maintenance_check_service import (
     CHECK_DEFINITIONS,
+    DEFAULT_SCOPES,
+    MAX_PROVIDER_CHECK_JOBS,
     DbMaintenanceCheckService,
     validate_check_options,
+)
+from lorairo.services.provider_batch_service import (
+    ProviderBatchJobNotFoundError,
+    ProviderBatchStatus,
 )
 
 pytestmark = pytest.mark.unit
@@ -185,7 +195,10 @@ def test_limit_caps_ids_but_not_counts_and_repository_scans_across_chunks(databa
 def test_clean_project_runs_all_checks_with_zero_findings(database, tmp_path):
     report = _service(database, tmp_path).check()
     assert report.scopes == ["batch", "files"]
-    assert [finding.check for finding in report.checks] == [d.check for d in CHECK_DEFINITIONS]
+    assert report.provider_queried is False and report.repaired is False
+    assert [finding.check for finding in report.checks] == [
+        d.check for d in CHECK_DEFINITIONS if d.scope in DEFAULT_SCOPES
+    ]
     assert report.issue_count == 0 and report.summary()["issues_found"] is False
     assert all(finding.ids == [] and not finding.ids_truncated for finding in report.checks)
 
@@ -202,4 +215,157 @@ def test_invalid_options_are_rejected(scopes, limit, field):
 
 def test_scopes_are_deduplicated_in_canonical_order():
     assert validate_check_options(["files", "batch", "files"], 1) == ("batch", "files")
+    assert validate_check_options(["provider", "batch"], 1) == ("batch", "provider")
     assert validate_check_options([], 1) == ("batch", "files")
+
+
+def test_provider_scope_detects_status_missing_and_counts_mismatches_without_mutating_db(
+    database, tmp_path
+):
+    with database() as session:
+        session.add_all(
+            [
+                _job(1, "submitted", succeeded_count=0, failed_count=0),
+                _job(2, "completed", succeeded_count=2, failed_count=0),
+                _job(3, "running", succeeded_count=0, failed_count=0),
+                _job(4, "completed", succeeded_count=5, failed_count=0),
+                _job(5, "imported", imported_at=NOW, succeeded_count=3, failed_count=0),
+            ]
+        )
+        session.commit()
+
+    remote_by_id = {
+        1: ProviderBatchStatus(
+            provider_job_id="batch_1",
+            provider_status="completed",
+            succeeded_count=0,
+            failed_count=0,
+        ),
+        2: ProviderBatchStatus(
+            provider_job_id="batch_2",
+            provider_status="failed",
+            succeeded_count=2,
+            failed_count=0,
+        ),
+        4: ProviderBatchStatus(
+            provider_job_id="batch_4",
+            provider_status="completed",
+            succeeded_count=4,
+            failed_count=1,
+        ),
+        5: ProviderBatchStatus(
+            provider_job_id="batch_5",
+            provider_status="completed",
+            succeeded_count=3,
+            failed_count=0,
+        ),
+    }
+
+    def fake_fetcher(job):
+        if job.job_id == 3:
+            raise ProviderBatchJobNotFoundError("404 batch not found")
+        return remote_by_id[job.job_id]
+
+    service = DbMaintenanceCheckService(
+        ImageRepository(database),
+        ProviderBatchRepository(database),
+        path_resolver=lambda stored: tmp_path / stored,
+        now=lambda: NOW,
+        remote_status_fetcher=fake_fetcher,
+    )
+    report = service.check(["provider"])
+
+    findings = _by_check(report)
+    assert report.scopes == ["provider"]
+    assert report.provider_queried is True and report.repaired is False
+    assert report.status == "success"
+    assert report.checked_batch_jobs == 5
+    assert findings["provider_status_mismatch"].ids == [1, 2]
+    assert findings["provider_job_missing"].ids == [3]
+    assert findings["provider_counts_mismatch"].ids == [4]
+
+    # DB rows must remain untouched (read-only guarantee)
+    repo = ProviderBatchRepository(database)
+    assert [(j.job_id, j.status, j.succeeded_count, j.failed_count) for j in repo.list_job_states()] == [
+        (1, "submitted", 0, 0),
+        (2, "completed", 2, 0),
+        (3, "running", 0, 0),
+        (4, "completed", 5, 0),
+        (5, "imported", 3, 0),
+    ]
+
+
+def test_provider_scope_enforces_500_job_upper_bound_before_querying_provider(database, tmp_path):
+    with database() as session:
+        session.add_all([_job(i, "submitted") for i in range(1, MAX_PROVIDER_CHECK_JOBS + 2)])
+        session.commit()
+
+    called = False
+
+    def forbidden_fetcher(_job):
+        nonlocal called
+        called = True
+        raise AssertionError("Provider API must not be called when jobs exceed 500")
+
+    service = DbMaintenanceCheckService(
+        ImageRepository(database),
+        ProviderBatchRepository(database),
+        path_resolver=lambda stored: tmp_path / stored,
+        now=lambda: NOW,
+        remote_status_fetcher=forbidden_fetcher,
+    )
+    with pytest.raises(ResultSetTooLargeError) as exc_info:
+        service.check(["provider"])
+    assert exc_info.value.matched == MAX_PROVIDER_CHECK_JOBS + 1
+    assert exc_info.value.limit == MAX_PROVIDER_CHECK_JOBS
+    assert called is False
+
+
+def test_provider_scope_partial_failure_returns_partial_success(database, tmp_path):
+    with database() as session:
+        session.add_all([_job(1, "submitted"), _job(2, "running")])
+        session.commit()
+
+    def flaky_fetcher(job):
+        if job.job_id == 1:
+            return ProviderBatchStatus(provider_job_id="batch_1", provider_status="completed")
+        raise ConnectionError("provider connection reset")
+
+    service = DbMaintenanceCheckService(
+        ImageRepository(database),
+        ProviderBatchRepository(database),
+        path_resolver=lambda stored: tmp_path / stored,
+        now=lambda: NOW,
+        remote_status_fetcher=flaky_fetcher,
+    )
+    report = service.check(["provider"])
+    findings = _by_check(report)
+    assert report.status == "partial_success"
+    assert report.provider_queried is True and report.repaired is False
+    assert findings["provider_status_mismatch"].ids == [1]
+
+
+def test_provider_scope_raises_on_auth_error_or_total_failure(database, tmp_path):
+    with database() as session:
+        session.add_all([_job(1, "submitted"), _job(2, "running")])
+        session.commit()
+
+    auth_service = DbMaintenanceCheckService(
+        ImageRepository(database),
+        ProviderBatchRepository(database),
+        path_resolver=lambda stored: tmp_path / stored,
+        now=lambda: NOW,
+        remote_status_fetcher=lambda _job: (_ for _ in ()).throw(APIKeyNotConfiguredError("openai")),
+    )
+    with pytest.raises(APIKeyNotConfiguredError):
+        auth_service.check(["provider"])
+
+    net_service = DbMaintenanceCheckService(
+        ImageRepository(database),
+        ProviderBatchRepository(database),
+        path_resolver=lambda stored: tmp_path / stored,
+        now=lambda: NOW,
+        remote_status_fetcher=lambda _job: (_ for _ in ()).throw(ConnectionError("offline")),
+    )
+    with pytest.raises(ConnectionError):
+        net_service.check(["provider"])

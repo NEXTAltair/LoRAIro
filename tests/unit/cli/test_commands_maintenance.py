@@ -12,10 +12,18 @@ from lorairo.cli.main import app
 from lorairo.database import db_core
 from lorairo.database.access_policy import is_read_only
 from lorairo.database.schema import Image, ProviderBatchItem, ProviderBatchJob
-from lorairo.public_api.exceptions import ReadOnlyPreconditionError
+from lorairo.public_api.exceptions import (
+    APIKeyNotConfiguredError,
+    ReadOnlyPreconditionError,
+    ResultSetTooLargeError,
+)
 from lorairo.public_api.maintenance import check_database
 from lorairo.services.db_maintenance_check_service import MaintenanceFinding, MaintenanceReport
 from lorairo.services.project_management_service import ProjectManagementService
+from lorairo.services.provider_batch_service import (
+    ProviderBatchJobNotFoundError,
+    ProviderBatchStatus,
+)
 from lorairo.utils.config import resolve_runtime_configuration, runtime_configuration_scope
 
 pytestmark = pytest.mark.unit
@@ -171,3 +179,156 @@ def test_check_uses_real_read_only_database_without_side_effects(tmp_path, monke
         assert payload["code"] == "PRECONDITION_FAILED"
     assert db_core.IMG_DB_PATH == previous_db and not is_read_only()
     assert _snapshot(workspace) == before
+
+
+def test_check_provider_scope_reports_mismatches_in_read_only_mode(tmp_path, monkeypatch):
+    workspace = tmp_path / "provider-check-workspace"
+    monkeypatch.setenv("LORAIRO_CLI_LOG_PATH", str(tmp_path / "cli.log"))
+    configuration = resolve_runtime_configuration(workspace, None)
+    with runtime_configuration_scope(configuration):
+        info = ProjectManagementService().create_project("project")
+    db = info.path / "image_database.db"
+    engine = db_core._prepare_project_database(db)
+    with Session(engine) as session:
+        session.add_all(
+            [
+                ProviderBatchJob(
+                    id=1,
+                    provider="openai",
+                    provider_job_id="b1",
+                    status="submitted",
+                    succeeded_count=0,
+                    failed_count=0,
+                ),
+                ProviderBatchJob(
+                    id=2,
+                    provider="openai",
+                    provider_job_id="b2",
+                    status="running",
+                    succeeded_count=0,
+                    failed_count=0,
+                ),
+                ProviderBatchJob(
+                    id=3,
+                    provider="openai",
+                    provider_job_id="b3",
+                    status="completed",
+                    succeeded_count=5,
+                    failed_count=0,
+                ),
+            ]
+        )
+        session.commit()
+    engine.dispose()
+
+    def fake_readonly_fetch(_self, job):
+        if job.job_id == 1:
+            return ProviderBatchStatus(
+                provider_job_id="b1",
+                provider_status="completed",
+                succeeded_count=0,
+                failed_count=0,
+            )
+        if job.job_id == 2:
+            raise ProviderBatchJobNotFoundError("404 batch not found")
+        return ProviderBatchStatus(
+            provider_job_id="b3",
+            provider_status="completed",
+            succeeded_count=4,
+            failed_count=1,
+        )
+
+    monkeypatch.setattr(
+        "lorairo.services.provider_batch_workflow_service.ProviderBatchWorkflowService.fetch_remote_status_readonly",
+        fake_readonly_fetch,
+    )
+    before = _snapshot(workspace)
+    result = runner.invoke(
+        app,
+        [
+            "--json",
+            "--log-level",
+            "ERROR",
+            "--workspace",
+            str(workspace),
+            "maintenance",
+            "check",
+            "-p",
+            "project",
+            "--scope",
+            "provider",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    rows = [json.loads(line) for line in result.stdout.splitlines()]
+    items, final = rows[:-1], rows[-1]
+    by_check = {item["check"]: item for item in items}
+    assert by_check["provider_status_mismatch"]["ids"] == [1]
+    assert by_check["provider_job_missing"]["ids"] == [2]
+    assert by_check["provider_counts_mismatch"]["ids"] == [3]
+    assert final["provider_queried"] is True
+    assert final["repaired"] is False
+    assert final["read_only"] is True
+    assert final["status"] == "success" and final["ok"] is True
+    assert final["scopes"] == ["provider"]
+    assert _snapshot(workspace) == before
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected_code", "expected_exit"),
+    [
+        (ResultSetTooLargeError(501, 500), "RESULT_SET_TOO_LARGE", 2),
+        (APIKeyNotConfiguredError("openai"), "AUTH_ERROR", 1),
+        (ConnectionError("network unreachable"), "NETWORK_ERROR", 1),
+        (type("RateLimitError", (Exception,), {"__module__": "openai"})("429"), "RATE_LIMITED", 1),
+    ],
+)
+def test_check_provider_scope_maps_errors_to_structured_cli_codes(
+    monkeypatch, exc, expected_code, expected_exit
+):
+    monkeypatch.setattr(
+        "lorairo.public_api.maintenance.check_database",
+        Mock(side_effect=exc),
+    )
+    result = runner.invoke(
+        app,
+        ["--json", "maintenance", "check", "-p", "fixture", "--scope", "provider"],
+    )
+    assert result.exit_code == expected_exit, result.output
+    payload = json.loads(result.stdout.splitlines()[-1])
+    assert payload["kind"] == "error"
+    assert payload["code"] == expected_code
+
+
+def test_check_provider_scope_partial_failure_exits_3(monkeypatch):
+    partial_report = MaintenanceReport(
+        scopes=["provider"],
+        limit=100,
+        checks=[
+            MaintenanceFinding("provider_status_mismatch", "provider", "job_id", 1, [1], False, "d"),
+            MaintenanceFinding("provider_job_missing", "provider", "job_id", 0, [], False, "d"),
+            MaintenanceFinding("provider_counts_mismatch", "provider", "job_id", 0, [], False, "d"),
+        ],
+        checked_batch_jobs=2,
+        checked_images=None,
+        checked_processed_images=None,
+        provider_queried=True,
+        repaired=False,
+        status="partial_success",
+    )
+    monkeypatch.setattr(
+        "lorairo.public_api.maintenance.check_database",
+        Mock(return_value=partial_report),
+    )
+    result = runner.invoke(
+        app,
+        ["--json", "maintenance", "check", "-p", "fixture", "--scope", "provider"],
+    )
+    assert result.exit_code == 3, result.output
+    rows = [json.loads(line) for line in result.stdout.splitlines()]
+    final = rows[-1]
+    assert final["kind"] == "result"
+    assert final["ok"] is False
+    assert final["status"] == "partial_success"
+    assert final["provider_queried"] is True
+    assert final["repaired"] is False

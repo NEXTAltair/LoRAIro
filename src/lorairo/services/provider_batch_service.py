@@ -56,6 +56,20 @@ _T = TypeVar("_T")
 _RESULT_FILE_MISSING_CODES = frozenset({"result_file_missing"})
 _RESULT_FILE_DOWNLOAD_CODE = "result_file_download_failed"
 _NOT_FOUND_HINTS = ("no such file", "not found", "notfound", "404")
+_JOB_MISSING_CODES = frozenset({"not_found", "job_not_found", "batch_not_found", "batch_job_not_found"})
+_JOB_NOT_FOUND_HINTS = (
+    "no such batch",
+    "batch not found",
+    "job not found",
+    "does not exist",
+    "not found",
+    "notfound",
+    "404",
+)
+
+
+class ProviderBatchJobNotFoundError(ProviderBatchError):
+    """Provider 側に対象の batch job が存在しない (404 / not found)。"""
 
 
 def _is_batch_job_error(error: BaseException) -> bool:
@@ -78,6 +92,15 @@ def _is_result_file_gone(error: BaseException) -> bool:
     return code == _RESULT_FILE_DOWNLOAD_CODE and any(hint in message for hint in _NOT_FOUND_HINTS)
 
 
+def _is_batch_job_not_found(error: BaseException) -> bool:
+    """BatchJobError が「batch job 自体が provider 側に存在しない (404)」かを判定する (#1476)。"""
+    code = str(getattr(error, "code", "") or "")
+    if code in _JOB_MISSING_CODES:
+        return True
+    message = str(getattr(error, "message", "") or error).lower()
+    return code == "retrieve_failed" and any(hint in message for hint in _JOB_NOT_FOUND_HINTS)
+
+
 def _batch_job_error_to_provider_error(error: BaseException) -> ProviderBatchError:
     """lib の ``BatchJobError`` を境界で :class:`ProviderBatchError` へ変換する (#1152)。
 
@@ -95,6 +118,12 @@ def _batch_job_error_to_provider_error(error: BaseException) -> ProviderBatchErr
                 "details.affected_image_ids の image_id を "
                 "`lorairo-cli batch submit --image-ids` で再送してください。"
             ),
+        )
+    if _is_batch_job_not_found(error):
+        code = str(getattr(error, "code", "") or "not_found")
+        return ProviderBatchJobNotFoundError(
+            f"Provider batch job が provider 側に存在しません ({code}): {error}",
+            details={"reason": "provider_job_missing"},
         )
     code = str(getattr(error, "code", "") or "error")
     return ProviderBatchError(f"Batch API の結果取得に失敗しました ({code}): {error}")
@@ -561,21 +590,44 @@ class ProviderBatchJobService:
         )
         return job_id
 
+    def fetch_remote_status_readonly(
+        self,
+        job: int | ProviderBatchJob | Any,
+        api_keys: Mapping[str, str] | None = None,
+    ) -> ProviderBatchStatus:
+        """Provider から最新 status を read-only で取得する (DB を一切更新しない、#1476)。"""
+        target = self._require_job(job) if isinstance(job, int) else job
+        job_id = getattr(target, "id", getattr(target, "job_id", None))
+        provider_job_id = getattr(target, "provider_job_id", None)
+        provider = str(getattr(target, "provider", ""))
+        if not provider_job_id:
+            raise ProviderBatchError(f"provider_job_id が未設定です: job_id={job_id}")
+
+        adapter = self._get_adapter(provider)
+        handle = BatchJobHandle(
+            provider=provider,
+            provider_job_id=provider_job_id,
+            api_keys=self._normalize_api_keys(api_keys or {}),
+        )
+        if hasattr(adapter, "retrieve_batch"):
+            provider_status = self._run_adapter(lambda: adapter.retrieve_batch(handle))
+        else:
+            provider_status = self._run_adapter(
+                lambda: adapter.retrieve(provider_job_id)  # type: ignore[attr-defined]
+            )
+        if provider_status.provider_job_id != provider_job_id:
+            raise ProviderBatchError(
+                "Provider batch adapter response job ID mismatch: "
+                f"job_id={job_id}, expected={provider_job_id}, actual={provider_status.provider_job_id}"
+            )
+        return provider_status
+
+    inspect_remote_job = fetch_remote_status_readonly
+
     def refresh(self, job_id: int, api_keys: Mapping[str, str] | None = None) -> ProviderBatchJob:
         """Provider から最新 status を取得し、DB job を更新する。"""
         job = self._require_job(job_id)
-        if job.provider_job_id is None:
-            raise ProviderBatchError(f"provider_job_id が未設定です: job_id={job_id}")
-
-        adapter = self._get_adapter(job.provider)
-        if hasattr(adapter, "retrieve_batch"):
-            provider_status = self._run_adapter(
-                lambda: adapter.retrieve_batch(self._build_handle(job, api_keys))
-            )
-        else:
-            provider_status = self._run_adapter(
-                lambda: adapter.retrieve(job.provider_job_id)  # type: ignore[attr-defined]
-            )
+        provider_status = self.fetch_remote_status_readonly(job, api_keys=api_keys)
         return self._apply_status(job, provider_status)
 
     def cancel(self, job_id: int, api_keys: Mapping[str, str] | None = None) -> ProviderBatchJob:

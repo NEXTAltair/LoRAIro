@@ -52,6 +52,10 @@ class ProviderBatchJobState:
     status: str
     imported_at: datetime.datetime | None
     expires_at: datetime.datetime | None
+    provider: str = ""
+    provider_job_id: str | None = None
+    succeeded_count: int | None = None
+    failed_count: int | None = None
 
 
 class ProviderBatchRepository(BaseRepository):
@@ -408,6 +412,10 @@ class ProviderBatchRepository(BaseRepository):
                         ProviderBatchJob.status,
                         ProviderBatchJob.imported_at,
                         ProviderBatchJob.expires_at,
+                        ProviderBatchJob.provider,
+                        ProviderBatchJob.provider_job_id,
+                        ProviderBatchJob.succeeded_count,
+                        ProviderBatchJob.failed_count,
                     ).order_by(ProviderBatchJob.id)
                 ).all()
             except SQLAlchemyError as e:
@@ -415,7 +423,19 @@ class ProviderBatchRepository(BaseRepository):
                     f"Provider batch job 状態の取得中にエラーが発生しました: {e}"
                 )
                 raise
-        return [ProviderBatchJobState(row[0], row[1], row[2], row[3]) for row in rows]
+        return [
+            ProviderBatchJobState(
+                job_id=row[0],
+                status=row[1],
+                imported_at=row[2],
+                expires_at=row[3],
+                provider=row[4],
+                provider_job_id=row[5],
+                succeeded_count=row[6],
+                failed_count=row[7],
+            )
+            for row in rows
+        ]
 
     def list_job_ids_with_unlinked_items(self, excluded_job_statuses: Collection[str]) -> list[int]:
         """画像参照が失われた未取込み item を持つ job ID を昇順で返す。

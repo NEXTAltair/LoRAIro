@@ -1595,7 +1595,7 @@ Structured error payload emitted as kind=error by the CLI boundary.
 
 ### `maintenance check`
 
-Read-only provider batch DB consistency and missing image file checks; no repair, no provider API calls. See [DB maintenance check](cli-maintenance-check.md).
+Read-only provider batch DB consistency, missing image file, and optional remote provider status checks (`--scope provider`); no repair. See [DB maintenance check](cli-maintenance-check.md).
 
 - Read only: `true`
 - Strict read only: `true` (root `--read-only`; see [contract](cli-read-only.md))
@@ -1613,14 +1613,14 @@ lorairo-cli --json describe "maintenance check"
 **Input `MaintenanceCheckInput`**
 
 - `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
-- `scope`: `list[str]?` (optional, default `None`) - Repeat for several scopes: batch, files. Default runs all scopes. (CLI: `--scope`)
+- `scope`: `list[str]?` (optional, default `None`) - Repeat for several scopes: batch, files, provider. Default runs batch and files. (CLI: `--scope`)
 - `limit`: `int[1,500]` (optional, default `100`) - Maximum IDs per check; counts cover the whole project. (CLI: `--limit`)
 
 **Output `MaintenanceCheckItem`**
 
 - `kind`: `item` (optional, default `item`)
-- `check`: `batch_unknown_status | batch_import_marker_mismatch | batch_active_past_expiry | batch_unlinked_items | image_file_missing | processed_file_missing` (required)
-- `scope`: `batch | files` (required)
+- `check`: `batch_unknown_status | batch_import_marker_mismatch | batch_active_past_expiry | batch_unlinked_items | image_file_missing | processed_file_missing | provider_status_mismatch | provider_job_missing | provider_counts_mismatch` (required)
+- `scope`: `batch | files | provider` (required)
 - `id_type`: `job_id | image_id` (required)
 - `count`: `int` (required)
 - `ids`: `list[int]` (required)
@@ -1630,17 +1630,17 @@ lorairo-cli --json describe "maintenance check"
 **Output `MaintenanceCheckResult`**
 
 - `kind`: `result` (optional, default `result`)
-- `ok`: `true` (optional, default `True`)
+- `ok`: `bool` (optional, default `True`)
 - `message`: `str` (required)
 - `project`: `str` (required)
 - `read_only`: `true` (required)
-- `status`: `success` (required)
-- `scopes`: `list[batch | files]` (required)
+- `status`: `success | partial_success` (optional, default `success`)
+- `scopes`: `list[batch | files | provider]` (required)
 - `limit`: `int` (required)
 - `checked_batch_jobs`: `int?` (required)
 - `checked_images`: `int?` (required)
 - `checked_processed_images`: `int?` (required)
-- `provider_queried`: `false` (required)
+- `provider_queried`: `bool` (required)
 - `repaired`: `false` (required)
 - `checks_run`: `int` (required)
 - `issue_count`: `int` (required)
