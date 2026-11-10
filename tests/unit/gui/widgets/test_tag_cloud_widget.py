@@ -5,7 +5,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QWheelEvent
 from PySide6.QtWidgets import QLabel, QWidget
 
 from lorairo.gui.widgets.tag_cloud_widget import (
@@ -108,6 +109,188 @@ class TestNetworkGraphView:
         assert view._node_at(200.0, 200.0) == 1
         assert view._node_at(5.0, 5.0) == -1
 
+    def test_label_collision_skips_overlapping_lower_weight(self, qtbot: pytest.FixtureRequest) -> None:
+        view = NetworkGraphView()
+        qtbot.addWidget(view)
+        view.resize(400, 400)
+        view.set_graph(_sample_graph())
+        # Place node 0 (weight 1.0) and node 1 (weight 0.5) at identical coordinates
+        for p in view._particles:
+            p.x = 200.0
+            p.y = 200.0
+            p.r = 15.0
+        image = QImage(400, 400, QImage.Format.Format_ARGB32)
+        painter = QPainter(image)
+        view._draw_labels(painter)
+        painter.end()
+        assert "long_hair" in view._last_drawn_labels
+        assert "smile" not in view._last_drawn_labels
+        assert "blush" not in view._last_drawn_labels
+
+    def test_hovered_node_label_prioritized_over_higher_weight(self, qtbot: pytest.FixtureRequest) -> None:
+        view = NetworkGraphView()
+        qtbot.addWidget(view)
+        view.resize(400, 400)
+        view.set_graph(_sample_graph())
+        for p in view._particles:
+            p.x = 200.0
+            p.y = 200.0
+            p.r = 15.0
+        # Hover node 1 (weight 0.5, neighbor of node 0 with weight 1.0)
+        view._hover = 1
+        image = QImage(400, 400, QImage.Format.Format_ARGB32)
+        painter = QPainter(image)
+        view._draw_labels(painter)
+        painter.end()
+        assert view._last_drawn_labels == ["smile"]
+
+    def test_wheel_zoom_and_screen_to_world_hit_testing(self, qtbot: pytest.FixtureRequest) -> None:
+        view = NetworkGraphView()
+        qtbot.addWidget(view)
+        view.resize(400, 400)
+        view.set_graph(_sample_graph())
+        view._particles[0].x = 150.0
+        view._particles[0].y = 150.0
+        view._particles[0].r = 15.0
+        # Zoom in via wheelEvent anchored at (150, 150)
+        wheel = QWheelEvent(
+            QPointF(150.0, 150.0),
+            QPointF(150.0, 150.0),
+            QPoint(0, 0),
+            QPoint(0, 120),
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.NoScrollPhase,
+            False,
+        )
+        view.wheelEvent(wheel)
+        assert view._zoom == pytest.approx(1.15)
+        sx, sy = view._world_to_screen(150.0, 150.0)
+        assert view._node_at(sx, sy) == 0
+        # Pan via empty background drag
+        press = QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            QPointF(10.0, 10.0),
+            QPointF(10.0, 10.0),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        move = QMouseEvent(
+            QEvent.Type.MouseMove,
+            QPointF(50.0, 60.0),
+            QPointF(50.0, 60.0),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        release = QMouseEvent(
+            QEvent.Type.MouseButtonRelease,
+            QPointF(50.0, 60.0),
+            QPointF(50.0, 60.0),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        view.mousePressEvent(press)
+        view.mouseMoveEvent(move)
+        view.mouseReleaseEvent(release)
+        sx_after, sy_after = view._world_to_screen(150.0, 150.0)
+        assert view._node_at(sx_after, sy_after) == 0
+        # Reset view restores zoom=1, pan=(0,0)
+        view.reset_view()
+        assert view._zoom == 1.0
+        assert view._pan_x == 0.0
+        assert view._pan_y == 0.0
+
+    def test_node_drag_pins_particle_and_suppresses_click(self, qtbot: pytest.FixtureRequest) -> None:
+        view = NetworkGraphView()
+        qtbot.addWidget(view)
+        view.resize(400, 400)
+        view.set_graph(_sample_graph())
+        view.stop()
+        view._particles[0].x = 100.0
+        view._particles[0].y = 100.0
+        view._particles[0].r = 20.0
+        clicked_tags: list[str] = []
+        view.node_clicked.connect(clicked_tags.append)
+
+        press = QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            QPointF(100.0, 100.0),
+            QPointF(100.0, 100.0),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        move = QMouseEvent(
+            QEvent.Type.MouseMove,
+            QPointF(180.0, 190.0),
+            QPointF(180.0, 190.0),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        release = QMouseEvent(
+            QEvent.Type.MouseButtonRelease,
+            QPointF(180.0, 190.0),
+            QPointF(180.0, 190.0),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        view.mousePressEvent(press)
+        view.mouseMoveEvent(move)
+        view.mouseReleaseEvent(release)
+
+        assert view._particles[0].pinned is True
+        assert view._particles[0].x == pytest.approx(180.0)
+        assert view._particles[0].y == pytest.approx(190.0)
+        assert clicked_tags == []
+
+        # Simulation step keeps pinned node fixed
+        view._step()
+        assert view._particles[0].x == pytest.approx(180.0)
+        assert view._particles[0].y == pytest.approx(190.0)
+
+    def test_click_node_emits_pressed_node_even_if_particle_moves(
+        self, qtbot: pytest.FixtureRequest
+    ) -> None:
+        view = NetworkGraphView()
+        qtbot.addWidget(view)
+        view.resize(400, 300)
+        view.set_graph(_sample_graph())
+        view.stop()
+
+        clicked_tags: list[str] = []
+        view.node_clicked.connect(clicked_tags.append)
+
+        p0 = view._particles[0]
+        p0.x, p0.y = 100.0, 120.0
+
+        press = QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            QPointF(100.0, 120.0),
+            QPointF(100.0, 120.0),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        view.mousePressEvent(press)
+        # Simulate physics moving the node away before mouse release
+        p0.x, p0.y = 260.0, 240.0
+        release = QMouseEvent(
+            QEvent.Type.MouseButtonRelease,
+            QPointF(100.0, 120.0),
+            QPointF(100.0, 120.0),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        view.mouseReleaseEvent(release)
+
+        assert clicked_tags == ["long_hair"]
+
 
 @pytest.mark.unit
 @pytest.mark.gui
@@ -158,7 +341,7 @@ class TestTagCloudWidget:
         widget._recompute()
         widget._on_tag_clicked("smile")
         assert widget._selected_tags == ["smile"]
-        widget._service.build_graph.assert_called_with("hair", ["smile"])
+        widget._service.build_graph.assert_called_with("hair", ["smile"], max_nodes=34, min_edge_weight=2)
 
     def test_duplicate_tag_click_ignored(self, qtbot: pytest.FixtureRequest) -> None:
         widget = _make_widget(qtbot, _sample_graph())
@@ -178,17 +361,51 @@ class TestTagCloudWidget:
         widget = _make_widget(qtbot, _sample_graph())
         widget._keyword_edit.setText("hair")
         widget._selected_tags = ["smile"]
+        widget._max_nodes_combo.setCurrentIndex(0)  # 15
+        widget._min_edge_spin.setValue(5)
+        widget._network_view._zoom = 2.0
+        widget._network_view._pan_x = 40.0
         widget._on_reset()
         assert widget._keyword == ""
         assert widget._selected_tags == []
         assert widget._keyword_edit.text() == ""
+        assert widget._max_nodes_combo.currentData() == 34
+        assert widget._min_edge_spin.value() == 2
+        assert widget._network_view._zoom == 1.0
+        assert widget._network_view._pan_x == 0.0
         assert widget._stack.currentIndex() == TagCloudWidget._PAGE_MESSAGE
+
+    def test_filter_controls_trigger_recompute(self, qtbot: pytest.FixtureRequest) -> None:
+        widget = _make_widget(qtbot, _sample_graph())
+        widget._keyword = "hair"
+        widget._max_nodes_combo.setCurrentIndex(0)  # 15
+        widget._service.build_graph.assert_called_with("hair", [], max_nodes=15, min_edge_weight=2)
+        widget._min_edge_spin.setValue(4)
+        widget._service.build_graph.assert_called_with("hair", [], max_nodes=15, min_edge_weight=4)
 
     def test_reload_refreshes_service(self, qtbot: pytest.FixtureRequest) -> None:
         widget = _make_widget(qtbot, _sample_graph())
         widget._keyword = "hair"
         widget._on_reload()
         widget._service.refresh.assert_called_once()
+
+    def test_filter_change_during_running_worker_recomputes_on_finish(
+        self, qtbot: pytest.FixtureRequest
+    ) -> None:
+        widget = _make_widget(qtbot, _sample_graph())
+        widget._loaded_once = False
+        widget._keyword = "hair"
+        running_worker = MagicMock()
+        running_worker.isRunning.return_value = True
+        widget._worker = running_worker
+
+        widget._max_nodes_combo.setCurrentIndex(0)  # 15 -> calls _recompute -> _start_worker
+        assert widget._pending_recompute is True
+
+        widget._on_worker_finished(_empty_graph())
+        assert widget._pending_recompute is False
+        assert widget._loaded_once is True
+        widget._service.build_graph.assert_called_with("hair", [], max_nodes=15, min_edge_weight=2)
 
     def test_keyword_change_resets_drilldown(self, qtbot: pytest.FixtureRequest) -> None:
         widget = _make_widget(qtbot, _sample_graph())

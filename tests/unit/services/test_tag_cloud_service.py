@@ -119,6 +119,22 @@ class TestBuildGraph:
         result = svc.build_graph("kw", [])
         assert result.edges == []
 
+    def test_min_edge_weight_threshold_filters_edges(self) -> None:
+        image_tags = {
+            1: ["kw", "tag_a", "tag_b"],
+            2: ["kw", "tag_a", "tag_b"],
+            3: ["kw", "tag_a", "tag_c"],
+        }
+        svc = _make_service(image_tags)
+        res_min1 = svc.build_graph("kw", [], min_edge_weight=1)
+        res_min2 = svc.build_graph("kw", [], min_edge_weight=2)
+        res_min3 = svc.build_graph("kw", [], min_edge_weight=3)
+        assert len(res_min1.edges) > len(res_min2.edges)
+        assert all(e.weight >= 2 for e in res_min2.edges)
+        assert all(e.weight >= 3 for e in res_min3.edges)
+        assert len(res_min3.edges) == 1
+        assert res_min3.edges[0].weight == 3
+
     def test_adjacency_is_symmetric(self) -> None:
         image_tags = {
             1: ["kw_a", "p", "q"],

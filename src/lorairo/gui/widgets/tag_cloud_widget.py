@@ -15,9 +15,21 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from loguru import logger
-from PySide6.QtCore import QObject, QPointF, QRect, QRectF, QSize, Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QMouseEvent, QPainter, QPen
+from PySide6.QtCore import (
+    QObject,
+    QPointF,
+    QRect,
+    QRectF,
+    QSignalBlocker,
+    QSize,
+    Qt,
+    QThread,
+    QTimer,
+    Signal,
+)
+from PySide6.QtGui import QBrush, QColor, QFont, QMouseEvent, QPainter, QPen, QWheelEvent
 from PySide6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QLayout,
@@ -26,6 +38,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -205,6 +218,7 @@ class _Particle:
     vx: float
     vy: float
     r: float
+    pinned: bool = False
 
 
 class NetworkGraphView(QWidget):
@@ -224,6 +238,16 @@ class NetworkGraphView(QWidget):
         self._particles: list[_Particle] = []
         self._hover = -1
         self._alpha = 1.0
+        self._zoom: float = 1.0
+        self._pan_x: float = 0.0
+        self._pan_y: float = 0.0
+        self._is_panning: bool = False
+        self._pan_start_pos: QPointF | None = None
+        self._pressed_node: int = -1
+        self._press_pos: QPointF | None = None
+        self._is_dragging_node: bool = False
+        self._show_canvas_overlays: bool = False
+        self._last_drawn_labels: list[str] = []
         self._timer = QTimer(self)
         self._timer.setInterval(_SIM_INTERVAL_MS)
         self._timer.timeout.connect(self._tick)
@@ -236,6 +260,11 @@ class NetworkGraphView(QWidget):
         """グラフ結果をセットして力学配置を初期化・再開する。"""
         self._result = result
         self._hover = -1
+        self._pressed_node = -1
+        self._press_pos = None
+        self._is_dragging_node = False
+        self._is_panning = False
+        self._pan_start_pos = None
         self._init_particles()
         self._alpha = 1.0
         if self._particles:
@@ -247,6 +276,36 @@ class NetworkGraphView(QWidget):
     def stop(self) -> None:
         """シミュレーションを停止する。"""
         self._timer.stop()
+
+    def reset_view(self) -> None:
+        """ズーム・パン状態とノードのピン留めを初期状態にリセットする。"""
+        self._zoom = 1.0
+        self._pan_x = 0.0
+        self._pan_y = 0.0
+        self._is_panning = False
+        self._pan_start_pos = None
+        self._pressed_node = -1
+        self._press_pos = None
+        self._is_dragging_node = False
+        for p in self._particles:
+            p.pinned = False
+        if self._particles:
+            self._alpha = max(self._alpha, 0.3)
+            if not self._timer.isActive():
+                self._timer.start()
+        self.update()
+
+    # ------------------------------------------------------------------
+    # Coordinate conversion
+    # ------------------------------------------------------------------
+
+    def _screen_to_world(self, sx: float, sy: float) -> tuple[float, float]:
+        """スクリーン座標をワールド座標に変換する。"""
+        return ((sx - self._pan_x) / self._zoom, (sy - self._pan_y) / self._zoom)
+
+    def _world_to_screen(self, wx: float, wy: float) -> tuple[float, float]:
+        """ワールド座標をスクリーン座標に変換する。"""
+        return (wx * self._zoom + self._pan_x, wy * self._zoom + self._pan_y)
 
     # ------------------------------------------------------------------
     # Simulation
@@ -267,7 +326,7 @@ class NetworkGraphView(QWidget):
             ang = i / max(n, 1) * math.tau
             x = cx + math.cos(ang) * (120 + 30 * (i % 3))
             y = cy + math.sin(ang) * (90 + 25 * (i % 3))
-            self._particles.append(_Particle(x=x, y=y, vx=0.0, vy=0.0, r=r))
+            self._particles.append(_Particle(x=x, y=y, vx=0.0, vy=0.0, r=r, pinned=False))
 
     def _tick(self) -> None:
         self._step()
@@ -283,10 +342,9 @@ class NetworkGraphView(QWidget):
         w = max(self.width(), 200)
         h = max(self.height(), 200)
         cx, cy = w / 2, h / 2
-        alpha = self._alpha
         n = len(ps)
 
-        # 斥力（O(n^2)、n<=34 なので許容）
+        # 斥力（O(n^2)、n<=50 なので許容）
         for i in range(n):
             a = ps[i]
             for j in range(i + 1, n):
@@ -326,10 +384,18 @@ class NetworkGraphView(QWidget):
             a.vx += (cx - a.x) * 0.0045
             a.vy += (cy - a.y) * 0.0045
 
-        # 積分
+        self._integrate_particles(w, h)
+        self._alpha *= 0.992
+
+    def _integrate_particles(self, w: int, h: int) -> None:
         damp = 0.86
+        alpha = self._alpha
         max_sp = 18 * alpha + 2
-        for a in ps:
+        for a in self._particles:
+            if a.pinned:
+                a.vx = 0.0
+                a.vy = 0.0
+                continue
             a.vx *= damp
             a.vy *= damp
             sp = math.hypot(a.vx, a.vy)
@@ -341,16 +407,15 @@ class NetworkGraphView(QWidget):
             a.x = max(a.r + 6, min(w - a.r - 6, a.x))
             a.y = max(a.r + 6, min(h - a.r - 6, a.y))
 
-        self._alpha *= 0.992
-
     # ------------------------------------------------------------------
     # Hit testing
     # ------------------------------------------------------------------
 
     def _node_at(self, x: float, y: float) -> int:
+        wx, wy = self._screen_to_world(x, y)
         for i in range(len(self._particles) - 1, -1, -1):
             p = self._particles[i]
-            if math.hypot(x - p.x, y - p.y) <= p.r + 2:
+            if math.hypot(wx - p.x, wy - p.y) <= p.r + 2:
                 return i
         return -1
 
@@ -365,8 +430,46 @@ class NetworkGraphView(QWidget):
             self._timer.start()
         self.update()
 
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        delta = event.angleDelta().y()
+        if delta == 0:
+            return
+        factor = 1.15 if delta > 0 else (1.0 / 1.15)
+        new_zoom = max(0.5, min(3.0, self._zoom * factor))
+        pos = event.position()
+        wx, wy = self._screen_to_world(pos.x(), pos.y())
+        self._zoom = new_zoom
+        self._pan_x = pos.x() - wx * self._zoom
+        self._pan_y = pos.y() - wy * self._zoom
+        self.update()
+        event.accept()
+
+    def mouseDoubleClickEvent(self, _event: QMouseEvent) -> None:
+        self.reset_view()
+
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         pos = event.position()
+        if self._pressed_node >= 0 and self._press_pos is not None:
+            if (pos - self._press_pos).manhattanLength() >= 4 or self._is_dragging_node:
+                self._is_dragging_node = True
+                p = self._particles[self._pressed_node]
+                p.pinned = True
+                wx, wy = self._screen_to_world(pos.x(), pos.y())
+                p.x, p.y = wx, wy
+                p.vx, p.vy = 0.0, 0.0
+                self._alpha = max(self._alpha, 0.25)
+                if not self._timer.isActive():
+                    self._timer.start()
+                self.update()
+            return
+
+        if self._is_panning and self._pan_start_pos is not None:
+            self._pan_x += pos.x() - self._pan_start_pos.x()
+            self._pan_y += pos.y() - self._pan_start_pos.y()
+            self._pan_start_pos = pos
+            self.update()
+            return
+
         idx = self._node_at(pos.x(), pos.y())
         if idx != self._hover:
             self._hover = idx
@@ -374,10 +477,38 @@ class NetworkGraphView(QWidget):
             self.update()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        if event.button() != Qt.MouseButton.LeftButton:
-            return
         pos = event.position()
-        self._click_at(pos.x(), pos.y())
+        if event.button() == Qt.MouseButton.LeftButton:
+            idx = self._node_at(pos.x(), pos.y())
+            if idx >= 0:
+                self._pressed_node = idx
+                self._press_pos = pos
+                self._is_dragging_node = False
+            else:
+                self._is_panning = True
+                self._pan_start_pos = pos
+        elif event.button() in (Qt.MouseButton.RightButton, Qt.MouseButton.MiddleButton):
+            self._is_panning = True
+            self._pan_start_pos = pos
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self._pressed_node >= 0:
+                if (
+                    not self._is_dragging_node
+                    and self._result is not None
+                    and 0 <= self._pressed_node < len(self._result.nodes)
+                ):
+                    self.node_clicked.emit(self._result.nodes[self._pressed_node].tag)
+                self._pressed_node = -1
+                self._press_pos = None
+                self._is_dragging_node = False
+            if self._is_panning:
+                self._is_panning = False
+                self._pan_start_pos = None
+        elif event.button() in (Qt.MouseButton.RightButton, Qt.MouseButton.MiddleButton):
+            self._is_panning = False
+            self._pan_start_pos = None
 
     def _click_at(self, x: float, y: float) -> None:
         """指定座標にノードがあれば node_clicked を発火する。"""
@@ -402,14 +533,20 @@ class NetworkGraphView(QWidget):
         w, h = self.width(), self.height()
         painter.fillRect(0, 0, w, h, QColor(theme.CARD))
         if self._result is None or not self._particles:
+            self._last_drawn_labels = []
             painter.end()
             return
+        painter.save()
+        painter.translate(self._pan_x, self._pan_y)
+        painter.scale(self._zoom, self._zoom)
         self._draw_edges(painter)
         self._draw_nodes(painter)
         self._draw_labels(painter)
-        self._draw_legend(painter, h)
-        self._draw_hint(painter, w)
-        if self._hover >= 0:
+        painter.restore()
+        if self._show_canvas_overlays:
+            self._draw_legend(painter, h)
+            self._draw_hint(painter, w)
+        if 0 <= self._hover < len(self._particles):
             self._draw_tooltip(painter)
         painter.end()
 
@@ -450,12 +587,56 @@ class NetworkGraphView(QWidget):
             painter.drawEllipse(QPointF(p.x, p.y), p.r, p.r)
         painter.setOpacity(1.0)
 
+    def _label_draw_order(self) -> list[int]:
+        """ラベル描画の優先順インデックス一覧を返す。
+
+        優先順:
+        1. ホバー中のノード
+        2. ホバー中ノードの直接隣接ノード（または選択中タグノード）
+        3. 残りのノード（weight 降順）
+        """
+        if self._result is None or not self._particles:
+            return []
+        n = len(self._particles)
+        nodes = self._result.nodes
+        hov = self._hover if 0 <= self._hover < n else -1
+        neighbors = self._result.adjacency[hov] if hov >= 0 else set()
+        excluded = set(self._result.excluded_tags)
+
+        order: list[int] = []
+        seen: set[int] = set()
+
+        if hov >= 0:
+            order.append(hov)
+            seen.add(hov)
+
+        second_tier = sorted(
+            (i for i in range(n) if i not in seen and (i in neighbors or nodes[i].tag in excluded)),
+            key=lambda i: nodes[i].weight,
+            reverse=True,
+        )
+        for i in second_tier:
+            order.append(i)
+            seen.add(i)
+
+        remaining = sorted(
+            (i for i in range(n) if i not in seen),
+            key=lambda i: nodes[i].weight,
+            reverse=True,
+        )
+        order.extend(remaining)
+        return order
+
     def _draw_labels(self, painter: QPainter) -> None:
         assert self._result is not None
         ps = self._particles
-        hov = self._hover
+        hov = self._hover if 0 <= self._hover < len(ps) else -1
         neighbors = self._result.adjacency[hov] if hov >= 0 else None
-        for i, p in enumerate(ps):
+        placed_rects: list[QRectF] = []
+        drawn_labels: list[str] = []
+
+        for i in self._label_draw_order():
+            p = ps[i]
             node = self._result.nodes[i]
             dim = hov >= 0 and hov != i and not (neighbors is not None and i in neighbors)
             if dim:
@@ -467,15 +648,28 @@ class NetworkGraphView(QWidget):
                 font.setWeight(QFont.Weight.DemiBold)
             painter.setFont(font)
             ly = p.y + p.r + fs * 0.85 + 3
+
+            tight = painter.fontMetrics().boundingRect(node.tag)
+            tw = max(tight.width(), 1)
+            th = max(tight.height(), fs)
+            label_rect = QRectF(p.x - tw / 2, ly - fs, tw, th)
+
+            if i != hov and any(label_rect.intersects(r) for r in placed_rects):
+                continue
+            placed_rects.append(label_rect)
+            drawn_labels.append(node.tag)
+
             rect = QRectF(p.x - 120, ly - fs, 240, fs * 1.6)
-            # 白ハロー（縁取り）
-            painter.setPen(QPen(QColor(255, 255, 255, 235), 3))
+            # 白ハロー（縁取りを控えめにして密集時の白飛びを防ぐ）
+            painter.setPen(QPen(QColor(255, 255, 255, 190), 2))
             for ox, oy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
                 painter.drawText(rect.translated(ox, oy), Qt.AlignmentFlag.AlignHCenter, node.tag)
             painter.setPen(
                 QColor(38, 36, 31) if hov == i else QColor(58, 52, 46 if node.weight > 0.55 else 76)
             )
             painter.drawText(rect, Qt.AlignmentFlag.AlignHCenter, node.tag)
+
+        self._last_drawn_labels = drawn_labels
 
     def _draw_legend(self, painter: QPainter, h: int) -> None:
         x, y = 12, h - 64
@@ -524,8 +718,9 @@ class NetworkGraphView(QWidget):
         tw = max(fm.horizontalAdvance(title), fm.horizontalAdvance(line), fm.horizontalAdvance(hint))
         bw = tw + 18
         bh = 56
-        tx = min(p.x + 14, self.width() - bw - 4)
-        ty = min(p.y + 14, self.height() - bh - 4)
+        sx, sy = self._world_to_screen(p.x, p.y)
+        tx = max(4.0, min(sx + 14, self.width() - bw - 4))
+        ty = max(4.0, min(sy + 14, self.height() - bh - 4))
         painter.setBrush(QBrush(QColor(38, 36, 31)))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(QRectF(tx, ty, bw, bh), 5, 5)
@@ -548,16 +743,25 @@ class _GraphWorker(QThread):
         service: TagCloudService,
         keyword: str,
         selected_tags: list[str],
+        max_nodes: int = 34,
+        min_edge_weight: int = 2,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._service = service
         self._keyword = keyword
         self._selected_tags = selected_tags
+        self._max_nodes = max_nodes
+        self._min_edge_weight = min_edge_weight
 
     def run(self) -> None:
         try:
-            result = self._service.build_graph(self._keyword, self._selected_tags)
+            result = self._service.build_graph(
+                self._keyword,
+                self._selected_tags,
+                max_nodes=self._max_nodes,
+                min_edge_weight=self._min_edge_weight,
+            )
             self.finished.emit(result)
         except Exception as exc:
             self.error.emit(str(exc))
@@ -581,6 +785,7 @@ class TagCloudWidget(QWidget):
         self._result: GraphResult | None = None
         self._worker: _GraphWorker | None = None
         self._loaded_once = False
+        self._pending_recompute = False
 
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
@@ -599,7 +804,7 @@ class TagCloudWidget(QWidget):
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(8)
 
-        # 上部: キーワード入力 + 表示トグル + リセット/再読込
+        # 上部: キーワード入力 + 表示フィルタ + 表示トグル + リセット/再読込
         top = QHBoxLayout()
         top.setSpacing(6)
         self._keyword_edit = QLineEdit()
@@ -607,6 +812,25 @@ class TagCloudWidget(QWidget):
         self._keyword_edit.setClearButtonEnabled(True)
         self._keyword_edit.textChanged.connect(self._on_keyword_changed)
         top.addWidget(self._keyword_edit, 1)
+
+        self._max_nodes_combo = QComboBox()
+        self._max_nodes_combo.setObjectName("tagCloudMaxNodesCombo")
+        self._max_nodes_combo.setToolTip("表示する最大ノード数")
+        for label, value in [("15件", 15), ("30件", 30), ("34件 (標準)", 34), ("50件", 50)]:
+            self._max_nodes_combo.addItem(label, value)
+        self._max_nodes_combo.setCurrentIndex(2)
+        self._max_nodes_combo.currentIndexChanged.connect(self._on_graph_filter_changed)
+        top.addWidget(self._max_nodes_combo)
+
+        self._min_edge_spin = QSpinBox()
+        self._min_edge_spin.setObjectName("tagCloudMinEdgeSpin")
+        self._min_edge_spin.setRange(1, 20)
+        self._min_edge_spin.setValue(2)
+        self._min_edge_spin.setPrefix("共起≥")
+        self._min_edge_spin.setSuffix("回")
+        self._min_edge_spin.setToolTip("エッジを表示する最小共起回数")
+        self._min_edge_spin.valueChanged.connect(self._on_graph_filter_changed)
+        top.addWidget(self._min_edge_spin)
 
         self._network_btn = self._make_toggle_btn("ネットワーク", "network", checked=True)
         self._cloud_btn = self._make_toggle_btn("クラウド", "cloud", checked=False)
@@ -651,6 +875,7 @@ class TagCloudWidget(QWidget):
         self._stack.addWidget(self._message_label)  # PAGE_MESSAGE
 
         self._network_view = NetworkGraphView()
+        self._graph_view = self._network_view
         self._network_view.node_clicked.connect(self._on_tag_clicked)
         self._stack.addWidget(self._network_view)  # PAGE_NETWORK
 
@@ -664,6 +889,29 @@ class TagCloudWidget(QWidget):
         self._stack.addWidget(self._cloud_scroll)  # PAGE_CLOUD
 
         root.addWidget(self._stack, 1)
+
+        # 下部フッター: 凡例・操作ヒント（グラフ領域を遮蔽しない）
+        self._footer_bar = QWidget()
+        self._footer_bar.setObjectName("tagCloudFooterBar")
+        footer_layout = QHBoxLayout(self._footer_bar)
+        footer_layout.setContentsMargins(4, 2, 4, 2)
+        footer_layout.setSpacing(12)
+
+        self._legend_label = QLabel("出現頻度: 低 → 高 · 線の太さ = 共起の強さ")
+        self._legend_label.setFont(_mono_font(theme.FONT_SIZE_META))
+        self._legend_label.setStyleSheet(f"color:{theme.INK_FAINT};")
+        footer_layout.addWidget(self._legend_label)
+
+        footer_layout.addStretch(1)
+
+        self._hint_label = QLabel(
+            "クリック: 絞り込み · ドラッグ: ノード固定/パン · ホイール: ズーム · ダブルクリック: 表示リセット"
+        )
+        self._hint_label.setFont(_mono_font(theme.FONT_SIZE_META))
+        self._hint_label.setStyleSheet(f"color:{theme.INK_FAINT};")
+        footer_layout.addWidget(self._hint_label)
+
+        root.addWidget(self._footer_bar)
 
     def _make_toggle_btn(self, text: str, view: str, checked: bool) -> QPushButton:
         btn = QPushButton(text)
@@ -680,6 +928,13 @@ class TagCloudWidget(QWidget):
         btn.clicked.connect(lambda: self._on_view_changed(view))
         return btn
 
+    def _current_max_nodes(self) -> int:
+        data = self._max_nodes_combo.currentData()
+        return int(data) if isinstance(data, int) else 34
+
+    def _current_min_edge_weight(self) -> int:
+        return int(self._min_edge_spin.value())
+
     # ------------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------------
@@ -690,6 +945,9 @@ class TagCloudWidget(QWidget):
         self._selected_tags = []
         self._debounce.start()
 
+    def _on_graph_filter_changed(self, *_args: object) -> None:
+        self._recompute()
+
     def _on_view_changed(self, view: str) -> None:
         self._view = view
         self._network_btn.setChecked(view == "network")
@@ -698,12 +956,19 @@ class TagCloudWidget(QWidget):
             self._render_active_view()
 
     def _on_reset(self) -> None:
+        with QSignalBlocker(self._max_nodes_combo):
+            idx = self._max_nodes_combo.findData(34)
+            if idx >= 0:
+                self._max_nodes_combo.setCurrentIndex(idx)
+        with QSignalBlocker(self._min_edge_spin):
+            self._min_edge_spin.setValue(2)
         self._keyword_edit.clear()
         self._keyword = ""
         self._selected_tags = []
         self._result = None
         self._debounce.stop()
         self._network_view.stop()
+        self._graph_view.reset_view()
         self._show_placeholder()
 
     def _on_reload(self) -> None:
@@ -728,19 +993,34 @@ class TagCloudWidget(QWidget):
 
     def _recompute(self) -> None:
         if not self._keyword.strip():
+            self._pending_recompute = False
             self._show_placeholder()
             return
         self._status_label.setText("集計中...")
         if not self._loaded_once:
             self._start_worker()
         else:
-            result = self._service.build_graph(self._keyword, self._selected_tags)
+            result = self._service.build_graph(
+                self._keyword,
+                self._selected_tags,
+                max_nodes=self._current_max_nodes(),
+                min_edge_weight=self._current_min_edge_weight(),
+            )
             self._apply_result(result)
 
     def _start_worker(self) -> None:
         if self._worker is not None and self._worker.isRunning():
+            self._pending_recompute = True
             return
-        worker = _GraphWorker(self._service, self._keyword, list(self._selected_tags), parent=self)
+        self._pending_recompute = False
+        worker = _GraphWorker(
+            self._service,
+            self._keyword,
+            list(self._selected_tags),
+            max_nodes=self._current_max_nodes(),
+            min_edge_weight=self._current_min_edge_weight(),
+            parent=self,
+        )
         worker.finished.connect(self._on_worker_finished)
         worker.error.connect(self._on_worker_error)
         self._worker = worker
@@ -748,6 +1028,14 @@ class TagCloudWidget(QWidget):
 
     def _on_worker_finished(self, result: GraphResult) -> None:
         self._loaded_once = True
+        if not self._keyword.strip():
+            self._pending_recompute = False
+            self._show_placeholder()
+            return
+        if self._pending_recompute:
+            self._pending_recompute = False
+            self._recompute()
+            return
         self._apply_result(result)
 
     def _on_worker_error(self, msg: str) -> None:
