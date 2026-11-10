@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
@@ -102,6 +103,7 @@ class ExportOverlayBar(QWidget):
     scope_changed = Signal(str)  # "all" | "filtered"
     validate_requested = Signal()
     export_requested = Signal()
+    cancel_requested = Signal()
 
     def __init__(
         self,
@@ -252,6 +254,25 @@ class ExportOverlayBar(QWidget):
         """changed-since フィルタの cutoff 日時を返す。"""
         return self._changed_since_filter.since()
 
+    def set_exporting(self, exporting: bool, status_text: str = "") -> None:
+        """エクスポート実行中状態を UI (ボタン有効/無効・進捗バー・キャンセルボタン) に反映する (#1561)。"""
+        self._export_btn.setEnabled(not exporting)
+        self._validate_btn.setEnabled(not exporting)
+        self._cancel_btn.setVisible(exporting)
+        self._cancel_btn.setEnabled(exporting)
+        self._progress_bar.setVisible(exporting)
+        if exporting:
+            self._progress_bar.setValue(0)
+        self._status_label.setText(status_text)
+        self._status_label.setVisible(bool(status_text))
+
+    def set_export_progress(self, percent: int, message: str) -> None:
+        """エクスポートの進捗率とステータスメッセージを更新する (#1561)。"""
+        self._progress_bar.setValue(max(0, min(100, percent)))
+        self._progress_bar.setVisible(True)
+        self._status_label.setText(message)
+        self._status_label.setVisible(bool(message))
+
     # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
@@ -387,6 +408,28 @@ class ExportOverlayBar(QWidget):
         row.addWidget(self._format_combo)
 
         row.addStretch(1)
+
+        self._status_label = QLabel("")
+        self._status_label.setObjectName("exportStatusLabel")
+        self._status_label.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;")
+        self._status_label.setVisible(False)
+        row.addWidget(self._status_label)
+
+        self._progress_bar = QProgressBar()
+        self._progress_bar.setObjectName("exportProgressBar")
+        self._progress_bar.setRange(0, 100)
+        self._progress_bar.setValue(0)
+        self._progress_bar.setFixedWidth(140)
+        self._progress_bar.setVisible(False)
+        row.addWidget(self._progress_bar)
+
+        self._cancel_btn = QPushButton("キャンセル")
+        self._cancel_btn.setObjectName("cancelExportBtn")
+        self._cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._cancel_btn.setStyleSheet(self._secondary_button_qss())
+        self._cancel_btn.setVisible(False)
+        self._cancel_btn.clicked.connect(self.cancel_requested.emit)
+        row.addWidget(self._cancel_btn)
 
         self._validate_btn = QPushButton("検証")
         self._validate_btn.setObjectName("validateBtn")

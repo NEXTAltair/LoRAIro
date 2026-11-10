@@ -186,6 +186,41 @@ class TestFilterChanged:
         result = widget.get_filter()
         assert result.status == ErrorStatusFilter.UNRESOLVED
 
+    def test_filter_combos_have_labels_and_tooltips(self, widget):
+        """3 つのフィルタ combo に識別用ラベルとツールチップが付与される (#1536)。"""
+        from PySide6.QtWidgets import QLabel
+
+        op_label = widget.findChild(QLabel, "errorsOperationComboLabel")
+        err_label = widget.findChild(QLabel, "errorsErrorTypeComboLabel")
+        model_label = widget.findChild(QLabel, "errorsModelComboLabel")
+
+        assert op_label is not None and op_label.text() == "操作種別"
+        assert err_label is not None and err_label.text() == "エラー種別"
+        assert model_label is not None and model_label.text() == "モデル"
+
+        assert "操作種別" in widget._operation_combo.toolTip()
+        assert "エラー種別" in widget._error_type_combo.toolTip()
+        assert "モデル" in widget._model_combo.toolTip()
+
+    def test_set_filter_options_preserves_existing_selection(self, widget):
+        """set_filter_options 再実行時にも選択中の値が維持される (#1536)。"""
+        widget.set_filter_options(["annotation", "upscale"], ["TimeoutError", "ValueError"], ["gpt-4o"])
+        widget._operation_combo.blockSignals(True)
+        widget._operation_combo.setCurrentIndex(widget._operation_combo.findData("upscale"))
+        widget._operation_combo.blockSignals(False)
+
+        emitted: list[bool] = []
+        widget.filter_changed.connect(lambda: emitted.append(True))
+
+        widget.set_filter_options(["annotation", "upscale"], ["TimeoutError", "ValueError"], ["gpt-4o"])
+
+        assert emitted == []
+        assert widget.get_filter().operation_type == "upscale"
+
+        # 選択肢から消えた場合は「すべて」(None) にフォールバックする
+        widget.set_filter_options(["annotation"], ["TimeoutError"], ["gpt-4o"])
+        assert widget.get_filter().operation_type is None
+
 
 class TestEmptyState:
     def test_empty_state_shown_when_no_data(self, widget):

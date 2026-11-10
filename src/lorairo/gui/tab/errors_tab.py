@@ -72,6 +72,7 @@ class ErrorsTabWidget(QWidget):
         operation_types = sorted({r.operation_type for r in all_rows})
         error_types = sorted({r.error_type for r in all_rows})
         model_names = sorted({r.model_name for r in all_rows if r.model_name})
+        # フィルタ選択肢更新時にも既存の combo 選択値は保持される (#1536)
         self._triage_widget.set_filter_options(operation_types, error_types, model_names)
 
         summary = self._triage_service.summarize(all_rows)

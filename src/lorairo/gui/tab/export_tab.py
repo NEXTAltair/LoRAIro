@@ -190,6 +190,7 @@ class ExportTabWidget(QWidget):
         merged_reader = self._resolve_merged_reader()
         self._overlay_bar = ExportOverlayBar(reader=merged_reader)
         self._overlay_bar.export_requested.connect(self._on_export_requested)
+        self._overlay_bar.cancel_requested.connect(self._on_cancel_export_requested)
         self._overlay_bar.validate_requested.connect(self._on_validate_requested)
         root.addWidget(self._overlay_bar)
 
@@ -648,9 +649,12 @@ class ExportTabWidget(QWidget):
             merge_caption=merge_caption,
             overlay_plan=overlay_plan,
         )
+        worker.progress.connect(self._on_export_progress)
         worker.finished.connect(self._on_export_finished)
+        worker.cancelled.connect(self._on_export_cancelled)
         worker.error.connect(self._on_export_error)
         self._export_worker = worker
+        self._overlay_bar.set_exporting(True, f"エクスポート開始 (0/{len(effective_ids)})")
         self._start_export_worker(worker)
         logger.info(f"エクスポート開始: {len(effective_ids)}枚 → {directory} (format={export_format})")
 
@@ -700,27 +704,112 @@ class ExportTabWidget(QWidget):
         self._export_thread = thread
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
+        worker.finished.connect(thread.quit)
+        worker.cancelled.connect(thread.quit)
+        worker.error.connect(thread.quit)
         thread.start()
+
+    @Slot(int, str)
+    def _on_export_progress(self, percent: int, message: str) -> None:
+        """エクスポート進捗: overlay bar の進捗バーとステータスを更新する (#1561)。"""
+        self._overlay_bar.set_export_progress(percent, message)
+
+    @Slot()
+    def _on_cancel_export_requested(self) -> None:
+        """エクスポートのキャンセル要求を worker へ伝える (#1561)。"""
+        if self._export_worker is not None:
+            self._export_worker.cancel()
+            self._overlay_bar._cancel_btn.setEnabled(False)
+            self._overlay_bar.set_export_progress(
+                self._overlay_bar._progress_bar.value(), "キャンセル中..."
+            )
+
+    @Slot()
+    def _on_export_cancelled(self) -> None:
+        """エクスポートキャンセル完了: スレッドを後始末しキャンセルを通知する (#1561)。"""
+        self._teardown_export_thread()
+        self._overlay_bar.set_exporting(False, "エクスポートをキャンセルしました")
+        QMessageBox.information(self, "エクスポートキャンセル", "エクスポートをキャンセルしました。")
 
     @Slot(str)
     def _on_export_finished(self, export_path: str) -> None:
-        """エクスポート完了: スレッドを後始末しユーザーへ結果を提示する。"""
+        """エクスポート完了: スレッドを後始末し、ExportResult の内訳をユーザーへ提示する (#1561)。"""
+        worker = self._export_worker
+        report = worker.report if worker is not None else None
+        export_format = worker.export_format if worker is not None else "txt_separate"
         self._teardown_export_thread()
+
+        if report is not None:
+            req_fmt = {"json"} if export_format == "json" else {"txt"}
+            summary = report.summary(required_formats=req_fmt)
+            exported = int(summary["exported"])
+            skipped = int(summary["skipped"])
+            failed = int(summary["failed"])
+            counts_line = f"成功: {exported} 件 / スキップ: {skipped} 件 / 失敗: {failed} 件"
+            if failed > 0:
+                self._overlay_bar.set_exporting(
+                    False, f"一部失敗 (成功 {exported} / スキップ {skipped} / 失敗 {failed})"
+                )
+                show_warning(
+                    self,
+                    "エクスポート結果 (一部失敗)",
+                    f"エクスポートが一部失敗で終了しました:\n{export_path}\n\n{counts_line}",
+                )
+                return
+            self._overlay_bar.set_exporting(False, f"エクスポート完了 ({exported} 件)")
+            QMessageBox.information(
+                self,
+                "エクスポート完了",
+                f"エクスポートが完了しました:\n{export_path}\n\n{counts_line}",
+            )
+            return
+
+        self._overlay_bar.set_exporting(False, "エクスポート完了")
         QMessageBox.information(self, "エクスポート完了", f"エクスポートが完了しました:\n{export_path}")
 
     @Slot(str)
     def _on_export_error(self, message: str) -> None:
         """エクスポート失敗: スレッドを後始末しエラーを提示する。"""
         self._teardown_export_thread()
-        show_critical(self, "エクスポート失敗", f"エクスポートに失敗しました:\n{message}")
+        cleaned = (
+            message.removeprefix("エクスポートエラー:")
+            .removeprefix("エクスポート処理でエラーが発生しました:")
+            .strip()
+        )
+        self._overlay_bar.set_exporting(False, "エクスポート失敗")
+        show_critical(self, "エクスポート失敗", f"エクスポートに失敗しました:\n{cleaned}")
+
+    def _disconnect_export_worker_signals(self, worker: DatasetExportWorker) -> None:
+        """停止中の worker から UI スロットを切断し、後始末中の再入・遅延通知を防ぐ (#1561)。"""
+        for signal_obj, slot in (
+            (worker.progress, self._on_export_progress),
+            (worker.finished, self._on_export_finished),
+            (worker.cancelled, self._on_export_cancelled),
+            (worker.error, self._on_export_error),
+        ):
+            try:
+                signal_obj.disconnect(slot)
+            except (RuntimeError, TypeError):
+                pass
 
     def _teardown_export_thread(self) -> None:
-        """エクスポート worker/thread を停止・破棄する。"""
-        if self._export_thread is not None:
-            self._export_thread.quit()
-            self._export_thread.wait()
+        """エクスポート worker を協調キャンセルして QThread の停止完了まで待機・破棄する (#1561)。"""
+        worker = self._export_worker
+        thread = self._export_thread
+        if worker is not None:
+            worker.cancel()
+            self._disconnect_export_worker_signals(worker)
+        if thread is not None:
+            thread.quit()
+            thread.wait()
+            if hasattr(thread, "deleteLater"):
+                thread.deleteLater()
             self._export_thread = None
-        self._export_worker = None
+        if worker is not None:
+            if hasattr(worker, "deleteLater"):
+                worker.deleteLater()
+            self._export_worker = None
+        self._overlay_bar.set_exporting(False)
 
     def shutdown(self) -> None:
         """実行中のエクスポート thread を停止する (ウィンドウ閉鎖時に呼ぶ、#961 P2)。

@@ -340,14 +340,23 @@ class TestTagManagementWidget:
         combobox.setCurrentIndex(1)
         checkbox.setChecked(True)
 
-        # Noを返すようにオーバーライド
+        # Noを返すようにオーバーライドし、defaultButton=No が指定されているか検証 (#1539)
+        recorded_calls: list[tuple[object, ...]] = []
+
+        def fake_question(*args: object, **_kw: object) -> _QMB.StandardButton:
+            recorded_calls.append(args)
+            return _QMB.StandardButton.No
+
         monkeypatch.setattr(
             "lorairo.gui.widgets.tag_management_widget.QMessageBox.question",
-            lambda *a, **kw: _QMB.StandardButton.No,
+            fake_question,
         )
 
         widget._on_update_clicked()
 
+        assert len(recorded_calls) == 1
+        assert recorded_calls[0][3] == (_QMB.StandardButton.Yes | _QMB.StandardButton.No)
+        assert recorded_calls[0][4] == _QMB.StandardButton.No
         # update_tag_types は呼ばれない
         mock_service.update_tag_types.assert_not_called()
 

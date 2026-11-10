@@ -119,12 +119,15 @@ class ErrorsTriageWidget(QWidget):
             layout.addWidget(btn)
 
         # operation / error_type / model combo
-        self._operation_combo = self._make_filter_combo(bar, "errorsOperationCombo")
-        self._error_type_combo = self._make_filter_combo(bar, "errorsErrorTypeCombo")
-        self._model_combo = self._make_filter_combo(bar, "errorsModelCombo")
-        layout.addWidget(self._operation_combo)
-        layout.addWidget(self._error_type_combo)
-        layout.addWidget(self._model_combo)
+        self._operation_combo = self._make_filter_combo(
+            bar, "errorsOperationCombo", label_text="操作種別", tooltip="操作種別で絞り込む"
+        )
+        self._error_type_combo = self._make_filter_combo(
+            bar, "errorsErrorTypeCombo", label_text="エラー種別", tooltip="エラー種別で絞り込む"
+        )
+        self._model_combo = self._make_filter_combo(
+            bar, "errorsModelCombo", label_text="モデル", tooltip="モデルで絞り込む"
+        )
 
         # グループ / 個別行トグル
         self._group_toggle = QPushButton("グループ表示", bar)
@@ -137,12 +140,27 @@ class ErrorsTriageWidget(QWidget):
         layout.addStretch(1)
         self._root.addWidget(bar)
 
-    def _make_filter_combo(self, parent: QWidget, object_name: str) -> QComboBox:
-        """「すべて」番兵付きの combo を生成する。"""
+    def _make_filter_combo(
+        self,
+        parent: QWidget,
+        object_name: str,
+        *,
+        label_text: str,
+        tooltip: str,
+    ) -> QComboBox:
+        """ラベル・ツールチップ・「すべて」番兵付きの combo を生成して親レイアウトへ追加する。"""
+        label = QLabel(label_text, parent)
+        label.setObjectName(f"{object_name}Label")
+        label.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;")
         combo = QComboBox(parent)
         combo.setObjectName(object_name)
+        combo.setToolTip(tooltip)
         combo.addItem("すべて", _ALL_SENTINEL)
         combo.currentIndexChanged.connect(self._on_combo_changed)
+        bar_layout = parent.layout()
+        if bar_layout is not None:
+            bar_layout.addWidget(label)
+            bar_layout.addWidget(combo)
         return combo
 
     def _build_content_area(self) -> None:
@@ -443,11 +461,13 @@ class ErrorsTriageWidget(QWidget):
         self._reset_combo(self._model_combo, model_names)
 
     def _reset_combo(self, combo: QComboBox, values: list[str]) -> None:
-        """combo を「すべて」+ values で再構築する (signal は一時停止)。"""
+        """combo を「すべて」+ values で再構築し、既存の選択値を可能な限り維持する。"""
+        previous = combo.currentData()
         combo.blockSignals(True)
         combo.clear()
         combo.addItem("すべて", _ALL_SENTINEL)
         for value in values:
             combo.addItem(value, value)
-        combo.setCurrentIndex(0)
+        restored = combo.findData(previous)
+        combo.setCurrentIndex(restored if restored >= 0 else 0)
         combo.blockSignals(False)

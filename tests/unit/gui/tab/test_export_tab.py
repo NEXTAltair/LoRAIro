@@ -880,3 +880,181 @@ def test_kohya_version_export_button_opens_dialog_with_db_session(
 
     assert len(opened) == 1
     assert opened[0].session_factory is db_manager.image_repo.session_factory
+
+
+@pytest.mark.gui
+def test_export_progress_and_summary_counts_on_completion(
+    qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """進捗コールバックが overlay bar へ反映され、完了時に成功/スキップ/失敗件数が表示される (#1561)。"""
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: "/tmp/export_out")
+    infos: list[str] = []
+    monkeypatch.setattr(QMessageBox, "information", lambda _p, _t, text, *a: infos.append(str(text)))
+    export_service = service_container.dataset_export_service
+
+    progress_snapshots: list[tuple[int, str, bool]] = []
+    widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
+    qtbot.addWidget(widget)
+    staging_manager.add_image_ids([1, 2])
+
+    def fake_export(**kwargs):
+        report = kwargs["report"]
+        cb = kwargs["progress_callback"]
+        for idx, img_id in enumerate([1, 2], start=1):
+            report.completed.setdefault(img_id, set()).add("txt")
+            cb(idx, 2, img_id)
+            progress_snapshots.append(
+                (
+                    widget._overlay_bar._progress_bar.value(),
+                    widget._overlay_bar._status_label.text(),
+                    widget._overlay_bar._export_btn.isEnabled(),
+                )
+            )
+        return "/tmp/export_out"
+
+    export_service.export_with_criteria.side_effect = fake_export
+    monkeypatch.setattr(widget, "_start_export_worker", lambda worker: worker.run())
+
+    widget._overlay_bar._export_btn.click()
+
+    assert progress_snapshots[0] == (50, "エクスポート中... (1/2)", False)
+    assert progress_snapshots[1] == (100, "エクスポート中... (2/2)", False)
+    assert widget._overlay_bar._export_btn.isEnabled() is True
+    assert infos and "成功: 2 件 / スキップ: 0 件 / 失敗: 0 件" in infos[0]
+
+
+@pytest.mark.gui
+def test_export_partial_failure_shows_warning_instead_of_success(
+    qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """一部失敗がある場合は無条件の完了ではなく警告ダイアログと内訳件数を表示する (#1561)。"""
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: "/tmp/export_out")
+    infos: list[str] = []
+    warnings: list[str] = []
+    monkeypatch.setattr(QMessageBox, "information", lambda _p, _t, text, *a: infos.append(str(text)))
+    monkeypatch.setattr(
+        "lorairo.gui.tab.export_tab.show_warning", lambda _p, _t, text, *a: warnings.append(str(text))
+    )
+    export_service = service_container.dataset_export_service
+
+    def fake_export(**kwargs):
+        report = kwargs["report"]
+        report.completed.setdefault(1, set()).add("txt")
+        report.fail(2, "txt", "processed_image_missing", "missing")
+        report.fail(3, "txt", "export_error", "write failed")
+        return "/tmp/export_out"
+
+    export_service.export_with_criteria.side_effect = fake_export
+    widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
+    qtbot.addWidget(widget)
+    staging_manager.add_image_ids([1, 2, 3])
+    monkeypatch.setattr(widget, "_start_export_worker", lambda worker: worker.run())
+
+    widget._overlay_bar._export_btn.click()
+
+    assert infos == []
+    assert len(warnings) == 1
+    assert "成功: 1 件 / スキップ: 1 件 / 失敗: 1 件" in warnings[0]
+    assert "一部失敗" in widget._overlay_bar._status_label.text()
+
+
+@pytest.mark.gui
+def test_export_cancellation_stops_remaining_images_and_notifies(
+    qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """エクスポート中のキャンセル要求で残り画像の処理を止め、キャンセル完了を通知する (#1561)。"""
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: "/tmp/export_out")
+    infos: list[str] = []
+    criticals: list[str] = []
+    monkeypatch.setattr(QMessageBox, "information", lambda _p, _t, text, *a: infos.append(str(text)))
+    monkeypatch.setattr(
+        "lorairo.gui.tab.export_tab.show_critical", lambda _p, _t, text, *a: criticals.append(str(text))
+    )
+    export_service = service_container.dataset_export_service
+    widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
+    qtbot.addWidget(widget)
+    staging_manager.add_image_ids([1, 2, 3])
+
+    processed_ids: list[int] = []
+
+    def fake_export(**kwargs):
+        should_cancel = kwargs["should_cancel"]
+        cb = kwargs["progress_callback"]
+        for idx, img_id in enumerate([1, 2, 3], start=1):
+            if should_cancel():
+                break
+            processed_ids.append(img_id)
+            cb(idx, 3, img_id)
+            if idx == 1:
+                widget._overlay_bar._cancel_btn.click()
+        return "/tmp/export_out"
+
+    export_service.export_with_criteria.side_effect = fake_export
+    monkeypatch.setattr(widget, "_start_export_worker", lambda worker: worker.run())
+
+    widget._overlay_bar._export_btn.click()
+
+    assert processed_ids == [1]
+    assert criticals == []
+    assert infos and "キャンセル" in infos[0]
+    assert widget._overlay_bar._export_btn.isEnabled() is True
+
+
+@pytest.mark.gui
+def test_export_error_does_not_duplicate_prefix(
+    qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """エラー時のプレフィックスが worker と tab で重複しない (#1561)。"""
+    from PySide6.QtWidgets import QFileDialog
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: "/tmp/export_out")
+    criticals: list[str] = []
+    monkeypatch.setattr(
+        "lorairo.gui.tab.export_tab.show_critical", lambda _p, _t, text, *a: criticals.append(str(text))
+    )
+    export_service = service_container.dataset_export_service
+    export_service.export_with_criteria.side_effect = RuntimeError("disk full")
+
+    widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
+    qtbot.addWidget(widget)
+    staging_manager.add_image_ids([1])
+    monkeypatch.setattr(widget, "_start_export_worker", lambda worker: worker.run())
+
+    widget._overlay_bar._export_btn.click()
+
+    assert criticals == ["エクスポートに失敗しました:\ndisk full"]
+
+
+@pytest.mark.gui
+def test_teardown_export_thread_cancels_worker_and_waits_for_thread(
+    qtbot, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """_teardown_export_thread は worker.cancel() で協調停止させ、thread.wait() で終了まで待つ (#1561)。"""
+    widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
+    qtbot.addWidget(widget)
+
+    call_order: list[str] = []
+    fake_worker = Mock()
+    fake_worker.cancel.side_effect = lambda: call_order.append("cancel")
+    fake_thread = Mock()
+    fake_thread.quit.side_effect = lambda: call_order.append("quit")
+    fake_thread.wait.side_effect = lambda: call_order.append("wait") or True
+    widget._export_worker = fake_worker
+    widget._export_thread = fake_thread
+
+    widget._teardown_export_thread()
+
+    assert call_order == ["cancel", "quit", "wait"]
+    fake_worker.cancel.assert_called_once_with()
+    fake_thread.quit.assert_called_once_with()
+    fake_thread.wait.assert_called_once_with()
+    fake_worker.deleteLater.assert_called_once_with()
+    fake_thread.deleteLater.assert_called_once_with()
+    assert widget._export_worker is None
+    assert widget._export_thread is None
