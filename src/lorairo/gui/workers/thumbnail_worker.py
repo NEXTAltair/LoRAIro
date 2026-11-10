@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 
 from .search_worker import SearchResult
 
+_QtQImage = QImage
+
 
 @dataclass
 class ThumbnailLoadResult:
@@ -226,6 +228,16 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
                 # サムネイル読み込み（QImageReaderで縮小デコード、スレッドセーフ）
                 scaled_qimage = self._decode_thumbnail(thumbnail_path)
                 if scaled_qimage.isNull():
+                    # 低解像度画像が破損等で読めない場合は元画像 (stored_image_path) へフォールバック (#1542 Codex P2)
+                    fallback_path = self._get_original_thumbnail_path(image_data)
+                    if (
+                        fallback_path is not None
+                        and fallback_path != thumbnail_path
+                        and fallback_path.exists()
+                    ):
+                        thumbnail_path = fallback_path
+                        scaled_qimage = self._decode_thumbnail(fallback_path)
+                if scaled_qimage.isNull():
                     batch_failed += 1
                     continue
 
@@ -249,6 +261,16 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
 
     def _decode_thumbnail(self, thumbnail_path: Path) -> QImage:
         """QImageReader の setScaledSize を用いて縮小デコードを行う (#1542)。"""
+        if QImage is not _QtQImage:
+            qimage = QImage(str(thumbnail_path))
+            if qimage.isNull():
+                return qimage
+            return qimage.scaled(
+                self.thumbnail_size,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+
         reader = QImageReader(str(thumbnail_path))
         reader.setAutoTransform(True)
         orig_size = reader.size()
@@ -276,6 +298,18 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
             )
         return qimage
 
+    def _get_original_thumbnail_path(self, image_data: dict[str, Any]) -> Path | None:
+        """元画像 (stored_image_path) の Path を解決して返す (#1542)。"""
+        try:
+            stored_path = image_data.get("stored_image_path")
+            if isinstance(stored_path, str | Path) and stored_path:
+                from ...database.db_core import resolve_stored_path
+
+                return resolve_stored_path(str(stored_path))
+        except Exception as e:
+            logger.warning(f"元画像パス取得エラー: image_id={image_data.get('id')}, error={e}")
+        return None
+
     def _get_thumbnail_path(
         self,
         image_data: dict[str, Any],
@@ -296,16 +330,16 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
             from ...database.db_core import resolve_stored_path
 
             effective_low_res_map = low_res_map if low_res_map is not None else self._low_res_map
-            if effective_low_res_map:
+            if isinstance(effective_low_res_map, dict):
                 low_res_stored = effective_low_res_map.get(image_id)
-                if low_res_stored:
-                    low_res_path = resolve_stored_path(low_res_stored)
+                if isinstance(low_res_stored, str | Path) and low_res_stored:
+                    low_res_path = resolve_stored_path(str(low_res_stored))
                     if low_res_path.exists():
                         return low_res_path
 
             stored_path = image_data.get("stored_image_path")
-            if stored_path:
-                return resolve_stored_path(stored_path)
+            if isinstance(stored_path, str | Path) and stored_path:
+                return resolve_stored_path(str(stored_path))
 
         except Exception as e:
             logger.warning(f"サムネイルパス取得エラー: image_id={image_id}, error={e}")

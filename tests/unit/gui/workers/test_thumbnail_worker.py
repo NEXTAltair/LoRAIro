@@ -181,6 +181,41 @@ class TestThumbnailWorkerPaging:
         assert id_to_img[2].size() == QSize(64, 32)
         assert id_to_img[2].pixelColor(0, 0).green() == 255
 
+    def test_corrupt_low_res_file_falls_back_to_original_stored_image(self, tmp_path):
+        """低解像度画像ファイルが存在しても破損等でデコード不能な場合は元画像へフォールバックする (#1542 Codex P2)。"""
+        orig_1 = tmp_path / "orig_1.png"
+        corrupt_low_1 = tmp_path / "corrupt_low_1.png"
+
+        img_orig = QImage(256, 128, QImage.Format.Format_RGB32)
+        img_orig.fill(0x00FF00)
+        assert img_orig.save(str(orig_1))
+
+        # 存在するが画像として破損している低解像度ファイル
+        corrupt_low_1.write_bytes(b"not a valid image file")
+
+        metadata = [{"id": 1, "stored_image_path": str(orig_1)}]
+        search_result = _build_search_result(metadata)
+        db_manager = Mock()
+        db_manager.get_low_res_image_paths_batch.return_value = {1: str(corrupt_low_1)}
+
+        worker = ThumbnailWorker(
+            search_result=search_result,
+            thumbnail_size=QSize(64, 64),
+            db_manager=db_manager,
+            request_id="req_corrupt_low_res",
+            page_num=1,
+        )
+
+        result = worker.execute()
+
+        assert result.failed_count == 0
+        assert len(result.loaded_thumbnails) == 1
+        img_id, decoded = result.loaded_thumbnails[0]
+        assert img_id == 1
+        assert not decoded.isNull()
+        assert decoded.size() == QSize(64, 32)
+        assert decoded.pixelColor(0, 0).green() == 255
+
     def test_explicit_thumbnail_worker_uses_qimagereader_scaled_decode(self, tmp_path):
         """ExplicitThumbnailWorker.load_image も QImageReader で縮小デコードする (#1542)。"""
         from lorairo.gui.workers.explicit_thumbnail_worker import ExplicitThumbnailWorker

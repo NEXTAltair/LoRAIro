@@ -1005,6 +1005,38 @@ class TestThumbnailSelectorWidgetDebounceAndUpscaleReload:
         call_kwargs = worker_service.start_thumbnail_page_load.call_args.kwargs
         assert call_kwargs["thumbnail_size"] == QSize(256, 256)
 
+    def test_slider_upscale_while_navigating_to_uncached_page_reloads_destination_page(
+        self, widget_with_state
+    ):
+        """キャッシュ済みページから未キャッシュページへ遷移中に拡大した場合、遷移先ページを再要求する (#1542 Codex P2)。"""
+        from PySide6.QtGui import QPixmap
+
+        widget, _ = widget_with_state
+        worker_service = Mock()
+        worker_service.start_thumbnail_page_load.return_value = "thumbnail_page_worker"
+
+        # 2ページ分 (page_size=100 と仮定し 150件)
+        search_result = self._build_search_result(150)
+        widget.initialize_pagination_search(search_result=search_result, worker_service=worker_service)
+        worker_service.start_thumbnail_page_load.reset_mock()
+
+        # Page 1 はキャッシュ済み (128px) で表示中、Page 2 へ遷移開始してロード中とする
+        widget.page_cache.set_page(1, [(1, QPixmap(128, 128))])
+        widget._current_display_page = 1
+        assert widget.pagination_state is not None
+        widget.pagination_state._current_page = 2
+        worker_service.start_thumbnail_page_load.reset_mock()
+
+        widget._on_thumbnail_size_slider_changed(256)
+        widget._size_slider_debounce_timer.stop()
+        widget._apply_debounced_thumbnail_size()
+
+        assert not widget.page_cache.has_page(1)
+        worker_service.start_thumbnail_page_load.assert_called_once()
+        call_kwargs = worker_service.start_thumbnail_page_load.call_args.kwargs
+        assert call_kwargs["page_num"] == 2
+        assert call_kwargs["thumbnail_size"] == QSize(256, 256)
+
     def test_slider_upscale_in_explicit_mode_reloads_from_paths(self, qtbot):
         widget = ThumbnailSelectorWidget()
         qtbot.addWidget(widget)
