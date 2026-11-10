@@ -599,3 +599,16 @@ class TestDatasetStateManager:
         state_manager.add_image({"stored_image_path": "/test/no_id.jpg"})
 
         assert [image["id"] for image in state_manager.filtered_images] == [1, 2, 3]
+
+    def test_update_from_search_results_prunes_stale_selected_images(
+        self, qtbot, state_manager, sample_image_metadata
+    ):
+        """再検索で結果外となった選択画像IDは _selected_image_ids から除外され selection_changed が発火する (#1534)"""
+        state_manager.set_dataset_images(sample_image_metadata)
+        state_manager.set_selected_images([1, 2, 3])
+
+        with qtbot.waitSignal(state_manager.selection_changed, timeout=1000) as blocker:
+            state_manager.update_from_search_results(sample_image_metadata[:2])
+
+        assert state_manager.selected_image_ids == [1, 2]
+        assert blocker.args == [[1, 2]]

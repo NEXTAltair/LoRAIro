@@ -825,3 +825,50 @@ class TestThumbnailSelectorContentHeight:
         widget.frameThumbnailHeader.show()
         with_header = widget._content_height_chrome()
         assert with_header > without_header
+
+
+class TestThumbnailSelectorWidgetSelectionCountDisplay:
+    """選択件数と他ページ選択件数のヘッダー表示テスト (#1534, #1535)"""
+
+    def test_header_label_shows_selected_and_off_page_counts(self, qtbot):
+        state = DatasetStateManager()
+        widget = ThumbnailSelectorWidget(dataset_state=state)
+        qtbot.addWidget(widget)
+
+        items = []
+        for i in (1, 2, 3):
+            mock_item = Mock(spec=ThumbnailItem)
+            mock_item.image_id = i
+            items.append(mock_item)
+        widget.thumbnail_items = items
+        widget._update_image_count_display()
+        assert widget.labelThumbnailCount.text() == "画像: 3件"
+
+        # 現在ページの2件を選択
+        state.set_selected_images([1, 2])
+        assert widget.labelThumbnailCount.text() == "画像: 3件 | 選択: 2件"
+
+        # 他ページにあるID (99) を含む3件を選択
+        state.set_selected_images([1, 2, 99])
+        assert widget.labelThumbnailCount.text() == "画像: 3件 | 選択: 3件 (他ページ 1件)"
+
+        # 選択解除
+        state.clear_selection()
+        assert widget.labelThumbnailCount.text() == "画像: 3件"
+
+    def test_click_selection_clears_scene_selection(self, qtbot, monkeypatch):
+        """クリック選択時にQGraphicsSceneのラバーバンド選択状態をクリアする (#1535)"""
+        state = DatasetStateManager()
+        widget = ThumbnailSelectorWidget(dataset_state=state)
+        qtbot.addWidget(widget)
+
+        mock_item = Mock(spec=ThumbnailItem)
+        mock_item.image_id = 1
+        widget.thumbnail_items = [mock_item]
+
+        monkeypatch.setattr(widget.scene, "selectedItems", lambda: [mock_item])
+        clear_mock = Mock()
+        monkeypatch.setattr(widget.scene, "clearSelection", clear_mock)
+
+        widget.handle_item_selection(mock_item, Qt.KeyboardModifier.NoModifier)
+        clear_mock.assert_called_once()

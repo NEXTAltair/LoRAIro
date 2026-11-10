@@ -599,12 +599,26 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     def _update_image_count_display(self) -> None:
         """
-        画像件数表示を更新する。
+        画像件数・選択件数表示を更新する。
 
-        現在読み込まれている画像数をヘッダーに表示する。
+        現在読み込まれている画像数と、DatasetStateManager 上の選択件数
+        (他ページにある選択件数を含む) をヘッダーに表示する (#1534)。
         """
-        if hasattr(self, "labelThumbnailCount"):
-            count = len(self.thumbnail_items)
+        if not hasattr(self, "labelThumbnailCount"):
+            return
+        count = len(self.thumbnail_items)
+        selected_ids = self.dataset_state.selected_image_ids if self.dataset_state else []
+        selected_count = len(selected_ids)
+        if selected_count > 0:
+            visible_ids = {item.image_id for item in self.thumbnail_items}
+            off_page_count = sum(1 for id_ in selected_ids if id_ not in visible_ids)
+            if off_page_count > 0:
+                self.labelThumbnailCount.setText(
+                    f"画像: {count}件 | 選択: {selected_count}件 (他ページ {off_page_count}件)"
+                )
+            else:
+                self.labelThumbnailCount.setText(f"画像: {count}件 | 選択: {selected_count}件")
+        else:
             self.labelThumbnailCount.setText(f"画像: {count}件")
 
     def _on_context_menu_requested(self, pos: QPoint) -> None:
@@ -616,7 +630,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
                 self.dataset_state.set_selected_images([item.image_id])
                 self.dataset_state.set_current_image(item.image_id)
 
-        selected_ids = self.dataset_state.selected_image_ids if self.dataset_state else []
+        selected_ids = list(self.dataset_state.selected_image_ids) if self.dataset_state else []
         visible_ids = {thumb.image_id for thumb in self.thumbnail_items}
         visible_selected_ids = [id_ for id_ in selected_ids if id_ in visible_ids]
 
@@ -631,13 +645,13 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
         add(
             "バッチタグへ追加",
-            bool(visible_selected_ids),
-            lambda: self.stage_selected_requested.emit(visible_selected_ids),
+            bool(selected_ids),
+            lambda: self.stage_selected_requested.emit(selected_ids),
         )
         add(
             "クイックタグ追加...",
-            bool(visible_selected_ids),
-            lambda: self.quick_tag_requested.emit(visible_selected_ids),
+            bool(selected_ids),
+            lambda: self.quick_tag_requested.emit(selected_ids),
         )
         # クロップ作成 (#1346)。1 枚選択時のみ有効 (矩形指定は単一画像に対する操作)。
         if self._crop_action_enabled:
@@ -1027,6 +1041,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         # 選択状態は動的取得されるため、再描画のみトリガー
         for item in self.thumbnail_items:
             item.update()  # 再描画トリガー
+        self._update_image_count_display()
 
     @Slot()
     def _sync_selection_to_state(self) -> None:
@@ -1068,6 +1083,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             self.dataset_state.set_selected_images(selected_image_ids)
             self.dataset_state.blockSignals(False)
 
+        self._on_state_selection_changed(self.dataset_state.selected_image_ids)
         self.selection_synced.emit(list(self.dataset_state.selected_image_ids))
         logger.debug(
             f"Selection synced to state: {len(self.dataset_state.selected_image_ids)} images selected"
@@ -1221,6 +1237,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self._active_search_result = None
         if self.pagination_nav:
             self.pagination_nav.setVisible(False)
+        self._update_image_count_display()
 
         logger.debug("サムネイル表示とキャッシュをクリアしました")
 
@@ -1235,8 +1252,16 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             self.loading_overlay.setGeometry(self.graphics_view.viewport().rect())
         self.resize_timer.start(250)
 
+    def _clear_scene_selection_silently(self) -> None:
+        """QGraphicsScene 側のラバーバンド選択状態をシグナル発火なしでクリアする (#1535)。"""
+        if self.scene.selectedItems():
+            self.scene.blockSignals(True)
+            self.scene.clearSelection()
+            self.scene.blockSignals(False)
+
     def _on_empty_space_clicked(self) -> None:
         """空スペースクリック時の選択解除処理"""
+        self._clear_scene_selection_silently()
         if self.dataset_state:
             self.dataset_state.clear_selection()
 
@@ -1265,6 +1290,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         if not self.dataset_state:
             logger.debug("状態管理が未設定のため選択操作をスキップ")
             return
+
+        self._clear_scene_selection_silently()
 
         has_ctrl = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
         has_shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)

@@ -500,6 +500,39 @@ class RatingScoreEditWidget(QWidget):
             self.ui.comboBoxRating.setCurrentIndex(index)
         self._rating_segmented.set_active(None)
 
+    def _extract_rating_from_metadata(self, metadata: dict[str, Any]) -> str | None:
+        """メタデータ辞書から編集対象の Rating 文字列を抽出する。"""
+        for key in ("rating", "manual_rating_value", "manual_rating", "rating_value"):
+            if key in metadata:
+                val = metadata.get(key)
+                if isinstance(val, str) and val.strip() in self._VALID_RATINGS:
+                    return val.strip()
+                if key == "rating" and val is not None:
+                    break
+        ratings_list = metadata.get("ratings")
+        if isinstance(ratings_list, list):
+            for entry in ratings_list:
+                if isinstance(entry, dict):
+                    candidate = entry.get("normalized_rating") or entry.get("raw_rating_value")
+                    if isinstance(candidate, str) and candidate.strip() in self._VALID_RATINGS:
+                        return candidate.strip()
+        return None
+
+    def _extract_score_from_metadata(self, metadata: dict[str, Any]) -> float | None:
+        """メタデータ辞書から編集対象の Score (DB値/UI値) を抽出する。"""
+        if "manual_score_value" in metadata:
+            manual_score = metadata.get("manual_score_value")
+            if isinstance(manual_score, (int, float)):
+                return float(manual_score)
+            return None
+        scores_list = metadata.get("scores")
+        if isinstance(scores_list, list) and not scores_list:
+            return None
+        score_val = metadata.get("score_value", metadata.get("score"))
+        if isinstance(score_val, (int, float)):
+            return float(score_val)
+        return None
+
     @Slot(dict)
     def populate_from_image_data(self, image_data: dict[str, Any]) -> None:
         """
@@ -532,14 +565,19 @@ class RatingScoreEditWidget(QWidget):
         self.ui.sliderScore.blockSignals(True)
 
         # UI フィールドに値を設定
-        self._set_rating_text(image_data.get("rating"))
+        rating_val = (
+            image_data.get("rating")
+            if "rating" in image_data
+            else self._extract_rating_from_metadata(image_data)
+        )
+        self._set_rating_text(rating_val)
 
         # Score値の変換処理
         # Repository層からは "score_value" (DB値 0.0-10.0) が返される
         # UI層では 0-1000 の整数値で扱う
         # Issue #825: 人間 (手動) スコアが None のときは未設定として "--" 表示にする
         # (slider は中立位置に置き、ユーザーがドラッグして初めて手動値が確定する)。
-        score_db = image_data.get("score_value", image_data.get("score"))
+        score_db = self._extract_score_from_metadata(image_data)
         if isinstance(score_db, (int, float)):
             # DB値（0.0-10.0）→ UI値（0-1000）に変換
             if score_db <= 10.0:
@@ -562,7 +600,7 @@ class RatingScoreEditWidget(QWidget):
         self.ui.sliderScore.blockSignals(False)
 
         # AI セクション (read-only) の描画。未指定時は手動値と同じソースへフォールバック
-        ai_rating = image_data.get("ai_rating", image_data.get("rating"))
+        ai_rating = image_data.get("ai_rating", image_data.get("ai_rating_value", image_data.get("rating")))
         ai_score_db = image_data.get("ai_score_value", image_data.get("score_value"))
         ai_normalized = (
             ai_rating if isinstance(ai_rating, str) and ai_rating in self._VALID_RATINGS else None
@@ -611,42 +649,37 @@ class RatingScoreEditWidget(QWidget):
         self.ui.sliderScore.blockSignals(True)
 
         # 全画像のメタデータを取得
-        ratings: set[str] = set()
-        scores: set[float] = set()
+        ratings: set[str | None] = set()
+        scores: set[float | None] = set()
 
         for image_id in image_ids:
             metadata = db_manager.image_repo.get_image_metadata(image_id)
             if metadata:
-                rating = metadata.get("rating")
-                if rating:
-                    ratings.add(rating)
-
-                score_value = metadata.get("score_value")
-                if score_value is not None:
-                    scores.add(float(score_value))
+                ratings.add(self._extract_rating_from_metadata(metadata))
+                scores.add(self._extract_score_from_metadata(metadata))
 
         # 共通値判定: Rating
-        if len(ratings) == 1:
+        common_rating = next(iter(ratings)) if len(ratings) == 1 else None
+        if common_rating is not None:
             # 全画像が同じRating
-            common_rating = next(iter(ratings))
             self._set_rating_text(common_rating)
         else:
             # 異なるRatingまたは値なし → プレースホルダー
             self._set_rating_text(None)
 
         # 共通値判定: Score
-        if len(scores) == 1:
+        common_score_db = next(iter(scores)) if len(scores) == 1 else None
+        if common_score_db is not None:
             # 全画像が同じScore
-            common_score_db = next(iter(scores))
-            score_ui = int(common_score_db * 100)
+            score_ui = int(common_score_db * 100) if common_score_db <= 10.0 else int(common_score_db)
             self._manual_score_set = True
             self.ui.sliderScore.setValue(score_ui)
             self.ui.labelScoreValue.setText(f"{score_ui / 100.0:.2f}")
         else:
-            # 異なるScoreまたは値なし → デフォルト値
-            self._manual_score_set = True
+            # 異なるScoreまたは値なし → 未設定 ("--") とし、5.00上書きを防ぐ (#1533)
+            self._manual_score_set = False
             self.ui.sliderScore.setValue(500)
-            self.ui.labelScoreValue.setText("5.00")
+            self.ui.labelScoreValue.setText("--")
 
         # シグナルのブロックを解除
         self.ui.comboBoxRating.blockSignals(False)
@@ -658,8 +691,8 @@ class RatingScoreEditWidget(QWidget):
 
         logger.info(
             f"Batch mode activated: {len(image_ids)} images, "
-            f"common_rating={'Yes' if len(ratings) == 1 else 'No'}, "
-            f"common_score={'Yes' if len(scores) == 1 else 'No'}"
+            f"common_rating={'Yes' if common_rating is not None else 'No'}, "
+            f"common_score={'Yes' if common_score_db is not None else 'No'}"
         )
 
     @Slot()
@@ -675,11 +708,14 @@ class RatingScoreEditWidget(QWidget):
         Rating が未設定プレースホルダ (`----`) の場合は「Rating 変更なし」と
         みなし、rating シグナルを発行しない。意図しない Rating 書き込みと
         書き込み層での無効値リジェクト (偽の ERROR ログ) を防ぐ。
+        Score が未設定 (`--`, `_manual_score_set=False`) の場合も同様に
+        score シグナルを発行せず、5.00 (500) による意図しない上書きを防ぐ (#1533)。
         """
         rating = self.ui.comboBoxRating.currentText()
         score = self.ui.sliderScore.value()
         # プレースホルダ選択時は Rating 変更なし扱い
         rating_changed = rating in self._VALID_RATINGS
+        score_changed = self._manual_score_set
 
         if self._is_batch_mode:
             # バッチモード: 複数画像を一括更新
@@ -689,13 +725,15 @@ class RatingScoreEditWidget(QWidget):
 
             logger.info(
                 f"Batch save requested: {len(self._selected_image_ids)} images, "
-                f"rating={rating if rating_changed else '(unchanged)'}, score={score}"
+                f"rating={rating if rating_changed else '(unchanged)'}, "
+                f"score={score if score_changed else '(unchanged)'}"
             )
 
             # バッチシグナルを発行
             if rating_changed:
                 self.batch_rating_changed.emit(self._selected_image_ids, rating)
-            self.batch_score_changed.emit(self._selected_image_ids, score)
+            if score_changed:
+                self.batch_score_changed.emit(self._selected_image_ids, score)
 
         else:
             # 単一選択モード: 従来の動作
@@ -705,10 +743,12 @@ class RatingScoreEditWidget(QWidget):
 
             logger.info(
                 f"Save requested for image_id={self._current_image_id}, "
-                f"rating={rating if rating_changed else '(unchanged)'}, score={score}"
+                f"rating={rating if rating_changed else '(unchanged)'}, "
+                f"score={score if score_changed else '(unchanged)'}"
             )
 
             # 単一画像シグナルを発行
             if rating_changed:
                 self.rating_changed.emit(self._current_image_id, rating)
-            self.score_changed.emit(self._current_image_id, score)
+            if score_changed:
+                self.score_changed.emit(self._current_image_id, score)
