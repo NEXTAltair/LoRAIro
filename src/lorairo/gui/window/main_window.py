@@ -1820,6 +1820,37 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             if tab is not None:
                 tab.on_tag_db_ready()
 
+    @staticmethod
+    def _is_async_dispatch_running(controller: Any) -> bool:
+        """Batch API 送信 (_async_dispatch_thread) が実行中かを判定する (#1556 Codex P2)。"""
+        if controller is None:
+            return False
+        dispatch_thread = getattr(controller, "_async_dispatch_thread", None)
+        is_running = getattr(dispatch_thread, "isRunning", None)
+        if callable(is_running) and is_running() is True:
+            return True
+        if getattr(controller, "_async_dispatch_in_progress", None) is True:
+            return not (callable(is_running) and is_running() is False)
+        return False
+
+    @staticmethod
+    def _count_active_collect_runners(jobs_tab: Any) -> int:
+        """Provider Batch 結果回収 (_collect_runners) の実行中スレッド数を返す (#1556 Codex P2)。"""
+        if jobs_tab is None:
+            return 0
+        widget = getattr(jobs_tab, "provider_batch_job_widget", None)
+        collect_runners = getattr(widget, "_collect_runners", None)
+        if not isinstance(collect_runners, dict):
+            return 0
+        count = 0
+        for runner in collect_runners.values():
+            thread = runner[0] if isinstance(runner, tuple) and runner else runner
+            is_running = getattr(thread, "isRunning", None)
+            if callable(is_running) and is_running() is False:
+                continue
+            count += 1
+        return count
+
     def _get_running_job_count(self) -> int:
         """現在実行中 (またはキュー待機中) のジョブ/ワーカー数を返す (#1556)。"""
         running_count = 0
@@ -1833,6 +1864,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             export_thread = getattr(export_tab, "_export_thread", None)
             if export_thread is not None and export_thread.isRunning() is True:
                 running_count += 1
+        if MainWindow._is_async_dispatch_running(getattr(self, "annotation_workflow_controller", None)):
+            running_count += 1
+        running_count += MainWindow._count_active_collect_runners(getattr(self, "jobs_tab", None))
         return running_count
 
     def _confirm_close_if_jobs_running(self) -> bool:

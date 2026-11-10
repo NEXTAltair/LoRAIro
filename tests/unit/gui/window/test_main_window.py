@@ -494,6 +494,7 @@ class TestMainWindowCloseConfirmationAndCancel:
         window.results_tab = None
         window.annotate_tab = None
         window.jobs_tab = None
+        window.annotation_workflow_controller = None
         return window
 
     def test_close_with_running_jobs_rejected_ignores_event_and_does_not_shutdown(self, qtbot, monkeypatch):
@@ -566,6 +567,73 @@ class TestMainWindowCloseConfirmationAndCancel:
         )
         assert not event.isAccepted()
         window.export_tab.shutdown.assert_not_called()
+
+    def test_close_with_running_async_batch_dispatch_prompts_and_counts_job(self, qtbot, monkeypatch):
+        """Batch API 非同期送信スレッド実行中も実行中ジョブ件数に含めて終了確認する (#1556 Codex P2)。"""
+        from PySide6.QtGui import QCloseEvent
+        from PySide6.QtWidgets import QMessageBox
+
+        window = self._make_closable_window(qtbot)
+        dispatch_thread = Mock()
+        dispatch_thread.isRunning.return_value = True
+        window.annotation_workflow_controller = SimpleNamespace(
+            _async_dispatch_in_progress=True,
+            _async_dispatch_thread=dispatch_thread,
+        )
+        question_mock = Mock(return_value=QMessageBox.StandardButton.No)
+        monkeypatch.setattr(QMessageBox, "question", question_mock)
+
+        event = QCloseEvent()
+        window.closeEvent(event)
+
+        question_mock.assert_called_once_with(
+            window,
+            "終了確認",
+            "実行中のジョブが 1 件あります。中断して終了しますか？",  # noqa: RUF001
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        assert not event.isAccepted()
+        window.worker_service.cancel_all_workers.assert_not_called()
+
+    def test_close_with_running_provider_batch_collect_runners_prompts_and_counts_jobs(
+        self, qtbot, monkeypatch
+    ):
+        """Provider Batch 結果回収スレッド実行中も実行中ジョブ件数に含めて終了確認する (#1556 Codex P2)。"""
+        from PySide6.QtGui import QCloseEvent
+        from PySide6.QtWidgets import QMessageBox
+
+        window = self._make_closable_window(qtbot)
+        running_thread_1 = Mock()
+        running_thread_1.isRunning.return_value = True
+        running_thread_2 = Mock()
+        running_thread_2.isRunning.return_value = True
+        stopped_thread = Mock()
+        stopped_thread.isRunning.return_value = False
+        batch_widget = SimpleNamespace(
+            _collect_runners={
+                101: (running_thread_1, Mock()),
+                102: (running_thread_2, Mock()),
+                103: (stopped_thread, Mock()),
+            },
+            shutdown=Mock(),
+        )
+        window.jobs_tab = SimpleNamespace(provider_batch_job_widget=batch_widget)
+        question_mock = Mock(return_value=QMessageBox.StandardButton.No)
+        monkeypatch.setattr(QMessageBox, "question", question_mock)
+
+        event = QCloseEvent()
+        window.closeEvent(event)
+
+        question_mock.assert_called_once_with(
+            window,
+            "終了確認",
+            "実行中のジョブが 2 件あります。中断して終了しますか？",  # noqa: RUF001
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        assert not event.isAccepted()
+        batch_widget.shutdown.assert_not_called()
 
     def test_close_with_no_running_jobs_cancels_all_workers_without_prompt(self, qtbot, monkeypatch):
         """実行中ジョブがない場合は確認ダイアログを出さずに cancel_all_workers を呼んで終了する。"""
