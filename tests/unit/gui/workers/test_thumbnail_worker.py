@@ -216,6 +216,46 @@ class TestThumbnailWorkerPaging:
         assert decoded.size() == QSize(64, 32)
         assert decoded.pixelColor(0, 0).green() == 255
 
+    def test_smaller_low_res_falls_back_to_original_stored_image(self, tmp_path):
+        """低解像度画像の解像度が要求サムネイルサイズより小さい場合は元画像を優先する (#1542 Codex P2)。"""
+        orig_1 = tmp_path / "orig_1.png"
+        tiny_low_1 = tmp_path / "tiny_low_1.png"
+
+        # 元画像は高解像度 (512x256, 緑)
+        img_orig = QImage(512, 256, QImage.Format.Format_RGB32)
+        img_orig.fill(0x00FF00)
+        assert img_orig.save(str(orig_1))
+
+        # 低解像度画像は要求サイズ(128x128)より小さい32x16 (青)
+        img_tiny = QImage(32, 16, QImage.Format.Format_RGB32)
+        img_tiny.fill(0x0000FF)
+        assert img_tiny.save(str(tiny_low_1))
+
+        metadata = [{"id": 1, "stored_image_path": str(orig_1)}]
+        search_result = _build_search_result(metadata)
+        db_manager = Mock()
+        db_manager.get_low_res_image_paths_batch.return_value = {1: str(tiny_low_1)}
+
+        worker = ThumbnailWorker(
+            search_result=search_result,
+            thumbnail_size=QSize(128, 128),
+            db_manager=db_manager,
+            request_id="req_tiny_low_res",
+            page_num=1,
+        )
+
+        result = worker.execute()
+
+        assert result.failed_count == 0
+        assert len(result.loaded_thumbnails) == 1
+        img_id, decoded = result.loaded_thumbnails[0]
+        assert img_id == 1
+        assert not decoded.isNull()
+        # 元画像(512x256, 緑)から128x64に縮小されていること（青い小さな画像が128に引き伸ばされていないこと）
+        assert decoded.size() == QSize(128, 64)
+        assert decoded.pixelColor(0, 0).green() == 255
+        assert decoded.pixelColor(0, 0).blue() == 0
+
     def test_explicit_thumbnail_worker_uses_qimagereader_scaled_decode(self, tmp_path):
         """ExplicitThumbnailWorker.load_image も QImageReader で縮小デコードする (#1542)。"""
         from lorairo.gui.workers.explicit_thumbnail_worker import ExplicitThumbnailWorker

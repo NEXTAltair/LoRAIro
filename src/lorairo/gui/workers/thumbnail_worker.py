@@ -217,26 +217,14 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
                 # サムネイル用の最適な画像パスを取得
                 thumbnail_path = self._get_thumbnail_path(image_data, image_id)
 
-                if not thumbnail_path:
-                    batch_failed += 1
-                    continue
-
-                if not thumbnail_path.exists():
+                if not thumbnail_path or not thumbnail_path.exists():
                     batch_failed += 1
                     continue
 
                 # サムネイル読み込み（QImageReaderで縮小デコード、スレッドセーフ）
-                scaled_qimage = self._decode_thumbnail(thumbnail_path)
-                if scaled_qimage.isNull():
-                    # 低解像度画像が破損等で読めない場合は元画像 (stored_image_path) へフォールバック (#1542 Codex P2)
-                    fallback_path = self._get_original_thumbnail_path(image_data)
-                    if (
-                        fallback_path is not None
-                        and fallback_path != thumbnail_path
-                        and fallback_path.exists()
-                    ):
-                        thumbnail_path = fallback_path
-                        scaled_qimage = self._decode_thumbnail(fallback_path)
+                thumbnail_path, scaled_qimage = self._decode_thumbnail_with_fallback(
+                    thumbnail_path, image_data
+                )
                 if scaled_qimage.isNull():
                     batch_failed += 1
                     continue
@@ -258,6 +246,34 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
                 )
 
         return batch_loaded, batch_failed
+
+    def _is_image_smaller_than_target(self, path: Path) -> bool:
+        """指定パスの画像解像度が要求サムネイルサイズより小さいか判定する (#1542 Codex P2)。"""
+        if self.thumbnail_size.isEmpty():
+            return False
+        reader = QImageReader(str(path))
+        orig_size = reader.size()
+        return (
+            orig_size.isValid()
+            and max(orig_size.width(), orig_size.height())
+            < max(self.thumbnail_size.width(), self.thumbnail_size.height())
+        )
+
+    def _decode_thumbnail_with_fallback(
+        self, thumbnail_path: Path, image_data: dict[str, Any]
+    ) -> tuple[Path, QImage]:
+        """サムネイルをデコードし、破損またはサイズ不足時は元画像へフォールバックする (#1542 Codex P2)。"""
+        scaled_qimage = self._decode_thumbnail(thumbnail_path)
+        fallback_path = self._get_original_thumbnail_path(image_data)
+        if not (fallback_path and fallback_path != thumbnail_path and fallback_path.exists()):
+            return thumbnail_path, scaled_qimage
+
+        should_fallback = scaled_qimage.isNull() or self._is_image_smaller_than_target(
+            thumbnail_path
+        )
+        if should_fallback:
+            return fallback_path, self._decode_thumbnail(fallback_path)
+        return thumbnail_path, scaled_qimage
 
     def _decode_thumbnail(self, thumbnail_path: Path) -> QImage:
         """QImageReader の setScaledSize を用いて縮小デコードを行う (#1542)。"""
@@ -310,6 +326,21 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
             logger.warning(f"元画像パス取得エラー: image_id={image_data.get('id')}, error={e}")
         return None
 
+    def _resolve_low_res_path(
+        self, image_id: int, low_res_map: dict[int, str] | None = None
+    ) -> Path | None:
+        """低解像度画像のパスを解決して存在を確認する。"""
+        from ...database.db_core import resolve_stored_path
+
+        effective_low_res_map = low_res_map if low_res_map is not None else self._low_res_map
+        if not isinstance(effective_low_res_map, dict):
+            return None
+        low_res_stored = effective_low_res_map.get(image_id)
+        if not (isinstance(low_res_stored, str | Path) and low_res_stored):
+            return None
+        low_res_path = resolve_stored_path(str(low_res_stored))
+        return low_res_path if low_res_path.exists() else None
+
     def _get_thumbnail_path(
         self,
         image_data: dict[str, Any],
@@ -329,17 +360,22 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
         try:
             from ...database.db_core import resolve_stored_path
 
-            effective_low_res_map = low_res_map if low_res_map is not None else self._low_res_map
-            if isinstance(effective_low_res_map, dict):
-                low_res_stored = effective_low_res_map.get(image_id)
-                if isinstance(low_res_stored, str | Path) and low_res_stored:
-                    low_res_path = resolve_stored_path(str(low_res_stored))
-                    if low_res_path.exists():
-                        return low_res_path
+            low_res_path = self._resolve_low_res_path(image_id, low_res_map)
+            low_res_candidate: Path | None = None
+            if low_res_path is not None:
+                if self._is_image_smaller_than_target(low_res_path):
+                    low_res_candidate = low_res_path
+                else:
+                    return low_res_path
 
             stored_path = image_data.get("stored_image_path")
             if isinstance(stored_path, str | Path) and stored_path:
-                return resolve_stored_path(str(stored_path))
+                stored_resolved = resolve_stored_path(str(stored_path))
+                if stored_resolved.exists():
+                    return stored_resolved
+                return low_res_candidate or stored_resolved
+
+            return low_res_candidate
 
         except Exception as e:
             logger.warning(f"サムネイルパス取得エラー: image_id={image_id}, error={e}")
