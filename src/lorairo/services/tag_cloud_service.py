@@ -76,10 +76,11 @@ class TagCloudService:
 
     def build_graph(
         self,
-        keyword: str,
-        selected_tags: list[str] | None = None,
+        keyword: str = "",
+        selected_tags: Sequence[str] | None = None,
         max_nodes: int = _DEFAULT_MAX_NODES,
         max_edges_per_node: int = _DEFAULT_MAX_EDGES_PER_NODE,
+        min_edge_weight: int = _MIN_EDGE_WEIGHT,
     ) -> GraphResult:
         """キーワードと絞り込みタグから共起グラフを構築する。
 
@@ -88,14 +89,15 @@ class TagCloudService:
             - `selected_tags` のタグを全て持つ（AND 絞り込み）
 
         ノードは該当画像群の頻度上位 `max_nodes` 個（絞り込み中タグを除く）。
-        エッジは採用ノード間の共起のうち共起回数 >= 2 のものを、ノードあたり
-        `max_edges_per_node` 本まで（共起の強い順に）採用する。
+        エッジは採用ノード間の共起のうち共起回数 >= `min_edge_weight` のものを、
+        ノードあたり `max_edges_per_node` 本まで（共起の強い順に）採用する。
 
         Args:
             keyword: 部分一致検索キーワード。空文字なら空グラフを返す。
             selected_tags: ドリルダウンで追加された完全一致タグのリスト。
             max_nodes: ノード数の上限。
             max_edges_per_node: 1ノードあたりのエッジ採用数上限。
+            min_edge_weight: エッジとして採用する最小共起回数（1以上）。
 
         Returns:
             GraphResult — ノード・エッジ・隣接情報と該当件数。
@@ -136,7 +138,14 @@ class TagCloudService:
 
         nodes = self._build_nodes(top)
         node_index = {n.tag: i for i, n in enumerate(nodes)}
-        edges, adjacency = self._build_edges(matched, keep, node_index, len(nodes), max_edges_per_node)
+        edges, adjacency = self._build_edges(
+            matched,
+            keep,
+            node_index,
+            len(nodes),
+            max_edges_per_node,
+            min_edge_weight=min_edge_weight,
+        )
 
         logger.debug(
             f"TagGraph: keyword='{keyword_norm}' selected={selected} "
@@ -233,6 +242,7 @@ class TagCloudService:
         node_index: dict[str, int],
         node_count: int,
         max_edges_per_node: int,
+        min_edge_weight: int = _MIN_EDGE_WEIGHT,
     ) -> tuple[list[GraphEdge], list[set[int]]]:
         """採用ノード間の共起ペアを集計し、エッジと隣接情報を返す。"""
         # ペア共起回数
@@ -247,8 +257,9 @@ class TagCloudService:
         candidates = sorted(pair.items(), key=lambda kv: kv[1], reverse=True)
         per_node: dict[int, int] = {}
         kept: list[GraphEdge] = []
+        threshold = max(1, min_edge_weight)
         for (a_tag, b_tag), w in candidates:
-            if w < _MIN_EDGE_WEIGHT:
+            if w < threshold:
                 continue
             a, b = node_index[a_tag], node_index[b_tag]
             if per_node.get(a, 0) >= max_edges_per_node and per_node.get(b, 0) >= max_edges_per_node:
