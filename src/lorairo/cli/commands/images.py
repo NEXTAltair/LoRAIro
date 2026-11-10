@@ -25,7 +25,12 @@ from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._errors import result_exit_code
 from lorairo.cli._glyphs import OK
-from lorairo.cli._image_ids import MAX_IMAGE_IDS, parse_image_ids, validate_image_ids_exist
+from lorairo.cli._image_ids import (
+    MAX_IMAGE_IDS,
+    parse_image_ids,
+    resolve_image_ids_input,
+    validate_image_ids_exist,
+)
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.cli.commands.duplicates import report as report_duplicates_command
 from lorairo.cli.commands.processing import process as process_images_command
@@ -86,6 +91,14 @@ class ImageSearchQuery(BaseModel):
     height_max: int | None = Field(default=None, ge=1)
     filename_pattern: str | None = None
     format_name: str | None = Field(default=None, alias="format")
+    phash: str | None = Field(
+        default=None,
+        description="Perceptual hash (16-char hex for exact match, or shorter prefix; case-insensitive, Issue #1506).",
+    )
+    phash_prefix: str | None = Field(
+        default=None,
+        description="Case-insensitive prefix match on perceptual hash (Issue #1506).",
+    )
     limit: int = Field(default=500, ge=1, le=500)
     offset: int = Field(default=0, ge=0)
     # Issue #1216: bulk workflow 用に全マッチ ID を出力する opt-in。count-first の
@@ -589,6 +602,8 @@ def _search_query_to_criteria(q: ImageSearchQuery) -> ImageFilterCriteria:
         height_max=q.height_max,
         filename_pattern=q.filename_pattern,
         format_name=q.format_name,
+        phash=q.phash,
+        phash_prefix=q.phash_prefix,
         limit=q.limit,
         offset=q.offset,
         sort_field=sort_spec.field,
@@ -765,10 +780,15 @@ def show(
         if is_json_mode():
             for image_id in image_ids:
                 annotations = annotations_by_id[image_id]
+                metadata = _image_metadata_payload(metadata_by_id.get(image_id))
                 emit_item(
                     {
                         "image_id": image_id,
-                        "metadata": _image_metadata_payload(metadata_by_id.get(image_id)),
+                        "phash": metadata["phash"] if metadata is not None else None,
+                        "stored_image_path": (
+                            metadata["stored_image_path"] if metadata is not None else None
+                        ),
+                        "metadata": metadata,
                         "tags": annotations["tags"],
                         "captions": annotations["captions"],
                         "scores": annotations["scores"],
@@ -790,6 +810,8 @@ def show(
                         f"  path: {metadata['stored_image_path']}"
                         f" ({metadata['width']}x{metadata['height']}, {metadata['format']})"
                     )
+                    if metadata.get("phash"):
+                        console.print(f"  phash: {metadata['phash']}")
                 console.print(f"  tags: {', '.join(tag_names) if tag_names else '(none)'}")
                 console.print(f"  captions: {' | '.join(caption_texts) if caption_texts else '(none)'}")
 
@@ -1255,6 +1277,326 @@ def crop_batch(
         status = _report_crop_batch_summary(items, project=project, dry_run=dry_run, json_mode=json_mode)
         if status != "success":
             raise typer.Exit(result_exit_code(status))
+
+
+CANONICAL_MANUAL_RATINGS: tuple[str, ...] = ("PG", "PG-13", "R", "X", "XXX")
+BULK_RATE_CHUNK_SIZE = 500
+
+
+class ImagesRateInput(BaseModel):
+    """Implemented options surface accepted by ``images rate`` (Issue #1504)."""
+
+    project: str
+    rating: str = Field(
+        description="Manual rating value: PG, PG-13, R, X, XXX, or none to clear (case-insensitive)."
+    )
+    image_ids: str | None = Field(
+        default=None,
+        description="Comma-separated image IDs, max 500 (or use image_ids_file).",
+    )
+    image_ids_file: str | None = Field(
+        default=None,
+        description=(
+            "Path to a newline/comma-separated image ID list for bulk operations "
+            "(chunked in 500s, max 100,000; mutually exclusive with image_ids)."
+        ),
+    )
+    apply: bool = Field(default=False, description="Write to DB. Default is dry-run.")
+
+    model_config = ConfigDict(title="ImagesRateInput")
+
+
+class ImagesRateItem(BaseModel):
+    """JSONL item payload emitted per image or chunk by ``images rate --json`` (Issue #1504)."""
+
+    kind: Literal["item"] = "item"
+    image_id: int | None = None
+    chunk_images: int | None = None
+    processed: int | None = None
+    rating: str | None = None
+    updated_count: int | None = None
+    unchanged_count: int | None = None
+    cleared_count: int | None = None
+    status: Literal["dry_run", "updated", "cleared", "unchanged", "changed", "failed"]
+    error: str | None = None
+
+    model_config = ConfigDict(title="ImagesRateItem")
+
+
+class ImagesRateResult(BaseModel):
+    """JSONL terminal result payload emitted by ``images rate --json`` (Issue #1504)."""
+
+    kind: Literal["result"] = "result"
+    ok: bool = True
+    status: Literal["success", "partial_success", "failed"] = "success"
+    message: str
+    project: str
+    rating: str | None = None
+    dry_run: bool
+    target_count: int
+    target_images: int
+    updated_count: int
+    unchanged_count: int
+    cleared_count: int = 0
+    failed_chunks: int = 0
+
+    model_config = ConfigDict(title="ImagesRateResult")
+
+
+def _normalize_manual_rating_arg(rating: str) -> str | None:
+    """Validate and canonicalize ``--rating`` CLI input (Issue #1504)."""
+    cleaned = rating.strip().upper()
+    if cleaned == "NONE":
+        return None
+    if cleaned in CANONICAL_MANUAL_RATINGS:
+        return cleaned
+    raise click.UsageError(
+        f"Invalid --rating value: {rating!r}. Must be one of: PG, PG-13, R, X, XXX, or none."
+    )
+
+
+def _iter_rate_chunks(image_ids: list[int]) -> list[list[int]]:
+    """Split ``image_ids`` into ``BULK_RATE_CHUNK_SIZE`` chunks."""
+    return [image_ids[i : i + BULK_RATE_CHUNK_SIZE] for i in range(0, len(image_ids), BULK_RATE_CHUNK_SIZE)]
+
+
+def _unpack_manual_rating_batch_result(
+    batch_res: object,
+    chunk_size: int,
+    canonical_rating: str | None,
+) -> tuple[int, int, int, dict[int, str]]:
+    """Extract counts and per-image statuses from ``update_manual_rating_batch`` return value."""
+    if isinstance(batch_res, tuple):
+        chunk_updated = int(batch_res[1])
+        chunk_unchanged = max(0, chunk_size - chunk_updated)
+        chunk_cleared = chunk_updated if canonical_rating is None else 0
+        return chunk_updated, chunk_unchanged, chunk_cleared, {}
+    if isinstance(batch_res, dict):
+        chunk_updated = int(batch_res.get("updated_count", chunk_size))
+        chunk_unchanged = int(batch_res.get("unchanged_count", 0))
+        chunk_cleared = int(
+            batch_res.get("cleared_count", chunk_updated if canonical_rating is None else 0)
+        )
+        return chunk_updated, chunk_unchanged, chunk_cleared, dict(batch_res.get("per_image_status") or {})
+    chunk_updated = int(getattr(batch_res, "updated_count", chunk_size))
+    chunk_unchanged = int(getattr(batch_res, "unchanged_count", 0))
+    chunk_cleared = int(getattr(batch_res, "cleared_count", 0))
+    per_image = dict(getattr(batch_res, "per_image_status", {}) or {})
+    return chunk_updated, chunk_unchanged, chunk_cleared, per_image
+
+
+def _emit_rate_chunk_success(
+    chunk: list[int],
+    *,
+    is_file: bool,
+    dry_run: bool,
+    canonical_rating: str | None,
+    processed: int,
+    total_target: int,
+    chunk_updated: int,
+    chunk_unchanged: int,
+    chunk_cleared: int,
+    per_image: dict[int, str],
+) -> None:
+    """Emit JSONL item(s) or human progress for one completed chunk of ``images rate``."""
+    default_status = "cleared" if canonical_rating is None else "updated"
+    if is_json_mode():
+        if is_file:
+            emit_item(
+                {
+                    "chunk_images": len(chunk),
+                    "processed": processed,
+                    "rating": canonical_rating,
+                    "updated_count": chunk_updated,
+                    "unchanged_count": chunk_unchanged,
+                    "cleared_count": chunk_cleared,
+                    "status": "dry_run" if dry_run else default_status,
+                }
+            )
+            return
+        for img_id in chunk:
+            item_status = "dry_run" if dry_run else per_image.get(img_id, default_status)
+            emit_item(
+                {
+                    "image_id": img_id,
+                    "rating": canonical_rating,
+                    "status": item_status,
+                }
+            )
+    elif is_file:
+        action_label = "解除" if canonical_rating is None else f"設定({canonical_rating})"
+        console.print(
+            f"[{processed}/{total_target}] {action_label}: 更新={chunk_updated}, 変更なし={chunk_unchanged}"
+        )
+
+
+def _emit_rate_chunk_failure(
+    chunk_len: int,
+    processed: int,
+    canonical_rating: str | None,
+    exc: Exception,
+) -> None:
+    """Emit JSONL item or stderr diagnostic when a bulk rate chunk fails."""
+    if is_json_mode():
+        emit_item(
+            {
+                "chunk_images": chunk_len,
+                "processed": processed,
+                "rating": canonical_rating,
+                "status": "failed",
+                "error": str(exc),
+            }
+        )
+    else:
+        err_console.print(f"[red]Chunk failed ({chunk_len} images): {exc}[/red]")
+
+
+def _execute_rate_chunks(
+    annotation_repo: AnnotationRepository,
+    chunks: list[list[int]],
+    canonical_rating: str | None,
+    *,
+    dry_run: bool,
+    is_file: bool,
+    total_target: int,
+) -> tuple[int, int, int, int]:
+    """Run ``update_manual_rating_batch`` across chunks and return aggregated counts."""
+    total_updated = 0
+    total_unchanged = 0
+    total_cleared = 0
+    succeeded_chunks = 0
+    failed_chunks = 0
+    processed = 0
+    first_error: Exception | None = None
+
+    for chunk in chunks:
+        try:
+            batch_res = annotation_repo.update_manual_rating_batch(
+                chunk,
+                canonical_rating,
+                dry_run=dry_run,
+            )
+        except Exception as exc:
+            if first_error is None:
+                first_error = exc
+            failed_chunks += 1
+            processed += len(chunk)
+            if succeeded_chunks == 0 and len(chunks) == 1:
+                raise
+            _emit_rate_chunk_failure(len(chunk), processed, canonical_rating, exc)
+            continue
+
+        succeeded_chunks += 1
+        processed += len(chunk)
+        chunk_updated, chunk_unchanged, chunk_cleared, per_image = _unpack_manual_rating_batch_result(
+            batch_res, len(chunk), canonical_rating
+        )
+        total_updated += chunk_updated
+        total_unchanged += chunk_unchanged
+        total_cleared += chunk_cleared
+        _emit_rate_chunk_success(
+            chunk,
+            is_file=is_file,
+            dry_run=dry_run,
+            canonical_rating=canonical_rating,
+            processed=processed,
+            total_target=total_target,
+            chunk_updated=chunk_updated,
+            chunk_unchanged=chunk_unchanged,
+            chunk_cleared=chunk_cleared,
+            per_image=per_image,
+        )
+
+    if succeeded_chunks == 0 and first_error is not None:
+        raise first_error
+    return total_updated, total_unchanged, total_cleared, failed_chunks
+
+
+@app.command("rate")
+def rate(
+    project: str = typer.Option(..., "--project", "-p", help="Target project name"),
+    rating: str = typer.Option(
+        ...,
+        "--rating",
+        "-r",
+        help="Manual rating value: PG, PG-13, R, X, XXX, or none to clear (case-insensitive).",
+    ),
+    image_ids_csv: str | None = typer.Option(
+        None,
+        "--image-ids",
+        help="Comma-separated image IDs, max 500 (or use --image-ids-file).",
+    ),
+    image_ids_file: str | None = typer.Option(
+        None,
+        "--image-ids-file",
+        help="Path to a newline/comma-separated image ID list (bulk; chunked in 500s, max 100,000).",
+    ),
+    apply: bool = typer.Option(False, "--apply", help="Write to DB (default: dry-run)."),
+) -> None:
+    """Set or clear manual rating (MANUAL_EDIT) for images in bulk (Issue #1504).
+
+    指定した image_ids の手動レーティング (MANUAL_EDIT) を設定または解除します。
+    AI モデルが付与した rating 行は上書き・削除しません (ADR 0015)。
+    デフォルトは dry-run です。--apply を付けると DB に書き込みます。
+
+    Example:
+        lorairo-cli images rate --project proj --rating PG --image-ids 1,2,3 --apply
+        lorairo-cli images rate --project proj --rating none --image-ids 1,2,3 --apply
+        lorairo-cli images rate --project proj --rating R --image-ids-file ids.txt --apply
+    """
+    with command_boundary():
+        canonical_rating = _normalize_manual_rating_arg(rating)
+        image_ids, is_file = resolve_image_ids_input(image_ids_csv, image_ids_file)
+
+        api_get_project(project)
+        container = get_service_container()
+        container.set_active_project(project)
+
+        chunks = _iter_rate_chunks(image_ids)
+        for chunk in chunks:
+            validate_image_ids_exist(container, chunk)
+
+        dry_run = not apply
+        total_updated, total_unchanged, total_cleared, failed_chunks = _execute_rate_chunks(
+            container.db_manager.annotation_repo,
+            chunks,
+            canonical_rating,
+            dry_run=dry_run,
+            is_file=is_file,
+            total_target=len(image_ids),
+        )
+
+        outcome_status: Literal["success", "partial_success", "failed"] = (
+            "partial_success" if failed_chunks > 0 else "success"
+        )
+        outcome_ok = outcome_status == "success"
+        rating_display = canonical_rating if canonical_rating is not None else "none"
+        prefix = "[dry-run] " if dry_run else ""
+        summary_msg = (
+            f"{prefix}Manual rating ({rating_display}) for {len(image_ids)} image(s): "
+            f"updated={total_updated}, unchanged={total_unchanged}"
+        )
+
+        if is_json_mode():
+            emit_result(
+                summary_msg,
+                ok=outcome_ok,
+                status=outcome_status,
+                project=project,
+                rating=canonical_rating,
+                dry_run=dry_run,
+                target_count=len(image_ids),
+                target_images=len(image_ids),
+                updated_count=total_updated,
+                unchanged_count=total_unchanged,
+                cleared_count=total_cleared,
+                failed_chunks=failed_chunks,
+            )
+        else:
+            console.print(f"{prefix}{OK} {summary_msg}")
+
+        if outcome_status != "success":
+            raise typer.Exit(result_exit_code(outcome_status))
 
 
 # Registration stays in this module; offline processing lives in its own command module.

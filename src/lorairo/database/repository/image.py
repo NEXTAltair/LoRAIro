@@ -3260,7 +3260,26 @@ class ImageRepository(BaseRepository):
             query = query.where(Image.filename.ilike(criteria.filename_pattern))
         if criteria.format_name:
             query = query.where(func.lower(Image.format) == criteria.format_name.strip().lower())
+        if criteria.phash is not None and criteria.phash.strip():
+            normalized_phash = self._normalize_phash_filter(criteria.phash)
+            if len(normalized_phash) < 16:
+                escaped = normalized_phash.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                query = query.where(Image.phash.ilike(f"{escaped}%", escape="\\"))
+            else:
+                query = query.where(func.lower(Image.phash) == normalized_phash)
+        if criteria.phash_prefix is not None and criteria.phash_prefix.strip():
+            normalized_prefix = self._normalize_phash_filter(criteria.phash_prefix)
+            escaped = normalized_prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            query = query.where(Image.phash.ilike(f"{escaped}%", escape="\\"))
         return self._apply_generation_metadata_filter(query, criteria)
+
+    @staticmethod
+    def _normalize_phash_filter(value: str) -> str:
+        """pHash フィルタ入力を正規化する (空白除去・小文字化・先頭 'pH:' 除去)。"""
+        raw = value.strip().lower()
+        if raw.startswith("ph:"):
+            raw = raw[3:].strip()
+        return raw
 
     @staticmethod
     def _escape_like_substring(value: str) -> str:

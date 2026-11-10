@@ -12,7 +12,7 @@
 段階 6 (#423): `ProviderBatchRepository` + legacy facade 撤廃
 """
 
-from .annotation_record import AnnotationRepository
+from .annotation_record import AnnotationRepository, ManualRatingBatchResult
 from .base import BaseRepository
 from .crop_relation import CropRelationRepository
 from .error_record import ErrorRecordRepository
@@ -27,6 +27,7 @@ __all__ = [
     "CropRelationRepository",
     "ErrorRecordRepository",
     "ImageRepository",
+    "ManualRatingBatchResult",
     "ModelRepository",
     "ProjectRepository",
     "ProviderBatchRepository",

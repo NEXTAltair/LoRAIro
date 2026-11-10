@@ -182,3 +182,5 @@ def test_reject_original_image_records_fails_mixed_selection_without_dropping() 
 
     assert "annotate run cannot operate directly on original images" in str(exc_info.value)
     assert "2:image_dataset/original_images/2.jpg" in str(exc_info.value)
+    assert "Hint: pass --resolution <px>" in str(exc_info.value)
+    assert "lorairo-cli images process" in str(exc_info.value)

@@ -239,7 +239,7 @@ lorairo-cli --json describe "annotate run"
 - `image_ids_file`: `str?` (optional, default `None`) - UTF-8 newline/comma IDs, max 100,000; exclusive with image_id. Filter intersection, ascending ID order, offset, limit; per-image outcomes streamed. (CLI: `--image-ids-file`)
 - `unrated`: `bool` (optional, default `False`) - Annotate only images without any saved rating rows. (CLI: `--unrated`)
 - `missing_model`: `str?` (optional, default `None`) - Annotate only images without saved annotations from the given LiteLLM model ID. (CLI: `--missing-model`)
-- `resolution`: `int>=1?` (optional, default `None`) - Use processed images at this resolution (long side in pixels). Images without a matching processed image are skipped. (CLI: `--resolution`)
+- `resolution`: `int>=1?` (optional, default `None`) - Use processed images at this resolution (long side in pixels, e.g. 512) to satisfy the original-image guard; omitted requires processed registered records. Images without a matching processed image are skipped. (CLI: `--resolution`)
 - `run_id`: `str?` (optional, default `None`) - New durable run identity; exclusive with resume. (CLI: `--run-id`)
 - `resume`: `str?` (optional, default `None`) - Resume pending items from this run; same project/models/config required; no selection or resolution overrides. (CLI: `--resume`)
 
@@ -1293,6 +1293,73 @@ Structured error payload emitted as kind=error by the CLI boundary.
 - `hint`: `str?` (optional, default `None`)
 - `details`: `dict?` (optional, default `None`)
 
+### `images rate`
+
+Set or clear manual rating (MANUAL_EDIT) for images in bulk (Issue #1504). Default dry-run; use --apply to write. Never overwrites AI model rating rows.
+
+- Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
+- Side effects: `db_read`, `db_write`, `file_read`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "images rate"
+```
+
+#### Models
+
+**Input `ImagesRateInput`**
+
+- `project`: `str` (required) - Target project name (CLI: `--project`, `-p`)
+- `rating`: `str` (required) - Manual rating value: PG, PG-13, R, X, XXX, or none to clear (case-insensitive). (CLI: `--rating`, `-r`)
+- `image_ids`: `str?` (optional, default `None`) - Comma-separated image IDs, max 500 (or use --image-ids-file). (CLI: `--image-ids`)
+- `image_ids_file`: `str?` (optional, default `None`) - Path to a newline/comma-separated image ID list for bulk operations (chunked internally, max 100,000; mutually exclusive with image_ids, Issue #1216). For tags commands, bulk mode emits TagsBulkProgressItem chunk-progress rows instead of per-image TagsEditItem. (CLI: `--image-ids-file`)
+- `apply`: `bool` (optional, default `False`) - Write to DB (default: dry-run). (CLI: `--apply`)
+
+**Output `ImagesRateItem`**
+
+- `kind`: `item` (optional, default `item`)
+- `image_id`: `int?` (optional, default `None`)
+- `chunk_images`: `int?` (optional, default `None`)
+- `processed`: `int?` (optional, default `None`)
+- `rating`: `str?` (optional, default `None`)
+- `updated_count`: `int?` (optional, default `None`)
+- `unchanged_count`: `int?` (optional, default `None`)
+- `cleared_count`: `int?` (optional, default `None`)
+- `status`: `dry_run | updated | cleared | unchanged | changed | failed` (required)
+- `error`: `str?` (optional, default `None`)
+
+**Output `ImagesRateResult`**
+
+- `kind`: `result` (optional, default `result`)
+- `ok`: `bool` (optional, default `True`)
+- `status`: `success | partial_success | failed` (optional, default `success`) - Partial success returns ok=false and exit 3; total failure exits 1; normal skip/empty exits 0.
+- `message`: `str` (required)
+- `project`: `str` (required)
+- `rating`: `str?` (optional, default `None`)
+- `dry_run`: `bool` (required)
+- `target_count`: `int` (required)
+- `target_images`: `int` (required)
+- `updated_count`: `int` (required)
+- `unchanged_count`: `int` (required)
+- `cleared_count`: `int` (optional, default `0`)
+- `failed_chunks`: `int` (optional, default `0`)
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (optional, default `error`)
+- `ok`: `false` (optional, default `False`)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional, default `None`)
+- `details`: `dict?` (optional, default `None`)
+
 ### `images register`
 
 Register images and stream authoritative DB outcomes with unique selected IDs. See docs/cli-registration-workflow.md for same-project ID handoff and partial failures.
@@ -1403,6 +1470,8 @@ JSON body schema passed via --query or --query-file.
 - `height_max`: `int>=1?` (optional, default `None`) - Maximum original image height in px.
 - `filename_pattern`: `str?` (optional, default `None`) - Case-insensitive SQL LIKE pattern on filename ('%'/'_' wildcards).
 - `format`: `str?` (optional, default `None`) - Case-insensitive exact match on image format (e.g. 'jpeg', 'png').
+- `phash`: `str?` (optional, default `None`) - Perceptual hash (16-char hex for exact match, or shorter prefix; case-insensitive, Issue #1506).
+- `phash_prefix`: `str?` (optional, default `None`) - Case-insensitive prefix match on perceptual hash (Issue #1506).
 - `limit`: `int[1,500]` (optional, default `500`)
 - `offset`: `int>=0` (optional, default `0`)
 - `emit_ids`: `bool` (optional, default `False`) - Emit ALL matching image_ids (paged internally), bypassing the count-first ResultSetTooLargeError guard, for piping into tags --image-ids-file (Issue #1216). Capped at 100,000.
@@ -1465,6 +1534,8 @@ lorairo-cli --json describe "images show"
 **Output `ImagesShowItem`**
 
 - `image_id`: `int` (required)
+- `phash`: `str?` (optional, default `None`) - Perceptual hash (16-char hex) for cross-checking error logs and duplicates (Issue #1506).
+- `stored_image_path`: `str?` (optional, default `None`) - Project-relative stored image path (Issue #1506).
 - `metadata`: `dict?` (optional, default `None`) - Image file metadata (stored_image_path/original_image_path/width/height/format/filename/extension/phash/uuid). Null when unavailable.
 - `tags`: `list[dict]` (required)
 - `captions`: `list[dict]` (required)

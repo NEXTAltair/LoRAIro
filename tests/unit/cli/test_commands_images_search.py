@@ -138,6 +138,109 @@ class TestImagesSearch:
         assert criteria.filename_pattern == "sample_%"
         assert criteria.format_name == "jpeg"
 
+    def test_search_phash_and_phash_prefix_flow_to_criteria(
+        self, mock_search_context: tuple, tmp_path: pytest.FixtureDef
+    ) -> None:
+        """phash / phash_prefix 条件が ImageFilterCriteria へ渡る (Issue #1506)。"""
+        container, _ = mock_search_context
+        query_file = tmp_path / "phash.json"
+        query_file.write_text(
+            json.dumps(
+                {
+                    "phash": "9c9b56b4e96827c9",
+                    "phash_prefix": "9c9b56b4",
+                }
+            )
+        )
+        result = runner.invoke(
+            app,
+            ["--json", "images", "search", "--project", "proj", "--query-file", str(query_file)],
+        )
+        assert result.exit_code == 0
+        criteria = container.db_manager.image_repo.get_images_by_filter.call_args.args[0]
+        assert criteria.phash == "9c9b56b4e96827c9"
+        assert criteria.phash_prefix == "9c9b56b4"
+
+    def test_image_repository_phash_exact_and_prefix_sql_filtering(self) -> None:
+        """ImageRepository._apply_image_metadata_filter が phash 完全一致・前方一致を解決する (Issue #1506)。"""
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+
+        from lorairo.database.repository.image import ImageRepository
+        from lorairo.database.schema import Base, Image
+
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(bind=engine)
+
+        with session_factory() as session:
+            session.add_all(
+                [
+                    Image(
+                        id=1,
+                        uuid="u1",
+                        phash="9c9b56b4e96827c9",
+                        original_image_path="/src/1.jpg",
+                        stored_image_path="image_dataset/original_images/1.jpg",
+                        width=512,
+                        height=512,
+                        format="JPEG",
+                        mode="RGB",
+                        has_alpha=False,
+                        filename="1",
+                        extension="jpg",
+                    ),
+                    Image(
+                        id=2,
+                        uuid="u2",
+                        phash="9c9b56b411112222",
+                        original_image_path="/src/2.jpg",
+                        stored_image_path="image_dataset/original_images/2.jpg",
+                        width=512,
+                        height=512,
+                        format="JPEG",
+                        mode="RGB",
+                        has_alpha=False,
+                        filename="2",
+                        extension="jpg",
+                    ),
+                    Image(
+                        id=3,
+                        uuid="u3",
+                        phash="ffffffff00000000",
+                        original_image_path="/src/3.jpg",
+                        stored_image_path="image_dataset/original_images/3.jpg",
+                        width=512,
+                        height=512,
+                        format="JPEG",
+                        mode="RGB",
+                        has_alpha=False,
+                        filename="3",
+                        extension="jpg",
+                    ),
+                ]
+            )
+            session.commit()
+
+        repo = ImageRepository(session_factory)
+        exact_rows, exact_total = repo.get_images_by_filter(
+            ImageFilterCriteria(phash="pH:9C9B56B4E96827C9", include_nsfw=True)
+        )
+        assert exact_total == 1
+        assert [r["id"] for r in exact_rows] == [1]
+
+        short_phash_rows, short_total = repo.get_images_by_filter(
+            ImageFilterCriteria(phash="9c9b56b4", include_nsfw=True)
+        )
+        assert short_total == 2
+        assert sorted(r["id"] for r in short_phash_rows) == [1, 2]
+
+        prefix_rows, prefix_total = repo.get_images_by_filter(
+            ImageFilterCriteria(phash_prefix="9C9B56B4", include_nsfw=True)
+        )
+        assert prefix_total == 2
+        assert sorted(r["id"] for r in prefix_rows) == [1, 2]
+
     def test_emit_ids_pages_all_matching_bypassing_guard(
         self, mock_search_context: tuple, tmp_path
     ) -> None:

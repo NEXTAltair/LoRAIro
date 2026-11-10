@@ -77,5 +77,7 @@ def reject_original_image_records(
     raise click.UsageError(
         f"{command_name} cannot operate directly on original images. "
         "Select processed/resized image records instead. "
-        f"Rejected {len(original_records)} original image(s): {samples}{extra}"
+        f"Rejected {len(original_records)} original image(s): {samples}{extra}. "
+        "Hint: pass --resolution <px> (e.g. --resolution 512) to operate on processed variants "
+        "of the same image IDs, or run 'lorairo-cli images process --project <name> --resolution <px>' first."
     )

@@ -126,6 +126,8 @@ class ImageFilterCriteria:
     height_max: int | None = None
     filename_pattern: str | None = None  # SQL LIKE パターン (大小無視)。'%' / '_' ワイルドカード可
     format_name: str | None = None  # Image.format 完全一致 (大小無視)。例: "jpeg" / "png"
+    phash: str | None = None  # Image.phash 完全一致または前方一致 (大小無視、Issue #1506)
+    phash_prefix: str | None = None  # Image.phash 前方一致 (大小無視、Issue #1506)
     # ADR 0055: 指定時は他フィルタを bypass する exact-set selector
     image_ids: list[int] | None = None
     # Issue #697: images search で使用するソート条件
