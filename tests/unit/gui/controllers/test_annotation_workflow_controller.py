@@ -1377,3 +1377,55 @@ class TestStartAnnotationEntry:
             mock_qmb.information.assert_called_once()
 
         ctrl.start_annotation_workflow.assert_not_called()
+
+    def test_start_annotation_refreshes_model_selection_only_once(
+        self,
+        controller: AnnotationWorkflowController,
+    ) -> None:
+        """Issue #1546: start_annotation -> start_annotation_workflow で refresh_model_selection が二重呼び出しされない。"""
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+
+        annotate_tab = Mock()
+        annotate_tab.run_options.return_value = RunOptions(dispatch_mode="sync")
+        annotate_tab.selected_litellm_model_ids.return_value = ["openai/gpt-4o"]
+        controller._annotate_tab = annotate_tab
+        controller._is_annotate_tab_active = lambda: False
+
+        controller.start_annotation("sync")
+
+        annotate_tab.refresh_model_selection.assert_called_once_with()
+
+    def test_resolve_processed_paths_for_batch_uses_batch_query(
+        self,
+        controller: AnnotationWorkflowController,
+    ) -> None:
+        """Issue #1546: _resolve_processed_paths_for_batch は get_low_res_image_paths_batch で一括取得する。"""
+        db_manager = Mock()
+        db_manager.get_low_res_image_paths_batch.return_value = {
+            1: "stored/low1.webp",
+            2: "stored/low2.webp",
+        }
+        controller._db_manager = db_manager
+
+        class _FakePath:
+            def __init__(self, value: str) -> None:
+                self._value = f"/abs/{value}"
+
+            def exists(self) -> bool:
+                return True
+
+            def __str__(self) -> str:
+                return self._value
+
+        with patch(
+            "lorairo.gui.controllers.annotation_workflow_controller.resolve_stored_path",
+            side_effect=lambda p: _FakePath(p),
+        ):
+            result = controller._resolve_processed_paths_for_batch([1, 2])
+
+        db_manager.get_low_res_image_paths_batch.assert_called_once_with([1, 2])
+        db_manager.get_low_res_image_path.assert_not_called()
+        assert result == {
+            1: "/abs/stored/low1.webp",
+            2: "/abs/stored/low2.webp",
+        }

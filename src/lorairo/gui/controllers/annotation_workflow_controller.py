@@ -250,11 +250,15 @@ def _start_sync_workflow(
         )
         return False
     logger.info(f"同期専用モデルを起動: {len(sync_ids)} モデル")
-    return controller.start_annotation_workflow(
-        selected_litellm_model_ids=sync_ids,
-        image_paths=staged_paths,
-        run_options=run_options,
-    )
+    controller._model_selection_refreshed_in_entry = True
+    try:
+        return controller.start_annotation_workflow(
+            selected_litellm_model_ids=sync_ids,
+            image_paths=staged_paths,
+            run_options=run_options,
+        )
+    finally:
+        controller._model_selection_refreshed_in_entry = False
 
 
 def _notify_batch_unavailable(
@@ -556,11 +560,17 @@ class AnnotationWorkflowController(QObject):
         run_options = annotate_tab.run_options() if annotate_tab is not None else None
 
         # タブの選択集合を使用する。未選択なら上で停止し、別モデルへ補完しない。
-        return self.start_annotation_workflow(
-            selected_litellm_model_ids=selected_litellm_model_ids,
-            image_paths=override_image_paths,
-            run_options=run_options,
-        )
+        # #1546: start_annotation で既に refresh_model_selection 済みのため、
+        # start_annotation_workflow 内の _validate_current_model_selection での重複呼び出しを抑止する。
+        self._model_selection_refreshed_in_entry = annotate_tab is not None
+        try:
+            return self.start_annotation_workflow(
+                selected_litellm_model_ids=selected_litellm_model_ids,
+                image_paths=override_image_paths,
+                run_options=run_options,
+            )
+        finally:
+            self._model_selection_refreshed_in_entry = False
 
     def start_annotation_workflow(
         self,
@@ -648,7 +658,8 @@ class AnnotationWorkflowController(QObject):
         """送信直前に current route と照合し、SSoT の古い経路も解除する。"""
         if self._annotate_tab is None:
             return True
-        self._annotate_tab.refresh_model_selection()
+        if getattr(self, "_model_selection_refreshed_in_entry", False) is not True:
+            self._annotate_tab.refresh_model_selection()
         selectable = self._annotate_tab.batch_model_selection.selectable_litellm_model_ids()
         if all(mid in selectable for mid in model_ids):
             return True
@@ -1044,10 +1055,17 @@ class AnnotationWorkflowController(QObject):
         """
         if self._db_manager is None:
             return None
+        batch_getter = getattr(self._db_manager, "get_low_res_image_paths_batch", None)
+        raw_batch = batch_getter(image_ids) if callable(batch_getter) else None
+        batch_stored: dict[int, str] | None = raw_batch if isinstance(raw_batch, dict) else None
         processed_paths: dict[int, str] = {}
         missing: list[int] = []
         for image_id in image_ids:
-            stored = self._db_manager.get_low_res_image_path(image_id)
+            stored = (
+                batch_stored.get(image_id)
+                if batch_stored is not None
+                else self._db_manager.get_low_res_image_path(image_id)
+            )
             resolved = resolve_stored_path(stored) if stored else None
             if resolved is not None and resolved.exists():
                 processed_paths[image_id] = str(resolved)
