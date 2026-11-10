@@ -74,7 +74,7 @@ class DatasetImportWorker(LoRAIroWorkerBase[DatasetImportResult]):
             OSError: 設定 JSON を読めない場合。
         """
         assert self._db_manager is not None
-        self._report_progress(5, "取り込み計画を作成中...")
+        self._report_progress(10, "取り込み計画を作成中...")
         # 他の worker と同様、DB マネージャの session_factory を共有し短命セッションで使う
         repository = DatasetRepository(session_factory=self._db_manager.image_repo.session_factory)
         service = DatasetImportService(self._db_manager, repository, self._fsm)
@@ -83,14 +83,26 @@ class DatasetImportWorker(LoRAIroWorkerBase[DatasetImportResult]):
         # 版名の候補 (output_name) も選択された JSON から作る
         config_files = [path.resolve() for path in self._config_files]
         plan = service.propose_plan(self._root, self._dataset_name, self._version_name, config_files)
+        self._report_progress(30, "フォルダ構成と設定を確認中...")
         if self._parent_version_id is not None:
             plan = replace(plan, parent_version_id=self._parent_version_id)
         if self._folder_overrides is not None:
             plan = apply_folder_overrides(plan, self._folder_overrides)
 
+        included_folders = getattr(plan, "included_folders", []) or []
+        total_folders = len(included_folders)
+        for index, folder in enumerate(included_folders, start=1):
+            self._check_cancellation()
+            folder_progress = 30 + int(35 * index / total_folders)
+            self._report_progress(
+                folder_progress,
+                f"サブフォルダ準備中 ({index}/{total_folders}): {folder.dir_name}",
+            )
+
         self._check_cancellation()
-        self._report_progress(10, "データセットを取り込み中...")
+        self._report_progress(70, "データセットを取り込み中...")
         result = service.import_directory(self._root, plan)
+        self._report_progress(95, f"取り込み結果を集計中 ({result.image_count} 枚)...")
         self._report_progress(100, "データセット取り込み完了")
         logger.info(
             f"データセット取り込みワーカー完了: version_id={result.version_id}, "

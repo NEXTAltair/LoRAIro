@@ -8,6 +8,7 @@ worker スレッドで行い、GUI をブロックしない (`kohya_version_work
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal, Slot
@@ -42,16 +43,18 @@ from ...services.kohya_dataset_export_service import KohyaExportResult
 from ...utils.log import logger
 from ..message_box import show_information, show_warning
 from ..workers.kohya_version_workers import (
+    KohyaVersionCommitWorker,
     KohyaVersionCopyTagsWorker,
     KohyaVersionDetail,
     KohyaVersionDetailWorker,
+    KohyaVersionDiscardWorker,
     KohyaVersionExportWorker,
     KohyaVersionListWorker,
     KohyaVersionRevokeTagsWorker,
 )
 from ..workers.manager import WorkerManager
 
-_VERSION_HEADERS = ["データセット", "版", "版 ID", "親の版", "フォルダ", "画像", "作成日"]
+_VERSION_HEADERS = ["データセット", "版", "版 ID", "親の版", "フォルダ", "画像", "作成日", "状態"]
 _FOLDER_HEADERS = ["フォルダ", "繰り返し回数", "画像", "トリガーワード"]
 
 
@@ -78,6 +81,8 @@ class KohyaVersionExportDialog(QDialog):
     _copy_tags_finished = Signal(object)
     _revoke_tags_previewed = Signal(object)
     _revoke_tags_finished = Signal(object)
+    _commit_working_finished = Signal(int, str)
+    _discard_working_finished = Signal(int, str)
     _task_failed = Signal(str, str)
 
     def __init__(self, repository: DatasetRepository, parent: QWidget | None = None) -> None:
@@ -107,6 +112,8 @@ class KohyaVersionExportDialog(QDialog):
         self._copy_tags_finished.connect(self._on_copy_tags_finished)
         self._revoke_tags_previewed.connect(self._on_revoke_tags_previewed)
         self._revoke_tags_finished.connect(self._on_revoke_tags_finished)
+        self._commit_working_finished.connect(self._on_commit_working_finished)
+        self._discard_working_finished.connect(self._on_discard_working_finished)
         self._task_failed.connect(self._on_task_failed)
         self.load_versions()
 
@@ -176,11 +183,21 @@ class KohyaVersionExportDialog(QDialog):
         self.revoke_tags_button = QPushButton("プロジェクト全体の写したタグを取り消す")
         self.revoke_tags_button.setObjectName("kohyaRevokeTagsButton")
         self.revoke_tags_button.setToolTip(
-            "版が未選択のため、プロジェクト全体の KOHYA_DATASET タグを取り消す"
+            "版が未選択のため、プロジェクト全体の Kohya データセット タグを取り消す"
         )
         self.revoke_tags_button.clicked.connect(self._on_revoke_tags_clicked)
+        self.commit_working_button = QPushButton("作業版を確定")
+        self.commit_working_button.setObjectName("kohyaCommitWorkingButton")
+        self.commit_working_button.setEnabled(False)
+        self.commit_working_button.clicked.connect(self._on_commit_working_clicked)
+        self.discard_working_button = QPushButton("作業版を破棄")
+        self.discard_working_button.setObjectName("kohyaDiscardWorkingButton")
+        self.discard_working_button.setEnabled(False)
+        self.discard_working_button.clicked.connect(self._on_discard_working_clicked)
         buttons.addWidget(self.copy_tags_button)
         buttons.addWidget(self.revoke_tags_button)
+        buttons.addWidget(self.commit_working_button)
+        buttons.addWidget(self.discard_working_button)
         buttons.addStretch(1)
         self.export_button = QPushButton("書き出す")
         self.export_button.setObjectName("kohyaExportButton")
@@ -211,6 +228,7 @@ class KohyaVersionExportDialog(QDialog):
         self.version_table.setRowCount(len(self._versions))
         for row, version in enumerate(self._versions):
             created = version.created_at.strftime("%Y-%m-%d %H:%M") if version.created_at else "-"
+            status_text = "編集中" if getattr(version, "is_working", False) else "確定済"
             values = [
                 version.dataset_name,
                 version.version_name,
@@ -219,12 +237,14 @@ class KohyaVersionExportDialog(QDialog):
                 str(version.folder_count),
                 str(version.image_count),
                 created,
+                status_text,
             ]
             for column, value in enumerate(values):
                 self.version_table.setItem(row, column, QTableWidgetItem(value))
         self.status_label.setText(
             f"{len(self._versions)} 件の版" if self._versions else "取り込んだデータセットの版がありません"
         )
+        self._update_export_enabled()
 
     def selected_version(self) -> VersionSummary | None:
         """選択中の版を返す。"""
@@ -292,8 +312,14 @@ class KohyaVersionExportDialog(QDialog):
             self.config_combo.addItem(label, config.id)
         self.config_combo.blockSignals(False)
         self._update_unmapped_warning()
+        selected = self.selected_version()
+        is_working = bool(
+            getattr(detail.snapshot, "is_working", False)
+            or (selected is not None and getattr(selected, "is_working", False))
+        )
+        state_label = "編集中" if is_working else "確定済"
         self.status_label.setText(
-            f"{detail.snapshot.dataset_name} / {detail.snapshot.version_name}: "
+            f"{detail.snapshot.dataset_name} / {detail.snapshot.version_name} ({state_label}): "
             f"{len(folders)} フォルダ、学習設定 {len(detail.training_configs)} 件"
         )
         self._update_export_enabled()
@@ -329,7 +355,12 @@ class KohyaVersionExportDialog(QDialog):
 
     @Slot()
     def _update_export_enabled(self) -> None:
-        has_selection = self.selected_version() is not None
+        selected = self.selected_version()
+        has_selection = selected is not None
+        is_working = bool(
+            (selected is not None and getattr(selected, "is_working", False))
+            or (self._detail is not None and getattr(self._detail.snapshot, "is_working", False))
+        )
         self.export_button.setEnabled(
             not self._exporting and self._detail is not None and bool(self.output_dir_edit.text().strip())
         )
@@ -337,17 +368,100 @@ class KohyaVersionExportDialog(QDialog):
         if has_selection:
             self.revoke_tags_button.setText("選択した版の写したタグを取り消す")
             self.revoke_tags_button.setToolTip(
-                "選択中の版（および対象フォルダ）で写した KOHYA_DATASET タグを取り消す"
+                "選択中の版（および対象フォルダ）で写した Kohya データセット タグを取り消す"
             )
         else:
             self.revoke_tags_button.setText("プロジェクト全体の写したタグを取り消す")
             self.revoke_tags_button.setToolTip(
-                "版が未選択のため、プロジェクト全体の KOHYA_DATASET タグを取り消す"
+                "版が未選択のため、プロジェクト全体の Kohya データセット タグを取り消す"
             )
         self.revoke_tags_button.setEnabled(
             not self._exporting and (self._detail is not None or not has_selection)
         )
+        self.commit_working_button.setEnabled(not self._exporting and is_working)
+        self.discard_working_button.setEnabled(not self._exporting and is_working)
         self.tag_folder_combo.setEnabled(not self._exporting and self._detail is not None)
+
+    @Slot()
+    def _on_commit_working_clicked(self) -> None:
+        version = self.selected_version()
+        if version is None or not getattr(version, "is_working", False) or self._exporting:
+            return
+        version_id = version.version_id
+        version_name = version.version_name
+        self._start_busy(f"作業版 {version_name} を確定中...")
+        worker = KohyaVersionCommitWorker(self._repository, version_id)
+        worker.finished.connect(
+            lambda _res, vid=version_id, vname=version_name: self._commit_working_finished.emit(vid, vname)
+        )
+        worker.error_occurred.connect(
+            lambda message: self._task_failed.emit("commit_working", str(message))
+        )
+        self._worker_manager.start_worker(f"kohya_commit_working_{version_id}", worker)
+
+    @Slot(int, str)
+    def _on_commit_working_finished(self, version_id: int, version_name: str) -> None:
+        self._end_export()
+        for row, ver in enumerate(self._versions):
+            if ver.version_id == version_id:
+                self._versions[row] = replace(ver, is_working=False)
+                self.version_table.setItem(row, 7, QTableWidgetItem("確定済"))
+                break
+        if (
+            self._detail is not None
+            and self._detail.version_id == version_id
+            and hasattr(self._detail, "snapshot")
+        ):
+            try:
+                self._detail = replace(
+                    self._detail,
+                    snapshot=replace(self._detail.snapshot, is_working=False),
+                )
+            except Exception:
+                pass
+        self.status_label.setText(f"作業版 {version_name} を確定しました (確定済)")
+        self._update_export_enabled()
+
+    @Slot()
+    def _on_discard_working_clicked(self) -> None:
+        version = self.selected_version()
+        if version is None or not getattr(version, "is_working", False) or self._exporting:
+            return
+        reply = QMessageBox.question(
+            self,
+            "作業版を破棄",
+            f"作業版「{version.version_name}」を破棄しますか?\nこの操作は取り消せません。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            self.status_label.setText("作業版の破棄をキャンセルしました")
+            return
+        version_id = version.version_id
+        version_name = version.version_name
+        self._start_busy(f"作業版 {version_name} を破棄中...")
+        worker = KohyaVersionDiscardWorker(self._repository, version_id)
+        worker.finished.connect(
+            lambda _res, vid=version_id, vname=version_name: self._discard_working_finished.emit(vid, vname)
+        )
+        worker.error_occurred.connect(
+            lambda message: self._task_failed.emit("discard_working", str(message))
+        )
+        self._worker_manager.start_worker(f"kohya_discard_working_{version_id}", worker)
+
+    @Slot(int, str)
+    def _on_discard_working_finished(self, version_id: int, version_name: str) -> None:
+        self._end_export()
+        for row, ver in enumerate(self._versions):
+            if ver.version_id == version_id:
+                self._versions.pop(row)
+                self.version_table.removeRow(row)
+                break
+        if self._detail is not None and self._detail.version_id == version_id:
+            self._detail = None
+            self.folder_table.setRowCount(0)
+        self.status_label.setText(f"作業版 {version_name} を破棄しました")
+        self._update_export_enabled()
 
     def _start_busy(self, status_text: str) -> None:
         self._exporting = True
@@ -390,7 +504,7 @@ class KohyaVersionExportDialog(QDialog):
         reply = QMessageBox.question(
             self,
             "学習テキストをタグへ写す",
-            f"版の学習テキストをライブラリのタグ (KOHYA_DATASET) へ写します。\n\n"
+            f"版の学習テキストをライブラリのタグ (Kohya データセット) へ写します。\n\n"
             f"対象フォルダ: {scope_label} ({result.folders} フォルダ)\n"
             f"対象画像数: {result.images}\n"
             f"追加予定タグ数: {result.tags_added}\n"
@@ -475,14 +589,12 @@ class KohyaVersionExportDialog(QDialog):
             )
             confirm_line = "選択した版の写したタグを取り消しますか?"
         else:
-            scope_line = (
-                "対象範囲: プロジェクト全体 (版未選択のためプロジェクト全体の KOHYA_DATASET タグを削除)"
-            )
+            scope_line = "対象範囲: プロジェクト全体 (版未選択のためプロジェクト全体の Kohya データセット タグを削除)"
             confirm_line = "プロジェクト全体の写したタグを取り消しますか?"
         reply = QMessageBox.question(
             self,
             "写したタグを取り消す",
-            f"擬似モデル KOHYA_DATASET のタグ行だけを削除します (手動・AI タグは残ります)。\n\n"
+            f"Kohya データセットのタグ行だけを削除します (手動・AI タグは残ります)。\n\n"
             f"{scope_line}\n"
             f"対象画像数: {result.images}\n"
             f"削除予定タグ数: {result.tags_removed}\n\n"
@@ -494,7 +606,7 @@ class KohyaVersionExportDialog(QDialog):
             self.status_label.setText("タグの取り消しをキャンセルしました")
             return
 
-        self._start_busy("KOHYA_DATASET タグを取り消し中...")
+        self._start_busy("Kohya データセット タグを取り消し中...")
         worker = KohyaVersionRevokeTagsWorker(
             self._repository,
             version_id=version_id,
@@ -594,6 +706,16 @@ class KohyaVersionExportDialog(QDialog):
             self._end_export()
             self.status_label.setText("タグの取り消しに失敗しました")
             show_warning(self, "写したタグの取り消しエラー", message)
+            return
+        if task == "commit_working":
+            self._end_export()
+            self.status_label.setText("作業版の確定に失敗しました")
+            show_warning(self, "作業版の確定エラー", message)
+            return
+        if task == "discard_working":
+            self._end_export()
+            self.status_label.setText("作業版の破棄に失敗しました")
+            show_warning(self, "作業版の破棄エラー", message)
             return
         self.status_label.setText("読み込みに失敗しました")
         show_warning(self, "Kohya 版の読み込みエラー", message)

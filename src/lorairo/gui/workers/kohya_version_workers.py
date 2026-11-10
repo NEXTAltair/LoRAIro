@@ -207,3 +207,41 @@ class KohyaVersionRevokeTagsWorker(LoRAIroWorkerBase[TagRevokeResult]):
         if not self._dry_run:
             return False
         return super()._should_cancel_completed_result()
+
+
+class KohyaVersionCommitWorker(LoRAIroWorkerBase[int]):
+    """作業版を確定版へ遷移させる (Issue #1564)。"""
+
+    _OPERATION_TYPE = "kohya_version_commit"
+
+    def __init__(self, repository: DatasetRepository, version_id: int) -> None:
+        super().__init__()
+        self._repository = repository
+        self._version_id = version_id
+
+    def execute(self) -> int:
+        """作業版を確定し、対象 version_id を返す。"""
+        self._repository.commit_working_version(self._version_id)
+        return self._version_id
+
+    def _should_cancel_completed_result(self) -> bool:
+        return False
+
+
+class KohyaVersionDiscardWorker(LoRAIroWorkerBase[int]):
+    """作業版を破棄する (Issue #1564)。"""
+
+    _OPERATION_TYPE = "kohya_version_discard"
+
+    def __init__(self, repository: DatasetRepository, version_id: int) -> None:
+        super().__init__()
+        self._repository = repository
+        self._version_id = version_id
+
+    def execute(self) -> int:
+        """作業版を削除し、対象 version_id を返す。"""
+        self._repository.discard_working_version(self._version_id)
+        return self._version_id
+
+    def _should_cancel_completed_result(self) -> bool:
+        return False

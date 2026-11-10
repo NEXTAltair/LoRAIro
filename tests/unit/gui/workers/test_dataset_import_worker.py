@@ -168,3 +168,32 @@ def test_execute_applies_parent_version_id_to_plan(tmp_path, result):
         worker.execute()
     applied = service.import_directory.call_args.args[1]
     assert applied.parent_version_id == 15
+
+
+def test_execute_reports_granular_progress(tmp_path, result):
+    """#1564: 10% から 100% へ直行せず段階的な進捗を報告する。"""
+    plan = DatasetImportPlan(
+        "ds",
+        "v1",
+        None,
+        [
+            FolderImportPlan("10_a", "a", 10, None, True),
+            FolderImportPlan("5_b", "b", 5, None, True),
+        ],
+        [],
+    )
+    worker = _make_worker(tmp_path, [])
+    reported: list[tuple[int, str]] = []
+    worker.progress_updated.connect(lambda prog: reported.append((prog.percentage, prog.status_message)))
+    with patch(_SERVICE) as service_cls, patch(_REPO):
+        service = service_cls.return_value
+        service.propose_plan.return_value = plan
+        service.import_directory.return_value = result
+        worker.execute()
+    percentages = [pct for pct, _ in reported]
+    assert percentages[0] == 10
+    assert 30 in percentages
+    assert 70 in percentages
+    assert 95 in percentages
+    assert percentages[-1] == 100
+    assert len(percentages) >= 5

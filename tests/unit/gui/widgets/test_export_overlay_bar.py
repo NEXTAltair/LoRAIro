@@ -98,13 +98,14 @@ class TestTriggerAdd:
 
         assert loaded_bar.current_overlay().add == []
 
-    def test_comma_trigger_rejected(self, loaded_bar: ExportOverlayBar) -> None:
-        """カンマを含む trigger は追加しないこと（複数タグ化けを防止）。"""
-        loaded_bar._trigger_edit.setText("foo, bar")
+    def test_comma_separated_triggers_split_and_added(self, loaded_bar: ExportOverlayBar) -> None:
+        """カンマ区切りの trigger 入力は個別トークンに分割して順番に追加されること (#1562)。"""
+        loaded_bar._trigger_edit.setText("1girl, solo, smile, , ")
         loaded_bar._add_trigger_btn.click()
 
-        assert loaded_bar.current_overlay().add == []
-        assert loaded_bar._preview.toPlainText() == "1girl, smile"
+        assert loaded_bar.current_overlay().add == ["1girl", "solo", "smile"]
+        assert loaded_bar._chip_layout.count() == 3
+        assert loaded_bar._trigger_edit.text() == ""
 
 
 # ------------------------------------------------------------------
@@ -232,11 +233,15 @@ class TestScope:
         assert received == []
 
     def test_set_scope_counts_updates_labels(self, bar: ExportOverlayBar) -> None:
-        """set_scope_counts でセグメントの件数表示が更新されること。"""
+        """set_scope_counts でセグメントの件数表示と適用先バッジが更新されること (#1562)。"""
         bar.set_scope_counts(all_count=10, filtered_count=3)
 
         assert "10" in bar._scope_control._buttons["all"].text()
         assert "3" in bar._scope_control._buttons["filtered"].text()
+        assert bar._scope_badge.text() == "オーバーレイ適用先: 全 10 枚"
+
+        bar._scope_control._buttons["filtered"].click()
+        assert bar._scope_badge.text() == "オーバーレイ適用先: 絞込 3 / 10 枚"
 
     def test_set_scope_counts_preserves_selection(self, qtbot, bar: ExportOverlayBar) -> None:
         """件数更新でセグメントを作り替えても選択スコープが維持されること (#1105)。"""

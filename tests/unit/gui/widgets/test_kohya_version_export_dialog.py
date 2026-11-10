@@ -405,48 +405,54 @@ def test_revoke_tags_dry_run_cancel_and_confirm_preserves_other_models(
     assert remaining == [("manual_keep", MANUAL_EDIT_LITELLM_ID)]
 
 
-def test_confirmation_dialogs_default_to_no_and_clarify_project_vs_version_scope(
+def test_working_version_status_and_commit_discard_buttons(
     qtbot: QtBot,
     repo: DatasetRepository,
     version_id: int,
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """破壊的・注意確認ダイアログは defaultButton=No で呼ばれ、版選択有無でボタンラベルと確認文言が切り替わる (#1539)。"""
-    calls: list[tuple[object, ...]] = []
+    """#1564: 作業版の状態 (編集中/確定済) 表示と確定・破棄ボタンの動作を検証する。"""
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    dataset_id = repo.ensure_dataset("kariginu")
+    working = repo.create_working_version(dataset_id, base_version_id=version_id, version_name="v02-work")
 
-    def record_question(*args: object, **_kwargs: object) -> QMessageBox.StandardButton:
-        calls.append(args)
-        return QMessageBox.StandardButton.No
-
-    monkeypatch.setattr(QMessageBox, "question", record_question)
     dialog = _open(qtbot, repo)
+    qtbot.waitUntil(lambda: dialog.version_table.rowCount() == 2, timeout=_TIMEOUT_MS)
 
-    # 1. 版未選択時: ボタンラベルはプロジェクト全体を対象と明示し、確認ダイアログも defaultButton=No
-    assert "プロジェクト全体" in dialog.revoke_tags_button.text()
-    dialog.revoke_tags_button.click()
-    qtbot.waitUntil(lambda: len(calls) == 1, timeout=_TIMEOUT_MS)
-    assert "プロジェクト全体" in str(calls[0][2])
-    assert calls[0][3] == (QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-    assert calls[0][4] == QMessageBox.StandardButton.No
+    assert "KOHYA_DATASET" not in dialog.revoke_tags_button.toolTip()
+    assert "Kohya データセット" in dialog.revoke_tags_button.toolTip()
 
-    # 2. 版選択時: ボタンラベルは選択した版を対象と明示
+    assert dialog.version_table.item(0, 7).text() == "確定済"
+    assert dialog.version_table.item(1, 7).text() == "編集中"
+
+    # 確定済みの版を選択したときは作業版ボタンは無効
     _select_first_version(qtbot, dialog)
-    assert "選択した版" in dialog.revoke_tags_button.text()
+    assert not dialog.commit_working_button.isEnabled()
+    assert not dialog.discard_working_button.isEnabled()
 
-    dialog.revoke_tags_button.click()
-    qtbot.waitUntil(lambda: len(calls) == 2, timeout=_TIMEOUT_MS)
-    assert "選択した版" in str(calls[1][2])
-    assert calls[1][4] == QMessageBox.StandardButton.No
+    # 作業版を選択すると確定・破棄ボタンが有効になり、確定で「確定済」へ変わる
+    dialog.version_table.selectRow(1)
+    qtbot.waitUntil(
+        lambda: dialog._detail is not None and dialog._detail.version_id == working.id, timeout=_TIMEOUT_MS
+    )
+    assert dialog.commit_working_button.isEnabled()
+    assert dialog.discard_working_button.isEnabled()
+    assert "編集中" in dialog.status_label.text()
 
-    # 3. 学習テキスト反映確認も defaultButton=No
-    dialog.copy_tags_button.click()
-    qtbot.waitUntil(lambda: len(calls) == 3, timeout=_TIMEOUT_MS)
-    assert calls[2][4] == QMessageBox.StandardButton.No
+    dialog.commit_working_button.click()
+    qtbot.waitUntil(
+        lambda: dialog.version_table.item(1, 7).text() == "確定済",
+        timeout=_TIMEOUT_MS,
+    )
+    assert not dialog.commit_working_button.isEnabled()
 
-    # 4. 未変換キーありの書き出し確認も defaultButton=No
-    dialog.config_combo.setCurrentIndex(1)
-    dialog.output_dir_edit.setText(str(tmp_path / "out"))
-    dialog.export_button.click()
-    assert len(calls) == 4
-    assert calls[3][4] == QMessageBox.StandardButton.No
+    # 新たに作業版を作成して破棄ボタンを検証
+    working2 = repo.create_working_version(dataset_id, base_version_id=version_id, version_name="v03-work")
+    dialog.load_versions()
+    qtbot.waitUntil(lambda: dialog.version_table.rowCount() == 3, timeout=_TIMEOUT_MS)
+    dialog.version_table.selectRow(2)
+    qtbot.waitUntil(
+        lambda: dialog._detail is not None and dialog._detail.version_id == working2.id, timeout=_TIMEOUT_MS
+    )
+    dialog.discard_working_button.click()
+    qtbot.waitUntil(lambda: dialog.version_table.rowCount() == 2, timeout=_TIMEOUT_MS)
