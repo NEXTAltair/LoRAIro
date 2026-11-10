@@ -13,6 +13,7 @@ from loguru import logger
 from PySide6.QtCore import QObject, Signal
 
 from ...database.filter_criteria import ImageFilterCriteria
+from ...services.dataset_export_service import ExportResult
 
 if TYPE_CHECKING:
     from ...services.export_overlay import ExportOverlayPlan
@@ -24,6 +25,7 @@ class DatasetExportWorker(QObject):
     # Signals
     progress = Signal(int, str)  # (progress_percent, message)
     finished = Signal(str)  # export_path
+    cancelled = Signal()
     error = Signal(str)  # error_message
 
     def __init__(
@@ -55,16 +57,37 @@ class DatasetExportWorker(QObject):
         self.export_format = export_format
         self.merge_caption = merge_caption
         self.overlay_plan = overlay_plan
+        self._cancelled = False
+        self.report = ExportResult(image_ids)
+
+    @property
+    def is_cancelled(self) -> bool:
+        """Return whether cancellation has been requested."""
+        return self._cancelled
+
+    def cancel(self) -> None:
+        """Request cooperative cancellation of the running export."""
+        self._cancelled = True
 
     def run(self) -> None:
         """Execute export processing with progress reporting."""
         try:
+            if self._cancelled:
+                logger.info("Dataset export cancelled before start")
+                self.cancelled.emit()
+                return
+
+            self.report = ExportResult(self.image_ids)
+            total = len(self.image_ids)
             logger.info(
-                f"Starting dataset export: {len(self.image_ids)} images, "
-                f"{self.resolution}px, format={self.export_format}"
+                f"Starting dataset export: {total} images, {self.resolution}px, format={self.export_format}"
             )
 
-            self.progress.emit(10, "エクスポート処理を開始しています...")
+            self.progress.emit(0, f"エクスポート処理を開始しています... (0/{total})")
+
+            def _on_progress(completed_count: int, total_count: int, _image_id: int) -> None:
+                percent = int(completed_count * 100 / total_count) if total_count > 0 else 100
+                self.progress.emit(percent, f"エクスポート中... ({completed_count}/{total_count})")
 
             # ADR 0055: 明示 ID は exact-set selector の criteria 経由で渡す
             # (非推奨の image_ids 直渡しを排除。他フィルタを bypass し NSFW 等も落とさない)。
@@ -78,8 +101,10 @@ class DatasetExportWorker(QObject):
                     resolution=self.resolution,
                     criteria=criteria,
                     overlay_plan=self.overlay_plan,
+                    report=self.report,
+                    progress_callback=_on_progress,
+                    should_cancel=lambda: self._cancelled,
                 )
-                self.progress.emit(90, "JSON形式でエクスポート中...")
             else:
                 merge_option = self.export_format == "txt_merged" or self.merge_caption
                 result_path = self.export_service.export_with_criteria(
@@ -89,14 +114,26 @@ class DatasetExportWorker(QObject):
                     criteria=criteria,
                     merge_caption=merge_option,
                     overlay_plan=self.overlay_plan,
+                    report=self.report,
+                    progress_callback=_on_progress,
+                    should_cancel=lambda: self._cancelled,
                 )
-                self.progress.emit(90, "TXT形式でエクスポート中...")
+
+            if self._cancelled:
+                logger.info("Dataset export cancelled")
+                self.cancelled.emit()
+                return
+
+            if not self.report.completed and not self.report.failures:
+                fmt = "json" if self.export_format == "json" else "txt"
+                for image_id in self.image_ids:
+                    self.report.completed.setdefault(image_id, set()).add(fmt)
 
             self.progress.emit(100, "エクスポート完了")
             self.finished.emit(str(result_path))
             logger.info(f"Dataset export completed: {result_path}")
 
         except Exception as e:
-            error_msg = f"エクスポート処理でエラーが発生しました: {e!s}"
-            logger.error(error_msg)
+            error_msg = str(e)
+            logger.error(f"エクスポート処理でエラーが発生しました: {error_msg}")
             self.error.emit(error_msg)

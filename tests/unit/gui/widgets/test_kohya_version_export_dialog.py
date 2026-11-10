@@ -403,3 +403,50 @@ def test_revoke_tags_dry_run_cancel_and_confirm_preserves_other_models(
             session.query(Tag.tag, Model.litellm_model_id).join(Model, Tag.model_id == Model.id).all()
         )
     assert remaining == [("manual_keep", MANUAL_EDIT_LITELLM_ID)]
+
+
+def test_confirmation_dialogs_default_to_no_and_clarify_project_vs_version_scope(
+    qtbot: QtBot,
+    repo: DatasetRepository,
+    version_id: int,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """破壊的・注意確認ダイアログは defaultButton=No で呼ばれ、版選択有無でボタンラベルと確認文言が切り替わる (#1539)。"""
+    calls: list[tuple[object, ...]] = []
+
+    def record_question(*args: object, **_kwargs: object) -> QMessageBox.StandardButton:
+        calls.append(args)
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(QMessageBox, "question", record_question)
+    dialog = _open(qtbot, repo)
+
+    # 1. 版未選択時: ボタンラベルはプロジェクト全体を対象と明示し、確認ダイアログも defaultButton=No
+    assert "プロジェクト全体" in dialog.revoke_tags_button.text()
+    dialog.revoke_tags_button.click()
+    qtbot.waitUntil(lambda: len(calls) == 1, timeout=_TIMEOUT_MS)
+    assert "プロジェクト全体" in str(calls[0][2])
+    assert calls[0][3] == (QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+    assert calls[0][4] == QMessageBox.StandardButton.No
+
+    # 2. 版選択時: ボタンラベルは選択した版を対象と明示
+    _select_first_version(qtbot, dialog)
+    assert "選択した版" in dialog.revoke_tags_button.text()
+
+    dialog.revoke_tags_button.click()
+    qtbot.waitUntil(lambda: len(calls) == 2, timeout=_TIMEOUT_MS)
+    assert "選択した版" in str(calls[1][2])
+    assert calls[1][4] == QMessageBox.StandardButton.No
+
+    # 3. 学習テキスト反映確認も defaultButton=No
+    dialog.copy_tags_button.click()
+    qtbot.waitUntil(lambda: len(calls) == 3, timeout=_TIMEOUT_MS)
+    assert calls[2][4] == QMessageBox.StandardButton.No
+
+    # 4. 未変換キーありの書き出し確認も defaultButton=No
+    dialog.config_combo.setCurrentIndex(1)
+    dialog.output_dir_edit.setText(str(tmp_path / "out"))
+    dialog.export_button.click()
+    assert len(calls) == 4
+    assert calls[3][4] == QMessageBox.StandardButton.No

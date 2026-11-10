@@ -315,6 +315,7 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
             "確認",
             f"{len(updates)}個のタグのtypeを更新します。\n実行してよろしいですか?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
 
         if reply != QMessageBox.StandardButton.Yes:

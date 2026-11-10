@@ -173,8 +173,11 @@ class KohyaVersionExportDialog(QDialog):
         self.copy_tags_button.setObjectName("kohyaCopyTagsButton")
         self.copy_tags_button.setEnabled(False)
         self.copy_tags_button.clicked.connect(self._on_copy_tags_clicked)
-        self.revoke_tags_button = QPushButton("写したタグを取り消す")
+        self.revoke_tags_button = QPushButton("プロジェクト全体の写したタグを取り消す")
         self.revoke_tags_button.setObjectName("kohyaRevokeTagsButton")
+        self.revoke_tags_button.setToolTip(
+            "版が未選択のため、プロジェクト全体の KOHYA_DATASET タグを取り消す"
+        )
         self.revoke_tags_button.clicked.connect(self._on_revoke_tags_clicked)
         buttons.addWidget(self.copy_tags_button)
         buttons.addWidget(self.revoke_tags_button)
@@ -331,6 +334,16 @@ class KohyaVersionExportDialog(QDialog):
             not self._exporting and self._detail is not None and bool(self.output_dir_edit.text().strip())
         )
         self.copy_tags_button.setEnabled(not self._exporting and self._detail is not None)
+        if has_selection:
+            self.revoke_tags_button.setText("選択した版の写したタグを取り消す")
+            self.revoke_tags_button.setToolTip(
+                "選択中の版（および対象フォルダ）で写した KOHYA_DATASET タグを取り消す"
+            )
+        else:
+            self.revoke_tags_button.setText("プロジェクト全体の写したタグを取り消す")
+            self.revoke_tags_button.setToolTip(
+                "版が未選択のため、プロジェクト全体の KOHYA_DATASET タグを取り消す"
+            )
         self.revoke_tags_button.setEnabled(
             not self._exporting and (self._detail is not None or not has_selection)
         )
@@ -383,6 +396,8 @@ class KohyaVersionExportDialog(QDialog):
             f"追加予定タグ数: {result.tags_added}\n"
             f"既存スキップ数: {result.tags_skipped}\n\n"
             f"実行しますか?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             self.status_label.setText("学習テキストのタグ反映をキャンセルしました")
@@ -455,9 +470,15 @@ class KohyaVersionExportDialog(QDialog):
         version_id, dir_names = scope
         if version_id is not None:
             scope_label = dir_names[0] if dir_names else "全フォルダ"
-            scope_line = f"対象: 版 {version_id} / {scope_label} ({result.folders} フォルダ)"
+            scope_line = (
+                f"対象範囲: 選択した版 (版 {version_id} / {scope_label}、{result.folders} フォルダ)"
+            )
+            confirm_line = "選択した版の写したタグを取り消しますか?"
         else:
-            scope_line = "対象: プロジェクト全体"
+            scope_line = (
+                "対象範囲: プロジェクト全体 (版未選択のためプロジェクト全体の KOHYA_DATASET タグを削除)"
+            )
+            confirm_line = "プロジェクト全体の写したタグを取り消しますか?"
         reply = QMessageBox.question(
             self,
             "写したタグを取り消す",
@@ -465,7 +486,9 @@ class KohyaVersionExportDialog(QDialog):
             f"{scope_line}\n"
             f"対象画像数: {result.images}\n"
             f"削除予定タグ数: {result.tags_removed}\n\n"
-            f"取り消しますか?",
+            f"{confirm_line}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             self.status_label.setText("タグの取り消しをキャンセルしました")
@@ -520,6 +543,8 @@ class KohyaVersionExportDialog(QDialog):
                 "未変換のキー",
                 f"選んだ学習設定には未変換のキーが {len(keys)} 件あり、書き出す TOML には入りません。\n"
                 f"{', '.join(keys)}\n\nこのまま書き出しますか?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return
