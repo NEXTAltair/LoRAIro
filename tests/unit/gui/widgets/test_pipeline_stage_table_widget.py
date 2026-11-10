@@ -221,11 +221,15 @@ class TestPipelineStageTableWidgetPresetRow:
             chip.text().rsplit(" ", 1)[0]: chip for chip in widget.findChildren(QToolButton, "presetChip")
         }
         assert chips["Default"].text() == "Default 4"
+        assert "標準おすすめ構成" in chips["Default"].toolTip()
         assert "モデル 4 件" in chips["Default"].toolTip()
         assert chips["Default"].isChecked() is True
         assert chips["Tags only"].text() == "Tags only 2"
+        assert "タグ生成のみ" in chips["Tags only"].toolTip()
         assert chips["Full caption"].text() == "Full caption 7"
+        assert "タグ＋キャプション" in chips["Full caption"].toolTip()  # noqa: RUF001
         assert chips["Score·rate"].text() == "Score·rate 0"
+        assert "スコア・レーティングのみ" in chips["Score·rate"].toolTip()
 
     def test_preset_click_emits_preset_id(self, widget, qtbot):
         chips = widget.findChildren(QToolButton, "presetChip")

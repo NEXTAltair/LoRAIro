@@ -32,6 +32,8 @@ Issue #755 由来の挙動を維持する: API キー未設定の WebAPI モデ�
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import (
@@ -336,11 +338,12 @@ class StageModelPickerDialog(QDialog):
     """
 
     configure_key_requested = Signal(str)
+    refresh_models_requested = Signal()
 
     def __init__(
         self,
         stage: PipelineStage,
-        candidates: list[StageModelInfo],
+        candidates: Sequence[StageModelInfo],
         available_providers: set[str] | None = None,
         staged_count: int = 0,
         parent: QWidget | None = None,
@@ -392,29 +395,40 @@ class StageModelPickerDialog(QDialog):
 
         layout = QVBoxLayout(self)
         layout.setSpacing(0)
-
-        if not self._candidates:
-            self.search_edit.hide()
-            self._build_empty_body(layout)
-            return
-
         layout.addWidget(self._build_header())
-        layout.addWidget(self._build_presets_row())
-        layout.addWidget(self._build_main_area(), 1)
-        layout.addWidget(self._build_footer())
+
+        self._empty_body = self._build_empty_body()
+        layout.addWidget(self._empty_body, 1)
+
+        self._presets_row = self._build_presets_row()
+        layout.addWidget(self._presets_row)
+        self._main_area = self._build_main_area()
+        layout.addWidget(self._main_area, 1)
+        self._footer = self._build_footer()
+        layout.addWidget(self._footer)
 
         self._rebuild_provider_radios()
         self._apply_filters()
+        self._sync_empty_state()
 
     # --- 空候補 -------------------------------------------------------------
 
-    def _build_empty_body(self, layout: QVBoxLayout) -> None:
-        """候補ゼロ時のラベルと OK 無効化ボタンを配置する。"""
+    def _build_empty_body(self) -> QLabel:
+        """候補ゼロ時のプレースホルダラベルを構築する。"""
         empty_label = QLabel(_EMPTY_CANDIDATES_TEXT, self)
         empty_label.setObjectName("emptyCandidatesLabel")
         empty_label.setContentsMargins(theme.SPACE_4, theme.SPACE_4, theme.SPACE_4, theme.SPACE_4)
-        layout.addWidget(empty_label)
-        layout.addWidget(self._build_button_box(enable_ok=False))
+        return empty_label
+
+    def _sync_empty_state(self) -> None:
+        """候補の有無に応じて空状態プレースホルダと本体コントロールの表示・OKボタン有効状態を切り替える (#1570)。"""
+        has_candidates = bool(self._candidates)
+        self._empty_body.setVisible(not has_candidates)
+        self._presets_row.setVisible(has_candidates)
+        self._main_area.setVisible(has_candidates)
+        self._summary_label.setVisible(has_candidates)
+        if self._ok_button is not None:
+            self._ok_button.setEnabled(has_candidates)
 
     # --- ヘッダ / presets ---------------------------------------------------
 
@@ -428,6 +442,7 @@ class StageModelPickerDialog(QDialog):
         )
         hl = QHBoxLayout(header)
         hl.setContentsMargins(theme.SPACE_4, theme.SPACE_2, theme.SPACE_4, theme.SPACE_2)
+        hl.setSpacing(theme.SPACE_2)
         title = QLabel(f"{self._stage.value.upper()} のモデル選択", header)
         title.setStyleSheet(f"font-weight: {theme.FONT_WEIGHT_SEMIBOLD};")
         hl.addWidget(title)
@@ -437,6 +452,11 @@ class StageModelPickerDialog(QDialog):
             f"font-size: {theme.FONT_SIZE_SMALL}px; color: {theme.INK_SOFT};"
         )
         hl.addWidget(self._filter_summary)
+        self._refresh_btn = QPushButton("モデル一覧を更新", header)
+        self._refresh_btn.setObjectName("stagePickerRefreshModelsButton")
+        self._refresh_btn.setToolTip("プロバイダーとDBから最新のモデル一覧を再取得します")
+        self._refresh_btn.clicked.connect(self.refresh_models_requested.emit)
+        hl.addWidget(self._refresh_btn)
         return header
 
     def _build_presets_row(self) -> QWidget:
@@ -766,10 +786,10 @@ class StageModelPickerDialog(QDialog):
         )
         box.accepted.connect(self.accept)
         box.rejected.connect(self.reject)
-        ok_button = box.button(QDialogButtonBox.StandardButton.Ok)
-        if ok_button is not None:
-            ok_button.setText("適用")
-            ok_button.setEnabled(enable_ok)
+        self._ok_button = box.button(QDialogButtonBox.StandardButton.Ok)
+        if self._ok_button is not None:
+            self._ok_button.setText("適用")
+            self._ok_button.setEnabled(enable_ok)
         cancel_button = box.button(QDialogButtonBox.StandardButton.Cancel)
         if cancel_button is not None:
             cancel_button.setText("キャンセル")
@@ -957,8 +977,29 @@ class StageModelPickerDialog(QDialog):
         provider = required_provider_for(info.litellm_model_id, info.provider)
         return provider not in self._available_providers
 
-    def replace_candidates(self, candidates: list[StageModelInfo]) -> None:
-        """候補モデルリストを差し替えて行表示と provider フィルタを再構築する (#1538)。
+    def _rebuild_rows(self) -> None:
+        """現在の候補リストからモデル行と provider フィルタを再構築する (#1570)。"""
+        for row in self._rows:
+            self._rows_layout.removeWidget(row)
+            row.setParent(None)
+            row.deleteLater()
+        self._rows.clear()
+        for idx, info in enumerate(self._candidates):
+            row = _ModelRow(info, self._rows_host)
+            row.toggle_requested.connect(lambda r=row: self._toggle_row(r))
+            row.configure_requested.connect(lambda r=row: self._on_row_configure(r))
+            self._rows.append(row)
+            self._rows_layout.insertWidget(idx, row)
+        self._rebuild_provider_radios()
+        self._apply_filters()
+        self._sync_empty_state()
+
+    def set_candidates(self, candidates: Sequence[StageModelInfo]) -> None:
+        """候補モデルリストを更新して行表示を再構築する (#1570)。"""
+        self.replace_candidates(candidates)
+
+    def replace_candidates(self, candidates: Sequence[StageModelInfo]) -> None:
+        """候補モデルリストを差し替えて行表示と provider フィルタを再構築する (#1538, #1570)。
 
         API キー設定変更や route_preference 変更後に preferred route が切り替わった場合
         (例: ``openai/gpt-4o`` → ``openrouter/openai/gpt-4o``) でも、開いたままの
@@ -977,26 +1018,12 @@ class StageModelPickerDialog(QDialog):
                 remapped_selected.add(info.litellm_model_id)
         self._selected_ids = remapped_selected
         self._candidates = new_candidates
-
-        if hasattr(self, "_rows_layout") and hasattr(self, "_rows_host"):
-            for row in self._rows:
-                self._rows_layout.removeWidget(row)
-                row.setParent(None)
-                row.deleteLater()
-            self._rows.clear()
-            for idx, info in enumerate(self._candidates):
-                row = _ModelRow(info, self._rows_host)
-                row.toggle_requested.connect(lambda r=row: self._toggle_row(r))
-                row.configure_requested.connect(lambda r=row: self._on_row_configure(r))
-                self._rows.append(row)
-                self._rows_layout.insertWidget(idx, row)
-            self._rebuild_provider_radios()
-            self._apply_filters()
+        self._rebuild_rows()
 
     def refresh_key_status(
         self,
         available_providers: set[str],
-        candidates: list[StageModelInfo] | None = None,
+        candidates: Sequence[StageModelInfo] | None = None,
     ) -> None:
         """API キー設定状況を再評価して全行の status を更新する (Issue #755, #1538)。
 

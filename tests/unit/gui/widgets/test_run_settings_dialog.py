@@ -179,3 +179,26 @@ class TestRunSettingsDialogDisabledControls:
     def test_disabled_controls_have_tooltip(self, dialog):
         assert dialog._concurrency.toolTip() != ""
         assert dialog._dedupe.toolTip() != ""
+
+    def test_unimplemented_rows_are_hidden_from_ui(self, dialog):
+        """Issue #1570: 未実装の5項目行コンテナは非表示にする。"""
+        assert len(dialog._unimplemented_rows) == 5
+        assert all(row.isHidden() for row in dialog._unimplemented_rows)
+
+    def test_prompt_metadata_rows_visible_with_batch_options_hint_in_sync_and_batch_modes(
+        self, dialog, qtbot
+    ):
+        """Issue #1570: Batch API 送信前に事前設定できるよう、dispatch_mode に関わらず表示し見出しで明示する。"""
+        assert len(dialog._prompt_metadata_rows) == 2
+        assert all(not row.isHidden() for row in dialog._prompt_metadata_rows)
+        assert not dialog._batch_options_hint.isHidden()
+        assert dialog._batch_options_hint.text() == "バッチAPI送信オプション（同期実行時は無視されます）"
+
+        d = RunSettingsDialog(
+            staged_count=3,
+            current=RunOptions(dispatch_mode="batch_api"),
+        )
+        qtbot.addWidget(d)
+        assert len(d._prompt_metadata_rows) == 2
+        assert all(not row.isHidden() for row in d._prompt_metadata_rows)
+        assert not d._batch_options_hint.isHidden()

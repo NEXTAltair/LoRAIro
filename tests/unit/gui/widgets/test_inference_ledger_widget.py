@@ -194,6 +194,17 @@ class TestInferenceLedgerWidgetBands:
         widget.clear()
         assert widget._batch_band.isHidden()
 
+    def test_band_titles_and_multimodal_note_use_japanese_terminology(self, widget):
+        """Issue #1568: 同期/バッチ見出しとマルチモーダル注記が日本語表記になっている。"""
+        sync_titles = [lbl.text() for lbl in widget._sync_band.findChildren(QLabel, "ledgerBandTitle")]
+        batch_titles = [lbl.text() for lbl in widget._batch_band.findChildren(QLabel, "ledgerBandTitle")]
+        assert sync_titles == ["即時実行（同期）"]
+        assert batch_titles == ["非同期バッチ（24時間以内 · 約50%割引）"]
+        assert (
+            widget._multi_note_label.text()
+            == "マルチモーダルモデルは 1 回の推論で複数ステージ（タグ / キャプション / スコア）を同時に出力するため、実行ジョブ数はユニークモデル数 × 枚数になります"
+        )
+
 
 class TestInferenceLedgerWidgetFlow:
     """#1100: entries は FlowLayout で折り返し、狭幅で縦長崩れしない。"""

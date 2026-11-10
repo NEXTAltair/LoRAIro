@@ -340,3 +340,42 @@ class TestSearchAndKeyboardAndQuickPresets:
         # All installed はローカルモデルを表示しつつ一括選択する
         preset_buttons["All installed"].click()
         assert dialog.selected_model_ids() == ["wd-v1-4-tagger"]
+
+    def test_refresh_models_button_emits_signal_and_set_candidates_rebuilds_rows(self, qtbot):
+        """Issue #1570: モデル一覧を更新ボタンのシグナル発行と set_candidates 再構築。"""
+        dialog = StageModelPickerDialog(PipelineStage.TAGS, [WD_TAGGER])
+        qtbot.addWidget(dialog)
+
+        refresh_btn = dialog.findChild(QPushButton, "stagePickerRefreshModelsButton")
+        assert refresh_btn is not None
+        assert refresh_btn.text() == "モデル一覧を更新"
+        assert refresh_btn.toolTip() == "プロバイダーとDBから最新のモデル一覧を再取得します"
+
+        with qtbot.waitSignal(dialog.refresh_models_requested, timeout=1000):
+            refresh_btn.click()
+
+        dialog.set_candidates([GPT4O, WD_TAGGER])
+        assert [r.info.litellm_model_id for r in _rows(dialog)] == [
+            "openai/gpt-4o",
+            "wd-v1-4-tagger",
+        ]
+
+    def test_empty_candidates_to_nonempty_set_candidates_builds_and_enables_rows(self, qtbot):
+        """Issue #1570: 空候補で開いたピッカーに対して set_candidates で候補を追加すると行が構築され選択可能になる。"""
+        dialog = StageModelPickerDialog(PipelineStage.TAGS, [])
+        qtbot.addWidget(dialog)
+
+        assert not dialog._empty_body.isHidden()
+        assert dialog._main_area.isHidden()
+        ok_button = _ok_button(dialog)
+        assert ok_button is not None and not ok_button.isEnabled()
+
+        dialog.set_candidates([WD_TAGGER])
+
+        assert dialog._empty_body.isHidden()
+        assert not dialog._main_area.isHidden()
+        assert ok_button.isEnabled()
+        assert [r.info.litellm_model_id for r in _rows(dialog)] == ["wd-v1-4-tagger"]
+
+        _row_by_id(dialog, "wd-v1-4-tagger").toggle_requested.emit()
+        assert dialog.selected_model_ids() == ["wd-v1-4-tagger"]

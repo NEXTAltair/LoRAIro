@@ -57,6 +57,23 @@ _BUILTIN_PRESETS: tuple[PipelinePreset, ...] = (
     PipelinePreset("score_rate", "Score·rate", 3),
 )
 
+_BUILTIN_PRESET_DESCRIPTIONS: dict[str, str] = {
+    "default": "標準おすすめ構成",
+    "tags_only": "タグ生成のみ",
+    "tags_caption": "タグ＋キャプション",  # noqa: RUF001
+    "full_caption": "タグ＋キャプション",  # noqa: RUF001
+    "full_4stage": "全4ステージ構成",
+    "score_rate": "スコア・レーティングのみ",
+}
+
+
+def _builtin_preset_tooltip(preset_id: str, label: str, model_count: int) -> str:
+    """組込みプリセット chip の日本語説明付きツールチップを生成する (#1568)。"""
+    desc = _BUILTIN_PRESET_DESCRIPTIONS.get(preset_id)
+    prefix = f"{desc} — " if desc else ""
+    return f"{prefix}プリセット「{label}」を適用 (モデル {model_count} 件をステージへ割当)"
+
+
 # 初期アクティブプリセット (accent 強調される既定構成)
 _DEFAULT_PRESET_ID = "default"
 
@@ -199,7 +216,7 @@ class PipelineStageTableWidget(QWidget):
         for preset in _BUILTIN_PRESETS:
             button = self._make_preset_chip(
                 preset,
-                tooltip=f"プリセット「{preset.label}」を適用 (モデル {preset.model_count} 件をステージへ割当)",
+                tooltip=_builtin_preset_tooltip(preset.preset_id, preset.label, preset.model_count),
             )
             self._preset_buttons[preset.preset_id] = button
             row_layout.addWidget(button)
@@ -285,7 +302,7 @@ class PipelineStageTableWidget(QWidget):
             label = builtin_labels.get(preset_id)
             if label is not None:
                 button.setText(f"{label} {count}")
-                button.setToolTip(f"プリセット「{label}」を適用 (モデル {count} 件をステージへ割当)")
+                button.setToolTip(_builtin_preset_tooltip(preset_id, label, count))
 
     def _on_preset_clicked(self, preset_id: str) -> None:
         """preset chip クリック: アクティブ表示を更新し選択を通知する。"""
