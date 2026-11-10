@@ -170,6 +170,19 @@ def test_sync_job_cancel_failure_does_not_emit_status(
 
 
 @pytest.mark.gui
+def test_dataset_import_cancel_shows_graceful_stop_notice(
+    tab: JobsTabWidget, worker_service: MagicMock
+) -> None:
+    """#1564: dataset_import_* ジョブのキャンセル要求時は処理完了後に停止する旨を通知する。"""
+    worker_service.cancel_job.return_value = False
+    received: list[tuple[str, int]] = []
+    tab.status_message_requested.connect(lambda msg, t: received.append((msg, t)))
+    tab.provider_batch_job_widget.sync_job_cancel_requested.emit("dataset_import_42")
+    worker_service.cancel_job.assert_called_once_with("dataset_import_42")
+    assert received == [("データセット取込ジョブは現在のファイル処理完了後に停止します", 5000)]
+
+
+@pytest.mark.gui
 def test_batch_import_error_relays_signal(tab: JobsTabWidget, qtbot) -> None:
     """batch import エラーは batch_import_error_occurred として MainWindow へ委譲する。"""
     with qtbot.waitSignal(tab.batch_import_error_occurred, timeout=1000) as blocker:

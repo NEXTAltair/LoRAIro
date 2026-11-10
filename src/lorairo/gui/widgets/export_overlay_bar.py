@@ -212,6 +212,7 @@ class ExportOverlayBar(QWidget):
         self._filtered_count = filtered_count
         # 現在の選択 (value) を維持したままラベルを作り替える (set_options は value_changed を emit しない)
         self._scope_control.set_options(self._scope_options(), value=self._scope)
+        self._update_scope_badge()
 
     def selected_resolution(self) -> int:
         """選択中のエクスポート解像度を返す。"""
@@ -343,11 +344,14 @@ class ExportOverlayBar(QWidget):
         row = QHBoxLayout()
         row.setSpacing(6)
 
-        label = QLabel("適用先")
-        label.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;")
-        row.addWidget(label)
+        self._scope_badge = QLabel()
+        self._scope_badge.setObjectName("overlayScopeBadge")
+        self._scope_badge.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;")
+        self._scope_label = self._scope_badge
+        self._update_scope_badge()
+        row.addWidget(self._scope_badge)
 
-        # DS SegmentedControl へ統一 (#1105)。ラベルは "全 N 枚" 形式を維持するため
+        # DS SegmentedControl へ統一 (#1105)。ラベルは "全 N 枚" / "絞込 M / N 枚" 形式を維持するため
         # count バッジではなく整形済みラベルを使い、件数更新時は set_options で作り替える。
         self._scope_control = DsSegmentedControl(self._scope_options(), value=self._scope)
         self._scope_control.setObjectName("scopeControl")
@@ -361,8 +365,16 @@ class ExportOverlayBar(QWidget):
         """スコープセグメントの (value, ラベル) を現在の件数から生成する。"""
         return [
             ("all", f"全 {self._all_count} 枚"),
-            ("filtered", f"絞込 {self._filtered_count} 枚"),
+            ("filtered", f"絞込 {self._filtered_count} / {self._all_count} 枚"),
         ]
+
+    def _update_scope_badge(self) -> None:
+        """現在のスコープと件数に応じて適用先ラベルを更新する (#1562)。"""
+        if self._scope == "filtered":
+            text = f"オーバーレイ適用先: 絞込 {self._filtered_count} / {self._all_count} 枚"
+        else:
+            text = f"オーバーレイ適用先: 全 {self._all_count} 枚"
+        self._scope_badge.setText(text)
 
     def _build_preview(self) -> QWidget:
         """ライブ出力プレビュー（等幅）を構築する。"""
@@ -470,24 +482,29 @@ class ExportOverlayBar(QWidget):
 
     @Slot()
     def _on_trigger_commit(self) -> None:
-        """入力中の trigger を overlay に追加し、語彙へ登録する。
+        """入力中の trigger を overlay に追加し、語彙へ登録する (#1562)。
 
-        カンマを含む入力は拒否する: trigger は1タグのリテラルであり、
-        プレビュー/出力は ", ".join するため、カンマ混入は1 trigger が複数タグに
-        化けて出力ラベルを壊す（#946 register と同じ方針）。
+        カンマ区切りの入力は "," で分割して前後空白を除去し、空でないトークンを
+        順番に trigger chip として追加する。
         """
-        word = self._trigger_edit.text().strip()
-        if not word:
+        raw = self._trigger_edit.text().strip()
+        if not raw:
             return
-        if "," in word:
-            logger.debug(f"ExportOverlayBar: trigger にカンマが含まれるため追加しない: {word!r}")
+        tokens = [token.strip() for token in raw.split(",") if token.strip()]
+        if not tokens:
             return
-        if word not in self._triggers:
-            self._triggers.append(word)
-            self._vocab.register(word)
+        mutated = False
+        for word in tokens:
+            if word not in self._triggers:
+                self._triggers.append(word)
+                self._vocab.register(word)
+                mutated = True
+        if mutated:
             self._on_overlay_mutated()
         self._trigger_edit.clear()
         self._suggest_combo.clear()
+
+    _on_add_trigger_clicked = _on_trigger_commit
 
     # ------------------------------------------------------------------
     # Slots: scope
@@ -498,6 +515,7 @@ class ExportOverlayBar(QWidget):
         if scope == self._scope:
             return
         self._scope = scope
+        self._update_scope_badge()
         logger.debug(f"ExportOverlayBar: scope_changed emit {scope!r}")
         self.scope_changed.emit(scope)
         self._refresh_preview()

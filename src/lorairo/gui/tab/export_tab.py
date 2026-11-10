@@ -60,6 +60,7 @@ if TYPE_CHECKING:
 # QSettings 永続化キー (splitter ごとに独立。タブ抽出での取りこぼし防止のため明示)。
 _SETTINGS_MAIN_SPLITTER = "ExportTab/mainSplitterState"
 _SETTINGS_PREVIEW_SPLITTER = "ExportTab/previewSplitterState"
+_SETTINGS_LAST_OUTPUT_DIR = "export/last_output_dir"
 
 
 class ExportTabWidget(QWidget):
@@ -105,6 +106,8 @@ class ExportTabWidget(QWidget):
         # 非同期エクスポート worker/thread (export_requested で起動、参照保持で GC 防止)。
         self._export_worker: DatasetExportWorker | None = None
         self._export_thread: QThread | None = None
+        saved_export_dir = QSettings("LoRAIro", "LoRAIro").value(_SETTINGS_LAST_OUTPUT_DIR, "", str)
+        self._last_export_dir: str = str(saved_export_dir) if saved_export_dir else ""
 
         # 現在のエクスポート対象 (ステージング集合と同期)。
         self._image_ids: list[int] = (
@@ -625,9 +628,28 @@ class ExportTabWidget(QWidget):
         if not self._validate_export_resolution(effective_ids, resolution):
             return
 
-        directory = QFileDialog.getExistingDirectory(self, "エクスポート先ディレクトリを選択")
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "エクスポート先ディレクトリを選択",
+            self._last_export_dir,
+        )
         if not directory:
             return
+
+        output_path = Path(directory)
+        if output_path.exists() and output_path.is_dir() and any(output_path.iterdir()):
+            reply = QMessageBox.question(
+                self,
+                "エクスポート",
+                "指定した出力先フォルダには既にファイルが存在します。上書き・追加出力しますか？",  # noqa: RUF001
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        self._last_export_dir = directory
+        QSettings("LoRAIro", "LoRAIro").setValue(_SETTINGS_LAST_OUTPUT_DIR, directory)
 
         export_format = self._overlay_bar.selected_format()
         # ExportOverlayBar は canonical 値 (txt_separate/txt_merged/json) を返す。
@@ -643,7 +665,7 @@ class ExportTabWidget(QWidget):
         worker = DatasetExportWorker(
             export_service=self._service_container.dataset_export_service,
             image_ids=effective_ids,
-            output_path=Path(directory),
+            output_path=output_path,
             resolution=resolution,
             export_format=export_format,
             merge_caption=merge_caption,
