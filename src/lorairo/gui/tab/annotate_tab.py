@@ -38,8 +38,9 @@ MainWindow rewire (Track B) はこの契約に対してコードを書く。
 
 import json
 from dataclasses import replace
+from typing import Any
 
-from PySide6.QtCore import QSettings, Signal, Slot
+from PySide6.QtCore import QObject, QSettings, QThread, Signal, Slot
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -91,6 +92,47 @@ _CUSTOM_PRESETS_SETTINGS_KEY = "annotate_tab/custom_presets"
 _CUSTOM_PRESET_PREFIX = "custom:"
 # #1537: Default プリセットで選択する代表モデルの上限数
 _DEFAULT_PRESET_MAX_MODELS = 5
+# #1544: バッチタグ書き込み worker thread の shutdown 待機上限 (ms)
+_BATCH_TAG_SHUTDOWN_WAIT_MS = 5000
+
+
+class _BatchTagWriteWorker(QObject):
+    """バッチタグ書き込みを GUI スレッド外で実行する worker (#1544)。"""
+
+    finished_with_result = Signal(list, str, bool)  # (image_ids, tag, success)
+    finished = Signal()
+
+    def __init__(
+        self,
+        write_service: ImageDBWriteService | None,
+        image_ids: list[int],
+        tag: str,
+    ) -> None:
+        super().__init__()
+        self._write_service = write_service
+        self._image_ids = list(image_ids)
+        self._tag = tag
+
+    @Slot()
+    def run(self) -> None:
+        """add_tag_batch を実行し、完了シグナルを送出する。"""
+        success = False
+        try:
+            if self._write_service is not None:
+                success = bool(self._write_service.add_tag_batch(self._image_ids, self._tag))
+            else:
+                logger.warning("ImageDBWriteService not initialized")
+        except Exception as e:
+            logger.opt(exception=e).error(
+                f"Batch tag write worker failed: tag='{self._tag}', count={len(self._image_ids)}: {e}"
+            )
+            success = False
+        finally:
+            self.finished_with_result.emit(self._image_ids, self._tag, success)
+            self.finished.emit()
+
+
+_ACTIVE_BATCH_TAG_RUNNERS: set[tuple[QThread, _BatchTagWriteWorker]] = set()
 
 
 class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
@@ -156,6 +198,17 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         self._active_preset_id: str | None = None
         self._last_preset_model_ids: set[str] = set()
         self._extra_selected_model_ids: list[str] = []
+        # #1544: 非同期バッチタグ書き込み状態・worker 管理
+        self._batch_tag_write_in_progress = False
+        self._batch_tag_runners: set[tuple[QThread, _BatchTagWriteWorker]] = set()
+        # #1515: モデル情報・コストマップ・ステージ構成・rating プリフライトのキャッシュ
+        self._cached_cost_map: dict[str, tuple[float | None, float | None]] | None = None
+        self._cached_loaded_models: list[Any] | None = None
+        self._cached_stage_info_by_id: dict[str, StageModelInfo] | None = None
+        self._cached_stage_info_service: object | None = None
+        self._last_composed_selected_ids: tuple[str, ...] | None = None
+        self._cached_ratings_by_id: dict[int, str | None] = {}
+        self._cached_ratings_db_manager: object | None = None
 
         # .ui placeholder を実ウィジェットへ swap (BatchTagAddWidget / フィルタ / モデル選択)
         self._batch_tag_add_widget = self._swap_batch_tag_add_widget()
@@ -452,10 +505,25 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         self._batch_tag_add_widget.compare_requested.connect(self._image_comparison_launcher.open)
 
     def shutdown(self) -> None:
-        """タブが持つ比較画面の worker を止める (ウィンドウ閉鎖時、MainWindow.closeEvent から呼ぶ)。"""
+        """タブが持つ比較画面およびバッチタグ書き込みの worker を止める (ウィンドウ閉鎖時、MainWindow.closeEvent から呼ぶ)。"""
         self._image_comparison_launcher.shutdown()
+        for runner in list(self._batch_tag_runners):
+            thread, worker = runner
+            thread.quit()
+            if thread.wait(_BATCH_TAG_SHUTDOWN_WAIT_MS):
+                try:
+                    thread.started.disconnect(worker.run)
+                except (RuntimeError, TypeError):
+                    pass
+                self._batch_tag_runners.discard(runner)
+                _ACTIVE_BATCH_TAG_RUNNERS.discard(runner)
+                self._batch_tag_write_in_progress = False
+            else:
+                logger.warning(
+                    "バッチタグ書き込み worker が時間内に停止しませんでした。完了まで参照を保持します"
+                )
 
-    # -- バッチタグ書込 (#896: MainWindow から移送) ---------------------------
+    # -- バッチタグ書込 (#896: MainWindow から移送, #1544: 非同期 worker 化) -----
 
     def _execute_batch_tag_write(self, image_ids: list[int], tag: str) -> bool:
         """バッチタグ書き込みと dataset キャッシュ更新を実行する。
@@ -477,7 +545,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         return success
 
     def _handle_batch_tag_add(self, image_ids: list[int], tag: str) -> None:
-        """BatchTagAddWidget からのバッチタグ追加シグナルを処理する。
+        """BatchTagAddWidget からのバッチタグ追加シグナルを非同期 worker で処理する (#1544)。
 
         Args:
             image_ids: 対象画像の ID リスト。
@@ -486,11 +554,40 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         if not image_ids:
             logger.warning("Batch tag add requested with empty image list")
             return
+        if self._batch_tag_write_in_progress:
+            logger.debug("Batch tag add ignored: write already in progress")
+            return
 
         logger.info(f"Batch tag add requested: tag='{tag}' for {len(image_ids)} images")
+        self._batch_tag_write_in_progress = True
+        self._batch_tag_add_widget.set_busy(True)
+        self._start_batch_tag_write_worker(image_ids, tag)
 
-        success = self._execute_batch_tag_write(image_ids, tag)
+    def _start_batch_tag_write_worker(self, image_ids: list[int], tag: str) -> None:
+        """バッチタグ書き込みを専用 QThread で開始する (#1544, ADR 0044)。"""
+        thread = QThread()
+        worker = _BatchTagWriteWorker(self._image_db_write_service, image_ids, tag)
+        worker.moveToThread(thread)
+        runner = (thread, worker)
+        _ACTIVE_BATCH_TAG_RUNNERS.add(runner)
+        self._batch_tag_runners.add(runner)
+
+        thread.started.connect(worker.run)
+        worker.finished_with_result.connect(self._on_batch_tag_write_finished)
+        worker.finished.connect(thread.quit)
+        thread.finished.connect(lambda: self._on_batch_tag_thread_finished(runner))
+        thread.finished.connect(thread.deleteLater)
+
+        thread.start()
+
+    @Slot(list, str, bool)
+    def _on_batch_tag_write_finished(self, image_ids: list[int], tag: str, success: bool) -> None:
+        """バッチタグ書き込み完了時に UI・キャッシュ・ステージングを更新する (#1544)。"""
+        self._batch_tag_write_in_progress = False
+        self._batch_tag_add_widget.set_busy(False)
         if success:
+            if self._dataset_state_manager is not None:
+                self._dataset_state_manager.refresh_images(image_ids)
             # ステージング集合をクリア (SSoT = StagingStateManager、fan-out で各タブへ反映)
             if self._staging_state_manager is not None:
                 self._staging_state_manager.clear()
@@ -502,6 +599,17 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         else:
             show_critical(self, "タグ追加失敗", f"タグ '{tag}' の追加に失敗しました。")
             logger.error(f"Failed to add tag in batch: tag='{tag}', image_count={len(image_ids)}")
+
+    def _on_batch_tag_thread_finished(self, runner: tuple[QThread, _BatchTagWriteWorker]) -> None:
+        """バッチタグ worker thread 終了時に参照解放する (#1544)。"""
+        thread, worker = runner
+        thread.wait()
+        try:
+            thread.started.disconnect(worker.run)
+        except (RuntimeError, TypeError):
+            pass
+        self._batch_tag_runners.discard(runner)
+        _ACTIVE_BATCH_TAG_RUNNERS.discard(runner)
 
     # -- プロパティ (タブ内配線・テスト用) -----------------------------------
 
@@ -561,13 +669,38 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
     @Slot()
     def refresh(self) -> None:
         """タブ表示時に preflight 集計・pipeline panel・推論台帳を再計算する。"""
+        self._invalidate_model_caches()
+        self._cached_ratings_by_id.clear()
         self._refresh_pipeline_panel()
         self._refresh_preflight_summary()
+
+    def _invalidate_model_caches(self) -> None:
+        """モデル一覧・StageModelInfo・コストマップのキャッシュを破棄する (#1515)。"""
+        self._cached_cost_map = None
+        self._cached_loaded_models = None
+        self._cached_stage_info_by_id = None
+        self._cached_stage_info_service = None
+        self._last_composed_selected_ids = None
+
+    def _load_all_models_cached(self) -> list[Any]:
+        """ModelSelectionService.load_models() の結果をキャッシュ付きで返す (#1515)。"""
+        service = getattr(self._batch_model_selection, "model_selection_service", None)
+        if service is None:
+            return []
+        if self._cached_loaded_models is not None and self._cached_stage_info_service is service:
+            return self._cached_loaded_models
+        raw_models = service.load_models()
+        models = raw_models if isinstance(raw_models, list) else []
+        self._cached_loaded_models = models
+        self._cached_stage_info_service = service
+        self._cached_stage_info_by_id = None
+        return models
 
     # -- 実行系 getter (MainWindow.start_annotation が読む) --------------------
 
     def refresh_model_selection(self) -> None:
         """設定保存後・実行直前に最新の経路と選択状態を同期する。"""
+        self._invalidate_model_caches()
         self._batch_model_selection.update_model_display()
         # 同一表示で rebuild が省略されても stale な SSoT を検証する。
         self.reconcile_model_selection()
@@ -575,6 +708,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
     @Slot()
     def reconcile_model_selection(self) -> None:
         """利用できなくなった経路を解除し、有効な offscreen 選択は維持する。"""
+        self._invalidate_model_caches()
         selectable = self._batch_model_selection.selectable_litellm_model_ids()
         selected = [mid for mid in self.selected_litellm_model_ids() if mid in selectable]
         self._extra_selected_model_ids = [
@@ -663,8 +797,32 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         """実行詳細設定 (RunOptions) を返す。"""
         return self._pipeline_run_options
 
+    def _fetch_batch_low_res_paths(self, image_ids: list[int]) -> dict[int, str]:
+        """DB からステージング画像の低解像度パスを一括取得する (#1546)。"""
+        if self._db_manager is None:
+            return {}
+        batch_getter = getattr(self._db_manager, "get_low_res_image_paths_batch", None)
+        if not callable(batch_getter):
+            return {}
+        raw_batch = batch_getter(image_ids)
+        return raw_batch if isinstance(raw_batch, dict) else {}
+
+    @staticmethod
+    def _resolve_staged_candidate_path(
+        image_id: int, low_res_path: str | None, stored_path: str
+    ) -> str | None:
+        """低解像度パスを優先し、存在しなければオリジナル stored_path へフォールバックする (#1546)。"""
+        for path_str in (low_res_path, stored_path):
+            if not path_str:
+                continue
+            resolved = resolve_stored_path(path_str)
+            if resolved and resolved.exists():
+                return str(resolved)
+        logger.debug(f"画像パスが存在しない: ID={image_id}, path={stored_path or low_res_path}")
+        return None
+
     def staged_id_path_map(self) -> dict[int, str]:
-        """ステージング画像の {image_id: 解決済みファイルパス} を返す (#896 PR4a)。
+        """ステージング画像の {image_id: 解決済みファイルパス} を返す (#896 PR4a, #1546)。
 
         :meth:`get_staged_items` の stored_path を実ファイルパスに解決し、存在する
         ものだけ返す。同期 / async dispatch の双方で使う。DatasetStateManager 未注入時は
@@ -681,14 +839,14 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             logger.warning("DatasetStateManager not available for path resolution")
             return {}
 
+        batch_low_res = self._fetch_batch_low_res_paths(list(staged_items.keys()))
         id_path_map: dict[int, str] = {}
         for image_id, (_, stored_path) in staged_items.items():
-            if stored_path:
-                resolved = resolve_stored_path(stored_path)
-                if resolved and resolved.exists():
-                    id_path_map[image_id] = str(resolved)
-                else:
-                    logger.debug(f"画像パスが存在しない: ID={image_id}, path={stored_path}")
+            resolved_str = self._resolve_staged_candidate_path(
+                image_id, batch_low_res.get(image_id), stored_path
+            )
+            if resolved_str is not None:
+                id_path_map[image_id] = resolved_str
 
         logger.debug(f"ステージング画像パスを取得: {len(id_path_map)}件")
         return id_path_map
@@ -751,8 +909,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         Args:
             preset_id: 選択されたプリセットの ID (PipelinePreset.preset_id)。
         """
-        service = self._batch_model_selection.model_selection_service
-        all_models = service.load_models() if service is not None else []
+        all_models = self._load_all_models_cached()
         # ADR 0038: 廃止 (discontinued_at 設定済み = available False) モデルは UI の
         # モデル一覧に出ないため、プリセット適用でも候補から除外する (Codex P2)
         active_models = [m for m in all_models if m.available]
@@ -798,6 +955,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         self._last_preset_model_ids = set(preset_ids)
         self._pipeline_stage_table.set_active_preset(preset_id)
 
+        self._last_composed_selected_ids = None
         self._refresh_pipeline_panel()
         logger.info(f"プリセット '{preset_id}' を適用: {len(preset_ids)} 件のモデルを選択")
 
@@ -1033,12 +1191,10 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         self._pipeline_stage_table.set_custom_presets(chips)
 
     def _update_preset_counts(self) -> None:
-        """組込プリセット chip のモデル件数バッジを実データに同期する (#1537)。"""
+        """組込プリセット chip のモデル件数バッジを実データに同期する (#1537, #1515)。"""
         if not hasattr(self._pipeline_stage_table, "update_preset_counts"):
             return
-        service = getattr(self._batch_model_selection, "model_selection_service", None)
-        raw_models = service.load_models() if service is not None else []
-        all_models = raw_models if isinstance(raw_models, list) else []
+        all_models = self._load_all_models_cached()
         active_models = [m for m in all_models if getattr(m, "available", True)]
         all_infos = (
             self._build_stage_model_infos([m.litellm_model_id for m in active_models])
@@ -1057,25 +1213,33 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         Args:
             selected_ids: 選択中の litellm_model_id。None なら SSoT (manager 注入時は
                 ModelSelectionStateManager、未注入時は ModelSelectionWidget) から現在値を
-                取得する (ステージング件数変化時の再計算用、#884 P2)。
+                取得する (ステージング件数変化時の再計算用、#884 P2 / #1515)。
         """
+        service = getattr(self._batch_model_selection, "model_selection_service", None)
+        if service is not self._cached_stage_info_service:
+            self._invalidate_model_caches()
+
+        is_implicit_refresh = selected_ids is None
         if selected_ids is None:
             selected_ids = self.selected_litellm_model_ids()
+        selected_key = tuple(selected_ids)
 
-        self._update_preset_counts()
+        if not (is_implicit_refresh and self._last_composed_selected_ids == selected_key):
+            self._update_preset_counts()
 
-        # #1537: 選択が空になった、またはプリセット適用時の構成から乖離した場合は chip 強調を解除
-        if not selected_ids or (
-            self._active_preset_id is not None and set(selected_ids) != self._last_preset_model_ids
-        ):
-            self._active_preset_id = None
-            self._last_preset_model_ids = set()
-            if hasattr(self._pipeline_stage_table, "set_active_preset"):
-                self._pipeline_stage_table.set_active_preset(None)
+            # #1537: 選択が空になった、またはプリセット適用時の構成から乖離した場合は chip 強調を解除
+            if not selected_ids or (
+                self._active_preset_id is not None and set(selected_ids) != self._last_preset_model_ids
+            ):
+                self._active_preset_id = None
+                self._last_preset_model_ids = set()
+                if hasattr(self._pipeline_stage_table, "set_active_preset"):
+                    self._pipeline_stage_table.set_active_preset(None)
 
-        infos = self._build_stage_model_infos(selected_ids)
-        self._pipeline_composition_service.compose_from_models(infos)
-        self._pipeline_stage_table.display(self._pipeline_composition_service.stage_rows())
+            infos = self._build_stage_model_infos(selected_ids)
+            self._pipeline_composition_service.compose_from_models(infos)
+            self._pipeline_stage_table.display(self._pipeline_composition_service.stage_rows())
+            self._last_composed_selected_ids = selected_key
 
         # #884 Phase 4b: dispatch_mode=batch_api のとき batch 対応モデルを別レーンへ。
         # batch-capable 判定は lib が SSoT (ADR 0038 / ADR 0005) → 都度問い合わせて消費する。
@@ -1132,23 +1296,42 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             )
         )
 
-    def _refresh_preflight_summary(self) -> None:
-        """送信前プリフライト card をステージング集合の既存 rating で再描画する (Issue #837)。
+    def _refresh_preflight_summary(self, *, invalidate_cache: bool = False) -> None:
+        """送信前プリフライト card をステージング集合の既存 rating で再描画する (Issue #837, #1515)。
 
         ステージング集合の最新 rating を DB から引き、送信可 / 保留 / 未判定 に
         分類して表示する。moderation は実行しない (実送信時に
         :class:`ModerationPreflightService` が判定する)。
         """
+        if invalidate_cache or self._cached_ratings_db_manager is not self._db_manager:
+            self._cached_ratings_by_id.clear()
+            self._cached_ratings_db_manager = self._db_manager
+
         image_ids = list(self._pipeline_staged_image_ids)
-        ratings_by_id: dict[int, str | None] = {}
-        if image_ids and self._db_manager is not None:
-            ratings_by_id = self._db_manager.image_repo.get_latest_normalized_ratings_by_image_ids(
-                image_ids
-            )
+        if not image_ids or self._db_manager is None:
+            self._cached_ratings_by_id.clear()
+            self._preflight_summary_widget.display({}, image_ids)
+            return
+
+        active_set = set(image_ids)
+        for cached_id in list(self._cached_ratings_by_id.keys()):
+            if cached_id not in active_set:
+                del self._cached_ratings_by_id[cached_id]
+
+        missing_ids = [iid for iid in image_ids if iid not in self._cached_ratings_by_id]
+        if missing_ids:
+            fetched = self._db_manager.image_repo.get_latest_normalized_ratings_by_image_ids(missing_ids)
+            fetched_map = fetched if isinstance(fetched, dict) else {}
+            for iid in missing_ids:
+                self._cached_ratings_by_id[iid] = fetched_map.get(iid)
+
+        ratings_by_id: dict[int, str | None] = {
+            iid: val for iid in image_ids if (val := self._cached_ratings_by_id.get(iid)) is not None
+        }
         self._preflight_summary_widget.display(ratings_by_id, image_ids)
 
     def _build_stage_model_infos(self, selected_ids: list[str]) -> list[StageModelInfo]:
-        """選択 litellm_model_id を StageModelInfo へ変換する。
+        """選択 litellm_model_id を StageModelInfo へ変換する (#1515: キャッシュ利用)。
 
         capabilities は DB Model の model_types 由来。API / local 判定はモデル一覧と
         同じ helper で provider と key 要否の metadata を確認する。
@@ -1159,35 +1342,41 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         Returns:
             変換済み StageModelInfo リスト。DB に見つからない ID はスキップする。
         """
-        service = self._batch_model_selection.model_selection_service
-        all_models = service.load_models() if service is not None else []
-        models_by_id = {m.litellm_model_id: m for m in all_models}
-        cost_by_id = self._build_cost_map()
-
-        infos: list[StageModelInfo] = []
-        for litellm_id in selected_ids:
-            model = models_by_id.get(litellm_id)
-            if model is None:
-                logger.debug(f"選択モデルが DB モデル一覧に見つかりません: {litellm_id}")
-                continue
-            provider = model.provider
-            is_api = is_webapi_model_id(litellm_id, provider, getattr(model, "requires_api_key", None))
-            input_cost, output_cost = cost_by_id.get(litellm_id, (None, None))
-            infos.append(
-                StageModelInfo(
+        service = getattr(self._batch_model_selection, "model_selection_service", None)
+        if self._cached_stage_info_by_id is None or self._cached_stage_info_service is not service:
+            all_models = self._load_all_models_cached()
+            cost_by_id = self._build_cost_map()
+            info_map: dict[str, StageModelInfo] = {}
+            for model in all_models:
+                litellm_id = getattr(model, "litellm_model_id", None)
+                if not isinstance(litellm_id, str):
+                    continue
+                provider = getattr(model, "provider", None)
+                is_api = is_webapi_model_id(litellm_id, provider, getattr(model, "requires_api_key", None))
+                input_cost, output_cost = cost_by_id.get(litellm_id, (None, None))
+                info_map[litellm_id] = StageModelInfo(
                     litellm_model_id=litellm_id,
-                    display_name=model.name,
+                    display_name=getattr(model, "name", litellm_id),
                     provider=provider,
                     is_api=is_api,
-                    capabilities=frozenset(str(c) for c in model.capabilities),
+                    capabilities=frozenset(str(c) for c in getattr(model, "capabilities", ())),
                     input_cost_per_token=input_cost,
                     output_cost_per_token=output_cost,
                 )
-            )
+            self._cached_stage_info_by_id = info_map
+            self._cached_stage_info_service = service
+
+        infos: list[StageModelInfo] = []
+        for litellm_id in selected_ids:
+            info = self._cached_stage_info_by_id.get(litellm_id)
+            if info is None:
+                logger.debug(f"選択モデルが DB モデル一覧に見つかりません: {litellm_id}")
+                continue
+            infos.append(info)
         return infos
 
     def _build_cost_map(self) -> dict[str, tuple[float | None, float | None]]:
-        """litellm_model_id → (input単価, output単価) のコストマップを構築する。
+        """litellm_model_id → (input単価, output単価) のコストマップを構築する (#1515)。
 
         image-annotator-lib の ``list_annotator_info()`` から実行時に pricing を取得する
         (Issue #747: litellm pricing は DB 保存せず on-demand)。取得失敗時は空マップを
@@ -1196,8 +1385,11 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         Returns:
             litellm_model_id をキーとした (input_cost_per_token, output_cost_per_token)。
         """
+        if self._cached_cost_map is not None:
+            return dict(self._cached_cost_map)
         adapter = getattr(self._service_container, "annotator_library", None)
         if adapter is None:
+            self._cached_cost_map = {}
             return {}
         cost_map: dict[str, tuple[float | None, float | None]] = {}
         try:
@@ -1213,7 +1405,8 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
                 "コスト概算用の AnnotatorInfo 取得に失敗。コスト表示なしで続行"
             )
             return {}
-        return cost_map
+        self._cached_cost_map = cost_map
+        return dict(cost_map)
 
     def _available_api_providers(self) -> set[str]:
         """config の API キー設定状況から実行可能な WebAPI provider 集合を返す (Issue #755)。
@@ -1250,10 +1443,8 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             return "auto"
 
     def _build_picker_candidates(self, stage: PipelineStage) -> list[StageModelInfo]:
-        """指定ステージ向けに経路重複排除・選択済み除外済みのピッカー候補を構築する (#1538)。"""
-        service = getattr(self._batch_model_selection, "model_selection_service", None)
-        raw_models = service.load_models() if service is not None else []
-        all_models = raw_models if isinstance(raw_models, list) else []
+        """指定ステージ向けに経路重複排除・選択済み除外済みのピッカー候補を構築する (#1538, #1515)。"""
+        all_models = self._load_all_models_cached()
         active_models = [model for model in all_models if getattr(model, "available", True)]
         all_ids = [model.litellm_model_id for model in active_models]
         selected_ids = set(self.selected_litellm_model_ids())
@@ -1312,6 +1503,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         for mid in [*current_selected, *self.selected_litellm_model_ids(), *picked_ids]:
             if mid not in merged_selected:
                 merged_selected.append(mid)
+        self._last_composed_selected_ids = None
         self._sync_widget_selection_to_state(merged_selected)
         self._refresh_pipeline_panel()
 
@@ -1346,11 +1538,13 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         checkbox_widget = self._batch_model_selection.model_checkbox_widgets.get(litellm_model_id)
         if checkbox_widget is None:
             if was_offscreen:
+                self._last_composed_selected_ids = None
                 self._refresh_pipeline_panel()
                 return
             logger.warning(f"チェックボックス未表示のため除外をスキップ: {litellm_model_id}")
             return
         checkbox_widget.set_selected(False)
+        self._last_composed_selected_ids = None
         self._sync_widget_selection_to_state()
         self._refresh_pipeline_panel()
 
@@ -1380,6 +1574,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         target_stage = stage if stage is not None else getattr(dialog, "_stage", None)
         if isinstance(target_stage, PipelineStage) and hasattr(dialog, "replace_candidates"):
             dialog.replace_candidates(self._build_picker_candidates(target_stage))
+        self._last_composed_selected_ids = None
         self._refresh_pipeline_panel()
 
     def _reload_model_widget_after_settings(self) -> None:

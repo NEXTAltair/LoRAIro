@@ -101,7 +101,7 @@ def db_manager() -> Mock:
 
 
 @pytest.fixture
-def tab(qtbot, service_container: Mock, db_manager: Mock) -> AnnotateTabWidget:
+def tab(qtbot, service_container: Mock, db_manager: Mock):
     """実 AnnotateTabWidget を生成して返す。"""
     widget = AnnotateTabWidget(
         service_container=service_container,
@@ -110,7 +110,8 @@ def tab(qtbot, service_container: Mock, db_manager: Mock) -> AnnotateTabWidget:
         dataset_state_manager=DatasetStateManager(),
     )
     qtbot.addWidget(widget)
-    return widget
+    yield widget
+    widget.shutdown()
 
 
 # == 1. ホスト / 構築 =========================================================
@@ -1490,9 +1491,7 @@ class TestFilterToModelDelegation:
 
 
 @pytest.fixture
-def annotate_tab_with_state(
-    qtbot: object, service_container: Mock, db_manager: Mock
-) -> tuple[AnnotateTabWidget, ModelSelectionStateManager]:
+def annotate_tab_with_state(qtbot: object, service_container: Mock, db_manager: Mock):
     """ModelSelectionStateManager を注入した AnnotateTabWidget と manager を返す。"""
     state_manager = ModelSelectionStateManager()
     widget = AnnotateTabWidget(
@@ -1503,7 +1502,8 @@ def annotate_tab_with_state(
         model_selection_state_manager=state_manager,
     )
     qtbot.addWidget(widget)
-    return widget, state_manager
+    yield widget, state_manager
+    widget.shutdown()
 
 
 @pytest.mark.gui
@@ -1801,8 +1801,8 @@ def test_handle_batch_tag_add_success_emits_status_and_clears_staging(
 
 
 @pytest.mark.gui
-def test_handle_batch_tag_add_failure_shows_critical(tab: AnnotateTabWidget, monkeypatch) -> None:
-    """書込失敗で QMessageBox.critical を表示する (#896)。"""
+def test_handle_batch_tag_add_failure_shows_critical(tab: AnnotateTabWidget, qtbot, monkeypatch) -> None:
+    """書込失敗で QMessageBox.critical を表示する (#896, #1544)。"""
     tab._image_db_write_service = Mock()
     tab._image_db_write_service.add_tag_batch.return_value = False
     calls: list[bool] = []
@@ -1810,7 +1810,7 @@ def test_handle_batch_tag_add_failure_shows_critical(tab: AnnotateTabWidget, mon
 
     tab._handle_batch_tag_add([1], "x")
 
-    assert calls == [True]
+    qtbot.waitUntil(lambda: calls == [True], timeout=1000)
 
 
 @pytest.mark.gui
@@ -1835,3 +1835,182 @@ def test_batch_tag_add_widget_signal_handled_in_tab(tab: AnnotateTabWidget, monk
     tab._batch_tag_add_widget.tag_add_requested.emit([3], "sky")
 
     assert handled == [([3], "sky")]
+
+
+# == 14. Issue #1544: 非同期バッチタグ書込 & busy 状態 =========================
+
+
+@pytest.mark.gui
+def test_handle_batch_tag_add_runs_off_gui_thread_and_toggles_busy(tab: AnnotateTabWidget, qtbot) -> None:
+    """Issue #1544: _handle_batch_tag_add は QThread 上で add_tag_batch を実行し set_busy(True/False) を切り替える。"""
+    import threading
+
+    gui_thread_id = threading.get_ident()
+    worker_thread_ids: list[int] = []
+    busy_states: list[bool] = []
+    original_set_busy = tab._batch_tag_add_widget.set_busy
+    tab._batch_tag_add_widget.set_busy = lambda b: (busy_states.append(b), original_set_busy(b))  # type: ignore[method-assign]
+
+    def _add_tag_batch(image_ids: list[int], tag: str) -> bool:
+        worker_thread_ids.append(threading.get_ident())
+        return True
+
+    tab._image_db_write_service = Mock()
+    tab._image_db_write_service.add_tag_batch.side_effect = _add_tag_batch
+    tab._dataset_state_manager = Mock()
+    tab._staging_state_manager = Mock()
+
+    with qtbot.waitSignal(tab.status_message, timeout=2000):
+        tab._handle_batch_tag_add([1, 2], "cat")
+
+    qtbot.waitUntil(lambda: not tab._batch_tag_write_in_progress, timeout=2000)
+    assert busy_states == [True, False]
+    assert len(worker_thread_ids) == 1
+    assert worker_thread_ids[0] != gui_thread_id
+    tab._dataset_state_manager.refresh_images.assert_called_once_with([1, 2])
+    tab._staging_state_manager.clear.assert_called_once()
+
+
+@pytest.mark.gui
+def test_handle_batch_tag_add_reentry_guard_skips_while_in_progress(
+    tab: AnnotateTabWidget,
+) -> None:
+    """Issue #1544: 書込進行中の二重呼び出しはスキップする。"""
+    tab._image_db_write_service = Mock()
+    tab._batch_tag_write_in_progress = True
+
+    tab._handle_batch_tag_add([1, 2], "cat")
+
+    tab._image_db_write_service.add_tag_batch.assert_not_called()
+    tab._batch_tag_write_in_progress = False
+
+
+# == 15. Issue #1515 / #1546: キャッシュ・差分取得・バッチ低解像度パス解決 =====
+
+
+@pytest.mark.gui
+def test_build_cost_map_caches_annotator_info_until_invalidated(tab: AnnotateTabWidget) -> None:
+    """Issue #1515: _build_cost_map は list_annotator_info の結果をキャッシュし、invalidate 後に再取得する。"""
+    adapter = Mock()
+    adapter.list_annotator_info.return_value = [
+        SimpleNamespace(
+            litellm_model_id="openai/gpt-4o",
+            input_cost_per_token=0.001,
+            output_cost_per_token=0.002,
+        )
+    ]
+    tab._service_container.annotator_library = adapter
+    tab._invalidate_model_caches()
+
+    first = tab._build_cost_map()
+    second = tab._build_cost_map()
+
+    assert first == {"openai/gpt-4o": (0.001, 0.002)}
+    assert second == {"openai/gpt-4o": (0.001, 0.002)}
+    assert adapter.list_annotator_info.call_count == 1
+
+    tab._invalidate_model_caches()
+    tab._build_cost_map()
+    assert adapter.list_annotator_info.call_count == 2
+
+
+@pytest.mark.gui
+def test_set_staging_target_skips_stage_recomposition_when_selection_unchanged(
+    tab: AnnotateTabWidget,
+) -> None:
+    """Issue #1515: ステージング枚数変化のみなら stage_table 再合成・load_models を省略し ledger のみ更新する。"""
+    service_mock = Mock()
+    service_mock.load_models.return_value = [
+        SimpleNamespace(
+            litellm_model_id="openai/gpt-4o",
+            name="gpt-4o",
+            provider="openai",
+            capabilities=["multimodal", "caption", "tags", "scores"],
+            available=True,
+        )
+    ]
+    tab._batch_model_selection = Mock()
+    tab._batch_model_selection.model_selection_service = service_mock
+    tab._batch_model_selection.get_selected_models.return_value = ["openai/gpt-4o"]
+    tab._invalidate_model_caches()
+
+    # 初回 refresh でモデル構成を合成
+    tab._refresh_pipeline_panel(["openai/gpt-4o"])
+    assert service_mock.load_models.call_count == 1
+
+    stage_display_spy = Mock(wraps=tab._pipeline_stage_table.display)
+    tab._pipeline_stage_table.display = stage_display_spy  # type: ignore[method-assign]
+    ledger_display_spy = Mock(wraps=tab._inference_ledger_widget.display)
+    tab._inference_ledger_widget.display = ledger_display_spy  # type: ignore[method-assign]
+
+    # ステージング件数の変化のみ (モデル選択不変)
+    tab.set_staging_target([1, 2, 3])
+    tab.set_staging_target([1, 2, 3, 4])
+
+    assert service_mock.load_models.call_count == 1
+    stage_display_spy.assert_not_called()
+    assert ledger_display_spy.call_count == 2
+
+
+@pytest.mark.gui
+def test_refresh_preflight_summary_queries_only_missing_ids_incrementally(
+    tab: AnnotateTabWidget,
+) -> None:
+    """Issue #1515: ステージング追加時は未キャッシュの image_id のみ差分クエリし、invalidate_cache=True で再取得する。"""
+    tab._preflight_summary_widget = Mock()
+    tab._db_manager = Mock()
+    repo = tab._db_manager.image_repo
+
+    repo.get_latest_normalized_ratings_by_image_ids.side_effect = [
+        {1: "PG", 2: "R"},
+        {3: "X"},
+        {1: "PG", 2: "R", 3: "X"},
+    ]
+
+    tab.set_staging_target([1, 2])
+    repo.get_latest_normalized_ratings_by_image_ids.assert_called_once_with([1, 2])
+    tab._preflight_summary_widget.display.assert_called_with({1: "PG", 2: "R"}, [1, 2])
+
+    # 3 を追加 → 新規 ID [3] のみ DB クエリされる
+    tab.set_staging_target([1, 2, 3])
+    assert repo.get_latest_normalized_ratings_by_image_ids.call_args_list[-1].args == ([3],)
+    tab._preflight_summary_widget.display.assert_called_with({1: "PG", 2: "R", 3: "X"}, [1, 2, 3])
+
+    # 同一集合なら DB クエリなし
+    tab.set_staging_target([1, 2, 3])
+    assert repo.get_latest_normalized_ratings_by_image_ids.call_count == 2
+
+    # invalidate_cache=True (refresh 等) で全件再取得
+    tab._refresh_preflight_summary(invalidate_cache=True)
+    assert repo.get_latest_normalized_ratings_by_image_ids.call_count == 3
+    assert repo.get_latest_normalized_ratings_by_image_ids.call_args_list[-1].args == ([1, 2, 3],)
+
+
+@pytest.mark.gui
+def test_staged_id_path_map_prefers_batch_low_res_paths(tab: AnnotateTabWidget, monkeypatch) -> None:
+    """Issue #1546: staged_id_path_map は get_low_res_image_paths_batch が返す低解像度パスを優先する。"""
+    from lorairo.gui.tab import annotate_tab as annotate_tab_module
+
+    monkeypatch.setattr(
+        tab,
+        "get_staged_items",
+        lambda: {1: ("a", "stored/orig1.png"), 2: ("b", "stored/orig2.png")},
+    )
+    tab._db_manager.get_low_res_image_paths_batch.return_value = {1: "stored/low1.webp"}
+
+    class _FakePath:
+        def __init__(self, value: str) -> None:
+            self._value = value
+
+        def exists(self) -> bool:
+            return True
+
+        def __str__(self) -> str:
+            return self._value
+
+    monkeypatch.setattr(annotate_tab_module, "resolve_stored_path", lambda p: _FakePath(p))
+
+    result = tab.staged_id_path_map()
+
+    tab._db_manager.get_low_res_image_paths_batch.assert_called_once_with([1, 2])
+    assert result == {1: "stored/low1.webp", 2: "stored/orig2.png"}

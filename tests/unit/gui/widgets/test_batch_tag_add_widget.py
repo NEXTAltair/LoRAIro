@@ -434,3 +434,51 @@ class TestEdgeCases:
         # Order should be [1, 3, 2] (insertion order preserved)
         staged_ids = list(widget.get_staged_items().keys())
         assert staged_ids == [1, 3, 2]
+
+
+class TestBusyState:
+    """Issue #1544: BatchTagAddWidget.set_busy() tests"""
+
+    def test_set_busy_disables_controls_and_updates_button_text(self, qtbot):
+        """set_busy(True) disables button and input and shows '追加中…'; set_busy(False) restores."""
+        widget = BatchTagAddWidget()
+        qtbot.addWidget(widget)
+
+        assert widget.ui.pushButtonAddTag.isEnabled() is True
+        assert widget.ui.lineEditTag.isEnabled() is True
+        assert widget.ui.pushButtonAddTag.text() == "追加"
+
+        widget.set_busy(True)
+
+        assert widget._is_busy is True
+        assert widget.ui.pushButtonAddTag.isEnabled() is False
+        assert widget.ui.lineEditTag.isEnabled() is False
+        assert widget.ui.pushButtonAddTag.text() == "追加中…"
+
+        widget.set_busy(False)
+
+        assert widget._is_busy is False
+        assert widget.ui.pushButtonAddTag.isEnabled() is True
+        assert widget.ui.lineEditTag.isEnabled() is True
+        assert widget.ui.pushButtonAddTag.text() == "追加"
+
+    def test_add_tag_clicked_ignored_while_busy(self, qtbot):
+        """While busy=True, _on_add_tag_clicked() does not emit tag_add_requested."""
+        widget = BatchTagAddWidget()
+        qtbot.addWidget(widget)
+
+        state_manager = DatasetStateManager()
+        state_manager._all_images = [{"id": 1, "stored_image_path": "/path/to/image1.jpg"}]
+        state_manager._selected_image_ids = [1]
+        widget.set_dataset_state_manager(state_manager)
+        widget._on_add_selected_clicked()
+
+        widget.ui.lineEditTag.setText("cat")
+        emitted: list[tuple[list[int], str]] = []
+        widget.tag_add_requested.connect(lambda ids, tag: emitted.append((ids, tag)))
+
+        widget.set_busy(True)
+        widget._on_add_tag_clicked()
+
+        assert emitted == []
+        assert widget.ui.lineEditTag.text() == "cat"

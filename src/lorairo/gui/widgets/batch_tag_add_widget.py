@@ -112,6 +112,8 @@ class BatchTagAddWidget(QWidget):
 
         # DatasetStateManager への参照（後で set_dataset_state_manager() で設定）
         self._dataset_state_manager: DatasetStateManager | None = None
+        # バッチタグ書き込み中の busy 状態 (#1544)
+        self._is_busy: bool = False
 
         # UI 設定
         self.ui = Ui_BatchTagAddWidget()
@@ -243,6 +245,26 @@ class BatchTagAddWidget(QWidget):
         """
         return normalize_tag(tag)
 
+    def _update_ui_state(self) -> None:
+        """タグ入力・追加ボタンの有効/無効状態を更新する (#1544)。"""
+        enabled = not self._is_busy
+        self.ui.pushButtonAddTag.setEnabled(enabled)
+        self.ui.lineEditTag.setEnabled(enabled)
+
+    def set_busy(self, busy: bool) -> None:
+        """バッチタグ書き込み中の busy 状態を切り替える (#1544)。
+
+        Args:
+            busy: 書き込み中なら True、完了時は False。
+        """
+        self._is_busy = busy
+        self.ui.pushButtonAddTag.setText("追加中…" if busy else "追加")
+        if busy:
+            self.ui.pushButtonAddTag.setEnabled(False)
+            self.ui.lineEditTag.setEnabled(False)
+        else:
+            self._update_ui_state()
+
     @Slot()
     def _on_add_tag_clicked(self) -> None:
         """「追加」ボタンクリックハンドラ。
@@ -250,10 +272,15 @@ class BatchTagAddWidget(QWidget):
         タグを正規化し、tag_add_requested シグナルを発行。
 
         バリデーション:
+        - busy 状態チェック
         - ステージング画像数チェック
         - 空タグチェック
         - 正規化後の空文字チェック
         """
+        if self._is_busy:
+            logger.debug("Tag add ignored while batch tag write is busy")
+            return
+
         # ステージング画像チェック
         staged = self._staging_widget.get_staged_items()
         if not staged:
