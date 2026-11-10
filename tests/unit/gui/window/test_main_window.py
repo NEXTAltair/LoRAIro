@@ -355,5 +355,235 @@ class TestProjectFileSystemManagerInitialization:
         assert window.worker_service.fsm is window.file_system_manager
 
 
+class TestMainWindowSelectDeselectScoping:
+    """全選択 (Ctrl+A) / 選択解除 (Ctrl+D) のアクティブタブ限定ディスパッチ (#1551)。"""
+
+    @staticmethod
+    def _make_window_stub():
+        search_tab = SimpleNamespace(thumbnail_selector=Mock())
+        export_tab = SimpleNamespace(thumbnail_selector=Mock())
+        tab_workspace = Mock(name="tabWorkspace")
+        tab_export = Mock(name="tabExport")
+        tab_annotate = Mock(name="tabBatchTag")
+        tab_results = Mock(name="tabResults")
+        tab_errors = Mock(name="tabErrors")
+        tab_widget = Mock()
+        window = SimpleNamespace(
+            tabWidgetMainMode=tab_widget,
+            tabWorkspace=tab_workspace,
+            tabExport=tab_export,
+            tabBatchTag=tab_annotate,
+            tabResults=tab_results,
+            tabErrors=tab_errors,
+            search_tab=search_tab,
+            export_tab=export_tab,
+            jobs_tab=Mock(name="jobs_tab"),
+            actionSelectAll=Mock(),
+            actionDeselectAll=Mock(),
+            _refresh_search_tab=Mock(),
+            _refresh_batch_tag_staging=Mock(),
+            _refresh_jobs_tab=Mock(),
+            _refresh_results_tab=Mock(),
+            _refresh_errors_tab=Mock(),
+            _refresh_export_tab=Mock(),
+        )
+        return window
+
+    def test_select_and_deselect_all_dispatch_to_search_tab_when_active(self):
+        """検索タブがアクティブなときは search_tab.thumbnail_selector のみ操作する。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        window = self._make_window_stub()
+        window.tabWidgetMainMode.currentWidget.return_value = window.tabWorkspace
+
+        MainWindow._on_select_all_triggered(window)
+        MainWindow._on_deselect_all_triggered(window)
+
+        window.search_tab.thumbnail_selector._select_all_items.assert_called_once_with()
+        window.search_tab.thumbnail_selector._deselect_all_items.assert_called_once_with()
+        window.export_tab.thumbnail_selector._select_all_items.assert_not_called()
+        window.export_tab.thumbnail_selector._deselect_all_items.assert_not_called()
+
+    def test_select_and_deselect_all_dispatch_to_export_tab_when_active(self):
+        """エクスポートタブがアクティブなときは export_tab.thumbnail_selector のみ操作する。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        window = self._make_window_stub()
+        window.tabWidgetMainMode.currentWidget.return_value = window.tabExport
+
+        MainWindow._on_select_all_triggered(window)
+        MainWindow._on_deselect_all_triggered(window)
+
+        window.export_tab.thumbnail_selector._select_all_items.assert_called_once_with()
+        window.export_tab.thumbnail_selector._deselect_all_items.assert_called_once_with()
+        window.search_tab.thumbnail_selector._select_all_items.assert_not_called()
+        window.search_tab.thumbnail_selector._deselect_all_items.assert_not_called()
+
+    def test_select_and_deselect_all_noop_on_non_selector_tabs(self):
+        """Annotate / Results / Errors / Jobs 等の別タブ表示中はどのセレクタも操作しない。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        window = self._make_window_stub()
+        for other_tab in (window.tabBatchTag, window.tabResults, window.tabErrors, window.jobs_tab):
+            window.tabWidgetMainMode.currentWidget.return_value = other_tab
+            MainWindow._on_select_all_triggered(window)
+            MainWindow._on_deselect_all_triggered(window)
+
+        window.search_tab.thumbnail_selector._select_all_items.assert_not_called()
+        window.search_tab.thumbnail_selector._deselect_all_items.assert_not_called()
+        window.export_tab.thumbnail_selector._select_all_items.assert_not_called()
+        window.export_tab.thumbnail_selector._deselect_all_items.assert_not_called()
+
+    def test_tab_change_updates_selection_actions_enabled_state(self):
+        """タブ切替時にサムネイルセレクタを持つタブでのみ全選択/選択解除を有効化する。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        window = self._make_window_stub()
+
+        window.tabWidgetMainMode.widget.return_value = window.tabBatchTag
+        MainWindow._on_main_tab_changed(window, 1)
+        window.actionSelectAll.setEnabled.assert_called_with(False)
+        window.actionDeselectAll.setEnabled.assert_called_with(False)
+
+        window.tabWidgetMainMode.widget.return_value = window.tabExport
+        MainWindow._on_main_tab_changed(window, 4)
+        window.actionSelectAll.setEnabled.assert_called_with(True)
+        window.actionDeselectAll.setEnabled.assert_called_with(True)
+
+        window.tabWidgetMainMode.widget.return_value = window.tabWorkspace
+        MainWindow._on_main_tab_changed(window, 0)
+        window.actionSelectAll.setEnabled.assert_called_with(True)
+        window.actionDeselectAll.setEnabled.assert_called_with(True)
+
+    def test_connect_menu_actions_wires_select_and_deselect_dispatch_handlers(self):
+        """_connect_menu_actions は直接 search_tab ではなく MainWindow のディスパッチへ接続する。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        window = self._make_window_stub()
+        window.tabWidgetMainMode.currentWidget.return_value = window.tabWorkspace
+        window._on_select_all_triggered = Mock()
+        window._on_deselect_all_triggered = Mock()
+
+        MainWindow._connect_menu_actions(window)
+
+        window.actionSelectAll.triggered.connect.assert_called_once_with(window._on_select_all_triggered)
+        window.actionDeselectAll.triggered.connect.assert_called_once_with(
+            window._on_deselect_all_triggered
+        )
+
+
+class TestMainWindowCloseConfirmationAndCancel:
+    """実行中ジョブがある場合の終了確認と全ワーカーキャンセル (#1556)。"""
+
+    @staticmethod
+    def _make_closable_window(qtbot):
+        from PySide6.QtWidgets import QMainWindow
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        with patch.object(MainWindow, "__init__", QMainWindow.__init__):
+            window = MainWindow()
+        qtbot.addWidget(window)
+        window._closing = False
+        window._save_window_state = Mock()
+        window.dataset_state_manager = Mock()
+        window.worker_service = Mock()
+        window.worker_service.get_active_worker_count.return_value = 0
+        window.export_tab = None
+        window.search_tab = None
+        window.results_tab = None
+        window.annotate_tab = None
+        window.jobs_tab = None
+        return window
+
+    def test_close_with_running_jobs_rejected_ignores_event_and_does_not_shutdown(self, qtbot, monkeypatch):
+        """実行中ジョブがあり確認ダイアログで No を選んだ場合は終了を中断する。"""
+        from PySide6.QtGui import QCloseEvent
+        from PySide6.QtWidgets import QMessageBox
+
+        window = self._make_closable_window(qtbot)
+        window.worker_service.get_active_worker_count.return_value = 2
+        question_mock = Mock(return_value=QMessageBox.StandardButton.No)
+        monkeypatch.setattr(QMessageBox, "question", question_mock)
+
+        event = QCloseEvent()
+        window.closeEvent(event)
+
+        question_mock.assert_called_once_with(
+            window,
+            "終了確認",
+            "実行中のジョブが 2 件あります。中断して終了しますか？",  # noqa: RUF001
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        assert not event.isAccepted()
+        assert window._closing is False
+        window.worker_service.cancel_all_workers.assert_not_called()
+        window.dataset_state_manager.shutdown_annotation_refresh.assert_not_called()
+        window._save_window_state.assert_not_called()
+
+    def test_close_with_running_jobs_confirmed_cancels_all_workers_and_closes(self, qtbot, monkeypatch):
+        """実行中ジョブがあり確認ダイアログで Yes を選んだ場合は全ワーカーをキャンセルして終了する。"""
+        from PySide6.QtGui import QCloseEvent
+        from PySide6.QtWidgets import QMessageBox
+
+        window = self._make_closable_window(qtbot)
+        window.worker_service.get_active_worker_count.return_value = 1
+        question_mock = Mock(return_value=QMessageBox.StandardButton.Yes)
+        monkeypatch.setattr(QMessageBox, "question", question_mock)
+
+        event = QCloseEvent()
+        window.closeEvent(event)
+
+        question_mock.assert_called_once()
+        assert event.isAccepted()
+        assert window._closing is True
+        window.worker_service.cancel_all_workers.assert_called_once_with()
+        window.dataset_state_manager.shutdown_annotation_refresh.assert_called_once_with()
+        window._save_window_state.assert_called_once_with()
+
+    def test_close_with_running_export_thread_prompts_and_counts_job(self, qtbot, monkeypatch):
+        """エクスポートスレッド実行中も実行中ジョブ件数に含めて終了確認する。"""
+        from PySide6.QtGui import QCloseEvent
+        from PySide6.QtWidgets import QMessageBox
+
+        window = self._make_closable_window(qtbot)
+        export_thread = Mock()
+        export_thread.isRunning.return_value = True
+        window.export_tab = SimpleNamespace(_export_thread=export_thread, shutdown=Mock())
+        question_mock = Mock(return_value=QMessageBox.StandardButton.No)
+        monkeypatch.setattr(QMessageBox, "question", question_mock)
+
+        event = QCloseEvent()
+        window.closeEvent(event)
+
+        question_mock.assert_called_once_with(
+            window,
+            "終了確認",
+            "実行中のジョブが 1 件あります。中断して終了しますか？",  # noqa: RUF001
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        assert not event.isAccepted()
+        window.export_tab.shutdown.assert_not_called()
+
+    def test_close_with_no_running_jobs_cancels_all_workers_without_prompt(self, qtbot, monkeypatch):
+        """実行中ジョブがない場合は確認ダイアログを出さずに cancel_all_workers を呼んで終了する。"""
+        from PySide6.QtGui import QCloseEvent
+        from PySide6.QtWidgets import QMessageBox
+
+        window = self._make_closable_window(qtbot)
+        question_mock = Mock(return_value=QMessageBox.StandardButton.No)
+        monkeypatch.setattr(QMessageBox, "question", question_mock)
+
+        event = QCloseEvent()
+        window.closeEvent(event)
+
+        question_mock.assert_not_called()
+        assert event.isAccepted()
+        assert window._closing is True
+        window.worker_service.cancel_all_workers.assert_called_once_with()
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
