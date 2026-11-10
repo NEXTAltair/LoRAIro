@@ -89,9 +89,24 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
 
         logger.debug("ImagePreviewWidget initialized with Enhanced Event-Driven Pattern support")
 
+    def _is_same_image_loaded(self, image_path: Path) -> bool:
+        """同一パスの有効なプレビュー画像が既に表示中か判定する (#1543)。"""
+        crop_controller = getattr(self, "_crop_controller", None)
+        if crop_controller is not None and bool(getattr(crop_controller, "is_active", False)):
+            return False
+        return (
+            self._current_image_path == image_path
+            and self._current_pixmap is not None
+            and not self._current_pixmap.isNull()
+        )
+
     @Slot(Path)
     def load_image(self, image_path: Path) -> None:
         """パスベースで画像を読み込む（動的パス解決対応・メモリ最適化）"""
+        if self._is_same_image_loaded(image_path):
+            logger.debug(f"{image_path.name} は既に表示中のため再デコードをスキップ (#1543)")
+            return
+
         is_same_image = self._current_image_path == image_path
         # Phase 3.3: メモリ最適化 - 既存の表示をクリアしてリソース解放
         self._clear_preview()
@@ -562,6 +577,13 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
             if not image_path.exists():
                 logger.warning(f"画像ファイル不存在 ID:{image_id} | パス: {image_path}")
                 self._clear_preview()
+                return
+
+            if self._is_same_image_loaded(image_path):
+                self._set_current_image_id(image_id if isinstance(image_id, int) else None)
+                logger.debug(
+                    f"プレビュー既に表示中のため再デコードをスキップ: ID={image_id}, path={image_path.name} (#1543)"
+                )
                 return
 
             self.load_image(image_path)
