@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QMessageBox,
     QPushButton,
     QWidget,
 )
@@ -54,6 +55,8 @@ from ...database.db_manager import ImageDatabaseManager
 from ...services.dispatch_projection_service import batch_eligible_litellm_ids
 from ...services.model_route_service import (
     build_available_providers,
+    canonical_key,
+    detect_route,
     is_webapi_model_id,
     required_provider_for,
 )
@@ -84,6 +87,8 @@ from ..widgets.stage_model_picker_dialog import StageModelPickerDialog
 # 保存済みプリセット (#1186): QSettings キーと、組込みプリセットと衝突しない preset_id 名前空間
 _CUSTOM_PRESETS_SETTINGS_KEY = "annotate_tab/custom_presets"
 _CUSTOM_PRESET_PREFIX = "custom:"
+# #1537: Default プリセットで選択する代表モデルの上限数
+_DEFAULT_PRESET_MAX_MODELS = 5
 
 
 class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
@@ -145,6 +150,10 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         self._pipeline_staged_image_ids: list[int] = []
         # 実行詳細設定 (Issue #789)。詳細設定モーダルの確定値を保持する。
         self._pipeline_run_options = RunOptions()
+        # #1537 / #1538: プリセット適用状態および offscreen 選択モデルの保持
+        self._active_preset_id: str | None = None
+        self._last_preset_model_ids: set[str] = set()
+        self._extra_selected_model_ids: list[str] = []
 
         # .ui placeholder を実ウィジェットへ swap (BatchTagAddWidget / フィルタ / モデル選択)
         self._batch_tag_add_widget = self._swap_batch_tag_add_widget()
@@ -566,6 +575,9 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         """利用できなくなった経路を解除し、有効な offscreen 選択は維持する。"""
         selectable = self._batch_model_selection.selectable_litellm_model_ids()
         selected = [mid for mid in self.selected_litellm_model_ids() if mid in selectable]
+        self._extra_selected_model_ids = [
+            mid for mid in self._extra_selected_model_ids if mid in selectable
+        ]
         self._batch_model_selection.set_selected_models(selected)
         self._sync_widget_selection_to_state(selected)
         self._refresh_pipeline_panel(selected)
@@ -627,11 +639,19 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         """選択中のモデル (litellm_model_id) を返す。
 
         SSoT は ``ModelSelectionStateManager`` (#884)。未注入時は従来どおり
-        ``ModelSelectionWidget`` の checkbox state を読む。
+        ``ModelSelectionWidget`` の checkbox state と offscreen 保持分を読む。
         """
         if self._model_selection_state_manager is not None:
-            return self._model_selection_state_manager.get_selected()
-        return self._batch_model_selection.get_selected_models()
+            raw = self._model_selection_state_manager.get_selected()
+            return [m for m in raw if isinstance(m, str)] if isinstance(raw, list) else []
+        raw_widget = self._batch_model_selection.get_selected_models()
+        widget_selected = (
+            [m for m in raw_widget if isinstance(m, str)] if isinstance(raw_widget, list) else []
+        )
+        if not self._extra_selected_model_ids:
+            return widget_selected
+        seen = set(widget_selected)
+        return widget_selected + [mid for mid in self._extra_selected_model_ids if mid not in seen]
 
     def get_staged_items(self) -> dict[int, tuple[str, str]]:
         """ステージング項目 (image_id → (name, stored_path)) を返す。"""
@@ -721,7 +741,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         self._refresh_pipeline_panel(list(selected_litellm_model_ids))
 
     def _on_pipeline_preset_selected(self, preset_id: str) -> None:
-        """プリセット chip 選択に応じてモデル割当を切り替える (Issue #847)。
+        """プリセット chip 選択に応じてモデル割当を切り替える (Issue #847, #1537)。
 
         batchModelSelection (SSoT) の選択状態を全 OFF にしてから、preset_id に
         対応するモデルのみ ON にする。active preset 表示は Signal emit なしに更新する。
@@ -740,26 +760,125 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         if preset_id.startswith(_CUSTOM_PRESET_PREFIX):
             resolved = self._resolve_custom_preset_model_ids(preset_id, all_infos)
             if resolved is None:
+                self._pipeline_stage_table.set_active_preset(self._active_preset_id)
                 return
             preset_ids = resolved
         else:
             preset_ids = self._filter_model_ids_for_preset(preset_id, all_infos)
+
+        # #1537: 既にモデルが選択されており、かつプリセット構成と異なる場合は上書き前に確認する
+        current_ids = self.selected_litellm_model_ids()
+        if current_ids and set(current_ids) != set(preset_ids):
+            reply = QMessageBox.question(
+                self,
+                "プリセットの上書き確認",
+                f"現在 {len(current_ids)} 件のモデルが選択されています。\n"
+                f"プリセットを適用して現在の選択を置き換えますか?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                self._pipeline_stage_table.set_active_preset(self._active_preset_id)
+                return
+
+        checkbox_widgets = getattr(self._batch_model_selection, "model_checkbox_widgets", None)
+        if isinstance(checkbox_widgets, dict):
+            self._extra_selected_model_ids = [mid for mid in preset_ids if mid not in checkbox_widgets]
+        else:
+            self._extra_selected_model_ids = []
         self._batch_model_selection.set_selected_models(preset_ids)
         # プリセットの意図した集合を SSoT へ直接反映する。widget 読み戻しだと
         # アノテーションフィルタで隠れた行が黙って脱落する (#1186 Codex P2)
         self._sync_widget_selection_to_state(preset_ids)
 
         # アクティブプリセット表示を同期 (Signal emit なし)
+        self._active_preset_id = preset_id
+        self._last_preset_model_ids = set(preset_ids)
         self._pipeline_stage_table.set_active_preset(preset_id)
 
         self._refresh_pipeline_panel()
         logger.info(f"プリセット '{preset_id}' を適用: {len(preset_ids)} 件のモデルを選択")
 
-    def _filter_model_ids_for_preset(self, preset_id: str, all_infos: list[StageModelInfo]) -> list[str]:
-        """プリセット ID に対応するモデル ID リストを返す。
+    def _deduplicate_stage_model_infos(self, infos: list[StageModelInfo]) -> list[StageModelInfo]:
+        """同一 canonical_key を持つ複数経路 (direct / openrouter) を preferred 1 件に畳み込む (#1537, #1538)。"""
+        available_providers = self._available_api_providers()
+        grouped: dict[str, list[StageModelInfo]] = {}
+        order: list[str] = []
+        for info in infos:
+            ckey = canonical_key(info.litellm_model_id) if info.is_api else info.litellm_model_id
+            if ckey not in grouped:
+                grouped[ckey] = []
+                order.append(ckey)
+            grouped[ckey].append(info)
 
-        各プリセットは以下の capability フィルタを適用する:
-        - default: 全モデル
+        result: list[StageModelInfo] = []
+        for ckey in order:
+            group = grouped[ckey]
+            if len(group) == 1:
+                result.append(group[0])
+                continue
+            direct = next((i for i in group if detect_route(i.litellm_model_id) == "direct"), None)
+            openrouter = next((i for i in group if detect_route(i.litellm_model_id) == "openrouter"), None)
+            if (
+                direct is not None
+                and required_provider_for(direct.litellm_model_id, direct.provider) in available_providers
+            ):
+                result.append(direct)
+            elif (
+                openrouter is not None
+                and required_provider_for(openrouter.litellm_model_id, openrouter.provider)
+                in available_providers
+            ):
+                result.append(openrouter)
+            else:
+                result.append(direct or openrouter or group[0])
+        return result
+
+    def _filter_available_stage_model_infos(self, all_infos: list[StageModelInfo]) -> list[StageModelInfo]:
+        """利用可能 (ローカルまたは API キー設定済み) かつ経路重複排除済みのモデルのみ返す (#1537)。"""
+        available_providers = self._available_api_providers()
+        deduped = self._deduplicate_stage_model_infos(all_infos)
+        return [
+            info
+            for info in deduped
+            if not info.is_api
+            or required_provider_for(info.litellm_model_id, info.provider) in available_providers
+        ]
+
+    @staticmethod
+    def _select_default_preset_model_ids(available_infos: list[StageModelInfo]) -> list[str]:
+        """default プリセット用に各ステージの代表モデルを優先して最大 5 件選出する (#1537)。"""
+        eligible = [info for info in available_infos if info.fill_stages()]
+        if len(eligible) <= _DEFAULT_PRESET_MAX_MODELS:
+            return [info.litellm_model_id for info in eligible]
+
+        picked_ids: set[str] = set()
+        for stage in (
+            PipelineStage.TAGS,
+            PipelineStage.CAPTION,
+            PipelineStage.SCORE,
+            PipelineStage.RATING,
+        ):
+            for info in eligible:
+                if info.litellm_model_id not in picked_ids and stage in info.fill_stages():
+                    picked_ids.add(info.litellm_model_id)
+                    break
+            if len(picked_ids) >= _DEFAULT_PRESET_MAX_MODELS:
+                break
+
+        for info in eligible:
+            if len(picked_ids) >= _DEFAULT_PRESET_MAX_MODELS:
+                break
+            picked_ids.add(info.litellm_model_id)
+
+        return [info.litellm_model_id for info in eligible if info.litellm_model_id in picked_ids]
+
+    def _filter_model_ids_for_preset(self, preset_id: str, all_infos: list[StageModelInfo]) -> list[str]:
+        """プリセット ID に対応するモデル ID リストを返す (#847, #1537)。
+
+        API キー未設定の WebAPI モデルは選択対象から除外し、各プリセットは以下の
+        capability フィルタを適用する:
+        - default: 利用可能モデルからステージ代表モデルを優先して最大 5 件
         - tags_only: tags capability を持つが multimodal でないモデル
         - full_caption: multimodal または caption capability を持つモデル
         - score_rate: scores または ratings capability を持つモデル
@@ -771,29 +890,30 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         Returns:
             プリセットに割り当てるモデルの litellm_model_id リスト。
         """
+        available_infos = self._filter_available_stage_model_infos(all_infos)
         if preset_id == "default":
-            return [info.litellm_model_id for info in all_infos]
+            return self._select_default_preset_model_ids(available_infos)
         if preset_id == "tags_only":
             return [
                 info.litellm_model_id
-                for info in all_infos
+                for info in available_infos
                 if "tags" in info.capabilities and not info.is_multimodal
             ]
         if preset_id == "full_caption":
             return [
                 info.litellm_model_id
-                for info in all_infos
+                for info in available_infos
                 if info.is_multimodal or "caption" in info.capabilities
             ]
         if preset_id == "score_rate":
             return [
                 info.litellm_model_id
-                for info in all_infos
+                for info in available_infos
                 if "scores" in info.capabilities or "ratings" in info.capabilities
             ]
-        # 未知のプリセット: 全モデルを安全なフォールバックとして返す
-        logger.warning(f"未知のプリセット ID: {preset_id} — 全モデルを選択します")
-        return [info.litellm_model_id for info in all_infos]
+        # 未知のプリセット: デフォルト上限内のモデルを安全なフォールバックとして返す
+        logger.warning(f"未知のプリセット ID: {preset_id} — デフォルト上限内のモデルを選択します")
+        return self._select_default_preset_model_ids(available_infos)
 
     def _on_pipeline_save_preset_requested(self) -> None:
         """現在のモデル構成を名前付きプリセットとして保存する (Issue #1186)。
@@ -898,6 +1018,25 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         ]
         self._pipeline_stage_table.set_custom_presets(chips)
 
+    def _update_preset_counts(self) -> None:
+        """組込プリセット chip のモデル件数バッジを実データに同期する (#1537)。"""
+        if not hasattr(self._pipeline_stage_table, "update_preset_counts"):
+            return
+        service = getattr(self._batch_model_selection, "model_selection_service", None)
+        raw_models = service.load_models() if service is not None else []
+        all_models = raw_models if isinstance(raw_models, list) else []
+        active_models = [m for m in all_models if getattr(m, "available", True)]
+        all_infos = (
+            self._build_stage_model_infos([m.litellm_model_id for m in active_models])
+            if active_models
+            else []
+        )
+        counts = {
+            preset_id: len(self._filter_model_ids_for_preset(preset_id, all_infos))
+            for preset_id in ("default", "tags_only", "full_caption", "score_rate")
+        }
+        self._pipeline_stage_table.update_preset_counts(counts)
+
     def _refresh_pipeline_panel(self, selected_ids: list[str] | None = None) -> None:
         """ステージテーブルと推論台帳を現在の選択・ステージング件数で再描画する。
 
@@ -907,10 +1046,18 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
                 取得する (ステージング件数変化時の再計算用、#884 P2)。
         """
         if selected_ids is None:
-            if self._model_selection_state_manager is not None:
-                selected_ids = self._model_selection_state_manager.get_selected()
-            else:
-                selected_ids = self._batch_model_selection.get_selected_models()
+            selected_ids = self.selected_litellm_model_ids()
+
+        self._update_preset_counts()
+
+        # #1537: 選択が空になった、またはプリセット適用時の構成から乖離した場合は chip 強調を解除
+        if not selected_ids or (
+            self._active_preset_id is not None and set(selected_ids) != self._last_preset_model_ids
+        ):
+            self._active_preset_id = None
+            self._last_preset_model_ids = set()
+            if hasattr(self._pipeline_stage_table, "set_active_preset"):
+                self._pipeline_stage_table.set_active_preset(None)
 
         infos = self._build_stage_model_infos(selected_ids)
         self._pipeline_composition_service.compose_from_models(infos)
@@ -1077,13 +1224,14 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         return build_available_providers(api_keys)
 
     def _on_pipeline_add_model_requested(self, stage_value: str) -> None:
-        """ステージ行の「+ 追加」でピッカーを開き、選択モデル集合へ追加する (Phase 6b)。
+        """ステージ行の「+ 追加」でピッカーを開き、選択モデル集合へ追加する (Phase 6b, #1538)。
 
-        SSoT は ModelSelectionWidget のチェック状態。ピッカーで選んだモデルは
-        チェック ON で集合へ追加し、ステージ仕分けは compose_from_models に任せる。
-        set_selected() は checkbox シグナルを抑制するため、最後に明示再描画する。
+        SSoT は ModelSelectionStateManager / ModelSelectionWidget の選択集合。ピッカーで選んだ
+        モデルはチェック ON と SSoT 更新で確実に集合へ追加し、ステージ仕分けは
+        compose_from_models に任せる。
 
         Issue #755: キー未設定 WebAPI モデルも候補に含め ``○ needs key`` で可視化。
+        Issue #1538: 経路重複排除後の候補を渡し、チェックボックス未描画モデルでも確実に選択集合へ追加する。
 
         Args:
             stage_value: 追加先ステージの PipelineStage value。
@@ -1092,12 +1240,17 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
 
         service = self._batch_model_selection.model_selection_service
         all_models = service.load_models() if service is not None else []
-        all_ids = [model.litellm_model_id for model in all_models]
-        selected_ids = set(self._batch_model_selection.get_selected_models())
+        active_models = [model for model in all_models if getattr(model, "available", True)]
+        all_ids = [model.litellm_model_id for model in active_models]
+        selected_ids = set(self.selected_litellm_model_ids())
+        selected_canonical_keys = {canonical_key(mid) for mid in selected_ids}
+        deduped_infos = self._deduplicate_stage_model_infos(self._build_stage_model_infos(all_ids))
         candidates = [
             info
-            for info in self._build_stage_model_infos(all_ids)
-            if stage in info.fill_stages() and info.litellm_model_id not in selected_ids
+            for info in deduped_infos
+            if stage in info.fill_stages()
+            and info.litellm_model_id not in selected_ids
+            and (not info.is_api or canonical_key(info.litellm_model_id) not in selected_canonical_keys)
         ]
 
         dialog = StageModelPickerDialog(
@@ -1112,17 +1265,26 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
-        for litellm_model_id in dialog.selected_model_ids():
+        picked_ids = list(dialog.selected_model_ids())
+        current_selected = self.selected_litellm_model_ids()
+        for litellm_model_id in picked_ids:
             checkbox_widget = self._batch_model_selection.model_checkbox_widgets.get(litellm_model_id)
-            if checkbox_widget is None:
-                logger.warning(f"チェックボックス未表示のため追加をスキップ: {litellm_model_id}")
-                continue
-            checkbox_widget.set_selected(True)
-        self._sync_widget_selection_to_state()
+            if checkbox_widget is not None:
+                checkbox_widget.set_selected(True)
+            else:
+                if litellm_model_id not in self._extra_selected_model_ids:
+                    self._extra_selected_model_ids.append(litellm_model_id)
+                logger.debug(f"チェックボックス未描画モデルを offscreen 選択として追加: {litellm_model_id}")
+
+        merged_selected: list[str] = []
+        for mid in [*current_selected, *self.selected_litellm_model_ids(), *picked_ids]:
+            if mid not in merged_selected:
+                merged_selected.append(mid)
+        self._sync_widget_selection_to_state(merged_selected)
         self._refresh_pipeline_panel()
 
     def _on_pipeline_remove_model_requested(self, stage_value: str, litellm_model_id: str) -> None:
-        """Primary チップの × でモデルを選択集合から外す (Phase 6b, #1134)。
+        """Primary チップの × でモデルを選択集合から外す (Phase 6b, #1134, #1538)。
 
         実行粒度はモデル単位のため、チェック OFF = 全ステージから外れる。
 
@@ -1137,6 +1299,12 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             stage_value: × が押されたステージの value (シグナル形状の都合で受けるが未使用)。
             litellm_model_id: 集合から外すモデルの litellm_model_id。
         """
+        was_offscreen = litellm_model_id in self._extra_selected_model_ids
+        if was_offscreen:
+            self._extra_selected_model_ids = [
+                mid for mid in self._extra_selected_model_ids if mid != litellm_model_id
+            ]
+
         if self._model_selection_state_manager is not None:
             # SSoT-first (ADR 0076)。checkbox 未表示でも除外が成立する。
             self._model_selection_state_manager.set_model_selected(litellm_model_id, False)
@@ -1145,6 +1313,9 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         # 後方互換: state manager 未注入時のみ従来どおり checkbox 経由で外す。
         checkbox_widget = self._batch_model_selection.model_checkbox_widgets.get(litellm_model_id)
         if checkbox_widget is None:
+            if was_offscreen:
+                self._refresh_pipeline_panel()
+                return
             logger.warning(f"チェックボックス未表示のため除外をスキップ: {litellm_model_id}")
             return
         checkbox_widget.set_selected(False)

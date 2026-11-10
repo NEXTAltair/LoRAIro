@@ -321,7 +321,7 @@ class TestPipelineAddModelHandler:
 
         checkbox = Mock()
         _wire_model_selection(tab, {"openai/gpt-4o": checkbox}, [], [GPT4O_INFO, WD_TAGGER_INFO])
-        # wd-v1-4-tagger は dict に無い → 例外なくスキップ
+        # wd-v1-4-tagger は dict に無い → 例外なく offscreen 選択として保持される (#1538)
         stub_cls, _captured = _make_stub_dialog(
             QDialog.DialogCode.Accepted, ["wd-v1-4-tagger", "openai/gpt-4o"]
         )
@@ -330,7 +330,59 @@ class TestPipelineAddModelHandler:
         tab._on_pipeline_add_model_requested("tags")
 
         checkbox.set_selected.assert_called_once_with(True)
+        assert "wd-v1-4-tagger" in tab.selected_litellm_model_ids()
         tab._refresh_pipeline_panel.assert_called_once_with()
+
+    def test_picked_id_missing_from_checkbox_dict_is_added_to_state_manager(
+        self, annotate_tab_with_state, monkeypatch
+    ):
+        """Issue #1538: チェックボックス未描画のモデルをピッカーで選んでも SSoT と選択集合に確実に追加される。"""
+        from lorairo.gui.tab import annotate_tab as annotate_tab_module
+
+        widget, state_manager = annotate_tab_with_state
+        checkbox = Mock()
+        _wire_model_selection(
+            widget, {"openai/gpt-4o": checkbox}, ["openai/gpt-4o"], [GPT4O_INFO, WD_TAGGER_INFO]
+        )
+        state_manager.set_selected(["openai/gpt-4o"])
+        widget._refresh_pipeline_panel.reset_mock()
+
+        stub_cls, _captured = _make_stub_dialog(QDialog.DialogCode.Accepted, ["wd-v1-4-tagger"])
+        monkeypatch.setattr(annotate_tab_module, "StageModelPickerDialog", stub_cls)
+
+        widget._on_pipeline_add_model_requested("tags")
+
+        assert state_manager.get_selected() == ["openai/gpt-4o", "wd-v1-4-tagger"]
+        assert widget.selected_litellm_model_ids() == ["openai/gpt-4o", "wd-v1-4-tagger"]
+
+    def test_candidates_deduplicate_routes_and_exclude_discontinued(self, tab, monkeypatch):
+        """Issue #1538: ピッカー候補は direct/openrouter 重複経路を畳み込み、廃止モデルを除外する。"""
+        from lorairo.gui.tab import annotate_tab as annotate_tab_module
+
+        openrouter_gpt4o = StageModelInfo(
+            litellm_model_id="openrouter/openai/gpt-4o",
+            display_name="gpt-4o (openrouter)",
+            provider="openrouter",
+            is_api=True,
+            capabilities=frozenset({"multimodal", "caption", "tags", "scores"}),
+        )
+        _wire_model_selection(tab, {}, [], [GPT4O_INFO, openrouter_gpt4o, WD_TAGGER_INFO])
+        tab._batch_model_selection.model_selection_service.load_models.return_value = [
+            SimpleNamespace(litellm_model_id="openai/gpt-4o", available=True),
+            SimpleNamespace(litellm_model_id="openrouter/openai/gpt-4o", available=True),
+            SimpleNamespace(litellm_model_id="wd-v1-4-tagger", available=False),
+        ]
+        tab._build_stage_model_infos = lambda ids: [
+            info for info in (GPT4O_INFO, openrouter_gpt4o, WD_TAGGER_INFO) if info.litellm_model_id in ids
+        ]
+        tab._available_api_providers = lambda: {"openrouter"}
+        stub_cls, captured = _make_stub_dialog(QDialog.DialogCode.Rejected, [])
+        monkeypatch.setattr(annotate_tab_module, "StageModelPickerDialog", stub_cls)
+
+        tab._on_pipeline_add_model_requested("tags")
+
+        candidate_ids = [info.litellm_model_id for info in captured["candidates"]]
+        assert candidate_ids == ["openrouter/openai/gpt-4o"]
 
     def test_picker_receives_available_providers(self, tab, monkeypatch):
         from lorairo.gui.tab import annotate_tab as annotate_tab_module
@@ -434,10 +486,34 @@ class TestFilterModelIdsForPreset:
         result = tab._filter_model_ids_for_preset("unknown_preset", infos)
         assert set(result) == {"a/tags", "b/score"}
 
+    def test_default_caps_to_at_most_five_models_covering_stages(self, tab):
+        """Issue #1537: default プリセットは全 200+ モデルではなく最大 5 件に制限される。"""
+        infos = [
+            self._make_info("m/tags", {"tags"}, is_api=False),
+            self._make_info("m/caption", {"caption"}, is_api=False),
+            self._make_info("m/score", {"scores"}, is_api=False),
+            self._make_info("m/rating", {"ratings"}, is_api=False),
+            *[self._make_info(f"extra/model-{i}", {"tags", "caption"}, is_api=False) for i in range(30)],
+        ]
+        result = tab._filter_model_ids_for_preset("default", infos)
+        assert len(result) == 5
+        assert {"m/tags", "m/caption", "m/score", "m/rating"}.issubset(set(result))
+
+    def test_builtin_presets_exclude_needs_key_api_models(self, tab, monkeypatch):
+        """Issue #1537: 組込プリセットは API キー未設定の WebAPI モデルを選択対象から除外する。"""
+        monkeypatch.setattr(tab, "_available_api_providers", lambda: set())
+        infos = [
+            self._make_info("openai/gpt-4o", {"caption", "multimodal"}, is_api=True),
+            self._make_info("local/tagger", {"tags"}, is_api=False),
+            self._make_info("local/caption", {"caption"}, is_api=False),
+        ]
+        assert tab._filter_model_ids_for_preset("default", infos) == ["local/tagger", "local/caption"]
+        assert tab._filter_model_ids_for_preset("full_caption", infos) == ["local/caption"]
+
 
 @pytest.mark.gui
 class TestPresetSignalWiring:
-    """preset_selected / save_preset_requested ハンドラの動作検証 (Issue #847)。"""
+    """preset_selected / save_preset_requested ハンドラの動作検証 (Issue #847, #1537)。"""
 
     def test_preset_selected_calls_set_selected_models(self, tab):
         info = StageModelInfo(
@@ -483,6 +559,56 @@ class TestPresetSignalWiring:
         tab._on_pipeline_preset_selected("full_caption")
 
         tab._refresh_pipeline_panel.assert_called_once_with()
+
+    def test_preset_selected_prompts_confirmation_and_cancels_when_declined(self, tab, monkeypatch):
+        """Issue #1537: 既存選択がある状態でプリセットを押すと確認ダイアログを出し、No でキャンセルする。"""
+        from PySide6.QtWidgets import QMessageBox
+
+        from lorairo.gui.tab import annotate_tab as annotate_tab_module
+
+        question_mock = Mock(return_value=QMessageBox.StandardButton.No)
+        monkeypatch.setattr(annotate_tab_module.QMessageBox, "question", question_mock)
+
+        tab._active_preset_id = "default"
+        tab._batch_model_selection = Mock()
+        tab._batch_model_selection.get_selected_models.return_value = ["existing/model"]
+        tab._batch_model_selection.model_selection_service.load_models.return_value = []
+        tab._build_stage_model_infos = lambda ids: []
+        tab._filter_model_ids_for_preset = lambda pid, infos: ["wd/tagger"]
+        tab._pipeline_stage_table = Mock()
+        tab._refresh_pipeline_panel = Mock()
+
+        tab._on_pipeline_preset_selected("tags_only")
+
+        question_mock.assert_called_once()
+        # defaultButton は No であること
+        assert question_mock.call_args[0][4] == QMessageBox.StandardButton.No
+        tab._batch_model_selection.set_selected_models.assert_not_called()
+        tab._pipeline_stage_table.set_active_preset.assert_called_once_with("default")
+
+    def test_preset_selected_replaces_selection_when_confirmed(self, tab, monkeypatch):
+        """Issue #1537: 確認ダイアログで Yes を選んだ場合はプリセット構成で置き換える。"""
+        from PySide6.QtWidgets import QMessageBox
+
+        from lorairo.gui.tab import annotate_tab as annotate_tab_module
+
+        monkeypatch.setattr(
+            annotate_tab_module.QMessageBox,
+            "question",
+            Mock(return_value=QMessageBox.StandardButton.Yes),
+        )
+        tab._batch_model_selection = Mock()
+        tab._batch_model_selection.get_selected_models.return_value = ["existing/model"]
+        tab._batch_model_selection.model_selection_service.load_models.return_value = []
+        tab._build_stage_model_infos = lambda ids: []
+        tab._filter_model_ids_for_preset = lambda pid, infos: ["wd/tagger"]
+        tab._pipeline_stage_table = Mock()
+        tab._refresh_pipeline_panel = Mock()
+
+        tab._on_pipeline_preset_selected("tags_only")
+
+        tab._batch_model_selection.set_selected_models.assert_called_once_with(["wd/tagger"])
+        tab._pipeline_stage_table.set_active_preset.assert_called_once_with("tags_only")
 
 
 @pytest.mark.gui

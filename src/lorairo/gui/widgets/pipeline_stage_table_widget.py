@@ -141,6 +141,7 @@ class PipelineStageTableWidget(QWidget):
         self._preset_buttons: dict[str, QToolButton] = {}
         # 保存済みカスタムプリセットの chip (#1186)。再構築時に除去するため別管理する
         self._custom_preset_buttons: dict[str, QToolButton] = {}
+        self._preset_counts: dict[str, int] = {p.preset_id: p.model_count for p in _BUILTIN_PRESETS}
         self._active_preset_id: str | None = None
 
         layout = QVBoxLayout(self)
@@ -157,7 +158,8 @@ class PipelineStageTableWidget(QWidget):
         layout.addLayout(self._rows_layout)
         layout.addStretch(1)
 
-        self.set_active_preset(_DEFAULT_PRESET_ID)
+        # #1537: 起動時 (実選択が空) はプリセット chip をアクティブ表示しない
+        self.set_active_preset(None)
         self.clear()
 
     def _build_preset_row(self) -> DsCard:
@@ -266,6 +268,24 @@ class PipelineStageTableWidget(QWidget):
 
         # chip 再構築でアクティブ表示が失われるため再適用する
         self.set_active_preset(self._active_preset_id)
+
+    def update_preset_counts(self, counts: dict[str, int]) -> None:
+        """プリセット chip のモデル件数バッジを実データに同期する (#1537)。
+
+        Args:
+            counts: ``{preset_id: model_count}`` の辞書。
+        """
+        builtin_labels = {p.preset_id: p.label for p in _BUILTIN_PRESETS}
+        for preset_id, raw_count in counts.items():
+            count = max(0, int(raw_count))
+            self._preset_counts[preset_id] = count
+            button = self._preset_buttons.get(preset_id)
+            if button is None:
+                continue
+            label = builtin_labels.get(preset_id)
+            if label is not None:
+                button.setText(f"{label} {count}")
+                button.setToolTip(f"プリセット「{label}」を適用 (モデル {count} 件をステージへ割当)")
 
     def _on_preset_clicked(self, preset_id: str) -> None:
         """preset chip クリック: アクティブ表示を更新し選択を通知する。"""
