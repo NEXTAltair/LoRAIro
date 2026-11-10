@@ -537,10 +537,10 @@ class TestModelSelectionWidgetRoutePreference:
 
 
 class TestModelSelectionWidgetLoadModelsException:
-    """load_models() 例外パスのテスト（line 221-224）"""
+    """load_models() 例外パスのテスト（line 221-224 / #1569）"""
 
     def test_load_models_exception_sets_empty_list(self, qtbot, mock_model_service) -> None:
-        """load_models が例外を投げると all_models が空リストになる"""
+        """load_models が例外を投げると all_models が空リストになりエラー表示になる (#1569)"""
         mock_model_service.load_models.side_effect = RuntimeError("DB unavailable")
 
         w = ModelSelectionWidget(model_selection_service=mock_model_service)
@@ -551,6 +551,8 @@ class TestModelSelectionWidgetLoadModelsException:
         w.load_models()
 
         assert w.all_models == []
+        assert w.statusLabel.text() == "読込エラー"
+        assert w.placeholderLabel.text() == "モデル一覧の読み込みに失敗しました。再読み込みしてください。"
 
 
 class TestModelSelectionWidgetRefreshRegistry:
@@ -706,16 +708,19 @@ class TestModelSelectionWidgetRefreshRegistry:
         widget.model_selection_service.load_models.assert_called()
 
     def test_on_model_refresh_failed(self, widget, monkeypatch) -> None:
-        """失敗時に警告ダイアログが表示される（line 265-272）"""
+        """失敗時に警告ダイアログが表示される（line 265-272 / #1569）"""
         warning_called = []
         monkeypatch.setattr(
             "lorairo.gui.widgets.model_selection_widget.show_warning",
-            lambda *a: warning_called.append(True),
+            lambda *a, **kw: warning_called.append((a, kw)),
         )
 
         widget._on_model_refresh_failed("connection error")
 
-        assert warning_called
+        assert len(warning_called) == 1
+        args, kwargs = warning_called[0]
+        assert args[1:] == ("モデル一覧更新エラー", "モデル一覧の更新に失敗しました。")
+        assert kwargs == {"detail": "connection error"}
 
     def test_on_model_refresh_failed_suppresses_dialog_for_automatic_refresh(
         self, widget, monkeypatch

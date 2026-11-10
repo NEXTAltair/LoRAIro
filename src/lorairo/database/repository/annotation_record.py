@@ -1686,7 +1686,7 @@ class AnnotationRepository(BaseRepository):
                 # (他カラム無変更だと onupdate が発火しないため明示。Issue #1065)。
                 # rejected_at / reject_reason は触らない: soft-reject はユーザー判断を
                 # 優先して維持する (Issue #1065 ユーザー確認済みポリシー / ADR 0065)。
-                logger.debug("Updating existing tag: id={}", existing_record.id)
+                logger.trace("Updating existing tag: id={}", existing_record.id)
                 existing_record.tag = tag_string
                 existing_record.tag_id = external_tag_id
                 existing_record.confidence_score = confidence
@@ -1695,7 +1695,7 @@ class AnnotationRepository(BaseRepository):
                 existing_record.updated_at = func.now()
             else:
                 # 新規作成
-                logger.debug("Adding new tag: image_id={}, length={}", image_id, len(tag_string))
+                logger.trace("Adding new tag: image_id={}, length={}", image_id, len(tag_string))
                 new_tag = Tag(
                     image_id=image_id,
                     model_id=model_id,

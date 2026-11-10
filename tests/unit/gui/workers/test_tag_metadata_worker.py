@@ -10,7 +10,12 @@ from unittest.mock import Mock
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
-from lorairo.gui.workers.tag_metadata_worker import TagMetadataWorker, resolve_tag_types
+from lorairo.gui.workers.base import CancellationController, CancellationError
+from lorairo.gui.workers.tag_metadata_worker import (
+    TagMetadataWorker,
+    _is_query_interrupt_error,
+    resolve_tag_types,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -201,3 +206,34 @@ class TestResolveTagTypes:
         reader.search_tags_bulk_all.side_effect = SQLAlchemyError("db down")
 
         assert resolve_tag_types(reader, ["1girl"]) == {}
+
+    def test_interrupt_error_raises_cancellation_error(self):
+        """SQLite interrupted エラー時は部分結果を返さず CancellationError を送出する (#1572)。"""
+        reader = Mock()
+        reader.search_tags_bulk_all.side_effect = SQLAlchemyError("sqlite3.OperationalError: interrupted")
+
+        assert _is_query_interrupt_error(SQLAlchemyError("interrupted")) is True
+        with pytest.raises(CancellationError):
+            resolve_tag_types(reader, ["1girl"])
+
+    def test_canceled_flag_raises_cancellation_error_on_exception(self):
+        """キャンセル済み状態の例外は warning ではなく CancellationError に変換する (#1572)。"""
+        reader = Mock()
+        reader.search_tags_bulk_all.side_effect = SQLAlchemyError("db error during cancel")
+        cancellation = CancellationController()
+        cancellation.cancel()
+
+        with pytest.raises(CancellationError):
+            resolve_tag_types(reader, ["1girl"], cancellation=cancellation)
+
+    def test_execute_raises_cancellation_error_when_preferred_translations_interrupted(self):
+        """_apply_preferred_translations が interrupted のとき部分結果を返さず中断する (#1572)。"""
+        tr = Mock()
+        tr.language = "ja"
+        tr.translation = "少女"
+        reader = _make_reader(get_translations_batch={42: [tr]})
+        reader.get_preferred_translations_batch.side_effect = SQLAlchemyError("query interrupted")
+
+        worker = TagMetadataWorker(reader, image_id=1, tags_list=[{"tag": "1girl", "tag_id": 42}])
+        with pytest.raises(CancellationError):
+            worker.execute()

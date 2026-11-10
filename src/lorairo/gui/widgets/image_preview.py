@@ -2,15 +2,27 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from PIL import Image
-from PySide6.QtCore import QPoint, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QAction, QImage, QImageReader, QPainter, QPixmap, QResizeEvent, QShowEvent
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import (
+    QAction,
+    QImage,
+    QImageReader,
+    QMouseEvent,
+    QPainter,
+    QPixmap,
+    QResizeEvent,
+    QShowEvent,
+    QWheelEvent,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QGraphicsPixmapItem,
     QGraphicsScene,
+    QGraphicsView,
     QHBoxLayout,
     QMenu,
     QPushButton,
+    QToolButton,
     QWidget,
 )
 
@@ -42,6 +54,7 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
 
         # QGraphicsScene を作成
         self.graphics_scene = QGraphicsScene()
+        self.preview_scene = self.graphics_scene
         self.previewGraphicsView.setScene(self.graphics_scene)
 
         # スムーススケーリングを有効にする
@@ -54,8 +67,20 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         # 現在画像 ID は current_image_data_changed (dict チャネル) だけを SSoT とする
         # (#1222 の教訓: 表示クリアの経路を1本化する)。path ベースの load_image() は触らない。
         self._current_image_id: int | None = None
+        self._last_load_error: str | None = None
+
+        # ズーム・パン・原寸表示状態 (#1554)
+        self._crop_controller: Any = None
+        self._zoom_factor: float = 1.0
+        self._is_1to1: bool = False
+        self._panning: bool = False
+        self._pan_start_pos: QPoint = QPoint()
+        self._full_res_enabled: bool = False
 
         self._setup_crop_action_bar()
+
+        self.previewGraphicsView.installEventFilter(self)
+        self.previewGraphicsView.viewport().installEventFilter(self)
 
         self.previewGraphicsView.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.previewGraphicsView.customContextMenuRequested.connect(self._show_preview_context_menu)
@@ -67,14 +92,18 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
     @Slot(Path)
     def load_image(self, image_path: Path) -> None:
         """パスベースで画像を読み込む（動的パス解決対応・メモリ最適化）"""
+        is_same_image = self._current_image_path == image_path
         # Phase 3.3: メモリ最適化 - 既存の表示をクリアしてリソース解放
         self._clear_preview()
+        if not is_same_image:
+            self._reset_zoom_state()
 
         try:
-            # 画像を読み込み (プレビューは上限サイズへ縮小デコード、#1221)
-            pixmap = self._decode_preview_pixmap(image_path)
+            # 画像を読み込み (プレビューは上限サイズへ縮小デコード、#1221 / #1554)
+            pixmap = self._decode_preview_pixmap(image_path, full_res=self._full_res_enabled)
             if pixmap.isNull():
                 logger.warning(f"画像の読み込みに失敗しました（null pixmap）: {image_path}")
+                self._show_load_error(f"画像の読み込みに失敗しました: {image_path.name}")
                 return
 
             # 画像をシーンに追加
@@ -91,6 +120,15 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         except Exception as e:
             logger.error(f"画像の読み込みに失敗しました: {image_path}, エラー: {e}")
             self._clear_preview()
+            self._show_load_error(f"画像の読み込みに失敗しました: {image_path.name}")
+
+    def _show_load_error(self, error_text: str) -> None:
+        """画像読み込み失敗時のエラーメッセージをシーンに表示する (#1569)。"""
+        self._last_load_error = error_text
+        try:
+            self.graphics_scene.addText(error_text)
+        except Exception as e:
+            logger.debug(f"エラーテキストの追加に失敗: {e}")
 
     def show_decoded_image(self, image: QImage | None, image_path: Path | None = None) -> None:
         """別スレッドでデコード済みの QImage を表示する (#1399)。
@@ -102,7 +140,10 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
             image: 表示する画像。
             image_path: 元ファイルのパス (右クリックのコピーで元画像を読み直すため)。
         """
+        is_same_image = self._current_image_path is not None and self._current_image_path == image_path
         self._clear_preview()
+        if not is_same_image:
+            self._reset_zoom_state()
         if image is None or image.isNull():
             return
         pixmap = QPixmap.fromImage(image)
@@ -117,6 +158,7 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
     def clear_preview(self) -> None:
         """プレビューを空にする (#1399)。"""
         self._clear_preview()
+        self._reset_zoom_state()
 
     def load_image_from_pil(self, pil_image: Image.Image, image_name: str = "Unknown") -> None:
         """PILイメージオブジェクトから直接画像を読み込む（メモリ最適化）"""
@@ -165,23 +207,28 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         pixmap.loadFromData(byte_array.getvalue())
         return pixmap
 
-    def _decode_preview_pixmap(self, image_path: Path) -> QPixmap:
-        """プレビュー表示用に、上限サイズへ縮小デコードした QPixmap を返す (#1221)。
+    def _decode_preview_pixmap(self, image_path: Path, full_res: bool | None = None) -> QPixmap:
+        """プレビュー表示用に、上限サイズへ縮小デコードした QPixmap を返す (#1221 / #1554)。
 
         オリジナル解像度をフルデコードせず、QImageReader.setScaledSize でデコード時点で
-        縮小することで、選択のたびの CPU コストを抑える。読み込み失敗時は null QPixmap を返す。
+        縮小することで、選択のたびの CPU コストを抑える。full_res=True の場合は縮小しない。
+        読み込み失敗時は null QPixmap を返す。
 
         Args:
             image_path: 読み込む画像ファイルのパス。
+            full_res: True のとき _PREVIEW_MAX_EDGE 縮小をスキップして原寸デコードする。
 
         Returns:
-            上限 _PREVIEW_MAX_EDGE に収まるよう縮小した QPixmap。失敗時は null QPixmap。
+            上限 _PREVIEW_MAX_EDGE に収まるよう縮小した QPixmap (または原寸)。失敗時は null QPixmap。
         """
+        use_full_res = self._full_res_enabled if full_res is None else full_res
         reader = QImageReader(str(image_path))
         reader.setAutoTransform(True)
         size = reader.size()
-        if size.isValid() and (
-            size.width() > self._PREVIEW_MAX_EDGE or size.height() > self._PREVIEW_MAX_EDGE
+        if (
+            not use_full_res
+            and size.isValid()
+            and (size.width() > self._PREVIEW_MAX_EDGE or size.height() > self._PREVIEW_MAX_EDGE)
         ):
             bounded = size.scaled(
                 self._PREVIEW_MAX_EDGE,
@@ -195,7 +242,7 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         return QPixmap.fromImage(image)
 
     def _setup_crop_action_bar(self) -> None:
-        """プレビュー下部にクロップ作成ボタンの操作バーを追加する (#1346)。
+        """プレビュー下部に原寸トグル・クロップ作成ボタンの操作バーを追加する (#1346 / #1554)。
 
         .ui は変更せず code-only で 1 行追加する。エクスポート/その他の再利用箇所で
         死んだボタンを見せないため既定は非表示で、配線したタブが
@@ -207,6 +254,15 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         bar_layout.setSpacing(4)
         bar_layout.addStretch(1)
 
+        self._full_res_button = QToolButton(self._crop_action_bar)
+        self._full_res_button.setObjectName("previewFullResButton")
+        self._full_res_button.setText("原寸")
+        self._full_res_button.setToolTip("2048px縮小を解除して元解像度で読み込みます")
+        self._full_res_button.setCheckable(True)
+        self._full_res_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._full_res_button.toggled.connect(self._on_full_res_toggled)
+        bar_layout.addWidget(self._full_res_button)
+
         self._crop_button = QPushButton("クロップして学習素材を作成…", self._crop_action_bar)
         self._crop_button.setObjectName("previewCropButton")
         self._crop_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -216,6 +272,15 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
 
         self.verticalLayout.addWidget(self._crop_action_bar)
         self._crop_action_bar.setVisible(False)
+
+    _setup_action_bar = _setup_crop_action_bar
+
+    @Slot(bool)
+    def _on_full_res_toggled(self, checked: bool) -> None:
+        """原寸読み込みトグル変更時に現在画像を再デコードする (#1554)。"""
+        self._full_res_enabled = checked
+        if self._current_image_path is not None:
+            self.load_image(self._current_image_path)
 
     def set_crop_action_visible(self, visible: bool) -> None:
         """クロップ作成ボタンの表示/非表示を切り替える (#1346)。
@@ -243,10 +308,129 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
 
     def _adjust_view_size(self) -> None:
         # pixmap_item が None の場合はスキップ（sceneRect が (0,0,0,0) の状態での縮小を防ぐ）
-        if self.pixmap_item is not None:
+        # ユーザーがズームまたは 1:1 表示中は fitInView で上書きしない (#1554)
+        if self.pixmap_item is not None and not self._is_1to1 and self._zoom_factor == 1.0:
             self.previewGraphicsView.fitInView(
                 self.graphics_scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio
             )
+
+    def _reset_zoom_state(self) -> None:
+        """ズーム・1:1・パン状態を初期化する (#1554)。"""
+        self._zoom_factor = 1.0
+        self._is_1to1 = False
+        self._panning = False
+        self.previewGraphicsView.resetTransform()
+        self._update_viewport_cursor()
+
+    def _update_viewport_cursor(self) -> None:
+        """ズーム状態に応じて viewport カーソルを更新する (#1554)。"""
+        viewport = self.previewGraphicsView.viewport()
+        if self._panning:
+            viewport.setCursor(Qt.CursorShape.ClosedHandCursor)
+        elif self._zoom_factor > 1.0 or self._is_1to1:
+            viewport.setCursor(Qt.CursorShape.OpenHandCursor)
+        else:
+            viewport.setCursor(Qt.CursorShape.ArrowCursor)
+
+    def _apply_zoom_step(self, step: float) -> None:
+        """指定倍率でズームし [0.2, 8.0] にクランプする (#1554)。"""
+        if self._crop_controller is not None or not self._has_current_image():
+            return
+        new_zoom = max(0.2, min(8.0, self._zoom_factor * step))
+        actual_factor = new_zoom / self._zoom_factor
+        if actual_factor != 1.0:
+            self.previewGraphicsView.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+            self.previewGraphicsView.scale(actual_factor, actual_factor)
+            self._zoom_factor = new_zoom
+        self._update_viewport_cursor()
+
+    def zoom_in(self) -> None:
+        """プレビューを拡大する (#1554)。"""
+        self._apply_zoom_step(1.15)
+
+    def zoom_out(self) -> None:
+        """プレビューを縮小する (#1554)。"""
+        self._apply_zoom_step(1.0 / 1.15)
+
+    def reset_zoom(self) -> None:
+        """ズームをリセットして Fit-to-View に戻す (#1554)。"""
+        self._reset_zoom_state()
+        self._adjust_view_size()
+
+    def set_1to1_zoom(self) -> None:
+        """1:1 ピクセル等倍表示に切り替える (#1554)。"""
+        if self._crop_controller is not None or not self._has_current_image():
+            return
+        self.previewGraphicsView.resetTransform()
+        self._is_1to1 = True
+        self._zoom_factor = 1.0
+        self._update_viewport_cursor()
+
+    def toggle_1to1_zoom(self) -> None:
+        """Fit-to-View と 1:1 等倍表示をトグルする (#1554)。"""
+        if self._crop_controller is not None or not self._has_current_image():
+            return
+        if self._is_1to1:
+            self.reset_zoom()
+        else:
+            self.set_1to1_zoom()
+
+    def _handle_wheel_event(self, event: QWheelEvent) -> bool:
+        """ホイール操作によるズーム処理 (#1554)。"""
+        if not self._has_current_image():
+            return False
+        delta_y = event.angleDelta().y()
+        if delta_y > 0:
+            self.zoom_in()
+        elif delta_y < 0:
+            self.zoom_out()
+        return True
+
+    def _handle_mouse_event(self, event: QMouseEvent) -> bool:
+        """マウス操作による等倍トグル・ドラッグパン処理 (#1554)。"""
+        event_type = event.type()
+        if event_type == QEvent.Type.MouseButtonDblClick and event.button() == Qt.MouseButton.LeftButton:
+            if self._has_current_image():
+                self.toggle_1to1_zoom()
+                return True
+            return False
+        if event_type == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            if self._zoom_factor > 1.0 or self._is_1to1:
+                self._panning = True
+                self._pan_start_pos = event.pos()
+                self._update_viewport_cursor()
+                return True
+            return False
+        if event_type == QEvent.Type.MouseMove and self._panning:
+            delta = event.pos() - self._pan_start_pos
+            self._pan_start_pos = event.pos()
+            h_bar = self.previewGraphicsView.horizontalScrollBar()
+            v_bar = self.previewGraphicsView.verticalScrollBar()
+            h_bar.setValue(h_bar.value() - delta.x())
+            v_bar.setValue(v_bar.value() - delta.y())
+            return True
+        if (
+            event_type == QEvent.Type.MouseButtonRelease
+            and event.button() == Qt.MouseButton.LeftButton
+            and self._panning
+        ):
+            self._panning = False
+            self._update_viewport_cursor()
+            return True
+        return False
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        """プレビューのホイールズーム・ドラッグパン・ダブルクリック等倍切替を処理する (#1554)。"""
+        if self._crop_controller is None and watched in (
+            self.previewGraphicsView,
+            self.previewGraphicsView.viewport(),
+        ):
+            if event.type() == QEvent.Type.Wheel and isinstance(event, QWheelEvent):
+                if self._handle_wheel_event(event):
+                    return True
+            elif isinstance(event, QMouseEvent) and self._handle_mouse_event(event):
+                return True
+        return super().eventFilter(watched, event)
 
     def _show_preview_context_menu(self, position: QPoint) -> None:
         """プレビュー用コンテキストメニューを表示する"""
@@ -404,6 +588,7 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
             self.pixmap_item = None
             self._current_image_path = None
             self._current_pixmap = None
+            self._last_load_error = None
 
             logger.debug("Preview cleared and memory optimized")
 

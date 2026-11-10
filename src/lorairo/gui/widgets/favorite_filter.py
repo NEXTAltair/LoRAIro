@@ -252,7 +252,7 @@ class FavoriteFilterPanel(QGroupBox):
                 show_warning(self, "保存失敗", "フィルターの保存に失敗しました。")
         except Exception as e:
             logger.opt(exception=True).error("Failed to save filter: {}", e)
-            show_critical(self, "エラー", f"フィルターの保存中にエラーが発生しました:\n{e}")
+            show_critical(self, "エラー", "フィルターの保存中にエラーが発生しました。", detail=str(e))
 
     def _on_filter_double_clicked(self, item: QListWidgetItem) -> None:
         """フィルターダブルクリックハンドラ。"""
@@ -277,7 +277,7 @@ class FavoriteFilterPanel(QGroupBox):
                 )
         except Exception as e:
             logger.opt(exception=True).error("Failed to load filter '{}': {}", filter_name, e)
-            show_critical(self, "エラー", f"フィルターの読み込み中にエラーが発生しました:\n{e}")
+            show_critical(self, "エラー", "フィルターの読み込み中にエラーが発生しました。", detail=str(e))
 
     def _on_delete_clicked(self) -> None:
         """削除ボタンクリックハンドラ。"""
@@ -317,4 +317,4 @@ class FavoriteFilterPanel(QGroupBox):
                 show_warning(self, "削除失敗", "フィルターの削除に失敗しました。")
         except Exception as e:
             logger.opt(exception=True).error("Failed to delete filter '{}': {}", filter_name, e)
-            show_critical(self, "エラー", f"フィルターの削除中にエラーが発生しました:\n{e}")
+            show_critical(self, "エラー", "フィルターの削除中にエラーが発生しました。", detail=str(e))

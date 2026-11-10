@@ -153,7 +153,12 @@ class DatasetController:
             error_msg = f"データセット取り込みの開始に失敗しました: {e}"
             logger.opt(exception=True).error(error_msg)
             if self.parent:
-                show_critical(self.parent, "データセット取り込みエラー", error_msg)
+                show_critical(
+                    self.parent,
+                    "データセット取り込みエラー",
+                    "データセット取り込みの開始に失敗しました。",
+                    detail=str(e),
+                )
 
     def _on_dataset_import_finished(self, result: DatasetImportResult) -> None:
         """取り込み完了ポップアップを表示する。
@@ -243,9 +248,16 @@ class DatasetController:
                 logger.info(f"バッチ登録開始: worker_id={worker_id}, directory={directory}")
             else:
                 logger.error("バッチ登録の開始に失敗しました")
+                if self.parent:
+                    show_warning(self.parent, "バッチ登録エラー", "バッチ登録の開始に失敗しました。")
 
         except Exception as e:
             error_msg = f"データセット登録の開始に失敗しました: {e}"
             logger.opt(exception=True).error(error_msg)
             if self.parent:
-                show_critical(self.parent, "バッチ登録エラー", error_msg)
+                show_critical(
+                    self.parent,
+                    "バッチ登録エラー",
+                    "データセット登録の開始に失敗しました。",
+                    detail=str(e),
+                )

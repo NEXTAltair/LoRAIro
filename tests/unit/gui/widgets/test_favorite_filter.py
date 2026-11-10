@@ -326,3 +326,73 @@ class TestCollapseBehavior:
         panel.setChecked(False)
 
         assert not panel._content.isVisibleTo(panel)
+
+
+class TestErrorDetailForwarding:
+    """Issue #1569: 保存/読込/削除の例外時は detail=str(e) で show_critical を呼ぶ。"""
+
+    def test_save_exception_passes_detail(
+        self,
+        panel: FavoriteFilterPanel,
+        mock_service: MagicMock,
+        monkeypatch,
+    ) -> None:
+        panel.set_favorite_filters_service(mock_service)
+        panel.set_conditions_getter(lambda: {"keywords": ["1girl"]})
+        monkeypatch.setattr(QInputDialog, "getText", lambda *a, **kw: ("my_filter", True))
+        mock_service.save_filter.side_effect = RuntimeError("save boom")
+        captured: list[tuple[Any, ...]] = []
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.favorite_filter.show_critical",
+            lambda *a, **kw: captured.append((a, kw)),
+        )
+
+        panel._on_save_clicked()
+
+        assert len(captured) == 1
+        args, kwargs = captured[0]
+        assert args[1:] == ("エラー", "フィルターの保存中にエラーが発生しました。")
+        assert kwargs == {"detail": "save boom"}
+
+    def test_load_exception_passes_detail(
+        self,
+        panel: FavoriteFilterPanel,
+        mock_service: MagicMock,
+        monkeypatch,
+    ) -> None:
+        panel.set_favorite_filters_service(mock_service)
+        panel.set_conditions_applier(MagicMock())
+        mock_service.load_filter.side_effect = RuntimeError("load boom")
+        captured: list[tuple[Any, ...]] = []
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.favorite_filter.show_critical",
+            lambda *a, **kw: captured.append((a, kw)),
+        )
+
+        panel._load_by_name("my_filter")
+
+        assert len(captured) == 1
+        args, kwargs = captured[0]
+        assert args[1:] == ("エラー", "フィルターの読み込み中にエラーが発生しました。")
+        assert kwargs == {"detail": "load boom"}
+
+    def test_delete_exception_passes_detail(
+        self,
+        panel: FavoriteFilterPanel,
+        mock_service: MagicMock,
+        monkeypatch,
+    ) -> None:
+        panel.set_favorite_filters_service(mock_service)
+        mock_service.delete_filter.side_effect = RuntimeError("delete boom")
+        captured: list[tuple[Any, ...]] = []
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.favorite_filter.show_critical",
+            lambda *a, **kw: captured.append((a, kw)),
+        )
+
+        panel._delete_by_name("my_filter")
+
+        assert len(captured) == 1
+        args, kwargs = captured[0]
+        assert args[1:] == ("エラー", "フィルターの削除中にエラーが発生しました。")
+        assert kwargs == {"detail": "delete boom"}

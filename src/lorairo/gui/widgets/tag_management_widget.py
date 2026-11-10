@@ -209,7 +209,8 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
             show_critical(
                 self,
                 "エラー",
-                f"unknown typeタグの読み込みに失敗しました:\n{e}",
+                "unknown typeタグの読み込みに失敗しました。",
+                detail=str(e),
             )
 
     def _update_table_display(self) -> None:
@@ -365,7 +366,8 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
         show_critical(
             self,
             "エラー",
-            f"タグのtype更新に失敗しました:\n{error_message}",
+            "タグのtype更新に失敗しました。",
+            detail=error_message,
         )
 
         # UI再有効化

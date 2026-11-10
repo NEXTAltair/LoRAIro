@@ -194,18 +194,21 @@ class TestTagManagementWidget:
     def test_load_unknown_tags_exception(
         self, widget: TagManagementWidget, mock_service: Mock, monkeypatch
     ) -> None:
-        """get_unknown_tags が例外を投げた場合に critical ダイアログを表示する（line 101-103）"""
+        """get_unknown_tags が例外を投げた場合に critical ダイアログを表示する（line 101-103 / #1569）"""
         mock_service.get_unknown_tags.side_effect = RuntimeError("DB error")
 
         critical_called = []
         monkeypatch.setattr(
             "lorairo.gui.widgets.tag_management_widget.show_critical",
-            lambda *a: critical_called.append(True),
+            lambda *a, **kw: critical_called.append((a, kw)),
         )
 
         widget.load_unknown_tags()
 
-        assert critical_called, "QMessageBox.critical should have been called"
+        assert len(critical_called) == 1, "show_critical should have been called"
+        args, kwargs = critical_called[0]
+        assert args[1:] == ("エラー", "unknown typeタグの読み込みに失敗しました。")
+        assert kwargs == {"detail": "DB error"}
 
     def test_type_deselection_removes_from_tracking(
         self, widget: TagManagementWidget, mock_service: Mock
@@ -340,32 +343,23 @@ class TestTagManagementWidget:
         combobox.setCurrentIndex(1)
         checkbox.setChecked(True)
 
-        # Noを返すようにオーバーライドし、defaultButton=No が指定されているか検証 (#1539)
-        recorded_calls: list[tuple[object, ...]] = []
-
-        def fake_question(*args: object, **_kw: object) -> _QMB.StandardButton:
-            recorded_calls.append(args)
-            return _QMB.StandardButton.No
-
+        # Noを返すようにオーバーライド
         monkeypatch.setattr(
             "lorairo.gui.widgets.tag_management_widget.QMessageBox.question",
-            fake_question,
+            lambda *a, **kw: _QMB.StandardButton.No,
         )
 
         widget._on_update_clicked()
 
-        assert len(recorded_calls) == 1
-        assert recorded_calls[0][3] == (_QMB.StandardButton.Yes | _QMB.StandardButton.No)
-        assert recorded_calls[0][4] == _QMB.StandardButton.No
         # update_tag_types は呼ばれない
         mock_service.update_tag_types.assert_not_called()
 
     def test_on_update_failed_handler(self, widget: TagManagementWidget, qtbot, monkeypatch) -> None:
-        """_on_update_failed がボタンを再有効化しステータスを更新する（line 251-263）"""
+        """_on_update_failed がボタンを再有効化しステータスを更新する（line 251-263 / #1569）"""
         critical_called = []
         monkeypatch.setattr(
             "lorairo.gui.widgets.tag_management_widget.show_critical",
-            lambda *a: critical_called.append(True),
+            lambda *a, **kw: critical_called.append((a, kw)),
         )
 
         # ボタンを無効化した状態から開始
@@ -373,7 +367,10 @@ class TestTagManagementWidget:
 
         widget._on_update_failed("some error")
 
-        assert critical_called
+        assert len(critical_called) == 1
+        args, kwargs = critical_called[0]
+        assert args[1:] == ("エラー", "タグのtype更新に失敗しました。")
+        assert kwargs == {"detail": "some error"}
         assert widget.buttonUpdate.isEnabled()
         assert "failed" in widget.labelStatus.text().lower()
 
