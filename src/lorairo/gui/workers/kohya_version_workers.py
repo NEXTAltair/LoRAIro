@@ -209,7 +209,7 @@ class KohyaVersionRevokeTagsWorker(LoRAIroWorkerBase[TagRevokeResult]):
         return super()._should_cancel_completed_result()
 
 
-class KohyaVersionCommitWorker(LoRAIroWorkerBase[VersionSnapshot]):
+class KohyaVersionCommitWorker(LoRAIroWorkerBase[int]):
     """作業版を確定版へ遷移させる (Issue #1564)。"""
 
     _OPERATION_TYPE = "kohya_version_commit"
@@ -219,9 +219,10 @@ class KohyaVersionCommitWorker(LoRAIroWorkerBase[VersionSnapshot]):
         self._repository = repository
         self._version_id = version_id
 
-    def execute(self) -> VersionSnapshot:
-        """作業版を確定する。"""
-        return self._repository.commit_working_version(self._version_id)
+    def execute(self) -> int:
+        """作業版を確定し、対象 version_id を返す。"""
+        self._repository.commit_working_version(self._version_id)
+        return self._version_id
 
     def _should_cancel_completed_result(self) -> bool:
         return False
