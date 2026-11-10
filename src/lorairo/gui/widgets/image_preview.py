@@ -126,7 +126,10 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         """画像読み込み失敗時のエラーメッセージをシーンに表示する (#1569)。"""
         self._last_load_error = error_text
         try:
-            self.graphics_scene.addText(error_text)
+            text_item = self.graphics_scene.addText(error_text)
+            if text_item is not None:
+                self.preview_scene.setSceneRect(text_item.boundingRect())
+                self.previewGraphicsView.centerOn(text_item)
         except Exception as e:
             logger.debug(f"エラーテキストの追加に失敗: {e}")
 

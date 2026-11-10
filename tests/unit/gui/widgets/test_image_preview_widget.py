@@ -203,11 +203,37 @@ class TestImagePreviewWidget:
         assert widget._current_image_path is None
         assert widget._current_pixmap is None
         assert widget._last_load_error == "画像の読み込みに失敗しました: corrupt.jpg"
-        assert any(
-            hasattr(item, "toPlainText") and "corrupt.jpg" in item.toPlainText()
+        text_items = [
+            item
             for item in widget.preview_scene.items()
-        )
+            if hasattr(item, "toPlainText") and "corrupt.jpg" in item.toPlainText()
+        ]
+        assert len(text_items) == 1
+        assert widget.preview_scene.sceneRect() == text_items[0].boundingRect()
         assert widget._create_copy_image_action(widget).isEnabled() is False
+
+    def test_load_image_error_after_valid_image_resets_scene_rect_and_centers(self, widget, tmp_path):
+        """大画像表示後の次画像デコード失敗時に sceneRect をエラーテキストに合わせて中央表示する (#1569 Codex P2)"""
+        from PIL import Image
+
+        valid_path = tmp_path / "valid.png"
+        Image.new("RGB", (1200, 900), color=(20, 40, 60)).save(valid_path)
+        widget.load_image(valid_path)
+        assert widget.preview_scene.sceneRect().width() == 1200
+
+        corrupt_path = tmp_path / "corrupt.png"
+        corrupt_path.write_bytes(b"not an image")
+        with patch.object(widget.previewGraphicsView, "centerOn") as mock_center:
+            widget.load_image(corrupt_path)
+
+        text_items = [
+            item
+            for item in widget.preview_scene.items()
+            if hasattr(item, "toPlainText") and "corrupt.png" in item.toPlainText()
+        ]
+        assert len(text_items) == 1
+        assert widget.preview_scene.sceneRect() == text_items[0].boundingRect()
+        mock_center.assert_called_once_with(text_items[0])
 
     def test_copy_current_image_to_clipboard_no_image_noops(self, widget):
         """画像未表示時はクリップボードへコピーしない"""
