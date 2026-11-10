@@ -467,6 +467,46 @@ class TestCancelLogReason:
         debug_msgs = [r["message"] for r in loguru_records if r["level"].name == "DEBUG"]
         assert any("search_replaced" in m for m in debug_msgs)
 
+    def test_replacement_cancel_terminate_logs_debug_not_error(self, manager, loguru_records):
+        """内部置換キャンセル時の強制終了・停止未確認は ERROR ではなく DEBUG に降格する (#1572)。"""
+        worker = Mock()
+        thread = Mock()
+        thread.isRunning.return_value = True
+        thread.wait.side_effect = [False, False, False]
+        manager.active_workers["worker-1"] = {
+            "worker": worker,
+            "thread": thread,
+            "auto_cleanup": True,
+        }
+
+        manager.cancel_worker("worker-1", reason=CancelReason.SEARCH_REPLACED)
+
+        error_msgs = [r["message"] for r in loguru_records if r["level"].name == "ERROR"]
+        assert not any("worker-1" in m for m in error_msgs)
+        debug_msgs = [r["message"] for r in loguru_records if r["level"].name == "DEBUG"]
+        assert any("最終手段としてワーカースレッドを強制終了します: worker-1" in m for m in debug_msgs)
+        assert any("ワーカー強制終了後も停止確認できません: worker-1" in m for m in debug_msgs)
+        assert any("キャンセルされたワーカーの強制終了失敗: worker-1" in m for m in debug_msgs)
+
+    def test_user_cancel_terminate_keeps_error_log(self, manager, loguru_records):
+        """非置換キャンセル時の強制終了失敗は引き続き ERROR で記録する (#1572)。"""
+        worker = Mock()
+        thread = Mock()
+        thread.isRunning.return_value = True
+        thread.wait.side_effect = [False, False, False]
+        manager.active_workers["worker-1"] = {
+            "worker": worker,
+            "thread": thread,
+            "auto_cleanup": True,
+        }
+
+        manager.cancel_worker("worker-1", reason=CancelReason.USER_REQUESTED)
+
+        error_msgs = [r["message"] for r in loguru_records if r["level"].name == "ERROR"]
+        assert any("最終手段としてワーカースレッドを強制終了します: worker-1" in m for m in error_msgs)
+        assert any("ワーカー強制終了後も停止確認できません: worker-1" in m for m in error_msgs)
+        assert any("キャンセルされたワーカーの強制終了失敗: worker-1" in m for m in error_msgs)
+
 
 class TestWorkerGuiThreadDestruction:
     """Issue #1497 / #1492: Python 製 QObject worker は GUI スレッド上で破棄される。"""

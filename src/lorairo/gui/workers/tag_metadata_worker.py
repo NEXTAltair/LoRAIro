@@ -17,7 +17,12 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ...utils.language_keys import language_alias_keys
 from ...utils.log import logger
-from .base import LoRAIroWorkerBase
+from .base import CancellationController, CancellationError, LoRAIroWorkerBase
+
+
+def _is_query_interrupt_error(error: Exception) -> bool:
+    """SQLite progress handler によるクエリ中断エラーか判定する。"""
+    return "interrupted" in str(error).lower()
 
 
 @dataclass
@@ -60,11 +65,15 @@ def _extract_type_name(item: Any) -> str | None:
     return None
 
 
-def resolve_tag_types(reader: Any, canonicals: list[str]) -> dict[str, str]:
+def resolve_tag_types(
+    reader: Any,
+    canonicals: list[str],
+    cancellation: CancellationController | None = None,
+) -> dict[str, str]:
     """canonical -> tagdb type 名 (小文字) を batch で解決する (#1056)。
 
     per-tag ループの N+1 は禁止 (#998)。取得失敗は空 dict (未分類扱い) に落とし、
-    呼び出し側の表示を壊さない。
+    呼び出し側の表示を壊さない。キャンセルによるクエリ中断時は CancellationError を送出する。
     """
     unique = list(dict.fromkeys(c for c in canonicals if c))
     if not unique or reader is None:
@@ -74,6 +83,9 @@ def resolve_tag_types(reader: Any, canonicals: list[str]) -> dict[str, str]:
     try:
         batch = search_tags_batch(reader, unique, format_names=None, resolve_preferred=False)
     except (SQLAlchemyError, ValueError, RuntimeError) as e:
+        if (cancellation is not None and cancellation.is_canceled()) or _is_query_interrupt_error(e):
+            logger.debug("Tag metadata query interrupted due to cancellation: {}", e)
+            raise CancellationError("処理がキャンセルされました") from e
         logger.warning(f"タグ type の batch 解決に失敗 (未分類として表示): {e}")
         return {}
     tag_types: dict[str, str] = {}
@@ -138,6 +150,9 @@ class TagMetadataWorker(LoRAIroWorkerBase[TagMetadataResult]):
         try:
             preferred = self._reader.get_preferred_translations_batch(valid_tag_ids)
         except (SQLAlchemyError, ValueError, RuntimeError) as e:
+            if self.cancellation.is_canceled() or _is_query_interrupt_error(e):
+                logger.debug("Tag metadata query interrupted due to cancellation: {}", e)
+                raise CancellationError("処理がキャンセルされました") from e
             logger.warning(f"主訳の取得に失敗 (優先適用をスキップ): {e}")
             return
         for tag_id, prefs in preferred.items():
@@ -185,7 +200,8 @@ class TagMetadataWorker(LoRAIroWorkerBase[TagMetadataResult]):
                     usage_counts[tag_id] = named
             self._check_cancellation()
 
-        tag_types = resolve_tag_types(self._reader, canonicals)
+        tag_types = resolve_tag_types(self._reader, canonicals, cancellation=self.cancellation)
+        self._check_cancellation()
 
         logger.debug(
             f"tag metadata worker 完了: image_id={self._image_id}, gen={self._generation}, "

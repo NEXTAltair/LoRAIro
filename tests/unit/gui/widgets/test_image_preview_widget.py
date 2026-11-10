@@ -202,7 +202,38 @@ class TestImagePreviewWidget:
         assert widget.pixmap_item is None
         assert widget._current_image_path is None
         assert widget._current_pixmap is None
+        assert widget._last_load_error == "画像の読み込みに失敗しました: corrupt.jpg"
+        text_items = [
+            item
+            for item in widget.preview_scene.items()
+            if hasattr(item, "toPlainText") and "corrupt.jpg" in item.toPlainText()
+        ]
+        assert len(text_items) == 1
+        assert widget.preview_scene.sceneRect() == text_items[0].boundingRect()
         assert widget._create_copy_image_action(widget).isEnabled() is False
+
+    def test_load_image_error_after_valid_image_resets_scene_rect_and_centers(self, widget, tmp_path):
+        """大画像表示後の次画像デコード失敗時に sceneRect をエラーテキストに合わせて中央表示する (#1569 Codex P2)"""
+        from PIL import Image
+
+        valid_path = tmp_path / "valid.png"
+        Image.new("RGB", (1200, 900), color=(20, 40, 60)).save(valid_path)
+        widget.load_image(valid_path)
+        assert widget.preview_scene.sceneRect().width() == 1200
+
+        corrupt_path = tmp_path / "corrupt.png"
+        corrupt_path.write_bytes(b"not an image")
+        with patch.object(widget.previewGraphicsView, "centerOn") as mock_center:
+            widget.load_image(corrupt_path)
+
+        text_items = [
+            item
+            for item in widget.preview_scene.items()
+            if hasattr(item, "toPlainText") and "corrupt.png" in item.toPlainText()
+        ]
+        assert len(text_items) == 1
+        assert widget.preview_scene.sceneRect() == text_items[0].boundingRect()
+        mock_center.assert_called_once_with(text_items[0])
 
     def test_copy_current_image_to_clipboard_no_image_noops(self, widget):
         """画像未表示時はクリップボードへコピーしない"""
@@ -558,3 +589,145 @@ class TestDecodePreviewPixmap:
         pixmap = widget._decode_preview_pixmap(tmp_path / "does_not_exist.png")
 
         assert pixmap.isNull()
+
+    def test_large_image_full_res_enabled_skips_scaling(self, widget, tmp_path):
+        """full_res=True の場合は _PREVIEW_MAX_EDGE を超える画像も原寸でデコードする (#1554)。"""
+        from PIL import Image
+
+        max_edge = widget._PREVIEW_MAX_EDGE
+        source = tmp_path / "large_full.png"
+        Image.new("RGB", (max_edge + 200, max_edge // 2), color=(120, 80, 40)).save(source)
+
+        pixmap = widget._decode_preview_pixmap(source, full_res=True)
+
+        assert not pixmap.isNull()
+        assert pixmap.width() == max_edge + 200
+        assert pixmap.height() == max_edge // 2
+
+
+@pytest.mark.unit
+class TestImagePreviewZoomPanAndFullRes:
+    """Issue #1554: ズーム・ドラッグパン・ダブルクリック等倍切替・原寸トグルのテスト。"""
+
+    @pytest.fixture
+    def widget(self, qtbot):
+        w = ImagePreviewWidget()
+        qtbot.addWidget(w)
+        return w
+
+    def _load_sample(self, widget: ImagePreviewWidget, tmp_path: Path, name: str = "sample.png") -> Path:
+        from PIL import Image
+
+        img_path = tmp_path / name
+        Image.new("RGB", (400, 300), color=(50, 100, 150)).save(img_path)
+        widget.load_image(img_path)
+        return img_path
+
+    def test_zoom_in_out_and_reset(self, widget: ImagePreviewWidget, tmp_path: Path):
+        self._load_sample(widget, tmp_path)
+        assert widget._zoom_factor == 1.0
+
+        widget.zoom_in()
+        assert widget._zoom_factor == pytest.approx(1.15)
+        assert widget.previewGraphicsView.viewport().cursor().shape() == Qt.CursorShape.OpenHandCursor
+
+        # zoom_in でズーム中は _adjust_view_size が fitInView で上書きしない
+        with patch.object(widget.previewGraphicsView, "fitInView") as mock_fit:
+            widget._adjust_view_size()
+            mock_fit.assert_not_called()
+
+        widget.zoom_out()
+        assert widget._zoom_factor == pytest.approx(1.0)
+
+        widget.zoom_in()
+        widget.reset_zoom()
+        assert widget._zoom_factor == 1.0
+        assert widget._is_1to1 is False
+        assert widget.previewGraphicsView.viewport().cursor().shape() == Qt.CursorShape.ArrowCursor
+
+    def test_toggle_1to1_zoom_and_double_click(self, widget: ImagePreviewWidget, tmp_path: Path):
+        from PySide6.QtCore import QEvent, QPointF
+        from PySide6.QtGui import QMouseEvent
+
+        self._load_sample(widget, tmp_path)
+        assert widget._is_1to1 is False
+
+        dbl_event = QMouseEvent(
+            QEvent.Type.MouseButtonDblClick,
+            QPointF(20, 20),
+            QPointF(20, 20),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        consumed = widget.eventFilter(widget.previewGraphicsView.viewport(), dbl_event)
+        assert consumed is True
+        assert widget._is_1to1 is True
+        assert widget._zoom_factor == 1.0
+        assert widget.previewGraphicsView.viewport().cursor().shape() == Qt.CursorShape.OpenHandCursor
+
+        # 再度ダブルクリックで Fit-to-View に戻る
+        consumed = widget.eventFilter(widget.previewGraphicsView.viewport(), dbl_event)
+        assert consumed is True
+        assert widget._is_1to1 is False
+
+    def test_drag_panning_updates_scrollbars(self, widget: ImagePreviewWidget, tmp_path: Path):
+        from PySide6.QtCore import QEvent, QPointF
+        from PySide6.QtGui import QMouseEvent
+
+        self._load_sample(widget, tmp_path)
+        widget.zoom_in()
+        viewport = widget.previewGraphicsView.viewport()
+
+        press_event = QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            QPointF(100, 100),
+            QPointF(100, 100),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        assert widget.eventFilter(viewport, press_event) is True
+        assert widget._panning is True
+        assert viewport.cursor().shape() == Qt.CursorShape.ClosedHandCursor
+
+        move_event = QMouseEvent(
+            QEvent.Type.MouseMove,
+            QPointF(80, 70),
+            QPointF(80, 70),
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        assert widget.eventFilter(viewport, move_event) is True
+
+        release_event = QMouseEvent(
+            QEvent.Type.MouseButtonRelease,
+            QPointF(80, 70),
+            QPointF(80, 70),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        assert widget.eventFilter(viewport, release_event) is True
+        assert widget._panning is False
+        assert viewport.cursor().shape() == Qt.CursorShape.OpenHandCursor
+
+    def test_loading_different_image_resets_zoom_and_full_res_reloads_same_image(
+        self, widget: ImagePreviewWidget, tmp_path: Path
+    ):
+        first = self._load_sample(widget, tmp_path, "first.png")
+        widget.zoom_in()
+        assert widget._zoom_factor > 1.0
+
+        # 原寸トグルで同じ画像を再読込してもズーム倍率は維持される
+        assert widget._full_res_button.objectName() == "previewFullResButton"
+        widget._full_res_button.setChecked(True)
+        assert widget._full_res_enabled is True
+        assert widget._current_image_path == first
+        assert widget._zoom_factor > 1.0
+
+        # 別画像を読み込むとズーム状態がリセットされる
+        self._load_sample(widget, tmp_path, "second.png")
+        assert widget._zoom_factor == 1.0
+        assert widget._is_1to1 is False

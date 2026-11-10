@@ -182,12 +182,14 @@ class TestDatasetController:
             selected_dir, mock_file_system_manager, folder_tags={}
         )
 
+    @patch("lorairo.gui.controllers.dataset_controller.show_warning")
     def test_select_and_register_images_worker_submission_failed(
         self,
+        mock_warning,
         controller,
         mock_worker_service,
     ):
-        """Worker投入失敗時のハンドリング"""
+        """Worker投入失敗時のハンドリング (#1569: 警告ダイアログも表示する)"""
         # Arrange
         selected_dir = Path("/test/dataset")
         mock_dialog_callback = Mock(return_value=selected_dir)
@@ -196,8 +198,11 @@ class TestDatasetController:
         # Act
         controller.select_and_register_images(mock_dialog_callback)
 
-        # Assert: エラーログが出力される（例外は発生しない）
+        # Assert: エラーログとユーザー向け警告ダイアログが出力される
         mock_worker_service.start_batch_registration_with_fsm.assert_called_once()
+        mock_warning.assert_called_once_with(
+            controller.parent, "バッチ登録エラー", "バッチ登録の開始に失敗しました。"
+        )
 
     @patch("lorairo.gui.controllers.dataset_controller.show_critical")
     def test_select_and_register_images_exception_handling(
@@ -206,7 +211,7 @@ class TestDatasetController:
         controller,
         mock_file_system_manager,
     ):
-        """例外発生時のエラーハンドリング"""
+        """例外発生時のエラーハンドリング (#1569: detail に例外文字列を渡す)"""
         # Arrange
         selected_dir = Path("/test/dataset")
         mock_dialog_callback = Mock(return_value=selected_dir)
@@ -216,10 +221,12 @@ class TestDatasetController:
         controller.select_and_register_images(mock_dialog_callback)
 
         # Assert: エラーメッセージが表示される
-        mock_msgbox.assert_called_once()
-        call_args = mock_msgbox.call_args
-        assert call_args[0][0] == controller.parent
-        assert "Test error" in call_args[0][2]
+        mock_msgbox.assert_called_once_with(
+            controller.parent,
+            "バッチ登録エラー",
+            "データセット登録の開始に失敗しました。",
+            detail="Test error",
+        )
 
     def test_select_and_register_images_no_parent(
         self,
@@ -333,7 +340,12 @@ class TestDatasetControllerKohyaImport:
         mock_worker_service.start_dataset_import.side_effect = RuntimeError("boom")
         with patch("lorairo.gui.controllers.dataset_controller.show_critical") as crit:
             controller.select_and_register_images(Mock(return_value=self._selection([Path("/cfg/a.json")])))
-        crit.assert_called_once()
+        crit.assert_called_once_with(
+            controller.parent,
+            "データセット取り込みエラー",
+            "データセット取り込みの開始に失敗しました。",
+            detail="boom",
+        )
 
     def test_finished_shows_result_popup(self, controller):
         from lorairo.services.dataset_import_service import DatasetImportResult

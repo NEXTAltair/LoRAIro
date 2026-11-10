@@ -16,6 +16,15 @@ from .terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
 # thread が後から終了できた場合は finished シグナルで自動的に登録解除される。
 _ABANDONED_WORKERS: dict[int, tuple[QThread, LoRAIroWorkerBase[Any]]] = {}
 
+_REPLACEMENT_CANCEL_REASONS: frozenset[CancelReason] = frozenset(
+    {
+        CancelReason.SEARCH_REPLACED,
+        CancelReason.THUMBNAIL_REPLACED,
+        CancelReason.REFINEMENT_REPLACED,
+        CancelReason.PREFETCH_REPLACED,
+    }
+)
+
 
 class WorkerManager(QObject):
     """
@@ -177,14 +186,17 @@ class WorkerManager(QObject):
                     logger.info(f"キャンセル中の queued terminal event を優先しました: {worker_id}")
                 elif thread.wait(self._CANCEL_DRAIN_GRACE_MS):
                     self._finalize_canceled_if_no_terminal_signal(worker_id)
-                elif self._terminate_thread_last_resort(worker_id, thread):
+                elif self._terminate_thread_last_resort(worker_id, thread, reason=reason):
                     self._finalize_canceled_if_no_terminal_signal(
                         worker_id,
                         fallback_outcome=WorkerOutcome.TERMINATED,
                         fallback_error=f"ワーカーを強制終了しました: {worker_id}",
                     )
                 else:
-                    logger.error(f"キャンセルされたワーカーの強制終了失敗: {worker_id}")
+                    if reason in _REPLACEMENT_CANCEL_REASONS:
+                        logger.debug(f"キャンセルされたワーカーの強制終了失敗: {worker_id}")
+                    else:
+                        logger.error(f"キャンセルされたワーカーの強制終了失敗: {worker_id}")
                     self._mark_worker_unresponsive(
                         worker_id,
                         error=f"ワーカー強制終了後も停止確認できませんでした: {worker_id}",
@@ -475,7 +487,8 @@ class WorkerManager(QObject):
                 stopped = thread.wait(self._CLEANUP_GRACE_MS)
                 if not stopped:
                     logger.warning(f"スレッド終了タイムアウト: {worker_id}")
-                    stopped = self._terminate_thread_last_resort(worker_id, thread)
+                    cancel_reason = worker_info.get("cancel_reason") if worker_info else None
+                    stopped = self._terminate_thread_last_resort(worker_id, thread, reason=cancel_reason)
             if stopped:
                 self._retiring_workers.pop(id(thread), None)
                 _ABANDONED_WORKERS.pop(id(thread), None)
@@ -531,13 +544,24 @@ class WorkerManager(QObject):
         if app is not None:
             app.processEvents()
 
-    def _terminate_thread_last_resort(self, worker_id: str, thread: QThread) -> bool:
+    def _terminate_thread_last_resort(
+        self,
+        worker_id: str,
+        thread: QThread,
+        reason: CancelReason | None = None,
+    ) -> bool:
         """Terminate a thread only after cooperative cancellation and queued events did not finish it."""
-        logger.error(f"最終手段としてワーカースレッドを強制終了します: {worker_id}")
+        is_replacement = reason in _REPLACEMENT_CANCEL_REASONS
+        if is_replacement:
+            logger.debug(f"最終手段としてワーカースレッドを強制終了します: {worker_id}")
+        else:
+            logger.error(f"最終手段としてワーカースレッドを強制終了します: {worker_id}")
         thread.terminate()
         stopped = thread.wait(self._TERMINATE_WAIT_MS)
         if stopped:
             logger.warning(f"ワーカー強制終了後に停止確認: {worker_id}")
+        elif is_replacement:
+            logger.debug(f"ワーカー強制終了後も停止確認できません: {worker_id}")
         else:
             logger.error(f"ワーカー強制終了後も停止確認できません: {worker_id}")
         return stopped

@@ -6,7 +6,7 @@ per-item firehose を TRACE に分離し、通常 DEBUG では抑制、config �
 
 import pytest
 
-from lorairo.utils.log import LEVEL_NAME_TO_NO, _level_filter, _parse_log_levels
+from lorairo.utils.log import LEVEL_NAME_TO_NO, LOG_FORMAT, _level_filter, _parse_log_levels
 
 
 class _Level:
@@ -70,3 +70,9 @@ def test_module_prefix_trace_enables_only_target_module() -> None:
     assert _level_filter(target, default_level_no=10, module_level_nos=module_nos) is True
     # 非対象モジュールは既定 DEBUG(10) 適用で TRACE 抑制 (5 >= 10 は False)
     assert _level_filter(other, default_level_no=10, module_level_nos=module_nos) is False
+
+
+@pytest.mark.unit
+def test_log_format_includes_thread_name() -> None:
+    """LOG_FORMAT に {thread.name} が含まれる (#1572)。"""
+    assert "{thread.name}" in LOG_FORMAT

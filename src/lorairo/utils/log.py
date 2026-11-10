@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from loguru import Record
 
 # ログフォーマットを定義 (コード内で固定)
-LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function} - {message}"
+LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {thread.name} | {name}:{function} - {message}"
 
 # 標準ログレベル名から数値へのマッピング
 # TRACE は標準 logging に存在しないが loguru は level.no=5 で提供する per-item firehose 用レベル。

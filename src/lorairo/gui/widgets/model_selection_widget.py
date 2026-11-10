@@ -296,6 +296,10 @@ if not __name__ == "__main__":
                 logger.error(f"Failed to load models: {e}")
                 self.all_models = []
                 self.update_model_display()
+                self.statusLabel.setText("読込エラー")
+                self.placeholderLabel.setText(
+                    "モデル一覧の読み込みに失敗しました。再読み込みしてください。"
+                )
 
         @Slot()
         def refresh_model_registry(self, automatic: bool = False) -> None:
@@ -354,7 +358,8 @@ if not __name__ == "__main__":
             show_warning(
                 self,
                 "モデル一覧更新エラー",
-                f"モデル一覧の更新に失敗しました。\n{error_message}",
+                "モデル一覧の更新に失敗しました。",
+                detail=error_message,
             )
 
         @Slot()

@@ -30,9 +30,11 @@
 - Example: `uv run pytest -m "fast"` to run quick unit tests.
 
 ## Diagnostic Log Context
-- `logs/lorairo.log` and `logs/image-annotator-lib.log` are intentionally gitignored, but they are first-class debugging context.
-- When investigating runtime errors, failed GUI flows, annotation/model issues, worker failures, or test failures that may involve app behavior, inspect these logs proactively even if the user did not attach or mention them.
-- Prefer bounded reads such as `tail -200 logs/lorairo.log` and `tail -200 logs/image-annotator-lib.log`; if a file is missing, note that and continue.
+- `src/lorairo/utils/config.py` sets `DEFAULT_LOG_PATH = user_log_path("LoRAIro", appauthor=False) / "lorairo.log"` via `platformdirs`:
+  - Windows: `%LOCALAPPDATA%\LoRAIro\Logs\lorairo.log`
+  - Linux / Dev Container: `~/.local/state/LoRAIro/log/lorairo.log` (alongside gitignored workspace `logs/lorairo.log` and `logs/image-annotator-lib.log`).
+- These logs are first-class debugging context. When investigating runtime errors, failed GUI flows, annotation/model issues, worker failures, or test failures that may involve app behavior, inspect these logs proactively even if the user did not attach or mention them.
+- Prefer bounded reads such as `tail -200 ~/.local/state/LoRAIro/log/lorairo.log`, `tail -200 logs/lorairo.log`, and `tail -200 logs/image-annotator-lib.log`; if a file is missing, note that and continue.
 - Do not add these logs to git or include large log dumps in responses; summarize only the relevant lines.
 
 ## Commit & Pull Request Guidelines

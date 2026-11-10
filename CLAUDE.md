@@ -76,11 +76,17 @@ make test-all                      # 3 セッションを順次実行
 
 ### Diagnostic Logs
 
-`logs/lorairo.log` and `logs/image-annotator-lib.log` are intentionally gitignored, but they are first-class debugging context. When investigating runtime errors, failed GUI flows, annotation/model issues, worker failures, or test failures that may involve app behavior, inspect them proactively even if the user did not attach or mention them.
+`src/lorairo/utils/config.py` sets `DEFAULT_LOG_PATH = user_log_path("LoRAIro", appauthor=False) / "lorairo.log"` via `platformdirs`:
+- Windows: `%LOCALAPPDATA%\LoRAIro\Logs\lorairo.log`
+- Linux / Dev Container: `~/.local/state/LoRAIro/log/lorairo.log`
+- Workspace logs (gitignored): `logs/lorairo.log` and `logs/image-annotator-lib.log`
+
+These logs are first-class debugging context. When investigating runtime errors, failed GUI flows, annotation/model issues, worker failures, or test failures that may involve app behavior, inspect them proactively even if the user did not attach or mention them.
 
 Use bounded reads:
 
 ```bash
+tail -200 ~/.local/state/LoRAIro/log/lorairo.log
 tail -200 logs/lorairo.log
 tail -200 logs/image-annotator-lib.log
 ```
