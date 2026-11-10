@@ -588,9 +588,9 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         if success:
             if self._dataset_state_manager is not None:
                 self._dataset_state_manager.refresh_images(image_ids)
-            # ステージング集合をクリア (SSoT = StagingStateManager、fan-out で各タブへ反映)
+            # 完了したバッチ対象 ID のみをステージングから除外 (非同期書込中に追加された画像は保持)
             if self._staging_state_manager is not None:
-                self._staging_state_manager.clear()
+                self._staging_state_manager.remove_image_ids(image_ids)
 
             self.status_message.emit(f"タグ '{tag}' を {len(image_ids)} 件の画像に追加しました")
             logger.info(
@@ -797,32 +797,8 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         """実行詳細設定 (RunOptions) を返す。"""
         return self._pipeline_run_options
 
-    def _fetch_batch_low_res_paths(self, image_ids: list[int]) -> dict[int, str]:
-        """DB からステージング画像の低解像度パスを一括取得する (#1546)。"""
-        if self._db_manager is None:
-            return {}
-        batch_getter = getattr(self._db_manager, "get_low_res_image_paths_batch", None)
-        if not callable(batch_getter):
-            return {}
-        raw_batch = batch_getter(image_ids)
-        return raw_batch if isinstance(raw_batch, dict) else {}
-
-    @staticmethod
-    def _resolve_staged_candidate_path(
-        image_id: int, low_res_path: str | None, stored_path: str
-    ) -> str | None:
-        """低解像度パスを優先し、存在しなければオリジナル stored_path へフォールバックする (#1546)。"""
-        for path_str in (low_res_path, stored_path):
-            if not path_str:
-                continue
-            resolved = resolve_stored_path(path_str)
-            if resolved and resolved.exists():
-                return str(resolved)
-        logger.debug(f"画像パスが存在しない: ID={image_id}, path={stored_path or low_res_path}")
-        return None
-
     def staged_id_path_map(self) -> dict[int, str]:
-        """ステージング画像の {image_id: 解決済みファイルパス} を返す (#896 PR4a, #1546)。
+        """ステージング画像の {image_id: 解決済みファイルパス} を返す (#896 PR4a)。
 
         :meth:`get_staged_items` の stored_path を実ファイルパスに解決し、存在する
         ものだけ返す。同期 / async dispatch の双方で使う。DatasetStateManager 未注入時は
@@ -839,14 +815,14 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             logger.warning("DatasetStateManager not available for path resolution")
             return {}
 
-        batch_low_res = self._fetch_batch_low_res_paths(list(staged_items.keys()))
         id_path_map: dict[int, str] = {}
         for image_id, (_, stored_path) in staged_items.items():
-            resolved_str = self._resolve_staged_candidate_path(
-                image_id, batch_low_res.get(image_id), stored_path
-            )
-            if resolved_str is not None:
-                id_path_map[image_id] = resolved_str
+            if stored_path:
+                resolved = resolve_stored_path(stored_path)
+                if resolved and resolved.exists():
+                    id_path_map[image_id] = str(resolved)
+                else:
+                    logger.debug(f"画像パスが存在しない: ID={image_id}, path={stored_path}")
 
         logger.debug(f"ステージング画像パスを取得: {len(id_path_map)}件")
         return id_path_map

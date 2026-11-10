@@ -1787,7 +1787,7 @@ def test_execute_batch_tag_write_no_service_returns_false(tab: AnnotateTabWidget
 def test_handle_batch_tag_add_success_emits_status_and_clears_staging(
     tab: AnnotateTabWidget, qtbot
 ) -> None:
-    """書込成功で status_message を emit しステージングをクリアする (#896)。"""
+    """書込成功で status_message を emit し完了対象のみステージングから除外する (#896, #1544)。"""
     tab._image_db_write_service = Mock()
     tab._image_db_write_service.add_tag_batch.return_value = True
     tab._dataset_state_manager = Mock()
@@ -1797,7 +1797,8 @@ def test_handle_batch_tag_add_success_emits_status_and_clears_staging(
         tab._handle_batch_tag_add([1, 2], "landscape")
 
     assert "landscape" in blocker.args[0]
-    tab._staging_state_manager.clear.assert_called_once()
+    tab._staging_state_manager.remove_image_ids.assert_called_once_with([1, 2])
+    tab._staging_state_manager.clear.assert_not_called()
 
 
 @pytest.mark.gui
@@ -1868,7 +1869,34 @@ def test_handle_batch_tag_add_runs_off_gui_thread_and_toggles_busy(tab: Annotate
     assert len(worker_thread_ids) == 1
     assert worker_thread_ids[0] != gui_thread_id
     tab._dataset_state_manager.refresh_images.assert_called_once_with([1, 2])
-    tab._staging_state_manager.clear.assert_called_once()
+    tab._staging_state_manager.remove_image_ids.assert_called_once_with([1, 2])
+    tab._staging_state_manager.clear.assert_not_called()
+
+
+@pytest.mark.gui
+def test_handle_batch_tag_add_preserves_images_staged_during_async_write(
+    tab: AnnotateTabWidget, qtbot
+) -> None:
+    """Codex P2: 非同期書込中に追加ステージングされた画像は完了時に消去されない。"""
+    assert tab._staging_state_manager is not None
+    assert tab._dataset_state_manager is not None
+    tab._dataset_state_manager._all_images = [
+        {"id": 1, "stored_image_path": "stored/1.png"},
+        {"id": 2, "stored_image_path": "stored/2.png"},
+        {"id": 3, "stored_image_path": "stored/3.png"},
+    ]
+    tab._staging_state_manager.add_image_ids([1, 2])
+    assert tab._staging_state_manager.get_image_ids() == [1, 2]
+
+    # 完了ハンドラ直前に画像 3 が追加ステージングされた状況を再現
+    tab._staging_state_manager.add_image_ids([3])
+    assert tab._staging_state_manager.get_image_ids() == [1, 2, 3]
+
+    tab._batch_tag_write_in_progress = True
+    tab._batch_tag_add_widget.set_busy(True)
+    tab._on_batch_tag_write_finished([1, 2], "cat", True)
+
+    assert tab._staging_state_manager.get_image_ids() == [3]
 
 
 @pytest.mark.gui
@@ -1987,8 +2015,10 @@ def test_refresh_preflight_summary_queries_only_missing_ids_incrementally(
 
 
 @pytest.mark.gui
-def test_staged_id_path_map_prefers_batch_low_res_paths(tab: AnnotateTabWidget, monkeypatch) -> None:
-    """Issue #1546: staged_id_path_map は get_low_res_image_paths_batch が返す低解像度パスを優先する。"""
+def test_staged_id_path_map_preserves_original_stored_image_path(
+    tab: AnnotateTabWidget, monkeypatch
+) -> None:
+    """Codex P1: staged_id_path_map は同期 workflow の ID/pHash 解決整合性のためオリジナル stored_path を維持する。"""
     from lorairo.gui.tab import annotate_tab as annotate_tab_module
 
     monkeypatch.setattr(
@@ -2012,5 +2042,5 @@ def test_staged_id_path_map_prefers_batch_low_res_paths(tab: AnnotateTabWidget, 
 
     result = tab.staged_id_path_map()
 
-    tab._db_manager.get_low_res_image_paths_batch.assert_called_once_with([1, 2])
-    assert result == {1: "stored/low1.webp", 2: "stored/orig2.png"}
+    tab._db_manager.get_low_res_image_paths_batch.assert_not_called()
+    assert result == {1: "stored/orig1.png", 2: "stored/orig2.png"}
