@@ -149,3 +149,11 @@ def test_detail_rows_capped_with_overflow_label(qtbot):
     overflow = widget.findChild(QLabel, "registrationSummaryOverflow")
     assert overflow is not None
     assert "7" in overflow.text()  # 残り7件
+
+
+def test_buttons_have_tooltips(qtbot):
+    """Issue #1571: トグルボタンと閉じるボタンにツールチップが設定されている。"""
+    widget = RegistrationSummaryWidget()
+    qtbot.addWidget(widget)
+    assert widget._dismiss_button.toolTip() == "サマリーを閉じる"
+    assert widget._toggle_button.toolTip() != ""

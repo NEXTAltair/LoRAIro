@@ -65,11 +65,13 @@ class RegistrationSummaryWidget(QWidget):
         self._toggle_button = QPushButton("▾ skip / 別版 の内訳", self)
         self._toggle_button.setObjectName("registrationSummaryToggle")
         self._toggle_button.setFlat(True)
+        self._toggle_button.setToolTip("重複・別版ファイルの内訳を表示/非表示")
         self._toggle_button.clicked.connect(self._on_toggle_clicked)
 
         self._dismiss_button = QPushButton("✕", self)
         self._dismiss_button.setObjectName("registrationSummaryDismiss")
         self._dismiss_button.setFlat(True)
+        self._dismiss_button.setToolTip("サマリーを閉じる")
         self._dismiss_button.clicked.connect(self.hide)
 
         header_row.addWidget(self._header_label)

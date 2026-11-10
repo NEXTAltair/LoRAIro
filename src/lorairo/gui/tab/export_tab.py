@@ -628,10 +628,11 @@ class ExportTabWidget(QWidget):
         if not self._validate_export_resolution(effective_ids, resolution):
             return
 
+        initial_dir = self._last_export_dir or self._default_export_directory()
         directory = QFileDialog.getExistingDirectory(
             self,
             "エクスポート先ディレクトリを選択",
-            self._last_export_dir,
+            initial_dir,
         )
         if not directory:
             return
@@ -679,6 +680,21 @@ class ExportTabWidget(QWidget):
         self._overlay_bar.set_exporting(True, f"エクスポート開始 (0/{len(effective_ids)})")
         self._start_export_worker(worker)
         logger.info(f"エクスポート開始: {len(effective_ids)}枚 → {directory} (format={export_format})")
+
+    def _default_export_directory(self) -> str:
+        """ConfigurationService の export_dir 設定から初期ディレクトリ文字列を返す (#1566)。"""
+        config_service = getattr(self._service_container, "config_service", None)
+        if config_service is None or not hasattr(config_service, "get_export_directory"):
+            return ""
+        try:
+            configured_dir = config_service.get_export_directory()
+        except Exception:
+            return ""
+        if isinstance(configured_dir, (str, Path)):
+            path_str = str(configured_dir).strip()
+            if path_str:
+                return path_str
+        return ""
 
     def _validate_export_resolution(self, image_ids: list[int], resolution: int) -> bool:
         """指定解像度の処理済み画像が揃っているか事前検証する (#1106)。

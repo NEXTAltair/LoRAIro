@@ -9,7 +9,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QComboBox, QGroupBox, QLabel, QLineEdit, QPushButton, QSpinBox, QTabWidget
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QGroupBox,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QSpinBox,
+    QTabWidget,
+)
 
 from lorairo.gui import theme
 from lorairo.gui.window.configuration_window import ConfigurationWindow
@@ -43,6 +52,17 @@ def _make_mock_config_service() -> MagicMock:
     mock.get_default_upscaler_name.return_value = "RealESRGAN_x4plus"
     mock.save_settings.return_value = True
     return mock
+
+
+@pytest.fixture(autouse=True)
+def mock_show_information(monkeypatch) -> list[tuple[str, str]]:
+    """QMessageBox のモーダル表示を抑止しつつ呼び出しを記録する。"""
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "lorairo.gui.window.configuration_window.show_information",
+        lambda _parent, title, text, *_args, **_kwargs: calls.append((title, text)),
+    )
+    return calls
 
 
 @pytest.fixture()
@@ -466,3 +486,133 @@ class TestConfigurationWindowRoutePreference:
         assert any(
             call.args == ("model_selection", "route_preference", "direct") for call in update_calls
         ), f"expected update_setting('model_selection', 'route_preference', 'direct') in {update_calls}"
+
+
+@pytest.mark.gui
+class TestConfigurationWindowImprovements:
+    """Issue #1566 & #1567: API キー個別クリア・保存フィードバック・非データセットPicker・NoScroll部品。"""
+
+    def test_api_key_clear_buttons_clear_saved_and_typed_key(
+        self, dialog: ConfigurationWindow, qtbot
+    ) -> None:
+        clear_openai = dialog.findChild(QPushButton, "buttonClearApiKey_openai")
+        clear_openrouter = dialog.findChild(QPushButton, "buttonClearApiKey_openrouter")
+        assert clear_openai is not None and clear_openrouter is not None
+        assert clear_openai.isEnabled() is True
+        assert clear_openrouter.isEnabled() is False
+        assert "APIキーをクリア" in clear_openai.toolTip()
+
+        qtbot.mouseClick(clear_openai, Qt.MouseButton.LeftButton)
+        assert clear_openai.isEnabled() is False
+        status = dialog.findChild(QLabel, "lineEditOpenAiKeyStatus")
+        assert status is not None and status.text() == "未設定"
+        assert dialog._collect_settings()["api"]["openai_key"] == ""
+
+        openrouter_edit = dialog.findChild(QLineEdit, "lineEditOpenRouterKey")
+        assert openrouter_edit is not None
+        openrouter_edit.setText("sk-or-test")
+        assert clear_openrouter.isEnabled() is True
+        qtbot.mouseClick(clear_openrouter, Qt.MouseButton.LeftButton)
+        assert openrouter_edit.text() == ""
+        assert clear_openrouter.isEnabled() is False
+
+    def test_save_feedback_label_updated_on_accepted(
+        self, dialog: ConfigurationWindow, qtbot, mock_show_information: list[tuple[str, str]]
+    ) -> None:
+        feedback = dialog.findChild(QLabel, "labelConfigSaveFeedback")
+        assert feedback is not None
+        assert feedback.text() == ""
+        with (
+            patch("lorairo.gui.window.configuration_window.initialize_logging"),
+            qtbot.waitSignal(dialog.accepted, timeout=3000),
+        ):
+            dialog._on_accepted()
+        assert "設定を保存しました" in feedback.text()
+        assert len(mock_show_information) == 1
+        assert mock_show_information[0][0] == "設定保存"
+        assert "設定を保存しました" in mock_show_information[0][1]
+
+    def test_apply_button_saves_and_shows_feedback_without_closing(
+        self, dialog: ConfigurationWindow, config_service: MagicMock, qtbot
+    ) -> None:
+        apply_btn = dialog.findChild(QPushButton, "buttonApplySettings")
+        feedback = dialog.findChild(QLabel, "labelConfigSaveFeedback")
+        assert apply_btn is not None and feedback is not None
+        assert dialog.has_applied_changes() is False
+        with patch("lorairo.gui.window.configuration_window.initialize_logging"):
+            qtbot.mouseClick(apply_btn, Qt.MouseButton.LeftButton)
+        config_service.save_settings.assert_called_once()
+        assert "設定を保存しました" in feedback.text()
+        assert dialog.result() == 0
+        assert dialog.has_applied_changes() is True
+
+    def test_reject_returns_accepted_if_changes_were_applied(
+        self, dialog: ConfigurationWindow, qtbot
+    ) -> None:
+        apply_btn = dialog.findChild(QPushButton, "buttonApplySettings")
+        assert apply_btn is not None
+        with patch("lorairo.gui.window.configuration_window.initialize_logging"):
+            qtbot.mouseClick(apply_btn, Qt.MouseButton.LeftButton)
+        assert dialog.has_applied_changes() is True
+        dialog.reject()
+        assert dialog.result() == int(QDialog.DialogCode.Accepted)
+
+    def test_reject_returns_rejected_if_no_changes_applied(self, dialog: ConfigurationWindow) -> None:
+        assert dialog.has_applied_changes() is False
+        dialog.reject()
+        assert dialog.result() == int(QDialog.DialogCode.Rejected)
+
+    def test_apply_updates_saved_api_keys_and_refreshes_ui(
+        self, dialog: ConfigurationWindow, config_service: MagicMock, qtbot
+    ) -> None:
+        openrouter_edit = dialog.findChild(QLineEdit, "lineEditOpenRouterKey")
+        openrouter_status = dialog.findChild(QLabel, "lineEditOpenRouterKeyStatus")
+        clear_openrouter = dialog.findChild(QPushButton, "buttonClearApiKey_openrouter")
+        apply_btn = dialog.findChild(QPushButton, "buttonApplySettings")
+        assert openrouter_edit is not None and openrouter_status is not None
+        assert clear_openrouter is not None and apply_btn is not None
+
+        # 初期状態: 未設定
+        assert dialog._saved_api_keys.get("openrouter", "") == ""
+        assert openrouter_status.text() == "未設定"
+        assert clear_openrouter.isEnabled() is False
+
+        # 新規キーを入力して Apply
+        openrouter_edit.setText("sk-or-persisted-123")
+        with patch("lorairo.gui.window.configuration_window.initialize_logging"):
+            qtbot.mouseClick(apply_btn, Qt.MouseButton.LeftButton)
+
+        # 保存後: _saved_api_keys が更新され、欄はクリア、ステータスは保存済、クリアボタン有効
+        assert dialog._saved_api_keys.get("openrouter") == "sk-or-persisted-123"
+        assert openrouter_edit.text() == ""
+        assert openrouter_edit.placeholderText() == "保存済（変更する場合のみ入力）"
+        assert openrouter_status.text() == "保存済"
+        assert clear_openrouter.isEnabled() is True
+
+        # 空欄のまま再度 collect しても新キーが維持される
+        collected = dialog._collect_settings()
+        assert collected["api"]["openrouter_key"] == "sk-or-persisted-123"
+
+        # クリアボタンを押すと保持キーも消去される
+        qtbot.mouseClick(clear_openrouter, Qt.MouseButton.LeftButton)
+        assert dialog._saved_api_keys.get("openrouter") == ""
+        assert openrouter_status.text() == "未設定"
+        assert clear_openrouter.isEnabled() is False
+        with patch("lorairo.gui.window.configuration_window.initialize_logging"):
+            qtbot.mouseClick(apply_btn, Qt.MouseButton.LeftButton)
+        assert dialog._saved_api_keys.get("openrouter") == ""
+        assert dialog._collect_settings()["api"]["openrouter_key"] == ""
+
+    def test_directory_pickers_do_not_require_images(self, dialog: ConfigurationWindow) -> None:
+        assert dialog._dir_picker_database_dir._require_images is False
+        assert dialog._dir_picker_export_dir._require_images is False
+        assert dialog._dir_picker_batch_results._require_images is False
+
+    def test_combos_and_spins_use_no_scroll_subclasses(self, dialog: ConfigurationWindow) -> None:
+        from lorairo.gui.widgets.ds_no_scroll_combo_box import DsNoScrollComboBox, DsNoScrollSpinBox
+
+        assert isinstance(dialog._combo_box_log_level, DsNoScrollComboBox)
+        assert isinstance(dialog._combo_box_upscaler, DsNoScrollComboBox)
+        assert isinstance(dialog._combo_box_route_preference, DsNoScrollComboBox)
+        assert isinstance(dialog._spin_clef_gpu_layers, DsNoScrollSpinBox)
+        assert isinstance(dialog._spin_clef_context_size, DsNoScrollSpinBox)

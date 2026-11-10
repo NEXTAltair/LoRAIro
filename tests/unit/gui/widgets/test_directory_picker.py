@@ -91,3 +91,21 @@ class TestDirectoryPickerWidgetValidation:
         widget.set_path(str(tmp_path))
         widget._validate_and_emit()
         assert received == []
+
+    def test_set_require_images_false_allows_empty_directory(self, widget, tmp_path):
+        """Issue #1566: set_require_images(False) 時は画像が無い有効ディレクトリでも発信する"""
+        widget.set_require_images(False)
+        received = []
+        widget.validDirectorySelected.connect(lambda p: received.append(p))
+        widget.set_path(str(tmp_path))
+        widget._validate_and_emit()
+        assert received == [str(tmp_path)]
+
+    def test_set_require_images_false_rejects_nonexistent_directory(self, widget):
+        """Issue #1566: set_require_images(False) でも存在しないパスは発信しない"""
+        widget.set_require_images(False)
+        received = []
+        widget.validDirectorySelected.connect(lambda p: received.append(p))
+        widget.set_path("/nonexistent/path/to/directory")
+        widget._validate_and_emit()
+        assert received == []

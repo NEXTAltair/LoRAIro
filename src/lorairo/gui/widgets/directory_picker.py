@@ -13,6 +13,7 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._require_images: bool = True
         self.setupUi(self)
         self.set_label_text("フォルダを選択")
 
@@ -22,6 +23,10 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
         # Enterキーとフォーカスアウト時にバリデーション実行
         self.DirectoryPicker.lineEditPicker.returnPressed.connect(self._validate_and_emit)
         self.DirectoryPicker.lineEditPicker.editingFinished.connect(self._validate_and_emit)
+
+    def set_require_images(self, require_images: bool) -> None:
+        """ディレクトリ検証時に画像ファイルの存在を必須とするか設定する。"""
+        self._require_images = require_images
 
     def select_folder(self) -> None:
         dir_path = QFileDialog.getExistingDirectory(self, "フォルダを選択")
@@ -50,6 +55,14 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
 
         if not current_path:
             logger.debug("空のパスのため、シグナル発信をスキップ")
+            return
+
+        if not self._require_images:
+            if self._quick_validation_check(current_path):
+                logger.debug(f"有効なディレクトリを確認: {current_path}")
+                self.validDirectorySelected.emit(current_path)
+            else:
+                logger.warning(f"無効なディレクトリ: {current_path}")
             return
 
         if self._validate_dataset_directory(current_path):

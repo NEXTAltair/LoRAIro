@@ -31,8 +31,9 @@ from ...services.configuration_service import ConfigurationService
 from ...services.model_route_service import parse_route_preference
 from ...utils.log import build_gui_log_config, initialize_logging, logger
 from .. import theme
-from ..message_box import show_critical
+from ..message_box import show_critical, show_information
 from ..widgets.directory_picker import DirectoryPickerWidget
+from ..widgets.ds_no_scroll_combo_box import DsNoScrollComboBox, DsNoScrollSpinBox
 
 # ログレベル選択肢
 _LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
@@ -79,6 +80,7 @@ class ConfigurationWindow(QDialog):
         """
         super().__init__(parent)
         self._config_service = config_service
+        self._applied_changes: bool = False
         self._build_ui()
         self._populate_from_config()
         logger.debug("ConfigurationWindow initialized")
@@ -96,13 +98,29 @@ class ConfigurationWindow(QDialog):
         self._tab_widget.addTab(self._build_advanced_tab(), "詳細設定")
         layout.addWidget(self._tab_widget)
 
-        # OK/Cancel ボタン
-        button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        # 保存フィードバックラベル + OK/Cancel ボタン
+        footer_row = QHBoxLayout()
+        self._save_status_label = QLabel("")
+        self._save_status_label.setObjectName("labelConfigSaveFeedback")
+        self._save_status_label.setStyleSheet(
+            f"QLabel {{ color: {theme.OK}; font-size: {theme.FONT_SIZE_SMALL}px; }}"
         )
+        footer_row.addWidget(self._save_status_label, stretch=1)
+
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Apply
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        apply_btn = button_box.button(QDialogButtonBox.StandardButton.Apply)
+        if apply_btn is not None:
+            apply_btn.setText("適用")
+            apply_btn.setObjectName("buttonApplySettings")
+            apply_btn.clicked.connect(self._on_apply_clicked)
         button_box.accepted.connect(self._on_accepted)
         button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
+        footer_row.addWidget(button_box)
+        layout.addLayout(footer_row)
 
     def _build_basic_tab(self) -> QWidget:
         """基本設定タブを構築する。
@@ -115,13 +133,14 @@ class ConfigurationWindow(QDialog):
 
         tab_layout.addWidget(self._build_clef_group())
 
-        # API設定 (Issue #755: マスク入力 + 保存済/未設定ステータスのみ表示。
-        # 保存済キーは UI に echo back しない。クリアは config/lorairo.toml 直接編集で行う)
+        # API設定 (Issue #755 / #1566: マスク入力 + 保存済/未設定ステータス + クリアボタン。
+        # 保存済キーは UI に echo back しない)
         api_group = QGroupBox("API設定")
         api_layout = QFormLayout(api_group)
 
         self._api_key_edits: dict[str, QLineEdit] = {}
         self._api_key_status_labels: dict[str, QLabel] = {}
+        self._api_key_clear_buttons: dict[str, QPushButton] = {}
         self._saved_api_keys: dict[str, str] = {}
 
         for provider, label_text, _config_key, object_name in _API_KEY_ROWS:
@@ -133,24 +152,35 @@ class ConfigurationWindow(QDialog):
             status_label.setObjectName(f"{object_name}Status")
             status_label.setStyleSheet(_API_KEY_UNSET_STATUS_STYLE)
 
+            clean_label = label_text.rstrip(":")
+            clear_btn = QPushButton("クリア")
+            clear_btn.setObjectName(f"buttonClearApiKey_{provider}")
+            clear_btn.setToolTip(f"{clean_label} APIキーをクリア")
+            clear_btn.setEnabled(False)
+            clear_btn.clicked.connect(partial(self._clear_api_key, provider))
+            key_edit.textChanged.connect(partial(self._update_api_key_clear_button, provider))
+
             row_widget = QWidget()
             row_layout = QHBoxLayout(row_widget)
             row_layout.setContentsMargins(0, 0, 0, 0)
             row_layout.addWidget(key_edit, stretch=1)
             row_layout.addWidget(status_label)
+            row_layout.addWidget(clear_btn)
             api_layout.addRow(label_text, row_widget)
 
             self._api_key_edits[provider] = key_edit
             self._api_key_status_labels[provider] = status_label
+            self._api_key_clear_buttons[provider] = clear_btn
 
         tab_layout.addWidget(api_group)
 
-        # ディレクトリ設定
+        # ディレクトリ設定 (Issue #1566: DB・エクスポート・バッチ結果は画像必須バリデーションを無効化)
         dir_group = QGroupBox("ディレクトリ設定")
         dir_layout = QFormLayout(dir_group)
 
         self._dir_picker_database_dir = DirectoryPickerWidget()
         self._dir_picker_database_dir.setObjectName("dirPickerDatabaseDir")
+        self._dir_picker_database_dir.set_require_images(False)
         dir_layout.addRow("データベース:", self._dir_picker_database_dir)
 
         self._line_edit_project_name = QLineEdit()
@@ -159,10 +189,12 @@ class ConfigurationWindow(QDialog):
 
         self._dir_picker_export_dir = DirectoryPickerWidget()
         self._dir_picker_export_dir.setObjectName("dirPickerExportDir")
+        self._dir_picker_export_dir.set_require_images(False)
         dir_layout.addRow("エクスポート先:", self._dir_picker_export_dir)
 
         self._dir_picker_batch_results = DirectoryPickerWidget()
         self._dir_picker_batch_results.setObjectName("dirPickerBatchResults")
+        self._dir_picker_batch_results.set_require_images(False)
         dir_layout.addRow("バッチ結果:", self._dir_picker_batch_results)
 
         tab_layout.addWidget(dir_group)
@@ -171,7 +203,7 @@ class ConfigurationWindow(QDialog):
         log_group = QGroupBox("ログ")
         log_layout = QFormLayout(log_group)
 
-        self._combo_box_log_level = QComboBox()
+        self._combo_box_log_level: QComboBox = DsNoScrollComboBox()
         self._combo_box_log_level.setObjectName("comboBoxLogLevel")
         self._combo_box_log_level.addItems(_LOG_LEVELS)
         log_layout.addRow("ログレベル:", self._combo_box_log_level)
@@ -237,13 +269,13 @@ class ConfigurationWindow(QDialog):
             layout.addRow(label, row)
             self._clef_path_edits[key] = edit
 
-        self._spin_clef_gpu_layers = QSpinBox()
+        self._spin_clef_gpu_layers: QSpinBox = DsNoScrollSpinBox()
         self._spin_clef_gpu_layers.setObjectName("spinBoxClefGpuLayers")
         self._spin_clef_gpu_layers.setRange(0, 999)
         self._spin_clef_gpu_layers.setToolTip("GPUで処理する層数。0でCPUのみを使用します。")
         layout.addRow("GPUで処理する層数:", self._spin_clef_gpu_layers)
 
-        self._spin_clef_context_size = QSpinBox()
+        self._spin_clef_context_size: QSpinBox = DsNoScrollSpinBox()
         self._spin_clef_context_size.setObjectName("spinBoxClefContextSize")
         self._spin_clef_context_size.setRange(512, 131072)
         self._spin_clef_context_size.setSingleStep(512)
@@ -270,7 +302,7 @@ class ConfigurationWindow(QDialog):
         image_group = QGroupBox("画像処理")
         image_layout = QFormLayout(image_group)
 
-        self._combo_box_upscaler = QComboBox()
+        self._combo_box_upscaler: QComboBox = DsNoScrollComboBox()
         self._combo_box_upscaler.setObjectName("comboBoxUpscaler")
         upscalers = self._config_service.get_available_upscaler_names()
         self._combo_box_upscaler.addItems(upscalers)
@@ -282,7 +314,7 @@ class ConfigurationWindow(QDialog):
         model_group = QGroupBox("モデル選択")
         model_layout = QFormLayout(model_group)
 
-        self._combo_box_route_preference = QComboBox()
+        self._combo_box_route_preference: QComboBox = DsNoScrollComboBox()
         self._combo_box_route_preference.setObjectName("comboBoxRoutePreference")
         self._combo_box_route_preference.addItems(_ROUTE_PREFERENCES)
         self._combo_box_route_preference.setToolTip(
@@ -327,18 +359,7 @@ class ConfigurationWindow(QDialog):
         api = config.get("api", {})
         for provider, _label_text, config_key, _object_name in _API_KEY_ROWS:
             saved_key = str(api.get(config_key, "") or "")
-            self._saved_api_keys[provider] = saved_key
-            key_edit = self._api_key_edits[provider]
-            status_label = self._api_key_status_labels[provider]
-            key_edit.clear()
-            if saved_key.strip():
-                key_edit.setPlaceholderText(_API_KEY_SAVED_PLACEHOLDER)
-                status_label.setText(_API_KEY_SAVED_TEXT)
-                status_label.setStyleSheet(_API_KEY_SAVED_STATUS_STYLE)
-            else:
-                key_edit.setPlaceholderText(_API_KEY_UNSET_TEXT)
-                status_label.setText(_API_KEY_UNSET_TEXT)
-                status_label.setStyleSheet(_API_KEY_UNSET_STATUS_STYLE)
+            self._refresh_api_key_row(provider, saved_key)
 
         self._populate_clef_settings(config.get("annotation_review", {}))
 
@@ -410,6 +431,38 @@ class ConfigurationWindow(QDialog):
                 value = default
             control.setValue(value)
 
+    def _refresh_api_key_row(self, provider: str, saved_key: str) -> None:
+        """指定 provider の API キー保存状態と表示 (テキスト、プレースホルダー、ステータス、クリアボタン) を更新する。"""
+        self._saved_api_keys[provider] = saved_key
+        key_edit = self._api_key_edits.get(provider)
+        status_label = self._api_key_status_labels.get(provider)
+        if key_edit is None or status_label is None:
+            return
+        key_edit.clear()
+        if saved_key.strip():
+            key_edit.setPlaceholderText(_API_KEY_SAVED_PLACEHOLDER)
+            status_label.setText(_API_KEY_SAVED_TEXT)
+            status_label.setStyleSheet(_API_KEY_SAVED_STATUS_STYLE)
+        else:
+            key_edit.setPlaceholderText(_API_KEY_UNSET_TEXT)
+            status_label.setText(_API_KEY_UNSET_TEXT)
+            status_label.setStyleSheet(_API_KEY_UNSET_STATUS_STYLE)
+        self._update_api_key_clear_button(provider)
+
+    def _update_api_key_clear_button(self, provider: str, _text: str = "") -> None:
+        """API キーの保存状態または入力内容に応じてクリアボタンの有効状態を更新する。"""
+        clear_btn = self._api_key_clear_buttons.get(provider)
+        key_edit = self._api_key_edits.get(provider)
+        if clear_btn is None or key_edit is None:
+            return
+        has_saved = bool(self._saved_api_keys.get(provider, "").strip())
+        has_entered = bool(key_edit.text().strip())
+        clear_btn.setEnabled(has_saved or has_entered)
+
+    def _clear_api_key(self, provider: str) -> None:
+        """指定 provider の API キー入力および保持値をクリアする (Issue #1566)。"""
+        self._refresh_api_key_row(provider, "")
+
     def focus_api_key_field(self, provider: str) -> bool:
         """指定 provider の API キー欄をハイライトしてフォーカスする (Issue #755)。
 
@@ -473,17 +526,58 @@ class ConfigurationWindow(QDialog):
             },
         }
 
-    def _on_accepted(self) -> None:
-        """OKボタン: 設定を収集・反映・保存してダイアログを閉じる。"""
+    def _apply_and_save_settings(self) -> bool:
+        """設定を収集・反映・保存し、成功時はログ再初期化と保存フィードバック表示を行う。"""
         settings = self._collect_settings()
         for section, values in settings.items():
             for key, value in values.items():
                 self._config_service.update_setting(section, key, value)
 
-        if self._config_service.save_settings():
-            # ログレベル変更を即座に反映するためLoguruハンドラを再初期化
-            initialize_logging(build_gui_log_config(self._config_service.get_all_settings()))
-            logger.info("設定を保存しました")
-            self.accept()
-        else:
+        if not self._config_service.save_settings():
             show_critical(self, "保存失敗", "設定ファイルの保存に失敗しました。")
+            return False
+
+        # ログレベル変更を即座に反映するためLoguruハンドラを再初期化
+        initialize_logging(build_gui_log_config(self._config_service.get_all_settings()))
+
+        # API キーの保存ベースラインと UI を最新の保存値で更新 (Issue #1588)
+        api_settings = settings.get("api", {})
+        for provider, _label_text, config_key, _object_name in _API_KEY_ROWS:
+            self._refresh_api_key_row(provider, str(api_settings.get(config_key, "") or ""))
+
+        feedback_msg = "設定を保存しました（DBディレクトリ等の変更は再起動後に反映されます）"
+        self._save_status_label.setText(feedback_msg)
+        parent = self.parentWidget()
+        if parent is not None and hasattr(parent, "statusBar") and callable(parent.statusBar):
+            status_bar = parent.statusBar()
+            if status_bar is not None and hasattr(status_bar, "showMessage"):
+                status_bar.showMessage(feedback_msg, 5000)
+        logger.info("設定を保存しました")
+        return True
+
+    def has_applied_changes(self) -> bool:
+        """適用ボタン等により設定がすでに保存・反映されたかを返す。"""
+        return self._applied_changes
+
+    def reject(self) -> None:
+        """ダイアログを閉じる。変更が既に適用されている場合は Accepted を返す。"""
+        if self._applied_changes:
+            self.done(QDialog.DialogCode.Accepted)
+            return
+        super().reject()
+
+    @Slot()
+    def _on_apply_clicked(self) -> None:
+        """適用ボタン: ダイアログを開いたまま設定を保存し、フッターの保存通知ラベルを更新する。"""
+        if self._apply_and_save_settings():
+            self._applied_changes = True
+
+    def _on_accepted(self) -> None:
+        """OKボタン: 設定を収集・反映・保存して保存通知を表示し、ダイアログを閉じる。"""
+        if self._apply_and_save_settings():
+            show_information(
+                self,
+                "設定保存",
+                "設定を保存しました（DBディレクトリ等の変更は再起動後に反映されます）",
+            )
+            self.accept()

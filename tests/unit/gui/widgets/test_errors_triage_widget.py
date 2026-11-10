@@ -237,3 +237,12 @@ class TestEmptyState:
         )
         assert empty is not None
         assert empty.isVisible() or not empty.isHidden()
+
+    def test_buttons_have_tooltips(self, qtbot) -> None:
+        """Issue #1571: フィルタ・グループ切替・一括/個別 resolve ボタンにツールチップがある。"""
+        widget = ErrorsTriageWidget()
+        qtbot.addWidget(widget)
+        for btn in widget._status_buttons.values():
+            assert btn.toolTip() != ""
+        assert widget._group_toggle.toolTip() != ""
+        assert widget._bulk_button.toolTip() != ""
