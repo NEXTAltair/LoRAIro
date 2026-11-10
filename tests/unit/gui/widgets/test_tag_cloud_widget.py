@@ -253,6 +253,44 @@ class TestNetworkGraphView:
         assert view._particles[0].x == pytest.approx(180.0)
         assert view._particles[0].y == pytest.approx(190.0)
 
+    def test_click_node_emits_pressed_node_even_if_particle_moves(
+        self, qtbot: pytest.FixtureRequest
+    ) -> None:
+        view = NetworkGraphView()
+        qtbot.addWidget(view)
+        view.resize(400, 300)
+        view.set_graph(_sample_graph())
+        view.stop()
+
+        clicked_tags: list[str] = []
+        view.node_clicked.connect(clicked_tags.append)
+
+        p0 = view._particles[0]
+        p0.x, p0.y = 100.0, 120.0
+
+        press = QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            QPointF(100.0, 120.0),
+            QPointF(100.0, 120.0),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        view.mousePressEvent(press)
+        # Simulate physics moving the node away before mouse release
+        p0.x, p0.y = 260.0, 240.0
+        release = QMouseEvent(
+            QEvent.Type.MouseButtonRelease,
+            QPointF(100.0, 120.0),
+            QPointF(100.0, 120.0),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        view.mouseReleaseEvent(release)
+
+        assert clicked_tags == ["long_hair"]
+
 
 @pytest.mark.unit
 @pytest.mark.gui
@@ -350,6 +388,24 @@ class TestTagCloudWidget:
         widget._keyword = "hair"
         widget._on_reload()
         widget._service.refresh.assert_called_once()
+
+    def test_filter_change_during_running_worker_recomputes_on_finish(
+        self, qtbot: pytest.FixtureRequest
+    ) -> None:
+        widget = _make_widget(qtbot, _sample_graph())
+        widget._loaded_once = False
+        widget._keyword = "hair"
+        running_worker = MagicMock()
+        running_worker.isRunning.return_value = True
+        widget._worker = running_worker
+
+        widget._max_nodes_combo.setCurrentIndex(0)  # 15 -> calls _recompute -> _start_worker
+        assert widget._pending_recompute is True
+
+        widget._on_worker_finished(_empty_graph())
+        assert widget._pending_recompute is False
+        assert widget._loaded_once is True
+        widget._service.build_graph.assert_called_with("hair", [], max_nodes=15, min_edge_weight=2)
 
     def test_keyword_change_resets_drilldown(self, qtbot: pytest.FixtureRequest) -> None:
         widget = _make_widget(qtbot, _sample_graph())

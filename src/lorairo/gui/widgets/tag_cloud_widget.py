@@ -492,11 +492,14 @@ class NetworkGraphView(QWidget):
             self._pan_start_pos = pos
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        pos = event.position()
         if event.button() == Qt.MouseButton.LeftButton:
             if self._pressed_node >= 0:
-                if not self._is_dragging_node:
-                    self._click_at(pos.x(), pos.y())
+                if (
+                    not self._is_dragging_node
+                    and self._result is not None
+                    and 0 <= self._pressed_node < len(self._result.nodes)
+                ):
+                    self.node_clicked.emit(self._result.nodes[self._pressed_node].tag)
                 self._pressed_node = -1
                 self._press_pos = None
                 self._is_dragging_node = False
@@ -782,6 +785,7 @@ class TagCloudWidget(QWidget):
         self._result: GraphResult | None = None
         self._worker: _GraphWorker | None = None
         self._loaded_once = False
+        self._pending_recompute = False
 
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
@@ -989,6 +993,7 @@ class TagCloudWidget(QWidget):
 
     def _recompute(self) -> None:
         if not self._keyword.strip():
+            self._pending_recompute = False
             self._show_placeholder()
             return
         self._status_label.setText("集計中...")
@@ -1005,7 +1010,9 @@ class TagCloudWidget(QWidget):
 
     def _start_worker(self) -> None:
         if self._worker is not None and self._worker.isRunning():
+            self._pending_recompute = True
             return
+        self._pending_recompute = False
         worker = _GraphWorker(
             self._service,
             self._keyword,
@@ -1021,6 +1028,14 @@ class TagCloudWidget(QWidget):
 
     def _on_worker_finished(self, result: GraphResult) -> None:
         self._loaded_once = True
+        if not self._keyword.strip():
+            self._pending_recompute = False
+            self._show_placeholder()
+            return
+        if self._pending_recompute:
+            self._pending_recompute = False
+            self._recompute()
+            return
         self._apply_result(result)
 
     def _on_worker_error(self, msg: str) -> None:
