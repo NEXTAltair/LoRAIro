@@ -104,6 +104,8 @@ class TestImagesShow:
             json.loads(line) for line in result.output.strip().splitlines() if line.strip().startswith("{")
         ]
         item = next(r for r in lines if r.get("kind") == "item")
+        assert item["phash"] == "phash-42"
+        assert item["stored_image_path"] == "image_dataset/original_images/img_42.jpg"
         metadata = item["metadata"]
         assert metadata["stored_image_path"] == "image_dataset/original_images/img_42.jpg"
         # Windows 由来のバックスラッシュはスラッシュ区切りへ正規化される
@@ -133,6 +135,18 @@ class TestImagesShow:
         ]
         item = next(r for r in lines if r.get("kind") == "item")
         assert item["metadata"] is None
+        assert item["phash"] is None
+        assert item["stored_image_path"] is None
+
+    def test_show_human_output_includes_phash_and_path(self, mock_show_context: MagicMock) -> None:
+        """非 JSON 出力でも path と phash が表示される (Issue #1506)。"""
+        result = runner.invoke(
+            app,
+            ["images", "show", "--project", "proj", "--image-ids", "42"],
+        )
+        assert result.exit_code == 0
+        assert "path: image_dataset/original_images/img_42.jpg" in result.output
+        assert "phash: phash-42" in result.output
 
     def test_show_batch_csv(self, mock_show_context: MagicMock) -> None:
         result = runner.invoke(

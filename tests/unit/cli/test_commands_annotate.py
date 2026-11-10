@@ -451,6 +451,8 @@ def test_annotate_run_rejects_original_image_records(
     assert rows[0]["code"] == "INVALID_INPUT"
     assert "cannot operate directly on original images" in rows[0]["message"]
     assert "12:image_dataset/original_images/2026/06/original.jpg" in rows[0]["message"]
+    assert "Hint: pass --resolution <px>" in rows[0]["message"]
+    assert "lorairo-cli images process" in rows[0]["message"]
     mock_container.annotator_library.annotate.assert_not_called()
 
 

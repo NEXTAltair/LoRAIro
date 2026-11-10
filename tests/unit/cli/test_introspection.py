@@ -481,7 +481,7 @@ def test_describe_images_search_exposes_query_schema() -> None:
 
     query_schema = next(row for row in schema_rows if row["name"] == "ImageSearchQuery")
     props = set(query_schema["schema"]["properties"])
-    assert {"tags", "excluded_tags", "limit", "offset"} <= props
+    assert {"tags", "excluded_tags", "limit", "offset", "phash", "phash_prefix"} <= props
     assert "image_ids" in props
 
     # compact モードでは ImagesSearchInput が出力される
@@ -661,9 +661,39 @@ def test_describe_images_show_json_schema_includes_item_and_result() -> None:
 
     item_schema = next(row for row in rows if row.get("name") == "ImagesShowItem")
     item_props = set(item_schema["schema"]["properties"])
-    assert {"image_id", "tags", "captions", "scores", "score_labels", "ratings", "quality_summary"} <= (
-        item_props
-    )
+    assert {
+        "image_id",
+        "phash",
+        "stored_image_path",
+        "tags",
+        "captions",
+        "scores",
+        "score_labels",
+        "ratings",
+        "quality_summary",
+    } <= item_props
+
+
+def test_describe_images_rate_exposes_input_item_and_result() -> None:
+    """images rate が list-commands と describe (compact/json_schema) に公開される (Issue #1504)。"""
+    result = runner.invoke(app, ["--json", "describe", "images rate", "--schema", "json_schema"])
+    assert result.exit_code == 0
+    rows = _jsonl(result.stdout)
+    schema_names = {row["name"] for row in rows if row.get("type") == "schema"}
+    assert {"ImagesRateInput", "ImagesRateItem", "ImagesRateResult"} <= schema_names
+
+    result_schema = next(row for row in rows if row.get("name") == "ImagesRateResult")
+    result_props = set(result_schema["schema"]["properties"])
+    assert {
+        "project",
+        "rating",
+        "dry_run",
+        "target_count",
+        "updated_count",
+        "unchanged_count",
+        "cleared_count",
+        "failed_chunks",
+    } <= result_props
 
 
 def test_list_commands_includes_translations_delete_suppress_unsuppress() -> None:

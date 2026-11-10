@@ -1019,7 +1019,8 @@ def run(
         "--resolution",
         min=1,
         help=(
-            "Use processed images at this resolution (long side in pixels). "
+            "Use processed images at this resolution (long side in pixels, e.g. 512) to satisfy "
+            "the original-image guard; omitted requires processed registered records. "
             "Images without a matching processed image are skipped."
         ),
     ),
@@ -1053,9 +1054,9 @@ def run(
     明示した ID は完全一致が必須で、別経路の表示名一致へ補完しない。
 
     Examples:
-        lorairo-cli annotate run --project myproject --model openai/gpt-4o
-        lorairo-cli annotate run --project myproject --model openai/omni-moderation-latest
-        lorairo-cli annotate run --project myproject \\
+        lorairo-cli annotate run --project myproject --model openai/gpt-4o --resolution 512
+        lorairo-cli annotate run --project myproject --model openai/omni-moderation-latest --resolution 512
+        lorairo-cli annotate run --project myproject --resolution 512 \\
             --model openrouter/openai/gpt-4o --model openrouter/anthropic/claude-3-5-sonnet
     """
     with command_boundary():

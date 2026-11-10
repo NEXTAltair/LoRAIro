@@ -41,9 +41,10 @@ from __future__ import annotations
 
 import datetime
 import threading
+from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass
-from typing import Any, cast
+from dataclasses import dataclass, field
+from typing import Any, Literal, cast
 
 from genai_tag_db_tools import recommend_manual_refinement, search_tags
 from genai_tag_db_tools.db.repository import MergedTagReader, get_default_reader
@@ -59,12 +60,14 @@ from sqlalchemy.orm import Session
 from ...utils.log import logger
 from ..db_core import ensure_tag_db_initialized
 from ..schema import (
+    MANUAL_EDIT_LITELLM_ID,
     REJECT_REASON_INCORRECT,
     REJECT_REASON_REPLACED,
     AnnotationsDict,
     Caption,
     CaptionAnnotationData,
     Image,
+    Model,
     Rating,
     RatingAnnotationData,
     Score,
@@ -83,6 +86,22 @@ _DANBOORU_FORMAT = "danbooru"
 # LoRAIro が登録するタグ/alias の format 名 (register_user_tag / register_user_alias /
 # _register_new_tag が共有)。classify_manual_tag の第2検索スコープもこれに揃える。
 _LORAIRO_FORMAT = "Lorairo"
+
+
+@dataclass(frozen=True)
+class ManualRatingBatchResult:
+    """バッチ手動レーティング更新の結果サマリ (Issue #1504)。"""
+
+    target_count: int
+    updated_count: int
+    unchanged_count: int
+    cleared_count: int
+    dry_run: bool
+    rating: str | None
+    per_image_status: dict[int, Literal["updated", "cleared", "unchanged"]] = field(default_factory=dict)
+
+    def __getitem__(self, key: str) -> Any:
+        return getattr(self, key)
 
 
 @dataclass(frozen=True)
@@ -1937,6 +1956,204 @@ class AnnotationRepository(BaseRepository):
                 session.rollback()
                 logger.opt(exception=True).error(
                     f"Manual rating の更新中にエラーが発生しました (ID: {image_id}): {e}"
+                )
+                raise
+
+    @staticmethod
+    def _normalize_manual_rating_value(rating: str | None) -> str | None:
+        """手動レーティング値を正規化・検証する (None / 'none' は解除)。"""
+        if rating is None:
+            return None
+        normalized = rating.strip().upper()
+        if normalized in ("", "NONE"):
+            return None
+        if normalized in ("PG", "PG-13", "R", "X", "XXX"):
+            return normalized
+        raise ValueError(
+            f"Invalid rating value: {rating!r}. Must be one of: PG, PG-13, R, X, XXX, or none."
+        )
+
+    @staticmethod
+    def _plan_manual_rating_changes(
+        unique_ids: list[int],
+        rows_by_image: dict[int, list[Rating]],
+        canonical_rating: str | None,
+    ) -> tuple[
+        int,
+        int,
+        int,
+        list[int],
+        list[int],
+        dict[int, Literal["updated", "cleared", "unchanged"]],
+    ]:
+        """各画像の既存 MANUAL_EDIT 行と目標 rating を比較し更新対象を算出する。"""
+        updated_count = 0
+        unchanged_count = 0
+        cleared_count = 0
+        ids_to_delete: list[int] = []
+        ids_to_insert: list[int] = []
+        per_image_status: dict[int, Literal["updated", "cleared", "unchanged"]] = {}
+
+        for img_id in unique_ids:
+            rows = rows_by_image.get(img_id, [])
+            if canonical_rating is None:
+                if rows:
+                    updated_count += 1
+                    cleared_count += 1
+                    ids_to_delete.append(img_id)
+                    per_image_status[img_id] = "cleared"
+                else:
+                    unchanged_count += 1
+                    per_image_status[img_id] = "unchanged"
+            elif (
+                len(rows) == 1
+                and rows[0].normalized_rating == canonical_rating
+                and rows[0].raw_rating_value == canonical_rating
+            ):
+                unchanged_count += 1
+                per_image_status[img_id] = "unchanged"
+            else:
+                updated_count += 1
+                if rows:
+                    ids_to_delete.append(img_id)
+                ids_to_insert.append(img_id)
+                per_image_status[img_id] = "updated"
+
+        return (
+            updated_count,
+            unchanged_count,
+            cleared_count,
+            ids_to_delete,
+            ids_to_insert,
+            per_image_status,
+        )
+
+    @staticmethod
+    def _apply_manual_rating_changes(
+        session: Session,
+        manual_edit_model_id: int,
+        canonical_rating: str | None,
+        ids_to_delete: list[int],
+        ids_to_insert: list[int],
+    ) -> None:
+        """MANUAL_EDIT モデルの Rating 行に対して削除・挿入を実行する。"""
+        if ids_to_delete:
+            session.execute(
+                delete(Rating).where(
+                    Rating.image_id.in_(ids_to_delete),
+                    Rating.model_id == manual_edit_model_id,
+                )
+            )
+        if canonical_rating is not None and ids_to_insert:
+            for img_id in ids_to_insert:
+                session.add(
+                    Rating(
+                        image_id=img_id,
+                        model_id=manual_edit_model_id,
+                        raw_rating_value=canonical_rating,
+                        normalized_rating=canonical_rating,
+                        confidence_score=None,
+                    )
+                )
+        session.commit()
+
+    def update_manual_rating_batch(
+        self,
+        image_ids: list[int],
+        rating: str | None,
+        *,
+        dry_run: bool = False,
+    ) -> ManualRatingBatchResult:
+        """複数画像の手動レーティング (MANUAL_EDIT) を一括更新またはクリアする (Issue #1504)。
+
+        ``Rating.model_id == manual_edit_model_id`` の行のみを対象とし、AI モデルの
+        レーティング行は一切変更・削除しない (ADR 0015)。``rating=None`` (または ``"none"``)
+        の場合は手動レーティング行を DELETE し、非 None の場合は既存の MANUAL_EDIT 行と
+        比較して変更がある画像のみ置換 (DELETE + INSERT) する。
+
+        Args:
+            image_ids: 対象画像 ID リスト。
+            rating: 設定するレーティング (``"PG"``, ``"PG-13"``, ``"R"``, ``"X"``, ``"XXX"``)
+                または ``None`` / ``"none"`` (解除)。
+            dry_run: True の場合は DB へ書き込まず、更新見込み件数を計算して返す。
+
+        Returns:
+            ManualRatingBatchResult: ``target_count``, ``updated_count``, ``unchanged_count``,
+            ``cleared_count``, ``dry_run``, ``rating``, ``per_image_status``。
+
+        Raises:
+            ValueError: 無効な rating 値が渡された場合。
+            SQLAlchemyError: データベース操作エラー時。
+        """
+        canonical_rating = self._normalize_manual_rating_value(rating)
+        unique_ids = list(dict.fromkeys(image_ids))
+        if not unique_ids:
+            return ManualRatingBatchResult(
+                target_count=0,
+                updated_count=0,
+                unchanged_count=0,
+                cleared_count=0,
+                dry_run=dry_run,
+                rating=canonical_rating,
+                per_image_status={},
+            )
+
+        with self.session_factory() as session:
+            try:
+                if dry_run:
+                    manual_edit_model_id = session.execute(
+                        select(Model.id).where(Model.litellm_model_id == MANUAL_EDIT_LITELLM_ID)
+                    ).scalar_one_or_none()
+                else:
+                    manual_edit_model_id = ModelRepository._get_or_create_manual_edit_model(session)
+
+                rows_by_image: dict[int, list[Rating]] = defaultdict(list)
+                if manual_edit_model_id is not None:
+                    existing_rows = (
+                        session.execute(
+                            select(Rating).where(
+                                Rating.image_id.in_(unique_ids),
+                                Rating.model_id == manual_edit_model_id,
+                            )
+                        )
+                        .scalars()
+                        .all()
+                    )
+                    for row in existing_rows:
+                        rows_by_image[row.image_id].append(row)
+
+                (
+                    updated_count,
+                    unchanged_count,
+                    cleared_count,
+                    ids_to_delete,
+                    ids_to_insert,
+                    per_image_status,
+                ) = self._plan_manual_rating_changes(unique_ids, rows_by_image, canonical_rating)
+
+                if not dry_run and manual_edit_model_id is not None:
+                    self._apply_manual_rating_changes(
+                        session,
+                        manual_edit_model_id,
+                        canonical_rating,
+                        ids_to_delete,
+                        ids_to_insert,
+                    )
+
+                return ManualRatingBatchResult(
+                    target_count=len(unique_ids),
+                    updated_count=updated_count,
+                    unchanged_count=unchanged_count,
+                    cleared_count=cleared_count,
+                    dry_run=dry_run,
+                    rating=canonical_rating,
+                    per_image_status=per_image_status,
+                )
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.opt(exception=True).error(
+                    f"Manual rating batch update failed: rating={canonical_rating!r}, "
+                    f"count={len(unique_ids)}, dry_run={dry_run}, error={e}"
                 )
                 raise
 

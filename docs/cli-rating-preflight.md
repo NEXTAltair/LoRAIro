@@ -25,10 +25,11 @@ Use this when you want immediate results or only need to process a small set.
 ```bash
 lorairo-cli annotate run \
   --project main_dataset \
-  --model openai/omni-moderation-latest
+  --model openai/omni-moderation-latest \
+  --resolution 512
 ```
 
-The normal annotation save path stores moderation ratings in the `ratings` table.
+Pass `--resolution 512` (or another generated resolution from `lorairo-cli images process`) so `annotate run` operates on processed variants instead of original image records. The normal annotation save path stores moderation ratings in the `ratings` table.
 
 ## Provider Batch Path
 

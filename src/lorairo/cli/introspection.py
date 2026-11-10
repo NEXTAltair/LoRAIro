@@ -19,6 +19,9 @@ from lorairo.cli.commands.images import (
     ImagesCropItem,
     ImagesCropResult,
     ImageSearchQuery,
+    ImagesRateInput,
+    ImagesRateItem,
+    ImagesRateResult,
 )
 from lorairo.domain.crop_request import DEFAULT_CROP_ORIGIN
 from lorairo.public_api.types import ProjectCreateRequest, RegistrationItem
@@ -76,6 +79,14 @@ class ImageFilterCriteriaSchema(BaseModel):
         default=None, description="Case-insensitive SQL LIKE pattern on filename."
     )
     format_name: str | None = Field(default=None, description="Case-insensitive exact image format.")
+    phash: str | None = Field(
+        default=None,
+        description="Perceptual hash (16-char hex for exact match, or shorter prefix; case-insensitive, Issue #1506).",
+    )
+    phash_prefix: str | None = Field(
+        default=None,
+        description="Case-insensitive prefix match on perceptual hash (Issue #1506).",
+    )
     project_name: str | None = Field(default=None, description="Project name scope.")
     project_id: int | None = Field(default=None, description="Project ID scope.")
     limit: int | None = Field(default=None, ge=1, description="Maximum result count.")
@@ -432,6 +443,14 @@ class ImagesShowItem(BaseModel):
     """JSONL item payload emitted per image by ``images show --json``."""
 
     image_id: int
+    phash: str | None = Field(
+        default=None,
+        description="Perceptual hash (16-char hex) for cross-checking error logs and duplicates (Issue #1506).",
+    )
+    stored_image_path: str | None = Field(
+        default=None,
+        description="Project-relative stored image path (Issue #1506).",
+    )
     metadata: dict[str, Any] | None = Field(
         default=None,
         description=(
@@ -1015,7 +1034,15 @@ class AnnotateRunInput(BaseModel):
     batch_size: int = Field(default=10, ge=1)
     unrated: bool = False
     missing_model: str | None = None
-    resolution: int | None = Field(default=None, ge=1)
+    resolution: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Use processed images at this resolution (long side in pixels, e.g. 512) to satisfy "
+            "the original-image guard; omitted requires processed registered records. "
+            "Images without a matching processed image are skipped."
+        ),
+    )
 
     model_config = ConfigDict(title="AnnotateRunInput")
 
@@ -1976,7 +2003,15 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                         "None",
                         description="Unsupported/deprecated: any --output/-o value returns INVALID_INPUT (exit 2) before annotation. Omit it and use export create for files.",
                     ),
-                    _f("resolution", "int>=1?"),
+                    _f(
+                        "resolution",
+                        "int>=1?",
+                        description=(
+                            "Use processed images at this resolution (long side in pixels, e.g. 512) to satisfy "
+                            "the original-image guard; omitted requires processed registered records. "
+                            "Images without a matching processed image are skipped."
+                        ),
+                    ),
                     _f("limit", "int>=1?"),
                     _f("offset", "int>=0", default=0),
                     _f("image_id", "list[int]?"),
@@ -2206,6 +2241,19 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                         "str?",
                         description="Case-insensitive exact match on image format (e.g. 'jpeg', 'png').",
                     ),
+                    _f(
+                        "phash",
+                        "str?",
+                        description=(
+                            "Perceptual hash (16-char hex for exact match, or shorter prefix; "
+                            "case-insensitive, Issue #1506)."
+                        ),
+                    ),
+                    _f(
+                        "phash_prefix",
+                        "str?",
+                        description="Case-insensitive prefix match on perceptual hash (Issue #1506).",
+                    ),
                     _f("limit", "int[1,500]", default=500),
                     _f("offset", "int>=0", default=0),
                     _f(
@@ -2405,6 +2453,16 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 (
                     _f("image_id", "int"),
                     _f(
+                        "phash",
+                        "str?",
+                        description="Perceptual hash (16-char hex) for cross-checking error logs and duplicates (Issue #1506).",
+                    ),
+                    _f(
+                        "stored_image_path",
+                        "str?",
+                        description="Project-relative stored image path (Issue #1506).",
+                    ),
+                    _f(
                         "metadata",
                         "dict | None",
                         description=(
@@ -2425,6 +2483,81 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                 "ImagesShowResult",
                 (_f("target_images", "int"),),
                 schema=ImagesShowResult,
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "images rate": ToolSpec(
+        name="images rate",
+        path="images rate",
+        summary=(
+            "Set or clear manual rating (MANUAL_EDIT) for images in bulk (Issue #1504). "
+            "Default dry-run; use --apply to write. Never overwrites AI model rating rows."
+        ),
+        read_only=False,
+        side_effects=("db_read", "db_write", "file_read"),
+        inputs=(
+            _input(
+                "ImagesRateInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "rating",
+                        "str",
+                        required=True,
+                        description=(
+                            "Manual rating value: PG, PG-13, R, X, XXX, or none to clear "
+                            "(case-insensitive)."
+                        ),
+                    ),
+                    _f(
+                        "image_ids",
+                        "csv[int]?",
+                        description="Comma-separated image IDs, max 500 (or use --image-ids-file).",
+                    ),
+                    _f("image_ids_file", "path?", description=_IMAGE_IDS_FILE_DESC),
+                    _f("apply", "bool", default=False, description="Write to DB (default: dry-run)."),
+                ),
+                schema=ImagesRateInput,
+            ),
+        ),
+        outputs=(
+            _output(
+                "ImagesRateItem",
+                (
+                    _f("image_id", "int?"),
+                    _f("chunk_images", "int?"),
+                    _f("processed", "int?"),
+                    _f("rating", "str?"),
+                    _f("updated_count", "int?"),
+                    _f("unchanged_count", "int?"),
+                    _f("cleared_count", "int?"),
+                    _f("status", "dry_run|updated|cleared|unchanged|changed|failed"),
+                    _f("error", "str?"),
+                ),
+                schema=ImagesRateItem,
+            ),
+            _output(
+                "ImagesRateResult",
+                (
+                    _f("ok", "bool"),
+                    _f(
+                        "status",
+                        "Literal[success, partial_success, failed]",
+                        default="success",
+                        description="Partial success returns ok=false and exit 3; total failure exits 1; normal skip/empty exits 0.",
+                    ),
+                    _f("project", "str"),
+                    _f("rating", "str?"),
+                    _f("dry_run", "bool"),
+                    _f("target_count", "int"),
+                    _f("target_images", "int"),
+                    _f("updated_count", "int"),
+                    _f("unchanged_count", "int"),
+                    _f("cleared_count", "int", default=0),
+                    _f("failed_chunks", "int", default=0),
+                ),
+                schema=ImagesRateResult,
             ),
         ),
         errors=(ERROR_MODEL,),
