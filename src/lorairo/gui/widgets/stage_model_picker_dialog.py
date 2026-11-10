@@ -33,7 +33,7 @@ Issue #755 由来の挙動を維持する: API キー未設定の WebAPI モデ�
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtGui import QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
     QDialog,
@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QRadioButton,
     QScrollArea,
@@ -55,7 +56,7 @@ from lorairo.services.cost_estimation_service import (
     CostEstimationService,
     format_per_image_cost,
 )
-from lorairo.services.model_route_service import required_provider_for
+from lorairo.services.model_route_service import canonical_key, required_provider_for
 from lorairo.services.pipeline_composition import PipelineStage, StageModelInfo
 
 # --- 表示テキスト -----------------------------------------------------------
@@ -123,8 +124,14 @@ def _badge_text(info: StageModelInfo) -> str:
     return types[0] if types else ""
 
 
-def _matches_filters(info: StageModelInfo, env: str, type_token: str, provider: str) -> bool:
-    """実行環境 × アノテーション種類 × provider のフィルタに一致するか判定する。"""
+def _matches_filters(
+    info: StageModelInfo,
+    env: str,
+    type_token: str,
+    provider: str,
+    search_query: str = "",
+) -> bool:
+    """実行環境 × アノテーション種類 × provider × 検索文字列 のフィルタに一致するか判定する。"""
     if env == _ENV_API and not info.is_api:
         return False
     if env == _ENV_LOCAL and info.is_api:
@@ -133,6 +140,20 @@ def _matches_filters(info: StageModelInfo, env: str, type_token: str, provider: 
         return False
     if provider != "all" and _provider_label(info) != provider:
         return False
+    if search_query:
+        query = search_query.strip().lower()
+        haystack = " ".join(
+            part
+            for part in (
+                info.litellm_model_id,
+                info.display_name,
+                info.provider or "",
+                _provider_label(info),
+            )
+            if part
+        ).lower()
+        if query not in haystack:
+            return False
     return True
 
 
@@ -162,6 +183,7 @@ class _ModelRow(QFrame):
         self._selected = False
         self._needs_key = False
         self.setObjectName("stageModelRow")
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         row_layout = QHBoxLayout(self)
         row_layout.setContentsMargins(theme.SPACE_2, theme.SPACE_1, theme.SPACE_2, theme.SPACE_1)
@@ -293,6 +315,17 @@ class _ModelRow(QFrame):
             self.toggle_requested.emit()
         super().mousePressEvent(event)
 
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """Space / Return / Enter キーでトグル / 設定導線を要求する (#1538)。"""
+        if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if self._needs_key:
+                self.configure_requested.emit()
+            else:
+                self.toggle_requested.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
 
 class StageModelPickerDialog(QDialog):
     """ステージに追加可能なモデル候補をリッチに絞り込み選択するモーダル。
@@ -338,6 +371,7 @@ class StageModelPickerDialog(QDialog):
         self._provider = "all"
         self._type_token = _STAGE_TO_TYPE.get(stage, _TYPE_ALL)
         self._rec_mode = False
+        self._search_query = ""
 
         # 選択集合 (litellm_model_id)。SSoT は呼び出し元だが本ダイアログ内で管理
         self._selected_ids: set[str] = set()
@@ -349,11 +383,18 @@ class StageModelPickerDialog(QDialog):
         self._provider_buttons: dict[str, QRadioButton] = {}
         self._provider_count_labels: dict[str, QLabel] = {}
         self._env_buttons: dict[str, QPushButton] = {}
+        self.search_edit = QLineEdit(self)
+        self.search_edit.setObjectName("pickerSearchInput")
+        self.search_edit.setPlaceholderText("モデル名・プロバイダで検索...")
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.textChanged.connect(self._on_search_text_changed)
+        self._search_edit = self.search_edit
 
         layout = QVBoxLayout(self)
         layout.setSpacing(0)
 
         if not self._candidates:
+            self.search_edit.hide()
             self._build_empty_body(layout)
             return
 
@@ -412,7 +453,7 @@ class StageModelPickerDialog(QDialog):
         caption.setStyleSheet(f"font-size: {theme.FONT_SIZE_SMALL}px; color: {theme.INK_SOFT};")
         hl.addWidget(caption)
         presets: tuple[tuple[str, str], ...] = (
-            ("All installed", _ENV_LOCAL),
+            ("All installed", "all_installed"),
             ("Multimodal only", "multimodal"),
             ("Cheap (local)", _ENV_LOCAL),
             ("High-fidelity API", _ENV_API),
@@ -427,11 +468,22 @@ class StageModelPickerDialog(QDialog):
 
     def _apply_preset(self, action: str) -> None:
         """preset chip に応じてフィルタ + 選択を一括設定する。"""
-        if action == "multimodal":
+        if action == "all_installed":
+            # インストール済み (ローカル) モデルを全種類表示し一括選択する (#1538)
+            self._type_token = _TYPE_ALL
+            all_type_radio = self._type_radios.get(_TYPE_ALL)
+            if all_type_radio is not None:
+                all_type_radio.setChecked(True)
+            self._set_env(_ENV_LOCAL)
+            self._rec_mode = False
+            self._selected_ids = {c.litellm_model_id for c in self._candidates if not c.is_api}
+        elif action == "multimodal":
             # multimodal モデルだけを全環境から選択
             self._set_env(_ENV_ALL)
             self._rec_mode = False
-            self._selected_ids = {c.litellm_model_id for c in self._candidates if c.is_multimodal}
+            self._selected_ids = {
+                c.litellm_model_id for c in self._candidates if c.is_multimodal and not self._needs_key(c)
+            }
         elif action == _ENV_LOCAL:
             self._set_env(_ENV_LOCAL)
         elif action == _ENV_API:
@@ -607,6 +659,8 @@ class StageModelPickerDialog(QDialog):
         tl = QHBoxLayout(toolbar)
         tl.setContentsMargins(theme.SPACE_4, theme.SPACE_2, theme.SPACE_4, theme.SPACE_2)
         tl.setSpacing(theme.SPACE_2)
+        self.search_edit.setParent(toolbar)
+        tl.addWidget(self.search_edit, 1)
         select_all_btn = QPushButton("全選択", toolbar)
         select_all_btn.clicked.connect(self._select_all_visible)
         tl.addWidget(select_all_btn)
@@ -617,7 +671,6 @@ class StageModelPickerDialog(QDialog):
         rec_btn.setObjectName("pickerRecButton")
         rec_btn.clicked.connect(self._select_recommended)
         tl.addWidget(rec_btn)
-        tl.addStretch(1)
         env_caption = QLabel("実行環境", toolbar)
         env_caption.setStyleSheet(f"font-size: {theme.FONT_SIZE_SMALL}px; color: {theme.INK_SOFT};")
         tl.addWidget(env_caption)
@@ -643,6 +696,7 @@ class StageModelPickerDialog(QDialog):
         self._scroll.setObjectName("pickerScroll")
         self._scroll.setWidgetResizable(True)
         rows_host = QWidget(self._scroll)
+        self._rows_host = rows_host
         self._rows_layout = QVBoxLayout(rows_host)
         self._rows_layout.setContentsMargins(theme.SPACE_2, theme.SPACE_2, theme.SPACE_2, theme.SPACE_2)
         self._rows_layout.setSpacing(theme.SPACE_1)
@@ -747,12 +801,23 @@ class StageModelPickerDialog(QDialog):
         self._rebuild_provider_radios()
         self._apply_filters()
 
+    def _on_search_text_changed(self, text: str) -> None:
+        """検索テキスト変更でフィルタを再適用する (#1538)。"""
+        self._search_query = text.strip()
+        self._apply_filters()
+
     def _visible_candidates(self) -> list[StageModelInfo]:
         """現在のフィルタに一致する候補を返す。"""
         return [
             info
             for info in self._candidates
-            if _matches_filters(info, self._env, self._type_token, self._provider)
+            if _matches_filters(
+                info,
+                self._env,
+                self._type_token,
+                self._provider,
+                self._search_query,
+            )
         ]
 
     def _toggle_row(self, row: _ModelRow) -> None:
@@ -833,7 +898,9 @@ class StageModelPickerDialog(QDialog):
         """種類フィルタ / provider フィルタの件数ラベルを更新する。"""
         for token, label in self._type_count_labels.items():
             count = sum(
-                1 for info in self._candidates if _matches_filters(info, self._env, token, self._provider)
+                1
+                for info in self._candidates
+                if _matches_filters(info, self._env, token, self._provider, self._search_query)
             )
             label.setText(str(count))
             radio = self._type_radios.get(token)
@@ -843,7 +910,7 @@ class StageModelPickerDialog(QDialog):
             count = sum(
                 1
                 for info in self._candidates
-                if _matches_filters(info, self._env, self._type_token, provider)
+                if _matches_filters(info, self._env, self._type_token, provider, self._search_query)
             )
             label.setText(str(count))
 
@@ -890,16 +957,61 @@ class StageModelPickerDialog(QDialog):
         provider = required_provider_for(info.litellm_model_id, info.provider)
         return provider not in self._available_providers
 
-    def refresh_key_status(self, available_providers: set[str]) -> None:
-        """API キー設定状況を再評価して全行の status を更新する (Issue #755)。
+    def replace_candidates(self, candidates: list[StageModelInfo]) -> None:
+        """候補モデルリストを差し替えて行表示と provider フィルタを再構築する (#1538)。
+
+        API キー設定変更や route_preference 変更後に preferred route が切り替わった場合
+        (例: ``openai/gpt-4o`` → ``openrouter/openai/gpt-4o``) でも、開いたままの
+        ピッカーで最新経路の行へ更新する。
+
+        Args:
+            candidates: 再構築後の候補 StageModelInfo リスト。
+        """
+        new_candidates = list(candidates)
+        old_selected_canonical = {canonical_key(mid) for mid in self._selected_ids}
+        remapped_selected: set[str] = set()
+        for info in new_candidates:
+            if info.litellm_model_id in self._selected_ids or (
+                info.is_api and canonical_key(info.litellm_model_id) in old_selected_canonical
+            ):
+                remapped_selected.add(info.litellm_model_id)
+        self._selected_ids = remapped_selected
+        self._candidates = new_candidates
+
+        if hasattr(self, "_rows_layout") and hasattr(self, "_rows_host"):
+            for row in self._rows:
+                self._rows_layout.removeWidget(row)
+                row.setParent(None)
+                row.deleteLater()
+            self._rows.clear()
+            for idx, info in enumerate(self._candidates):
+                row = _ModelRow(info, self._rows_host)
+                row.toggle_requested.connect(lambda r=row: self._toggle_row(r))
+                row.configure_requested.connect(lambda r=row: self._on_row_configure(r))
+                self._rows.append(row)
+                self._rows_layout.insertWidget(idx, row)
+            self._rebuild_provider_radios()
+            self._apply_filters()
+
+    def refresh_key_status(
+        self,
+        available_providers: set[str],
+        candidates: list[StageModelInfo] | None = None,
+    ) -> None:
+        """API キー設定状況を再評価して全行の status を更新する (Issue #755, #1538)。
 
         キー保存後に呼び出すと ``○ needs key`` 行が ``● API ready`` に変わり、
-        選択可能になる (アプリ再起動不要)。
+        選択可能になる (アプリ再起動不要)。``candidates`` が指定された場合は
+        経路再評価後の候補リストへ差し替える。
 
         Args:
             available_providers: 最新の API キー設定済み provider 集合。
+            candidates: 再計算された候補モデルリスト (省略時は現在の候補を維持)。
         """
         self._available_providers = set(available_providers)
+        if candidates is not None:
+            self.replace_candidates(candidates)
+            return
         if self._rows:
             self._apply_filters()
 

@@ -9,7 +9,9 @@ refresh_key_status) の後方互換も併せて確認する。
 from __future__ import annotations
 
 import pytest
-from PySide6.QtWidgets import QDialogButtonBox, QLabel
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeyEvent
+from PySide6.QtWidgets import QDialogButtonBox, QLabel, QPushButton
 
 from lorairo.gui.widgets.stage_model_picker_dialog import StageModelPickerDialog, _ModelRow
 from lorairo.services.pipeline_composition import PipelineStage, StageModelInfo
@@ -259,3 +261,82 @@ class TestBackwardCompatAndFooter:
         footer_texts = [label.text() for label in dialog.findChildren(QLabel)]
         assert any("1 モデル選択中" in t for t in footer_texts)
         assert all("jobs" not in t for t in footer_texts)
+
+
+class TestSearchAndKeyboardAndQuickPresets:
+    """Issue #1538: テキスト検索、キーボード操作、クイックプリセット差分の検証。"""
+
+    def test_search_edit_filters_by_name_and_provider_case_insensitive(self, qtbot):
+        dialog = StageModelPickerDialog(
+            PipelineStage.TAGS,
+            [GPT4O, CLAUDE_TAGS, WD_TAGGER],
+            available_providers={"openai", "anthropic"},
+        )
+        qtbot.addWidget(dialog)
+        assert dialog.search_edit.objectName() == "pickerSearchInput"
+
+        # モデル名で絞り込み (大文字・小文字無視)
+        dialog.search_edit.setText("WD-V1")
+        visible_ids = [r.info.litellm_model_id for r in _rows(dialog) if not r.isHidden()]
+        assert visible_ids == ["wd-v1-4-tagger"]
+
+        # プロバイダ名で絞り込み
+        dialog.search_edit.setText("anthropic")
+        visible_ids = [r.info.litellm_model_id for r in _rows(dialog) if not r.isHidden()]
+        assert visible_ids == ["anthropic/claude-x"]
+
+        # 一致なし時は noMatchLabel を表示
+        dialog.search_edit.setText("nonexistent-model-xyz")
+        assert [r for r in _rows(dialog) if not r.isHidden()] == []
+        assert dialog._no_match_label.isHidden() is False
+
+        # クリアで全件復帰
+        dialog.search_edit.clear()
+        assert len([r for r in _rows(dialog) if not r.isHidden()]) == 3
+
+    def test_model_row_keyboard_space_and_return_toggle_selection(self, qtbot):
+        dialog = StageModelPickerDialog(
+            PipelineStage.TAGS,
+            [GPT4O, CLAUDE_TAGS],
+            available_providers={"openai"},
+        )
+        qtbot.addWidget(dialog)
+        gpt_row = _row_by_id(dialog, "openai/gpt-4o")
+        claude_row = _row_by_id(dialog, "anthropic/claude-x")
+
+        assert gpt_row.focusPolicy() == Qt.FocusPolicy.StrongFocus
+
+        # Space キーで選択 ON
+        space_event = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier)
+        gpt_row.keyPressEvent(space_event)
+        assert dialog.selected_model_ids() == ["openai/gpt-4o"]
+
+        # Return キーで選択 OFF
+        return_event = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Return, Qt.KeyboardModifier.NoModifier)
+        gpt_row.keyPressEvent(return_event)
+        assert dialog.selected_model_ids() == []
+
+        # needs key 行で Space キーを押すと configure_key_requested が発火し選択はされない
+        with qtbot.waitSignal(dialog.configure_key_requested, timeout=1000) as blocker:
+            claude_row.keyPressEvent(space_event)
+        assert blocker.args == ["anthropic"]
+        assert dialog.selected_model_ids() == []
+
+    def test_quick_presets_differentiate_all_installed_and_cheap_local(self, qtbot):
+        dialog = StageModelPickerDialog(
+            PipelineStage.TAGS,
+            [GPT4O, WD_TAGGER],
+            available_providers={"openai"},
+        )
+        qtbot.addWidget(dialog)
+        preset_buttons = {btn.text(): btn for btn in dialog.findChildren(QPushButton, "pickerPresetChip")}
+
+        # Cheap (local) はローカル表示へ絞り込むだけで選択状態は変えない
+        preset_buttons["Cheap (local)"].click()
+        visible_ids = [r.info.litellm_model_id for r in _rows(dialog) if not r.isHidden()]
+        assert visible_ids == ["wd-v1-4-tagger"]
+        assert dialog.selected_model_ids() == []
+
+        # All installed はローカルモデルを表示しつつ一括選択する
+        preset_buttons["All installed"].click()
+        assert dialog.selected_model_ids() == ["wd-v1-4-tagger"]

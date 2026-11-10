@@ -200,15 +200,32 @@ class TestPipelineStageTableWidgetPresetRow:
         assert len(save_buttons) == 1
         assert "保存" in save_buttons[0].text()
 
-    def test_default_preset_is_active_on_init(self, widget):
+    def test_no_preset_is_active_on_init(self, widget):
+        """Issue #1537: 起動時 (選択モデル 0 件) はどのプリセットもアクティブ強調しない。"""
+        chips = widget.findChildren(QToolButton, "presetChip")
+        assert len(chips) == len(_BUILTIN_PRESETS)
+        assert all(not chip.isChecked() for chip in chips)
+
+    def test_update_preset_counts_updates_labels_and_tooltips(self, widget):
+        """Issue #1537: update_preset_counts で各プリセットのモデル数バッジが動的に更新される。"""
+        widget.set_active_preset(_DEFAULT_PRESET_ID)
+        widget.update_preset_counts(
+            {
+                "default": 4,
+                "tags_only": 2,
+                "full_caption": 7,
+                "score_rate": 0,
+            }
+        )
         chips = {
             chip.text().rsplit(" ", 1)[0]: chip for chip in widget.findChildren(QToolButton, "presetChip")
         }
-        default_label = next(p.label for p in _BUILTIN_PRESETS if p.preset_id == _DEFAULT_PRESET_ID)
-        assert chips[default_label].isChecked()
-        # 他のプリセットは非アクティブ
-        for label, chip in chips.items():
-            assert chip.isChecked() == (label == default_label)
+        assert chips["Default"].text() == "Default 4"
+        assert "モデル 4 件" in chips["Default"].toolTip()
+        assert chips["Default"].isChecked() is True
+        assert chips["Tags only"].text() == "Tags only 2"
+        assert chips["Full caption"].text() == "Full caption 7"
+        assert chips["Score·rate"].text() == "Score·rate 0"
 
     def test_preset_click_emits_preset_id(self, widget, qtbot):
         chips = widget.findChildren(QToolButton, "presetChip")
