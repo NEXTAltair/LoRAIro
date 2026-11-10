@@ -8,6 +8,7 @@ import json
 import shutil
 from datetime import datetime
 from pathlib import Path
+from typing import NoReturn
 
 from loguru import logger
 
@@ -17,7 +18,7 @@ from lorairo.public_api.exceptions import (
     ProjectOperationError,
 )
 from lorairo.public_api.types import ProjectInfo
-from lorairo.utils.config import get_config
+from lorairo.utils.config import DEFAULT_CONFIG_PATH, get_config, get_runtime_configuration
 
 
 class ProjectManagementService:
@@ -240,11 +241,11 @@ class ProjectManagementService:
         try:
             project_dir = self._find_project_directory(name)
             if not project_dir:
-                raise ProjectNotFoundError(name, available=self._available_project_names())
+                self._raise_project_not_found(name)
 
             project_info = self._read_project_info(project_dir)
             if not project_info:
-                raise ProjectNotFoundError(name, available=self._available_project_names())
+                self._raise_project_not_found(name)
 
             return project_info
 
@@ -270,7 +271,7 @@ class ProjectManagementService:
         try:
             project_dir = self._find_project_directory(name)
             if not project_dir:
-                raise ProjectNotFoundError(name)
+                self._raise_project_not_found(name)
 
             logger.debug(f"プロジェクト削除開始: {name} -> {project_dir}")
             shutil.rmtree(project_dir)
@@ -301,7 +302,7 @@ class ProjectManagementService:
         try:
             project_dir = self._find_project_directory(name)
             if not project_dir:
-                raise ProjectNotFoundError(name)
+                self._raise_project_not_found(name)
 
             # メタデータファイルを更新
             metadata_file = project_dir / ".lorairo-project"
@@ -322,6 +323,26 @@ class ProjectManagementService:
             raise ProjectOperationError(name, "更新", str(e)) from e
 
     # ==================== プライベートメソッド ====================
+
+    def _raise_project_not_found(self, name: str) -> NoReturn:
+        """探索先ディレクトリ・設定ファイル検出状況・候補一覧を添えて ProjectNotFoundError を送出する。"""
+        runtime = get_runtime_configuration()
+        if runtime is not None and runtime.project_config_path is None:
+            config_path = runtime.config_path
+        else:
+            cwd_config = Path.cwd() / "config" / "lorairo.toml"
+            config_path = (
+                cwd_config
+                if (cwd_config.is_file() or not DEFAULT_CONFIG_PATH.is_file())
+                else DEFAULT_CONFIG_PATH
+            )
+        raise ProjectNotFoundError(
+            name,
+            available=self._available_project_names(),
+            projects_base_dir=self.projects_base_dir,
+            config_path=config_path,
+            config_found=config_path.is_file(),
+        )
 
     def _project_exists(self, name: str) -> bool:
         """プロジェクトが存在するか確認。

@@ -378,7 +378,7 @@ class TestProjectCrud:
     def test_get_project_not_found_includes_available_candidates(
         self, service: ProjectManagementService
     ) -> None:
-        """get_project: NOT_FOUND エラーに利用可能なプロジェクト名候補が入る (Issue #1175)。"""
+        """get_project: NOT_FOUND エラーに利用可能なプロジェクト名候補と探索先診断が入る (Issue #1175/#1508)。"""
         service.create_project("alpha")
         service.create_project("beta")
 
@@ -387,18 +387,27 @@ class TestProjectCrud:
 
         assert exc_info.value.available == ["alpha", "beta"]
         assert "alpha" in str(exc_info.value)
+        assert str(service.projects_base_dir) in str(exc_info.value)
         # CLI 境界が JSON details に載せる属性
-        assert exc_info.value.details == {"available_projects": ["alpha", "beta"]}
+        assert exc_info.value.details["available_projects"] == ["alpha", "beta"]
+        assert exc_info.value.details["projects_base_dir"] == str(service.projects_base_dir)
+        assert isinstance(exc_info.value.details["config_path"], str)
+        assert isinstance(exc_info.value.details["config_found"], bool)
+        assert exc_info.value.hint is not None
 
     def test_get_project_not_found_without_projects_has_plain_message(
         self, service: ProjectManagementService
     ) -> None:
-        """get_project: 候補ゼロなら従来どおりのメッセージのみ (Issue #1175)。"""
+        """get_project: 候補ゼロでも探索先・設定検出状況を details と hint に含める (Issue #1175/#1508)。"""
         with pytest.raises(ProjectNotFoundError) as exc_info:
             service.get_project("missing")
 
         assert exc_info.value.available == []
-        assert not hasattr(exc_info.value, "details")
+        assert exc_info.value.details["available_projects"] == []
+        assert exc_info.value.details["projects_base_dir"] == str(service.projects_base_dir)
+        assert isinstance(exc_info.value.details["config_path"], str)
+        assert isinstance(exc_info.value.details["config_found"], bool)
+        assert exc_info.value.hint is not None
 
     def test_list_projects_skips_metadata_less_dirs_without_per_dir_warning(
         self, service: ProjectManagementService
