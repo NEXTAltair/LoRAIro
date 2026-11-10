@@ -500,23 +500,28 @@ class RatingScoreEditWidget(QWidget):
             self.ui.comboBoxRating.setCurrentIndex(index)
         self._rating_segmented.set_active(None)
 
+    def _normalize_valid_rating(self, value: Any) -> str | None:
+        """値が有効な Rating 文字列であればトリムして返し、それ以外は None を返す。"""
+        if isinstance(value, str) and value.strip() in self._VALID_RATINGS:
+            return value.strip()
+        return None
+
     def _extract_rating_from_metadata(self, metadata: dict[str, Any]) -> str | None:
         """メタデータ辞書から編集対象の Rating 文字列を抽出する。"""
-        for key in ("rating", "manual_rating_value", "manual_rating", "rating_value"):
-            if key in metadata:
-                val = metadata.get(key)
-                if isinstance(val, str) and val.strip() in self._VALID_RATINGS:
-                    return val.strip()
-                if key == "rating" and val is not None:
-                    break
+        for authoritative_key in ("manual_rating_value", "manual_rating", "rating"):
+            if authoritative_key in metadata:
+                return self._normalize_valid_rating(metadata.get(authoritative_key))
+
         ratings_list = metadata.get("ratings")
         if isinstance(ratings_list, list):
             for entry in ratings_list:
                 if isinstance(entry, dict):
-                    candidate = entry.get("normalized_rating") or entry.get("raw_rating_value")
-                    if isinstance(candidate, str) and candidate.strip() in self._VALID_RATINGS:
-                        return candidate.strip()
-        return None
+                    candidate = self._normalize_valid_rating(
+                        entry.get("normalized_rating") or entry.get("raw_rating_value")
+                    )
+                    if candidate is not None:
+                        return candidate
+        return self._normalize_valid_rating(metadata.get("rating_value"))
 
     def _extract_score_from_metadata(self, metadata: dict[str, Any]) -> float | None:
         """メタデータ辞書から編集対象の Score (DB値/UI値) を抽出する。"""
@@ -532,6 +537,25 @@ class RatingScoreEditWidget(QWidget):
         if isinstance(score_val, (int, float)):
             return float(score_val)
         return None
+
+    def _fetch_selection_metadata(self, image_ids: list[int], db_manager: Any) -> list[dict[str, Any]]:
+        """選択画像のメタデータを一括取得する（単一取得へのフォールバック付き）。"""
+        image_repo = getattr(db_manager, "image_repo", None)
+        for target in (image_repo, db_manager):
+            batch_fn = getattr(target, "get_images_metadata_batch", None)
+            if callable(batch_fn):
+                batch_result = batch_fn(image_ids)
+                if isinstance(batch_result, list):
+                    return [item for item in batch_result if isinstance(item, dict)]
+
+        if image_repo is None or not hasattr(image_repo, "get_image_metadata"):
+            return []
+        results: list[dict[str, Any]] = []
+        for image_id in image_ids:
+            metadata = image_repo.get_image_metadata(image_id)
+            if isinstance(metadata, dict) and metadata:
+                results.append(metadata)
+        return results
 
     @Slot(dict)
     def populate_from_image_data(self, image_data: dict[str, Any]) -> None:
@@ -648,15 +672,13 @@ class RatingScoreEditWidget(QWidget):
         self.ui.comboBoxRating.blockSignals(True)
         self.ui.sliderScore.blockSignals(True)
 
-        # 全画像のメタデータを取得
+        # 全画像のメタデータを一括取得
         ratings: set[str | None] = set()
         scores: set[float | None] = set()
 
-        for image_id in image_ids:
-            metadata = db_manager.image_repo.get_image_metadata(image_id)
-            if metadata:
-                ratings.add(self._extract_rating_from_metadata(metadata))
-                scores.add(self._extract_score_from_metadata(metadata))
+        for metadata in self._fetch_selection_metadata(image_ids, db_manager):
+            ratings.add(self._extract_rating_from_metadata(metadata))
+            scores.add(self._extract_score_from_metadata(metadata))
 
         # 共通値判定: Rating
         common_rating = next(iter(ratings)) if len(ratings) == 1 else None

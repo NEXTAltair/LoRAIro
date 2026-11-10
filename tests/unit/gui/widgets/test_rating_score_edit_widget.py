@@ -395,6 +395,52 @@ class TestRatingScoreEditWidgetBatchMode:
         assert widget.ui.sliderScore.value() == 650
         assert widget.ui.labelScoreValue.text() == "6.50"
 
+    def test_populate_from_selection_preserves_unset_manual_rating_when_ai_rating_present(
+        self, widget, mock_db_manager, qtbot
+    ):
+        """manual_rating_valueが空文字の場合はAIのrating_valueを採用せず未設定を維持する (#1533 Codex P2)"""
+        mock_db_manager.image_repo.get_images_metadata_batch.return_value = [
+            {
+                "id": 1,
+                "manual_rating_value": "",
+                "rating_value": "PG",
+                "ai_rating_value": "PG",
+                "manual_score_value": None,
+                "score_value": 6.0,
+            },
+            {
+                "id": 2,
+                "manual_rating_value": "",
+                "rating_value": "PG",
+                "ai_rating_value": "PG",
+                "manual_score_value": None,
+                "score_value": 6.0,
+            },
+        ]
+
+        widget.populate_from_selection([1, 2], mock_db_manager)
+
+        mock_db_manager.image_repo.get_images_metadata_batch.assert_called_once_with([1, 2])
+        mock_db_manager.image_repo.get_image_metadata.assert_not_called()
+        assert widget.ui.comboBoxRating.currentText() == "----"
+        assert widget._manual_score_set is False
+
+        # スコアのみ変更してSaveしても batch_rating_changed は発火しない
+        rating_emitted = False
+
+        def on_rating(*args):
+            nonlocal rating_emitted
+            rating_emitted = True
+
+        widget.batch_rating_changed.connect(on_rating)
+        widget.ui.sliderScore.setValue(800)
+
+        with qtbot.waitSignal(widget.batch_score_changed, timeout=1000) as score_blocker:
+            widget.ui.pushButtonSave.click()
+
+        assert score_blocker.args == [[1, 2], 800]
+        assert rating_emitted is False
+
     def test_batch_save_mixed_score_does_not_emit_batch_score_changed(self, widget, mock_db_manager, qtbot):
         """バッチモードでScoreが異なる(未変更 "--")場合、Rating保存時にbatch_score_changedを発行しない (#1533)"""
         mock_db_manager.image_repo.get_image_metadata.side_effect = [

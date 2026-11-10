@@ -114,6 +114,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.graphics_view.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         self.graphics_view.itemClicked.connect(self.handle_item_selection)
         self.graphics_view.emptySpaceClicked.connect(self._on_empty_space_clicked)
+        self.graphics_view.rubberBandSelectionFinished.connect(self._on_rubberband_selection_finished)
         self.graphics_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.graphics_view.customContextMenuRequested.connect(self._on_context_menu_requested)
 
@@ -169,6 +170,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.resize_timer.setSingleShot(True)
         self.resize_timer.timeout.connect(self.update_thumbnail_layout)
         self._selection_sync_connected = False
+        self._pending_selection_sync_emit = False
 
         # ヘッダー部分の接続設定
         self._setup_header_connections()
@@ -1084,9 +1086,26 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             self.dataset_state.blockSignals(False)
 
         self._on_state_selection_changed(self.dataset_state.selected_image_ids)
+        if getattr(self.graphics_view, "_is_rubberband_dragging", False):
+            # ドラッグ途中はサムネイルのハイライト・件数表示のみ更新し、
+            # 下流の重いバッチメタデータ読込はマウスリリース時まで遅延する (#1535 Codex P2)。
+            self._pending_selection_sync_emit = True
+            return
+        self._pending_selection_sync_emit = False
         self.selection_synced.emit(list(self.dataset_state.selected_image_ids))
         logger.debug(
             f"Selection synced to state: {len(self.dataset_state.selected_image_ids)} images selected"
+        )
+
+    @Slot()
+    def _on_rubberband_selection_finished(self) -> None:
+        """ラバーバンドドラッグ終了時に確定した選択状態を通知する (#1535 Codex P2)。"""
+        if not self.dataset_state or not self._pending_selection_sync_emit:
+            return
+        self._pending_selection_sync_emit = False
+        self.selection_synced.emit(list(self.dataset_state.selected_image_ids))
+        logger.debug(
+            f"Rubberband selection settled: {len(self.dataset_state.selected_image_ids)} images selected"
         )
 
     @Slot(int)

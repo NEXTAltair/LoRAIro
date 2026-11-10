@@ -872,3 +872,34 @@ class TestThumbnailSelectorWidgetSelectionCountDisplay:
 
         widget.handle_item_selection(mock_item, Qt.KeyboardModifier.NoModifier)
         clear_mock.assert_called_once()
+
+    def test_rubberband_drag_defers_selection_synced_until_release(self, qtbot, monkeypatch):
+        """ラバーバンドドラッグ中はselection_syncedを遅延し、リリース時に1回だけ発火する (#1535 Codex P2)"""
+        state = DatasetStateManager()
+        widget = ThumbnailSelectorWidget(dataset_state=state)
+        qtbot.addWidget(widget)
+
+        item1 = Mock(spec=ThumbnailItem, image_id=1)
+        item2 = Mock(spec=ThumbnailItem, image_id=2)
+        widget.thumbnail_items = [item1, item2]
+
+        synced_events: list[list[int]] = []
+        widget.selection_synced.connect(synced_events.append)
+
+        # ドラッグ開始状態
+        widget.graphics_view._is_rubberband_dragging = True
+        monkeypatch.setattr(widget.scene, "selectedItems", lambda: [item1])
+        widget._sync_selection_to_state()
+        assert state.selected_image_ids == [1]
+        assert synced_events == []
+
+        # ドラッグ拡大
+        monkeypatch.setattr(widget.scene, "selectedItems", lambda: [item1, item2])
+        widget._sync_selection_to_state()
+        assert state.selected_image_ids == [1, 2]
+        assert synced_events == []
+
+        # マウスリリース完了
+        widget.graphics_view._is_rubberband_dragging = False
+        widget.graphics_view.rubberBandSelectionFinished.emit()
+        assert synced_events == [[1, 2]]
