@@ -423,3 +423,53 @@ def test_refresh_displays_filename_and_supports_keyboard_accept(qtbot) -> None:
     qtbot.keyClick(widget, Qt.Key.Key_Return)
     db.mark_image_reviewed.assert_called_once_with(20, reviewed=True)
     assert widget.results_widget.findChild(object, "resultsUnacceptButton_20") is not None
+
+
+def test_keyboard_navigation_does_not_forward_when_focus_in_review_batch_widget(qtbot):
+    """フォーカスが _review_batch_widget 内にある時はキー入力を ResultsWidget へ転送しない (#1545 Codex P2)。"""
+    ids = [10, 20]
+    staging_mock = MagicMock()
+    staging_mock.get_staged_items.return_value = OrderedDict(
+        [(10, ("hero.png", "/imgs/hero.png")), (20, ("villain.png", "/imgs/villain.png"))]
+    )
+    staging_mock.get_all_staged_ids.return_value = ids
+    db = MagicMock()
+    db.get_images_metadata_batch.return_value = [
+        {
+            "id": 10,
+            "uuid": "u10",
+            "width": 800,
+            "height": 600,
+            "reviewed_at": None,
+            "stored_image_path": "/imgs/hero.png",
+        },
+        {
+            "id": 20,
+            "uuid": "u20",
+            "width": 800,
+            "height": 600,
+            "reviewed_at": None,
+            "stored_image_path": "/imgs/villain.png",
+        },
+    ]
+    db.get_image_annotations_batch.return_value = {
+        i: {
+            "tags": [],
+            "captions": [],
+            "scores": [],
+            "score_labels": [],
+            "ratings": [],
+            "quality_summary": {},
+        }
+        for i in ids
+    }
+    db.get_low_res_image_paths_batch.return_value = {}
+    widget = ResultsTabWidget(db_manager=db, staging_state_manager=staging_mock)
+    qtbot.addWidget(widget)
+    widget.refresh()
+
+    widget._annotation_review_widget.setFocus()
+    assert widget.results_widget.focused_image_id == 10
+    qtbot.keyClick(widget, Qt.Key.Key_Down)
+    # フォーカス行は 10 のまま変わらない
+    assert widget.results_widget.focused_image_id == 10

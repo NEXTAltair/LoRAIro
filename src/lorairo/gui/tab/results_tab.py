@@ -95,6 +95,11 @@ class ResultsTabWidget(QWidget):
         """ステージ済み画像のアノテーションチェックと保存結果を表示する。"""
         return self._annotation_review_widget
 
+    @property
+    def _review_batch_widget(self) -> AnnotationReviewBatchWidget:
+        """レビューバッチウィジェット参照 (#1545)。"""
+        return self._annotation_review_widget
+
     def set_annotation_review_services(
         self,
         service: AnnotationReviewService,
@@ -158,7 +163,17 @@ class ResultsTabWidget(QWidget):
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """キーボードナビゲーション操作を内包する ResultsWidget へ委譲する (#1545)。"""
-        if self._results_widget.handle_navigation_key(event.key()):
+        focus = self.focusWidget()
+        review_widget = getattr(self, "_review_batch_widget", self._annotation_review_widget)
+        if (
+            focus is not None
+            and review_widget is not None
+            and (focus is review_widget or review_widget.isAncestorOf(focus))
+        ):
+            super().keyPressEvent(event)
+            return
+
+        if self._results_widget.handle_navigation_key(event.key(), event.modifiers()):
             event.accept()
             return
         super().keyPressEvent(event)

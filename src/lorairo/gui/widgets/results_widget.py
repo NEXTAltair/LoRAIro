@@ -368,9 +368,22 @@ class ResultsWidget(QWidget):
             self.accept_requested.emit(self._focused_image_id)
         return self._focused_image_id
 
-    def handle_navigation_key(self, key: int) -> bool:
+    def handle_navigation_key(
+        self,
+        key: int,
+        modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
+    ) -> bool:
         """キーボードナビゲーション操作を処理する (#1545)。"""
         if not self._row_image_ids:
+            return False
+        if bool(
+            modifiers
+            & (
+                Qt.KeyboardModifier.ControlModifier
+                | Qt.KeyboardModifier.AltModifier
+                | Qt.KeyboardModifier.MetaModifier
+            )
+        ):
             return False
         if key in (Qt.Key.Key_Down, Qt.Key.Key_J):
             self.focus_next_row()
@@ -383,9 +396,11 @@ class ResultsWidget(QWidget):
             return True
         return False
 
+    _handle_navigation_key = handle_navigation_key
+
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """上下キーでフォーカス行を移動し、Enter/Space で accept する (#1545)。"""
-        if self.handle_navigation_key(event.key()):
+        if self.handle_navigation_key(event.key(), event.modifiers()):
             event.accept()
             return
         super().keyPressEvent(event)
@@ -396,7 +411,7 @@ class ResultsWidget(QWidget):
             watched is self._scroll_area
             and event.type() == QEvent.Type.KeyPress
             and isinstance(event, QKeyEvent)
-            and self.handle_navigation_key(event.key())
+            and self.handle_navigation_key(event.key(), event.modifiers())
         ):
             event.accept()
             return True

@@ -690,6 +690,24 @@ def test_keyboard_navigation_moves_focus_and_emits_accept(qtbot):
     assert blocker2.args == [10]
 
 
+def test_keyboard_navigation_ignores_modifier_keys(qtbot):
+    """Ctrl/Alt/Meta 修飾キーが付いたキー操作 (Ctrl+A 等) では accept や行移動を発火しない (#1545 Codex P2)。"""
+    widget = ResultsWidget()
+    qtbot.addWidget(widget)
+    results = [_result(10, [IssueType.EMPTY_TAGS])]
+    widget.display(_summary(), results)
+
+    assert widget.focused_image_id == 10
+
+    # Ctrl+A は accept を発火しない
+    handled = widget.handle_navigation_key(Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+    assert handled is False
+
+    # 修飾キーなしの A は accept を発火する
+    handled = widget.handle_navigation_key(Qt.Key.Key_A, Qt.KeyboardModifier.NoModifier)
+    assert handled is True
+
+
 def test_keyboard_navigation_disabled_in_degraded_mode(qtbot):
     """_VIRTUALIZE_THRESHOLD 以上の degrade 表示時は未描画行へのフォーカスや accept を発火しない (#1545 Codex P2)。"""
     widget = ResultsWidget()
