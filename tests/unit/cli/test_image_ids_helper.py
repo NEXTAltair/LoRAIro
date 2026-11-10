@@ -24,6 +24,23 @@ class TestParseImageIds:
         with pytest.raises(click.UsageError):
             parse_image_ids("1,abc")
 
+    @pytest.mark.parametrize(
+        ("csv_input", "expected_escaped"),
+        [
+            ("\ufeff1792,2", "'\\ufeff1792'"),
+            ("1,\u200b1792", "'\\u200b1792'"),
+            ("1,17\x0092", "'17\\x0092'"),
+            ("1,12\u300034", "'12\\u300034'"),
+        ],
+    )
+    def test_escapes_invisible_and_control_chars_in_invalid_token_error(
+        self, csv_input: str, expected_escaped: str
+    ) -> None:
+        """--image-ids の不正トークンに含まれる BOM / ゼロ幅空白 / 制御文字を可視エスケープする (Issue #1507)。"""
+        with pytest.raises(click.UsageError) as exc_info:
+            parse_image_ids(csv_input)
+        assert expected_escaped in exc_info.value.format_message()
+
     def test_max_image_ids_constant_is_500(self) -> None:
         assert MAX_IMAGE_IDS == 500
 
@@ -85,6 +102,42 @@ class TestParseImageIdsFile:
         f.write_text("\n\n , \n")
         with pytest.raises(click.UsageError):
             parse_image_ids_file(str(f))
+
+    def test_utf8_bom_newline_separated_file_parses(self, tmp_path) -> None:
+        """UTF-8 BOM (\\ufeff) 付き改行区切りファイルを透過的にパースする (Issue #1507)。"""
+        from lorairo.cli._image_ids import parse_image_ids_file
+
+        f = tmp_path / "ids_bom_lines.txt"
+        f.write_bytes("1792\n1793\n1794\n".encode("utf-8-sig"))
+        assert parse_image_ids_file(str(f)) == [1792, 1793, 1794]
+
+    def test_utf8_bom_comma_separated_file_parses(self, tmp_path) -> None:
+        """UTF-8 BOM (\\ufeff) 付きカンマ区切りファイルおよび行頭・トークン先頭 BOM をパースする (Issue #1507)。"""
+        from lorairo.cli._image_ids import parse_image_ids_file
+
+        f = tmp_path / "ids_bom_csv.txt"
+        f.write_bytes("1792, \ufeff1793\n\ufeff1794, 1795\n".encode("utf-8-sig"))
+        assert parse_image_ids_file(str(f)) == [1792, 1793, 1794, 1795]
+
+    @pytest.mark.parametrize(
+        ("raw_content", "expected_escaped"),
+        [
+            ("1,\u200b1792\n", "'\\u200b1792'"),
+            ("17\ufeff92\n", "'17\\ufeff92'"),
+            ("1,\x071792\n", "'\\x071792'"),
+        ],
+    )
+    def test_file_invalid_token_escapes_invisible_and_control_chars(
+        self, tmp_path, raw_content: str, expected_escaped: str
+    ) -> None:
+        """--image-ids-file の不正トークンに含まれる不可視文字・制御文字をエスケープ表示する (Issue #1507)。"""
+        from lorairo.cli._image_ids import parse_image_ids_file
+
+        f = tmp_path / "ids_invalid.txt"
+        f.write_text(raw_content, encoding="utf-8")
+        with pytest.raises(click.UsageError) as exc_info:
+            parse_image_ids_file(str(f))
+        assert expected_escaped in exc_info.value.format_message()
 
 
 @pytest.mark.unit

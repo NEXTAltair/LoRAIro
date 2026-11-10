@@ -399,7 +399,8 @@ def test_project_list_json_mode(mock_projects_dir: Path) -> None:
 @pytest.mark.unit
 @pytest.mark.cli
 def test_project_delete_nonexistent_json_mode(mock_projects_dir: Path) -> None:
-    """Test: --json project delete - 失敗時は構造化 error 行 (code=NOT_FOUND)。"""
+    """Test: --json project delete - 失敗時は構造化 error 行 (code=NOT_FOUND, Issue #1508)。"""
+    runner.invoke(app, ["project", "create", "existing-proj"])
     result = runner.invoke(app, ["--json", "project", "delete", "nonexistent", "--force"])
 
     assert result.exit_code == 1
@@ -407,6 +408,13 @@ def test_project_delete_nonexistent_json_mode(mock_projects_dir: Path) -> None:
     assert last["kind"] == "error"
     assert last["code"] == "NOT_FOUND"
     assert last["ok"] is False
+    assert last["hint"] is not None
+    assert "existing-proj" in last["hint"]
+    assert "config/lorairo.toml" in last["hint"]
+    assert last["details"]["available_projects"] == ["existing-proj"]
+    assert last["details"]["projects_base_dir"] == str(mock_projects_dir)
+    assert isinstance(last["details"]["config_path"], str)
+    assert isinstance(last["details"]["config_found"], bool)
 
 
 @pytest.mark.unit

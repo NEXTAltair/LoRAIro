@@ -227,3 +227,52 @@ def test_classify_provider_batch_other_error_is_not_retryable() -> None:
     info = classify_exception(exc)
     assert info.code == ErrorCode.PRECONDITION_FAILED
     assert info.retryable is False
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_hint_for_project_not_found_returns_exception_hint() -> None:
+    """#1508: ProjectNotFoundError の hint (候補/ワークスペース案内) が NOT_FOUND でも返る。"""
+    exc = app_exc.ProjectNotFoundError(
+        "missing_proj",
+        available=["proj_a", "proj_b"],
+        projects_base_dir="/workspace/lorairo_data",
+        config_path="/workspace/config/lorairo.toml",
+        config_found=True,
+    )
+    info = classify_exception(exc)
+    assert info.code == ErrorCode.NOT_FOUND
+    hint = hint_for(info.code, exc)
+    assert hint is not None
+    assert "proj_a" in hint
+    assert "config/lorairo.toml" in hint
+    assert "--config" in hint
+    assert exc.details == {
+        "available_projects": ["proj_a", "proj_b"],
+        "projects_base_dir": "/workspace/lorairo_data",
+        "config_path": "/workspace/config/lorairo.toml",
+        "config_found": True,
+    }
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_hint_for_project_not_found_when_config_missing() -> None:
+    """#1508: カレントディレクトリに config/lorairo.toml がない場合の NOT_FOUND 診断。"""
+    exc = app_exc.ProjectNotFoundError(
+        "missing_proj",
+        available=[],
+        projects_base_dir="/wrong_cwd/lorairo_data",
+        config_path="/wrong_cwd/config/lorairo.toml",
+        config_found=False,
+    )
+    hint = hint_for(ErrorCode.NOT_FOUND, exc)
+    assert hint is not None
+    assert "/wrong_cwd/config/lorairo.toml" in hint
+    assert "--config" in hint
+    assert exc.details == {
+        "available_projects": [],
+        "projects_base_dir": "/wrong_cwd/lorairo_data",
+        "config_path": "/wrong_cwd/config/lorairo.toml",
+        "config_found": False,
+    }

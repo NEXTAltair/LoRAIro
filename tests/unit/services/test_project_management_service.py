@@ -378,7 +378,7 @@ class TestProjectCrud:
     def test_get_project_not_found_includes_available_candidates(
         self, service: ProjectManagementService
     ) -> None:
-        """get_project: NOT_FOUND エラーに利用可能なプロジェクト名候補が入る (Issue #1175)。"""
+        """get_project: NOT_FOUND エラーに利用可能なプロジェクト名候補と探索先診断が入る (Issue #1175/#1508)。"""
         service.create_project("alpha")
         service.create_project("beta")
 
@@ -387,18 +387,47 @@ class TestProjectCrud:
 
         assert exc_info.value.available == ["alpha", "beta"]
         assert "alpha" in str(exc_info.value)
+        assert str(service.projects_base_dir) in str(exc_info.value)
         # CLI 境界が JSON details に載せる属性
-        assert exc_info.value.details == {"available_projects": ["alpha", "beta"]}
+        assert exc_info.value.details["available_projects"] == ["alpha", "beta"]
+        assert exc_info.value.details["projects_base_dir"] == str(service.projects_base_dir)
+        assert isinstance(exc_info.value.details["config_path"], str)
+        assert isinstance(exc_info.value.details["config_found"], bool)
+        assert exc_info.value.hint is not None
 
     def test_get_project_not_found_without_projects_has_plain_message(
         self, service: ProjectManagementService
     ) -> None:
-        """get_project: 候補ゼロなら従来どおりのメッセージのみ (Issue #1175)。"""
+        """get_project: 候補ゼロでも探索先・設定検出状況を details と hint に含める (Issue #1175/#1508)。"""
         with pytest.raises(ProjectNotFoundError) as exc_info:
             service.get_project("missing")
 
         assert exc_info.value.available == []
-        assert not hasattr(exc_info.value, "details")
+        assert exc_info.value.details["available_projects"] == []
+        assert exc_info.value.details["projects_base_dir"] == str(service.projects_base_dir)
+        assert isinstance(exc_info.value.details["config_path"], str)
+        assert isinstance(exc_info.value.details["config_found"], bool)
+        assert exc_info.value.hint is not None
+
+    def test_get_project_not_found_reports_actual_default_config_not_unloaded_cwd_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--workspace/--config 未指定時は CWD の未読込 config ではなく実際の DEFAULT_CONFIG_PATH を報告する。"""
+        from lorairo.utils.config import DEFAULT_CONFIG_PATH
+
+        other_cwd = tmp_path / "other_cwd"
+        (other_cwd / "config").mkdir(parents=True)
+        unloaded_cwd_config = other_cwd / "config" / "lorairo.toml"
+        unloaded_cwd_config.write_text('[directories]\ndatabase_base_dir = "unused"\n', encoding="utf-8")
+        monkeypatch.chdir(other_cwd)
+
+        svc = ProjectManagementService(projects_base_dir=tmp_path / "projects")
+        with pytest.raises(ProjectNotFoundError) as exc_info:
+            svc.get_project("missing")
+
+        assert exc_info.value.details["config_path"] == str(DEFAULT_CONFIG_PATH)
+        assert exc_info.value.details["config_path"] != str(unloaded_cwd_config)
+        assert exc_info.value.details["config_found"] is DEFAULT_CONFIG_PATH.is_file()
 
     def test_list_projects_skips_metadata_less_dirs_without_per_dir_warning(
         self, service: ProjectManagementService

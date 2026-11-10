@@ -143,15 +143,16 @@ def hint_for(code: ErrorCode, exc: BaseException | None = None) -> str | None:
                 "Prepare model configuration with write permission: run models list without --read-only "
                 "in the same working directory, then retry. See docs/cli-read-only.md."
             )
-        hint = getattr(exc, "hint", None)
-        if isinstance(hint, str):
-            return hint
     if exc is not None and code is ErrorCode.IO_ERROR:
         from lorairo.database.db_errors import is_sqlite_disk_io_error
 
         # クロス OS の WAL -shm 問題 (Issue #1169/#1175) は実行環境の指示を返す
         if is_sqlite_disk_io_error(exc):
             return _DISK_IO_HINT
+    if exc is not None:
+        hint = getattr(exc, "hint", None)
+        if isinstance(hint, str) and hint:
+            return hint
     return _HINTS.get(code)
 
 

@@ -4,6 +4,8 @@
 一貫したエラー情報を返す。
 """
 
+from pathlib import Path
+
 
 class LoRAIroException(Exception):
     """LoRAIro基底例外。
@@ -40,17 +42,102 @@ class ProjectNotFoundError(ProjectError):
     Args:
         project_name: 見つからないプロジェクト名。
         available: 利用可能なプロジェクト名の候補 (エラーメッセージ/details に含める)。
+        projects_base_dir: 探索したプロジェクトベースディレクトリ。
+        config_path: 参照した設定ファイルパス (config/lorairo.toml 等)。
+        config_found: 設定ファイルが存在したかどうか。
+        hint: 対処ヒント文字列 (省略時は診断情報から自動生成)。
     """
 
-    def __init__(self, project_name: str, available: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        project_name: str,
+        available: list[str] | None = None,
+        projects_base_dir: Path | str | None = None,
+        config_path: Path | str | None = None,
+        config_found: bool | None = None,
+        hint: str | None = None,
+    ) -> None:
         self.project_name = project_name
-        self.available = available or []
-        message = f"プロジェクト '{project_name}' が見つかりません"
+        self.available = list(available) if available is not None else []
+        self.projects_base_dir = str(projects_base_dir) if projects_base_dir is not None else None
+        self.config_path = str(config_path) if config_path is not None else None
+        self.config_found = config_found
+
+        has_available = available is not None
+        message = self._build_message(has_available_context=has_available)
+        details = self._build_details(has_available_context=has_available)
+        if details:
+            # CLI 境界 (_boundary._error_details) が JSON details に載せる
+            self.details = details
+
+        self.hint = hint if hint is not None else self._build_hint(has_available_context=has_available)
+        super().__init__(message)
+
+    def _build_message(self, *, has_available_context: bool) -> str:
+        message = f"プロジェクト '{self.project_name}' が見つかりません"
         if self.available:
             message += f"。利用可能なプロジェクト: {', '.join(self.available)}"
-            # CLI 境界 (_boundary._error_details) が JSON details に載せる
-            self.details: dict[str, object] = {"available_projects": self.available}
-        super().__init__(message)
+        elif has_available_context or self.projects_base_dir is not None:
+            message += "。利用可能なプロジェクト: なし"
+
+        context_parts = self._format_context_parts()
+        if context_parts:
+            message += f" ({', '.join(context_parts)})"
+        return message
+
+    def _format_context_parts(self) -> list[str]:
+        parts: list[str] = []
+        if self.projects_base_dir is not None:
+            parts.append(f"projects_base_dir={self.projects_base_dir}")
+        if self.config_path is not None:
+            suffix = (
+                " (found)"
+                if self.config_found is True
+                else " (not found)"
+                if self.config_found is False
+                else ""
+            )
+            parts.append(f"config={self.config_path}{suffix}")
+        elif self.config_found is not None:
+            state = "found" if self.config_found else "not found"
+            parts.append(f"config/lorairo.toml={state}")
+        return parts
+
+    def _build_details(self, *, has_available_context: bool) -> dict[str, object]:
+        details: dict[str, object] = {}
+        if has_available_context or self.projects_base_dir is not None:
+            details["available_projects"] = self.available
+        if self.projects_base_dir is not None:
+            details["projects_base_dir"] = self.projects_base_dir
+        if self.config_path is not None:
+            details["config_path"] = self.config_path
+        if self.config_found is not None:
+            details["config_found"] = self.config_found
+        return details
+
+    def _build_hint(self, *, has_available_context: bool) -> str:
+        parts: list[str] = []
+        if self.available:
+            parts.append(f"プロジェクト名を確認してください (利用可能: {', '.join(self.available)})。")
+        elif has_available_context or self.projects_base_dir is not None:
+            target = self.projects_base_dir or "lorairo_data"
+            parts.append(f"探索先 '{target}' にプロジェクトが存在しません。")
+        else:
+            parts.append("`lorairo-cli project list` で利用可能なプロジェクト名を確認してください。")
+
+        if self.config_found is False:
+            cfg = self.config_path or "config/lorairo.toml"
+            parts.append(
+                f"設定ファイル '{cfg}' が見つかりません。"
+                "config/lorairo.toml があるワークスペースディレクトリから実行するか、"
+                "--workspace <dir> または --config <path> を指定してください。"
+            )
+        else:
+            parts.append(
+                "実行ディレクトリが異なる場合は config/lorairo.toml があるワークスペースから実行するか、"
+                "--workspace <dir> または --config <path> を指定してください。"
+            )
+        return " ".join(parts)
 
 
 class ProjectAlreadyExistsError(ProjectError):

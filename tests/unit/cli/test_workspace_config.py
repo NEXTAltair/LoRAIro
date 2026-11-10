@@ -115,6 +115,13 @@ def test_command_error_restores_scoped_container_and_config(tmp_path):
         app, ["--json", "--workspace", str(tmp_path), "project", "delete", "missing", "--force"]
     )
     assert result.exit_code == 1
+    row = json.loads(result.stdout)
+    assert row["code"] == "NOT_FOUND"
+    assert row["details"]["available_projects"] == []
+    assert row["details"]["projects_base_dir"] == str(tmp_path / "lorairo_data")
+    assert row["details"]["config_path"] == str(tmp_path / "config" / "lorairo.toml")
+    assert row["details"]["config_found"] is False
+    assert "config/lorairo.toml" in row["hint"]
     assert get_runtime_configuration() is None
     assert ServiceContainer() is original
 

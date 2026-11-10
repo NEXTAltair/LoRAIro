@@ -8,6 +8,7 @@ in sync.
 
 from __future__ import annotations
 
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,34 @@ MAX_IMAGE_IDS_FILE = 100_000
 BULK_CHUNK_SIZE = 500
 
 
+def _format_invalid_id_token(token: str) -> str:
+    """不可視文字・制御文字・非 ASCII 空白をエスケープして単一引用符で囲む (Issue #1507)。"""
+    escaped: list[str] = []
+    for ch in token:
+        category = unicodedata.category(ch)
+        if ch == "\\":
+            escaped.append("\\\\")
+        elif ch == "'":
+            escaped.append("\\'")
+        elif ch == "\n":
+            escaped.append("\\n")
+        elif ch == "\r":
+            escaped.append("\\r")
+        elif ch == "\t":
+            escaped.append("\\t")
+        elif not ch.isprintable() or category.startswith("C") or (category.startswith("Z") and ch != " "):
+            codepoint = ord(ch)
+            if codepoint < 0x100:
+                escaped.append(f"\\x{codepoint:02x}")
+            elif codepoint <= 0xFFFF:
+                escaped.append(f"\\u{codepoint:04x}")
+            else:
+                escaped.append(f"\\U{codepoint:08x}")
+        else:
+            escaped.append(ch)
+    return f"'{''.join(escaped)}'"
+
+
 def parse_image_ids(image_ids_csv: str) -> list[int]:
     """カンマ区切り文字列を int リストに変換する。
 
@@ -37,17 +66,25 @@ def parse_image_ids(image_ids_csv: str) -> list[int]:
     Raises:
         click.UsageError: 整数に変換できない値が含まれていた場合。
     """
-    try:
-        return [int(x.strip()) for x in image_ids_csv.split(",") if x.strip()]
-    except ValueError as e:
-        raise click.UsageError(f"--image-ids には整数のみ指定可: {e}") from e
+    ids: list[int] = []
+    for raw_token in image_ids_csv.split(","):
+        token = raw_token.strip()
+        if not token:
+            continue
+        try:
+            ids.append(int(token))
+        except ValueError as e:
+            formatted = _format_invalid_id_token(token)
+            raise click.UsageError(f"--image-ids には整数のみ指定可: invalid ID {formatted}") from e
+    return ids
 
 
 def _positive_file_id(token: str) -> int:
     try:
         value = int(token)
     except ValueError as exc:
-        raise click.UsageError(f"--image-ids-file contains invalid ID: {token!r}") from exc
+        formatted = _format_invalid_id_token(token)
+        raise click.UsageError(f"--image-ids-file contains invalid ID: {formatted}") from exc
     if value <= 0:
         raise click.UsageError("--image-ids-file IDs must be positive integers.")
     return value
@@ -58,6 +95,7 @@ def parse_image_ids_file(file_path: str) -> list[int]:
 
     数千規模の一括タグ操作で、手動チャンク分割 + 複数プロセス起動を避けるための
     入力手段。空行・空白・重複を無視し、初出順を保って返す。
+    UTF-8 BOM (``\\ufeff``) 付きファイルも透過的に受け付ける (Issue #1507)。
 
     Args:
         file_path: 改行またはカンマ区切りの画像 ID を含むファイルパス。
@@ -74,10 +112,10 @@ def parse_image_ids_file(file_path: str) -> list[int]:
     seen: set[int] = set()
     image_ids: list[int] = []
     try:
-        with path.open(encoding="utf-8") as stream:
+        with path.open(encoding="utf-8-sig") as stream:
             for raw_line in stream:
-                for token in raw_line.split(","):
-                    token = token.strip()
+                for raw_token in raw_line.lstrip("\ufeff").split(","):
+                    token = raw_token.strip().lstrip("\ufeff").strip()
                     if not token:
                         continue
                     value = _positive_file_id(token)
