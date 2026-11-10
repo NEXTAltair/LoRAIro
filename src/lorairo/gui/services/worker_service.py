@@ -785,8 +785,8 @@ class WorkerService(QObject):
         self.worker_manager.cancel_all_workers(reason=CancelReason.SHUTDOWN)
 
     def get_active_worker_count(self) -> int:
-        """アクティブワーカー数取得"""
-        return self.worker_manager.get_active_worker_count()
+        """アクティブワーカー数取得 (GPU 直列キューの待機ジョブを含む)"""
+        return self.worker_manager.get_active_worker_count() + len(self._gpu_queue)
 
     def get_worker_status(self, worker_id: str) -> str | None:
         """指定ワーカーのステータス取得"""

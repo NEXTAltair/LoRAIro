@@ -1404,6 +1404,22 @@ class TestGpuSerialQueue:
             reason=CancelReason.SHUTDOWN
         )
 
+    def test_get_active_worker_count_includes_queued_gpu_jobs(
+        self, mock_annotation_runner, mock_worker_class, mock_container, worker_service
+    ):
+        """get_active_worker_count は実行中ワーカーと GPU 直列キュー待機ジョブの合計を返す (#1556)"""
+        self._setup(mock_container, mock_worker_class, worker_service)
+        worker_service.worker_manager.get_active_worker_count.return_value = 1
+        worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/a.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+        worker_service.start_enhanced_batch_annotation(
+            image_paths=["/img/b.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
+        )
+
+        assert len(worker_service._gpu_queue) == 1
+        assert worker_service.get_active_worker_count() == 2
+
     def test_gpu_slot_cleared_when_start_fails(
         self, mock_annotation_runner, mock_worker_class, mock_container, worker_service
     ):

@@ -949,25 +949,81 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _connect_menu_actions(self) -> None:
         """ファイル/編集/ヘルプメニューのアクション Signal 接続を行う。
 
-        全選択/選択解除は SearchTabWidget が所有するサムネイルセレクタへ委譲する
-        (検索系ウィジェットは #869 で SearchTab へ移管)。
+        全選択/選択解除は現在アクティブなタブ (検索タブ / エクスポートタブ) が
+        所有するサムネイルセレクタへディスパッチする (#869, #1551)。
         """
         # ファイル: 終了 / ヘルプ: about（タブ非依存なので先に接続）
         if hasattr(self, "actionExit"):
             self.actionExit.triggered.connect(self.close)
         if hasattr(self, "actionAbout"):
             self.actionAbout.triggered.connect(self._show_about_dialog)
-        if self.search_tab is None:
-            return
-        thumbnail_selector = self.search_tab.thumbnail_selector
         try:
             if hasattr(self, "actionSelectAll"):
-                self.actionSelectAll.triggered.connect(thumbnail_selector._select_all_items)
+                self.actionSelectAll.triggered.connect(self._on_select_all_triggered)
             if hasattr(self, "actionDeselectAll"):
-                self.actionDeselectAll.triggered.connect(thumbnail_selector._deselect_all_items)
+                self.actionDeselectAll.triggered.connect(self._on_deselect_all_triggered)
+            MainWindow._update_selection_actions_for_tab(self)
             logger.info("    ✅ 編集メニュー（全選択/選択解除）接続完了")
         except Exception as e:
             logger.error(f"    ❌ 編集メニュー接続失敗: {e}")
+
+    def _active_thumbnail_selector(self) -> Any:
+        """現在アクティブなタブが所有する ThumbnailSelectorWidget を返す (#1551)。
+
+        全選択 (Ctrl+A) / 選択解除 (Ctrl+D) はアクティブなタブのサムネイルセレクタのみに
+        作用させ、別タブ表示中に裏で検索タブの選択が書き換わるのを防ぐ。
+        """
+        tab_widget = getattr(self, "tabWidgetMainMode", None)
+        if tab_widget is None:
+            return None
+        current = tab_widget.currentWidget()
+        if current is None:
+            return None
+        search_tab = getattr(self, "search_tab", None)
+        if search_tab is not None and current in (getattr(self, "tabWorkspace", None), search_tab):
+            return getattr(search_tab, "thumbnail_selector", None)
+        export_tab = getattr(self, "export_tab", None)
+        if export_tab is not None and current in (getattr(self, "tabExport", None), export_tab):
+            return getattr(export_tab, "thumbnail_selector", None)
+        return None
+
+    def _update_selection_actions_for_tab(self, current: QWidget | None = None) -> None:
+        """アクティブなタブにサムネイルセレクタがあるかに応じて全選択/選択解除の有効状態を更新する (#1551)。"""
+        if current is None:
+            tab_widget = getattr(self, "tabWidgetMainMode", None)
+            current = tab_widget.currentWidget() if tab_widget is not None else None
+        search_tab = getattr(self, "search_tab", None)
+        export_tab = getattr(self, "export_tab", None)
+        has_selector = current is not None and (
+            (
+                search_tab is not None
+                and current in (getattr(self, "tabWorkspace", None), search_tab)
+                and getattr(search_tab, "thumbnail_selector", None) is not None
+            )
+            or (
+                export_tab is not None
+                and current in (getattr(self, "tabExport", None), export_tab)
+                and getattr(export_tab, "thumbnail_selector", None) is not None
+            )
+        )
+        for action_name in ("actionSelectAll", "actionDeselectAll"):
+            action = getattr(self, action_name, None)
+            if action is not None:
+                action.setEnabled(has_selector)
+
+    @Slot()
+    def _on_select_all_triggered(self) -> None:
+        """現在アクティブなタブのサムネイルセレクタで全選択を実行する (#1551)。"""
+        selector = MainWindow._active_thumbnail_selector(self)
+        if selector is not None:
+            selector._select_all_items()
+
+    @Slot()
+    def _on_deselect_all_triggered(self) -> None:
+        """現在アクティブなタブのサムネイルセレクタで選択解除を実行する (#1551)。"""
+        selector = MainWindow._active_thumbnail_selector(self)
+        if selector is not None:
+            selector._deselect_all_items()
 
     def _show_about_dialog(self) -> None:
         """「LoRAIroについて」ダイアログを表示する。"""
@@ -1664,6 +1720,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             index: 切り替え先のタブインデックス。
         """
         current = self.tabWidgetMainMode.widget(index)
+        MainWindow._update_selection_actions_for_tab(self, current)
         # (タブ widget, ログ名, 表示時ハンドラ) の dispatch 表。index ではなく
         # widget 同一性で分岐し、タブ構成変更に耐える。
         dispatch: list[tuple[QWidget | None, str, Callable[[], None]]] = [
@@ -1763,42 +1820,109 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             if tab is not None:
                 tab.on_tag_db_ready()
 
+    @staticmethod
+    def _is_async_dispatch_running(controller: Any) -> bool:
+        """Batch API 送信 (_async_dispatch_thread) が実行中かを判定する (#1556 Codex P2)。"""
+        if controller is None:
+            return False
+        dispatch_thread = getattr(controller, "_async_dispatch_thread", None)
+        is_running = getattr(dispatch_thread, "isRunning", None)
+        if callable(is_running) and is_running() is True:
+            return True
+        if getattr(controller, "_async_dispatch_in_progress", None) is True:
+            return not (callable(is_running) and is_running() is False)
+        return False
+
+    @staticmethod
+    def _count_active_collect_runners(jobs_tab: Any) -> int:
+        """Provider Batch 結果回収 (_collect_runners) の実行中スレッド数を返す (#1556 Codex P2)。"""
+        if jobs_tab is None:
+            return 0
+        widget = getattr(jobs_tab, "provider_batch_job_widget", None)
+        collect_runners = getattr(widget, "_collect_runners", None)
+        if not isinstance(collect_runners, dict):
+            return 0
+        count = 0
+        for runner in collect_runners.values():
+            thread = runner[0] if isinstance(runner, tuple) and runner else runner
+            is_running = getattr(thread, "isRunning", None)
+            if callable(is_running) and is_running() is False:
+                continue
+            count += 1
+        return count
+
+    def _get_running_job_count(self) -> int:
+        """現在実行中 (またはキュー待機中) のジョブ/ワーカー数を返す (#1556)。"""
+        running_count = 0
+        worker_service = getattr(self, "worker_service", None)
+        if worker_service is not None:
+            active_count = worker_service.get_active_worker_count()
+            if isinstance(active_count, int) and not isinstance(active_count, bool):
+                running_count += max(0, active_count)
+        export_tab = getattr(self, "export_tab", None)
+        if export_tab is not None:
+            export_thread = getattr(export_tab, "_export_thread", None)
+            if export_thread is not None and export_thread.isRunning() is True:
+                running_count += 1
+        if MainWindow._is_async_dispatch_running(getattr(self, "annotation_workflow_controller", None)):
+            running_count += 1
+        running_count += MainWindow._count_active_collect_runners(getattr(self, "jobs_tab", None))
+        return running_count
+
+    def _confirm_close_if_jobs_running(self) -> bool:
+        """実行中ジョブがある場合にユーザーへ終了確認を行う (#1556)。"""
+        running_count = MainWindow._get_running_job_count(self)
+        if running_count <= 0:
+            return True
+        reply = QMessageBox.question(
+            self,
+            "終了確認",
+            f"実行中のジョブが {running_count} 件あります。中断して終了しますか？",  # noqa: RUF001
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return reply == QMessageBox.StandardButton.Yes
+
+    def _shutdown_tabs(self) -> None:
+        """各タブが所有するバックグラウンド worker / thread を停止する。"""
+        # 実行中のエクスポート thread と検索/結果/アノテーションタブの worker を1回ずつ停止する
+        # (埋め込み widget の closeEvent は親ウィンドウ閉鎖で発火しないため明示的に呼ぶ、
+        # #931 / #949 / #961 / #1355 / #1399)。
+        for tab_name in ("export_tab", "search_tab", "results_tab", "annotate_tab"):
+            tab = getattr(self, tab_name, None)
+            if tab is not None:
+                tab.shutdown()
+        # Provider Batch 結果回収 worker を停止する (#1158 Codex P2)。
+        jobs_tab = getattr(self, "jobs_tab", None)
+        if jobs_tab is not None:
+            jobs_tab.provider_batch_job_widget.shutdown()
+
     def closeEvent(self, event: QCloseEvent) -> None:
-        """ウィンドウ閉鎖時にレイアウト状態を保存する。
+        """ウィンドウ閉鎖時に実行中ジョブの確認・キャンセルとレイアウト状態の保存を行う (#1556)。
 
         Args:
             event: クローズイベント
         """
+        if not MainWindow._confirm_close_if_jobs_running(self):
+            event.ignore()
+            return
+
         self._closing = True
         tag_db_manager = getattr(self, "_tag_db_manager", None)
         if tag_db_manager is not None:
             tag_db_manager.cancel_all_workers()
-        if self.dataset_state_manager is not None:
-            self.dataset_state_manager.shutdown_annotation_refresh()
+        worker_service = getattr(self, "worker_service", None)
+        if worker_service is not None:
+            worker_service.cancel_all_workers()
+        dataset_state_manager = getattr(self, "dataset_state_manager", None)
+        if dataset_state_manager is not None:
+            dataset_state_manager.shutdown_annotation_refresh()
         self._save_window_state()
         # メインスレッド watchdog を停止する (#1221)。
         watchdog = getattr(self, "_main_thread_watchdog", None)
         if watchdog is not None:
             watchdog.stop()
-        # 実行中のエクスポート thread を停止する (埋め込み widget の closeEvent は
-        # 親ウィンドウ閉鎖で発火しないため明示的に呼ぶ、#949/#961 P2)。
-        if self.export_tab is not None:
-            self.export_tab.shutdown()
-        # 検索タブの worker (詳細ペインの refinement/tag metadata、クロップ翻訳 launcher) を
-        # 停止する (#931 P2 / #1355)。エクスポートタブの詳細ペインは上の export_tab.shutdown()
-        # が止めるので、ここでは各タブの shutdown を 1 回だけ呼ぶ (二重 shutdown は応答しない
-        # worker の grace 待ちを重ねて終了を遅らせる、#1355 Codex P2)。
-        if self.search_tab is not None:
-            self.search_tab.shutdown()
-        if self.results_tab is not None:
-            self.results_tab.shutdown()
-        # アノテーションタブの比較画面 (ステージングの「比較…」) の worker を停止する (#1399)。
-        if self.annotate_tab is not None:
-            self.annotate_tab.shutdown()
-        # Provider Batch 結果回収 worker を停止する (#1158 Codex P2)。埋め込み widget の
-        # closeEvent は親閉鎖で発火しないため、Jobs タブ経由で明示的に停止して待つ。
-        if self.jobs_tab is not None:
-            self.jobs_tab.provider_batch_job_widget.shutdown()
+        MainWindow._shutdown_tabs(self)
         super().closeEvent(event)
 
     def _save_window_state(self) -> None:
