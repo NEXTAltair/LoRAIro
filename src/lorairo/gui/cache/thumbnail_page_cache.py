@@ -38,6 +38,7 @@ class ThumbnailPageCache:
         self._max_pages = max_pages
         # OrderedDict で LRU を実現（最後にアクセスしたものが末尾）
         self._cache: OrderedDict[int, list[tuple[int, QPixmap]]] = OrderedDict()
+        self._page_max_edge: dict[int, int] = {}
 
         logger.debug(f"ThumbnailPageCache initialized: max_pages={max_pages}")
 
@@ -77,7 +78,29 @@ class ThumbnailPageCache:
         logger.debug(f"Cache hit: page {page_num}")
         return self._cache[page_num]
 
-    def set_page(self, page_num: int, thumbnails: list[tuple[int, QPixmap]]) -> None:
+    @staticmethod
+    def _extract_max_edge(thumbnails: list[tuple[int, QPixmap]]) -> int:
+        """サムネイルリスト内の最大辺長 (px) を算出する。"""
+        max_edge = 0
+        for _, pixmap in thumbnails:
+            w = getattr(pixmap, "width", None)
+            h = getattr(pixmap, "height", None)
+            width = w() if callable(w) else 0
+            height = h() if callable(h) else 0
+            if isinstance(width, int) and isinstance(height, int):
+                max_edge = max(max_edge, width, height)
+        return max_edge
+
+    def get_page_max_edge(self, page_num: int) -> int | None:
+        """指定ページのキャッシュ済みサムネイル最大辺長 (px) を返す。"""
+        return self._page_max_edge.get(page_num)
+
+    def set_page(
+        self,
+        page_num: int,
+        thumbnails: list[tuple[int, QPixmap]],
+        max_edge: int | None = None,
+    ) -> None:
         """
         ページのサムネイルをキャッシュに保存する。
 
@@ -86,22 +109,36 @@ class ThumbnailPageCache:
         Args:
             page_num: ページ番号
             thumbnails: (image_id, QPixmap) のタプルリスト
+            max_edge: ページ読み込み時の最大辺長 (省略時は thumbnails から算出)
         """
+        computed_edge = max_edge if max_edge is not None else self._extract_max_edge(thumbnails)
+
         # 既存エントリの場合は更新してLRU順序も更新
         if page_num in self._cache:
             self._cache[page_num] = thumbnails
             self._cache.move_to_end(page_num)
+            if computed_edge > 0:
+                self._page_max_edge[page_num] = computed_edge
+            else:
+                self._page_max_edge.pop(page_num, None)
             logger.debug(f"Cache updated: page {page_num}, {len(thumbnails)} thumbnails")
             return
 
         # 容量オーバーの場合、最も古いページを削除
         if len(self._cache) >= self._max_pages:
             evicted_page, evicted_data = self._cache.popitem(last=False)
+            self._page_max_edge.pop(evicted_page, None)
             logger.debug(f"Cache evicted: page {evicted_page} ({len(evicted_data)} thumbnails)")
 
         # 新規エントリを追加
         self._cache[page_num] = thumbnails
+        if computed_edge > 0:
+            self._page_max_edge[page_num] = computed_edge
+        else:
+            self._page_max_edge.pop(page_num, None)
         logger.debug(f"Cache set: page {page_num}, {len(thumbnails)} thumbnails")
+
+    add_page = set_page
 
     def has_page(self, page_num: int) -> bool:
         """
@@ -129,6 +166,7 @@ class ThumbnailPageCache:
         """
         if page_num in self._cache:
             del self._cache[page_num]
+            self._page_max_edge.pop(page_num, None)
             logger.debug(f"Cache removed: page {page_num}")
             return True
         return False
@@ -139,6 +177,7 @@ class ThumbnailPageCache:
         """
         page_count = len(self._cache)
         self._cache.clear()
+        self._page_max_edge.clear()
         logger.debug(f"Cache cleared: {page_count} pages removed")
 
     def get_thumbnail_by_id(self, image_id: int) -> QPixmap | None:

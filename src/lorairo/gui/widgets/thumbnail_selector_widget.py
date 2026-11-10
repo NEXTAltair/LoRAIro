@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from threading import Event
 from typing import TYPE_CHECKING, Any, cast
@@ -76,6 +76,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
     # クロップ作成要求（1 枚選択時のみ、image_id）。配線側が set_crop_action_enabled(True)
     # を呼んだタブでのみ右クリックメニューへ項目が出る (#1346)。
     crop_requested = Signal(int)
+    thumbnail_size_changed = Signal(int)
 
     def __init__(
         self,
@@ -146,6 +147,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self._explicit_thumbnail_cache: OrderedDict[ThumbnailKey, QPixmap] = OrderedDict()
         self._explicit_cache_limit = 500
         self._explicit_thumbnail_size = QSize(self.thumbnail_size)
+        self._explicit_loaded_max_edge: int = 0
         self._explicit_request_seq = 0
         self._explicit_pending: dict[int, ExplicitThumbnailRequest] = {}
         self._explicit_tasks: dict[str, ExplicitThumbnailWorker] = {}
@@ -169,6 +171,13 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.resize_timer = QTimer(self)
         self.resize_timer.setSingleShot(True)
         self.resize_timer.timeout.connect(self.update_thumbnail_layout)
+
+        # サムネイルサイズスライダーのデバウンスタイマー (#1542)
+        self._size_slider_debounce_timer = QTimer(self)
+        self._size_slider_debounce_timer.setSingleShot(True)
+        self._size_slider_debounce_timer.setInterval(120)
+        self._size_slider_debounce_timer.timeout.connect(self._apply_debounced_thumbnail_size)
+
         self._selection_sync_connected = False
         self._pending_selection_sync_emit = False
 
@@ -583,21 +592,38 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     def _on_thumbnail_size_slider_changed(self, value: int) -> None:
         """
-        サムネイルサイズスライダーの値変更を処理する。
+        サムネイルサイズスライダーの値変更を処理する（デバウンス付き）。
 
         Args:
             value (int): 新しいサムネイルサイズ値
         """
         self.thumbnail_size = QSize(value, value)
+        self._size_slider_debounce_timer.start()
+
+    @Slot()
+    def _apply_debounced_thumbnail_size(self) -> None:
+        """デバウンス後のサムネイルサイズ変更をUIへ反映する (#1542)。"""
+        value = max(self.thumbnail_size.width(), self.thumbnail_size.height())
 
         # 画像件数表示を更新
         self._update_image_count_display()
 
-        # 検索結果はページキャッシュから再表示する。staging等の明示パス表示は小規模用途として再構築する。
-        if self.pagination_state and self.page_cache.has_page(self._current_display_page):
-            self._display_page(self._current_display_page)
+        if self._explicit_path_mode:
+            if value > getattr(self, "_explicit_loaded_max_edge", 0) and self._explicit_path_items:
+                self.load_thumbnails_from_paths(self._explicit_path_items)
+            else:
+                self.update_thumbnail_layout()
+        elif self.pagination_state:
+            cached_edge = self.page_cache.get_page_max_edge(self._current_display_page)
+            if cached_edge is not None and value > cached_edge:
+                self.page_cache.clear()
+                self._display_or_request_page(self._current_display_page, cancel_previous=True)
+            elif self.page_cache.has_page(self._current_display_page):
+                self._display_page(self._current_display_page)
         elif self._explicit_path_items:
             self._display_explicit_path_items()
+
+        self.thumbnail_size_changed.emit(value)
 
     def _update_image_count_display(self) -> None:
         """
@@ -816,6 +842,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         if size_changed:
             self._clear_explicit_thumbnail_requests()
             self._explicit_thumbnail_size = QSize(self.thumbnail_size)
+        if self._explicit_path_items:
+            self._explicit_loaded_max_edge = max(self.thumbnail_size.width(), self.thumbnail_size.height())
 
         desired = {image_id: path for path, image_id in self._explicit_path_items}
         self._remove_explicit_items(set(desired))
@@ -888,6 +916,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self._explicit_pending.clear()
         self._explicit_thumbnail_cache.clear()
         self._explicit_thumbnail_size = QSize()
+        self._explicit_loaded_max_edge = 0
 
     @staticmethod
     def _set_explicit_item_pixmap(item: ThumbnailItem, pixmap: QPixmap) -> None:
@@ -1205,7 +1234,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             hint.setHeight(self._recommended_content_height())
         return hint
 
-    def load_thumbnails_from_paths(self, items: list[tuple[str, int]]) -> None:
+    def load_thumbnails_from_paths(self, items: Sequence[tuple[str | Path, int]]) -> None:
         """
         明示パスの差分を表示し、未生成分の読み込み・縮小を非同期で要求する。
 

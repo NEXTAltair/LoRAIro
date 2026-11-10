@@ -903,3 +903,120 @@ class TestThumbnailSelectorWidgetSelectionCountDisplay:
         widget.graphics_view._is_rubberband_dragging = False
         widget.graphics_view.rubberBandSelectionFinished.emit()
         assert synced_events == [[1, 2]]
+
+
+class TestThumbnailSelectorWidgetDebounceAndUpscaleReload:
+    """サムネイルサイズスライダーのデバウンスと拡大時再デコードのテスト (#1542)"""
+
+    @pytest.fixture
+    def widget_with_state(self, qtbot):
+        state = DatasetStateManager()
+        widget = ThumbnailSelectorWidget(dataset_state=state)
+        qtbot.addWidget(widget)
+        return widget, state
+
+    @staticmethod
+    def _build_search_result(image_count: int) -> SearchResult:
+        metadata = [
+            {"id": i, "stored_image_path": f"/tmp/image_{i}.png"} for i in range(1, image_count + 1)
+        ]
+        return SearchResult(
+            image_metadata=metadata,
+            total_count=image_count,
+            search_time=0.1,
+            filter_conditions=SearchConditions(search_type="tags", keywords=[], tag_logic="and"),
+        )
+
+    def test_page_cache_tracks_max_edge_and_clears(self):
+        from PySide6.QtGui import QPixmap
+
+        from lorairo.gui.cache.thumbnail_page_cache import ThumbnailPageCache
+
+        cache = ThumbnailPageCache(max_pages=2)
+        assert cache.get_page_max_edge(1) is None
+
+        cache.set_page(1, [(1, QPixmap(128, 96))])
+        assert cache.get_page_max_edge(1) == 128
+
+        cache.set_page(2, [(2, QPixmap(200, 200))])
+        cache.set_page(3, [(3, QPixmap(256, 128))])
+        # LRU eviction of page 1 removes its max_edge record
+        assert cache.get_page_max_edge(1) is None
+        assert cache.get_page_max_edge(2) == 200
+        assert cache.get_page_max_edge(3) == 256
+
+        cache.remove_page(2)
+        assert cache.get_page_max_edge(2) is None
+
+        cache.clear()
+        assert cache.get_page_max_edge(3) is None
+
+    def test_slider_change_debounces_and_reuses_cache_on_downscale(self, widget_with_state):
+        from PySide6.QtGui import QPixmap
+
+        widget, _ = widget_with_state
+        worker_service = Mock()
+        worker_service.start_thumbnail_page_load.return_value = "thumbnail_page_1"
+
+        search_result = self._build_search_result(2)
+        widget.initialize_pagination_search(search_result=search_result, worker_service=worker_service)
+        worker_service.start_thumbnail_page_load.reset_mock()
+
+        widget.page_cache.set_page(1, [(1, QPixmap(128, 128)), (2, QPixmap(128, 128))])
+        widget._display_request_id = None
+
+        emitted_sizes: list[int] = []
+        widget.thumbnail_size_changed.connect(emitted_sizes.append)
+
+        widget._on_thumbnail_size_slider_changed(120)
+        widget._on_thumbnail_size_slider_changed(100)
+        widget._on_thumbnail_size_slider_changed(96)
+
+        assert widget._size_slider_debounce_timer.isActive()
+        assert emitted_sizes == []
+
+        widget._size_slider_debounce_timer.stop()
+        widget._apply_debounced_thumbnail_size()
+
+        assert widget.page_cache.has_page(1)
+        worker_service.start_thumbnail_page_load.assert_not_called()
+        assert emitted_sizes == [96]
+
+    def test_slider_upscale_clears_cache_and_requests_reload(self, widget_with_state):
+        from PySide6.QtGui import QPixmap
+
+        widget, _ = widget_with_state
+        worker_service = Mock()
+        worker_service.start_thumbnail_page_load.return_value = "thumbnail_page_1"
+
+        search_result = self._build_search_result(2)
+        widget.initialize_pagination_search(search_result=search_result, worker_service=worker_service)
+        worker_service.start_thumbnail_page_load.reset_mock()
+
+        widget.page_cache.set_page(1, [(1, QPixmap(128, 128)), (2, QPixmap(128, 128))])
+        widget._display_request_id = None
+
+        widget._on_thumbnail_size_slider_changed(256)
+        widget._size_slider_debounce_timer.stop()
+        widget._apply_debounced_thumbnail_size()
+
+        assert not widget.page_cache.has_page(1)
+        worker_service.start_thumbnail_page_load.assert_called_once()
+        call_kwargs = worker_service.start_thumbnail_page_load.call_args.kwargs
+        assert call_kwargs["thumbnail_size"] == QSize(256, 256)
+
+    def test_slider_upscale_in_explicit_mode_reloads_from_paths(self, qtbot):
+        widget = ThumbnailSelectorWidget()
+        qtbot.addWidget(widget)
+
+        widget.load_thumbnails_from_paths([("test1.jpg", 1), ("test2.jpg", 2)])
+        assert widget._explicit_loaded_max_edge == 128
+
+        with patch.object(
+            widget, "load_thumbnails_from_paths", wraps=widget.load_thumbnails_from_paths
+        ) as spy_load:
+            widget._on_thumbnail_size_slider_changed(256)
+            widget._size_slider_debounce_timer.stop()
+            widget._apply_debounced_thumbnail_size()
+            spy_load.assert_called_once()
+            assert widget._explicit_loaded_max_edge == 256
