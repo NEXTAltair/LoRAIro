@@ -26,7 +26,7 @@ from ..utils.log import logger
 from ..utils.tools import calculate_phash
 from .db_core import resolve_stored_path
 from .filter_criteria import ImageFilterCriteria
-from .repository.annotation_record import AnnotationRepository
+from .repository.annotation_record import AnnotationRepository, ManualRatingBatchResult
 from .repository.crop_relation import CropRelationRepository
 from .repository.error_record import ErrorRecordRepository
 from .repository.generation_metadata import GenerationMetadataRepository
@@ -1445,6 +1445,33 @@ class ImageDatabaseManager:
             (reject_reason は表示種別の再構築に使う、Issue #1003)。
         """
         return self.annotation_repo.get_rejected_tags(image_id)
+
+    def update_manual_rating_batch(
+        self,
+        image_ids: list[int],
+        rating: str | None,
+        *,
+        dry_run: bool = False,
+    ) -> ManualRatingBatchResult:
+        """複数画像の手動レーティング (MANUAL_EDIT) を一括更新またはクリアする (Issue #1504)。
+
+        ``AnnotationRepository.update_manual_rating_batch`` への Manager 層 Facade。
+        AI モデルのレーティング行には触れず、MANUAL_EDIT 行のみを更新・削除する。
+
+        Args:
+            image_ids: 対象画像 ID リスト。
+            rating: 設定するレーティング (``"PG"``, ``"PG-13"``, ``"R"``, ``"X"``, ``"XXX"``)
+                または ``None`` / ``"none"`` (解除)。
+            dry_run: True の場合は DB へ書き込まず更新見込み件数を計算する。
+
+        Returns:
+            ManualRatingBatchResult
+        """
+        return self.annotation_repo.update_manual_rating_batch(
+            image_ids,
+            rating,
+            dry_run=dry_run,
+        )
 
     def get_images_by_filter(
         self,

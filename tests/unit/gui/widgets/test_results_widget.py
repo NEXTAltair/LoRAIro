@@ -688,3 +688,24 @@ def test_keyboard_navigation_moves_focus_and_emits_accept(qtbot):
     with qtbot.waitSignal(widget.accept_requested, timeout=1000) as blocker2:
         qtbot.keyClick(widget, Qt.Key.Key_Return)
     assert blocker2.args == [10]
+
+
+def test_keyboard_navigation_disabled_in_degraded_mode(qtbot):
+    """_VIRTUALIZE_THRESHOLD 以上の degrade 表示時は未描画行へのフォーカスや accept を発火しない (#1545 Codex P2)。"""
+    widget = ResultsWidget()
+    qtbot.addWidget(widget)
+    results = [_result_full(i, 3, [IssueType.NO_SCORE]) for i in range(_VIRTUALIZE_THRESHOLD)]
+    widget.display(_summary(), results)
+
+    assert widget.focused_image_id is None
+    assert widget._row_order() == []
+
+    emitted: list[int] = []
+    widget.accept_requested.connect(emitted.append)
+
+    qtbot.keyClick(widget, Qt.Key.Key_Down)
+    qtbot.keyClick(widget, Qt.Key.Key_Space)
+    qtbot.keyClick(widget, Qt.Key.Key_Return)
+
+    assert widget.focused_image_id is None
+    assert emitted == []

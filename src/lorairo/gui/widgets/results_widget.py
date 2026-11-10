@@ -520,11 +520,17 @@ class ResultsWidget(QWidget):
 
         # needs_review (issue 有) を先頭に安定ソートする。
         ordered = sorted(results, key=lambda r: not r.needs_review)
-        self._row_image_ids = [r.image_id for r in ordered]
-        if same_staged_set and prev_focused_id in self._row_image_ids:
-            self._focused_image_id = prev_focused_id
+        if len(ordered) >= _VIRTUALIZE_THRESHOLD:
+            # 大規模 degrade 時は本体の per-image 行を描画しないため、未描画行に対する
+            # キーボードフォーカス移動や Enter/Space accept 発火を無効化する (#1545 Codex P2)。
+            self._row_image_ids = []
+            self._focused_image_id = None
         else:
-            self._focused_image_id = self._row_image_ids[0] if self._row_image_ids else None
+            self._row_image_ids = [r.image_id for r in ordered]
+            if same_staged_set and prev_focused_id in self._row_image_ids:
+                self._focused_image_id = prev_focused_id
+            else:
+                self._focused_image_id = self._row_image_ids[0] if self._row_image_ids else None
 
         self._root.addWidget(self._build_summary_band(summary))
         issue_band = self._build_issue_band(summary, ordered)
