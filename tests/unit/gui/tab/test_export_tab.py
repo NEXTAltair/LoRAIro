@@ -1045,10 +1045,57 @@ def test_teardown_export_thread_uses_bounded_wait(
     widget._export_worker = fake_worker
     widget._export_thread = fake_thread
 
-    widget._teardown_export_thread()
+    assert widget._teardown_export_thread() is True
 
     fake_worker.cancel.assert_called_once_with()
     fake_thread.quit.assert_called_once_with()
     fake_thread.wait.assert_called_once_with(3000)
+    fake_worker.deleteLater.assert_called_once_with()
+    fake_thread.deleteLater.assert_called_once_with()
     assert widget._export_worker is None
     assert widget._export_thread is None
+
+
+@pytest.mark.gui
+def test_teardown_export_thread_retains_refs_on_timeout_until_finished(
+    qtbot, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """wait(3000) がタイムアウトした場合は thread/worker 参照を保持して close を延期し、finished 後に解放する (#1561)。"""
+    from PySide6.QtGui import QCloseEvent
+
+    from lorairo.gui.tab.export_tab import _RETIRING_EXPORT_THREADS
+
+    widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
+    qtbot.addWidget(widget)
+
+    fake_worker = Mock()
+    fake_thread = Mock()
+    fake_thread.wait.return_value = False
+    finished_callbacks: list[object] = []
+    fake_thread.finished.connect.side_effect = finished_callbacks.append
+    widget._export_worker = fake_worker
+    widget._export_thread = fake_thread
+
+    close_event = QCloseEvent()
+    widget.closeEvent(close_event)
+
+    # 3000ms で停止しなかった場合は close を拒否し、QThread GC abort を防ぐため参照を保持する
+    assert close_event.isAccepted() is False
+    fake_worker.cancel.assert_called_once_with()
+    fake_thread.quit.assert_called_once_with()
+    fake_thread.wait.assert_called_once_with(3000)
+    assert widget._export_thread is fake_thread
+    assert widget._export_worker is fake_worker
+    assert (fake_thread, fake_worker) in _RETIRING_EXPORT_THREADS
+    assert len(finished_callbacks) == 1
+
+    # スレッドが後から停止完了した時点で参照解放と deleteLater が走る
+    callback = finished_callbacks[0]
+    assert callable(callback)
+    callback()
+
+    assert widget._export_thread is None
+    assert widget._export_worker is None
+    assert (fake_thread, fake_worker) not in _RETIRING_EXPORT_THREADS
+    fake_worker.deleteLater.assert_called_once_with()
+    fake_thread.deleteLater.assert_called_once_with()

@@ -61,6 +61,10 @@ if TYPE_CHECKING:
 _SETTINGS_MAIN_SPLITTER = "ExportTab/mainSplitterState"
 _SETTINGS_PREVIEW_SPLITTER = "ExportTab/previewSplitterState"
 
+# wait(3000) タイムアウト後にまだ走行中の (QThread, DatasetExportWorker) をプロセス単位で保持し、
+# ウィジェット破棄時にも「QThread: Destroyed while thread is still running」で abort しないようにする (#1561)。
+_RETIRING_EXPORT_THREADS: list[tuple[QThread, DatasetExportWorker | None]] = []
+
 
 class ExportTabWidget(QWidget):
     """エクスポートタブのルートウィジェット (Epic #942 エクスポート前タグ編集パネル)。
@@ -105,6 +109,7 @@ class ExportTabWidget(QWidget):
         # 非同期エクスポート worker/thread (export_requested で起動、参照保持で GC 防止)。
         self._export_worker: DatasetExportWorker | None = None
         self._export_thread: QThread | None = None
+        self._retiring_threads_connected: set[int] = set()
 
         # 現在のエクスポート対象 (ステージング集合と同期)。
         self._image_ids: list[int] = (
@@ -704,6 +709,9 @@ class ExportTabWidget(QWidget):
         self._export_thread = thread
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
+        worker.finished.connect(thread.quit)
+        worker.cancelled.connect(thread.quit)
+        worker.error.connect(thread.quit)
         thread.start()
 
     @Slot(int, str)
@@ -776,31 +784,82 @@ class ExportTabWidget(QWidget):
         self._overlay_bar.set_exporting(False, "エクスポート失敗")
         show_critical(self, "エクスポート失敗", f"エクスポートに失敗しました:\n{cleaned}")
 
-    def _teardown_export_thread(self) -> None:
-        """エクスポート worker/thread を停止・破棄する。"""
-        if self._export_worker is not None:
-            self._export_worker.cancel()
-        if self._export_thread is not None:
-            self._export_thread.quit()
-            if not self._export_thread.wait(3000):
-                logger.warning("Export thread did not finish within 3000ms")
+    def _disconnect_export_worker_signals(self, worker: DatasetExportWorker) -> None:
+        """タイムアウトした worker から UI スロットを切断し、遅延通知を防ぐ (#1561)。"""
+        for signal_obj, slot in (
+            (worker.progress, self._on_export_progress),
+            (worker.finished, self._on_export_finished),
+            (worker.cancelled, self._on_export_cancelled),
+            (worker.error, self._on_export_error),
+        ):
+            try:
+                signal_obj.disconnect(slot)
+            except (RuntimeError, TypeError):
+                pass
+
+    def _release_export_thread_refs(self, thread: QThread, worker: DatasetExportWorker | None) -> None:
+        """停止完了した QThread / worker の保持参照を解放する (#1561)。"""
+        _RETIRING_EXPORT_THREADS[:] = [pair for pair in _RETIRING_EXPORT_THREADS if pair[0] is not thread]
+        self._retiring_threads_connected.discard(id(thread))
+        if self._export_thread is thread:
             self._export_thread = None
-        self._export_worker = None
+        if worker is not None and self._export_worker is worker:
+            self._export_worker = None
+        if worker is not None and hasattr(worker, "deleteLater"):
+            worker.deleteLater()
+        if hasattr(thread, "deleteLater"):
+            thread.deleteLater()
         self._overlay_bar.set_exporting(False)
 
-    def shutdown(self) -> None:
+    def _teardown_export_thread(self) -> bool:
+        """エクスポート worker/thread を停止・破棄する。
+
+        Returns:
+            スレッドが停止完了していれば True、wait(3000) がタイムアウトし走行中なら False。
+        """
+        worker = self._export_worker
+        thread = self._export_thread
+        if worker is not None:
+            worker.cancel()
+        if thread is not None:
+            thread.quit()
+            if not thread.wait(3000):
+                logger.warning("Export thread did not finish within 3000ms; retaining until finished")
+                if worker is not None:
+                    self._disconnect_export_worker_signals(worker)
+                if all(pair[0] is not thread for pair in _RETIRING_EXPORT_THREADS):
+                    _RETIRING_EXPORT_THREADS.append((thread, worker))
+                if id(thread) not in self._retiring_threads_connected:
+                    self._retiring_threads_connected.add(id(thread))
+                    thread.finished.connect(
+                        lambda t=thread, w=worker: self._release_export_thread_refs(t, w)
+                    )
+                return False
+            self._release_export_thread_refs(thread, worker)
+            return True
+        self._export_worker = None
+        self._overlay_bar.set_exporting(False)
+        return True
+
+    def shutdown(self) -> bool:
         """実行中のエクスポート thread を停止する (ウィンドウ閉鎖時に呼ぶ、#961 P2)。
 
         埋め込みウィジェットの ``closeEvent`` はウィンドウ閉鎖で必ずしも発火しないため、
         MainWindow の closeEvent からも本メソッドを呼んで thread の取り残しを防ぐ。
         詳細ペインの refinement worker も停止する (タブ単独クローズ経路対策、#931 P2)。
+
+        Returns:
+            エクスポートスレッドが停止完了していれば True、まだ走行中なら False。
         """
-        self._teardown_export_thread()
+        stopped = self._teardown_export_thread()
         self._selected_image_details_widget.shutdown()
+        return stopped
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        """タブ単体クローズ時にエクスポート thread を後始末する (#961 P2)。"""
-        self.shutdown()
+        """タブ単体クローズ時にエクスポート thread を後始末する (#961 P2, #1561)。"""
+        if not self.shutdown():
+            event.ignore()
+            return
         super().closeEvent(event)
 
     # ------------------------------------------------------------------
