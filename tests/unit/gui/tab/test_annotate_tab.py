@@ -384,6 +384,67 @@ class TestPipelineAddModelHandler:
         candidate_ids = [info.litellm_model_id for info in captured["candidates"]]
         assert candidate_ids == ["openrouter/openai/gpt-4o"]
 
+    def test_deduplicate_honors_route_preference_openrouter_when_both_keys_configured(
+        self, tab, monkeypatch
+    ):
+        """Codex P2: 両キー設定済みでも route_preference=openrouter なら openrouter 経路を選ぶ。"""
+        openrouter_gpt4o = StageModelInfo(
+            litellm_model_id="openrouter/openai/gpt-4o",
+            display_name="gpt-4o (openrouter)",
+            provider="openrouter",
+            is_api=True,
+            capabilities=frozenset({"multimodal", "caption", "tags", "scores"}),
+        )
+        monkeypatch.setattr(tab, "_available_api_providers", lambda: {"openai", "openrouter"})
+        monkeypatch.setattr(tab, "_route_preference", lambda: "openrouter")
+
+        deduped = tab._deduplicate_stage_model_infos([GPT4O_INFO, openrouter_gpt4o, WD_TAGGER_INFO])
+        assert [info.litellm_model_id for info in deduped] == [
+            "openrouter/openai/gpt-4o",
+            "wd-v1-4-tagger",
+        ]
+        assert tab._filter_model_ids_for_preset(
+            "default", [GPT4O_INFO, openrouter_gpt4o, WD_TAGGER_INFO]
+        ) == ["openrouter/openai/gpt-4o", "wd-v1-4-tagger"]
+
+    def test_picker_configure_key_recomputes_deduplicated_candidates_for_openrouter(self, tab, qtbot):
+        """Codex P2: キー未設定で開いたピッカーから OpenRouter キーを保存すると openrouter 経路へ差し替わる。"""
+        from lorairo.gui.widgets.stage_model_picker_dialog import StageModelPickerDialog
+
+        openrouter_gpt4o = StageModelInfo(
+            litellm_model_id="openrouter/openai/gpt-4o",
+            display_name="gpt-4o",
+            provider="openrouter",
+            is_api=True,
+            capabilities=frozenset({"multimodal", "caption", "tags", "scores"}),
+        )
+        _wire_model_selection(tab, {}, [], [GPT4O_INFO, openrouter_gpt4o])
+        tab._build_stage_model_infos = lambda ids: [
+            info for info in (GPT4O_INFO, openrouter_gpt4o) if info.litellm_model_id in ids
+        ]
+
+        # 初期状態: キー未設定 → direct (openai/gpt-4o) が needs key でピッカーに並ぶ
+        tab._available_api_providers = lambda: set()
+        initial_candidates = tab._build_picker_candidates(PipelineStage.TAGS)
+        assert [c.litellm_model_id for c in initial_candidates] == ["openai/gpt-4o"]
+
+        dialog = StageModelPickerDialog(
+            PipelineStage.TAGS,
+            initial_candidates,
+            available_providers=set(),
+        )
+        qtbot.addWidget(dialog)
+
+        # 設定画面で openrouter キーが保存された想定
+        tab._available_api_providers = lambda: {"openrouter"}
+        tab._reload_model_widget_after_settings = Mock()
+
+        tab._on_picker_configure_key_requested("openrouter", dialog, stage=PipelineStage.TAGS)
+
+        assert [r.info.litellm_model_id for r in dialog._rows] == ["openrouter/openai/gpt-4o"]
+        dialog._rows[0].toggle_requested.emit()
+        assert dialog.selected_model_ids() == ["openrouter/openai/gpt-4o"]
+
     def test_picker_receives_available_providers(self, tab, monkeypatch):
         from lorairo.gui.tab import annotate_tab as annotate_tab_module
 

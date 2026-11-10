@@ -54,10 +54,12 @@ from ...database.db_core import resolve_stored_path
 from ...database.db_manager import ImageDatabaseManager
 from ...services.dispatch_projection_service import batch_eligible_litellm_ids
 from ...services.model_route_service import (
+    RoutePreference,
     build_available_providers,
     canonical_key,
     detect_route,
     is_webapi_model_id,
+    parse_route_preference,
     required_provider_for,
 )
 from ...services.model_selection_service import ModelSelectionService
@@ -800,8 +802,13 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         logger.info(f"プリセット '{preset_id}' を適用: {len(preset_ids)} 件のモデルを選択")
 
     def _deduplicate_stage_model_infos(self, infos: list[StageModelInfo]) -> list[StageModelInfo]:
-        """同一 canonical_key を持つ複数経路 (direct / openrouter) を preferred 1 件に畳み込む (#1537, #1538)。"""
+        """同一 canonical_key を持つ複数経路 (direct / openrouter) を preferred 1 件に畳み込む (#1537, #1538)。
+
+        ``ModelSelectionWidget.selectable_litellm_model_ids`` / ``select_preferred_route`` と同じく
+        config の ``model_selection.route_preference`` を尊重する。
+        """
         available_providers = self._available_api_providers()
+        preference = self._route_preference()
         grouped: dict[str, list[StageModelInfo]] = {}
         order: list[str] = []
         for info in infos:
@@ -814,24 +821,31 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         result: list[StageModelInfo] = []
         for ckey in order:
             group = grouped[ckey]
-            if len(group) == 1:
+            if not group[0].is_api:
                 result.append(group[0])
                 continue
             direct = next((i for i in group if detect_route(i.litellm_model_id) == "direct"), None)
             openrouter = next((i for i in group if detect_route(i.litellm_model_id) == "openrouter"), None)
-            if (
+            chosen: StageModelInfo | None
+            if preference == "direct":
+                chosen = direct
+            elif preference == "openrouter":
+                chosen = openrouter
+            elif (
                 direct is not None
                 and required_provider_for(direct.litellm_model_id, direct.provider) in available_providers
             ):
-                result.append(direct)
+                chosen = direct
             elif (
                 openrouter is not None
                 and required_provider_for(openrouter.litellm_model_id, openrouter.provider)
                 in available_providers
             ):
-                result.append(openrouter)
+                chosen = openrouter
             else:
-                result.append(direct or openrouter or group[0])
+                chosen = direct or openrouter or group[0]
+            if chosen is not None:
+                result.append(chosen)
         return result
 
     def _filter_available_stage_model_infos(self, all_infos: list[StageModelInfo]) -> list[StageModelInfo]:
@@ -1223,6 +1237,36 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             return set()
         return build_available_providers(api_keys)
 
+    def _route_preference(self) -> RoutePreference:
+        """config の route_preference 設定を取得する (Issue #249, #1537, #1538)。"""
+        config_service = getattr(self._service_container, "config_service", None)
+        if config_service is None:
+            return "auto"
+        try:
+            raw = config_service.get_setting("model_selection", "route_preference", "auto")
+            return parse_route_preference(raw)
+        except (AttributeError, KeyError, TypeError):
+            logger.opt(exception=True).warning("route_preference 設定の取得に失敗 (auto fallback)")
+            return "auto"
+
+    def _build_picker_candidates(self, stage: PipelineStage) -> list[StageModelInfo]:
+        """指定ステージ向けに経路重複排除・選択済み除外済みのピッカー候補を構築する (#1538)。"""
+        service = getattr(self._batch_model_selection, "model_selection_service", None)
+        raw_models = service.load_models() if service is not None else []
+        all_models = raw_models if isinstance(raw_models, list) else []
+        active_models = [model for model in all_models if getattr(model, "available", True)]
+        all_ids = [model.litellm_model_id for model in active_models]
+        selected_ids = set(self.selected_litellm_model_ids())
+        selected_canonical_keys = {canonical_key(mid) for mid in selected_ids}
+        deduped_infos = self._deduplicate_stage_model_infos(self._build_stage_model_infos(all_ids))
+        return [
+            info
+            for info in deduped_infos
+            if stage in info.fill_stages()
+            and info.litellm_model_id not in selected_ids
+            and (not info.is_api or canonical_key(info.litellm_model_id) not in selected_canonical_keys)
+        ]
+
     def _on_pipeline_add_model_requested(self, stage_value: str) -> None:
         """ステージ行の「+ 追加」でピッカーを開き、選択モデル集合へ追加する (Phase 6b, #1538)。
 
@@ -1237,21 +1281,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             stage_value: 追加先ステージの PipelineStage value。
         """
         stage = PipelineStage(stage_value)
-
-        service = self._batch_model_selection.model_selection_service
-        all_models = service.load_models() if service is not None else []
-        active_models = [model for model in all_models if getattr(model, "available", True)]
-        all_ids = [model.litellm_model_id for model in active_models]
-        selected_ids = set(self.selected_litellm_model_ids())
-        selected_canonical_keys = {canonical_key(mid) for mid in selected_ids}
-        deduped_infos = self._deduplicate_stage_model_infos(self._build_stage_model_infos(all_ids))
-        candidates = [
-            info
-            for info in deduped_infos
-            if stage in info.fill_stages()
-            and info.litellm_model_id not in selected_ids
-            and (not info.is_api or canonical_key(info.litellm_model_id) not in selected_canonical_keys)
-        ]
+        candidates = self._build_picker_candidates(stage)
 
         dialog = StageModelPickerDialog(
             stage,
@@ -1260,7 +1290,9 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             parent=self,
         )
         dialog.configure_key_requested.connect(
-            lambda provider, dialog=dialog: self._on_picker_configure_key_requested(provider, dialog)
+            lambda provider, dialog=dialog, stage=stage: self._on_picker_configure_key_requested(
+                provider, dialog, stage=stage
+            )
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -1322,21 +1354,33 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         self._sync_widget_selection_to_state()
         self._refresh_pipeline_panel()
 
-    def _on_picker_configure_key_requested(self, provider: str, dialog: StageModelPickerDialog) -> None:
-        """ピッカーの ``○ needs key`` チップから設定の該当プロバイダ欄へ誘導する (Issue #755)。
+    def _on_picker_configure_key_requested(
+        self,
+        provider: str,
+        dialog: StageModelPickerDialog,
+        stage: PipelineStage | None = None,
+    ) -> None:
+        """ピッカーの ``○ needs key`` チップから設定の該当プロバイダ欄へ誘導する (Issue #755, #1538)。
 
         :data:`configure_key_requested` は MainWindow glue へ設定ダイアログ表示を委譲する。
         Qt の同一スレッド Signal は同期実行されるため、emit から戻った時点で設定保存は
         完了している。これを前提に、開いたままのピッカーとモデル一覧を再評価して
-        アプリ再起動なしで ``● API ready`` に解消する。
+        アプリ再起動なしで ``● API ready`` に解消する。設定保存により preferred route
+        (direct ↔ openrouter) が変化した場合も候補を再構築して即座に反映する。
 
         Args:
             provider: API キーが必要な provider 名 (例 ``"anthropic"``)。
             dialog: シグナル発火元のピッカーダイアログ (開いたまま更新する)。
+            stage: ピッカーの対象ステージ (省略時は ``dialog._stage`` から取得)。
         """
         self.configure_key_requested.emit(provider)
         self._reload_model_widget_after_settings()
-        dialog.refresh_key_status(self._available_api_providers())
+        available_providers = self._available_api_providers()
+        dialog.refresh_key_status(available_providers)
+        target_stage = stage if stage is not None else getattr(dialog, "_stage", None)
+        if isinstance(target_stage, PipelineStage) and hasattr(dialog, "replace_candidates"):
+            dialog.replace_candidates(self._build_picker_candidates(target_stage))
+        self._refresh_pipeline_panel()
 
     def _reload_model_widget_after_settings(self) -> None:
         """設定保存後にモデル選択ウィジェットへ最新のキー状況を反映する (Issue #755)。

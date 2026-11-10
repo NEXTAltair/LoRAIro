@@ -56,7 +56,7 @@ from lorairo.services.cost_estimation_service import (
     CostEstimationService,
     format_per_image_cost,
 )
-from lorairo.services.model_route_service import required_provider_for
+from lorairo.services.model_route_service import canonical_key, required_provider_for
 from lorairo.services.pipeline_composition import PipelineStage, StageModelInfo
 
 # --- 表示テキスト -----------------------------------------------------------
@@ -696,6 +696,7 @@ class StageModelPickerDialog(QDialog):
         self._scroll.setObjectName("pickerScroll")
         self._scroll.setWidgetResizable(True)
         rows_host = QWidget(self._scroll)
+        self._rows_host = rows_host
         self._rows_layout = QVBoxLayout(rows_host)
         self._rows_layout.setContentsMargins(theme.SPACE_2, theme.SPACE_2, theme.SPACE_2, theme.SPACE_2)
         self._rows_layout.setSpacing(theme.SPACE_1)
@@ -956,16 +957,61 @@ class StageModelPickerDialog(QDialog):
         provider = required_provider_for(info.litellm_model_id, info.provider)
         return provider not in self._available_providers
 
-    def refresh_key_status(self, available_providers: set[str]) -> None:
-        """API キー設定状況を再評価して全行の status を更新する (Issue #755)。
+    def replace_candidates(self, candidates: list[StageModelInfo]) -> None:
+        """候補モデルリストを差し替えて行表示と provider フィルタを再構築する (#1538)。
+
+        API キー設定変更や route_preference 変更後に preferred route が切り替わった場合
+        (例: ``openai/gpt-4o`` → ``openrouter/openai/gpt-4o``) でも、開いたままの
+        ピッカーで最新経路の行へ更新する。
+
+        Args:
+            candidates: 再構築後の候補 StageModelInfo リスト。
+        """
+        new_candidates = list(candidates)
+        old_selected_canonical = {canonical_key(mid) for mid in self._selected_ids}
+        remapped_selected: set[str] = set()
+        for info in new_candidates:
+            if info.litellm_model_id in self._selected_ids or (
+                info.is_api and canonical_key(info.litellm_model_id) in old_selected_canonical
+            ):
+                remapped_selected.add(info.litellm_model_id)
+        self._selected_ids = remapped_selected
+        self._candidates = new_candidates
+
+        if hasattr(self, "_rows_layout") and hasattr(self, "_rows_host"):
+            for row in self._rows:
+                self._rows_layout.removeWidget(row)
+                row.setParent(None)
+                row.deleteLater()
+            self._rows.clear()
+            for idx, info in enumerate(self._candidates):
+                row = _ModelRow(info, self._rows_host)
+                row.toggle_requested.connect(lambda r=row: self._toggle_row(r))
+                row.configure_requested.connect(lambda r=row: self._on_row_configure(r))
+                self._rows.append(row)
+                self._rows_layout.insertWidget(idx, row)
+            self._rebuild_provider_radios()
+            self._apply_filters()
+
+    def refresh_key_status(
+        self,
+        available_providers: set[str],
+        candidates: list[StageModelInfo] | None = None,
+    ) -> None:
+        """API キー設定状況を再評価して全行の status を更新する (Issue #755, #1538)。
 
         キー保存後に呼び出すと ``○ needs key`` 行が ``● API ready`` に変わり、
-        選択可能になる (アプリ再起動不要)。
+        選択可能になる (アプリ再起動不要)。``candidates`` が指定された場合は
+        経路再評価後の候補リストへ差し替える。
 
         Args:
             available_providers: 最新の API キー設定済み provider 集合。
+            candidates: 再計算された候補モデルリスト (省略時は現在の候補を維持)。
         """
         self._available_providers = set(available_providers)
+        if candidates is not None:
+            self.replace_candidates(candidates)
+            return
         if self._rows:
             self._apply_filters()
 
