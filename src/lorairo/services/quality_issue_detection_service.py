@@ -16,6 +16,7 @@ import math
 import random
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from lorairo.domain.quality_tier import QualityTier, map_score_label_to_tier
@@ -105,6 +106,7 @@ class ImageTriageResult:
     scorers: list[ScorerView]
     issues: list[IssueType]  # 検出された構造的問題 (空なら clean)
     reviewed: bool = False  # accept 済み (Image.reviewed_at が値あり) なら True
+    filename: str | None = None  # 画像ファイル名 (#1545)
 
     @property
     def needs_review(self) -> bool:
@@ -199,7 +201,17 @@ class QualityIssueDetectionService:
             scorers=scorer_views,
             issues=issues,
             reviewed=image_meta.get("reviewed_at") is not None,
+            filename=self._extract_filename(image_meta),
         )
+
+    @staticmethod
+    def _extract_filename(image_meta: _AnnotationRow) -> str | None:
+        """image_meta から表示用の画像ファイル名を抽出する (#1545)。"""
+        for key in ("filename", "file_name", "original_image_path", "stored_image_path", "image_path"):
+            raw = image_meta.get(key)
+            if isinstance(raw, str) and raw.strip():
+                return Path(raw).name
+        return None
 
     def summarize(self, results: list[ImageTriageResult]) -> BatchTriageSummary:
         """画像別結果をバッチサマリに集約する。

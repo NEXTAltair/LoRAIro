@@ -8,10 +8,11 @@ MainWindow は本ウィジェットを配置し依存を注入するだけ (glue
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Signal, Slot
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtGui import QCloseEvent, QKeyEvent
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from ...database.db_core import resolve_stored_path
@@ -155,28 +156,44 @@ class ResultsTabWidget(QWidget):
         self.shutdown()
         super().closeEvent(event)
 
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """キーボードナビゲーション操作を内包する ResultsWidget へ委譲する (#1545)。"""
+        if self._results_widget.handle_navigation_key(event.key()):
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
     @Slot(int)
     def _on_accept(self, image_id: int) -> None:
-        """Results 行の accept: reviewed_at を設定して再描画する。"""
+        """Results 行の accept: reviewed_at を設定し、該当行とサマリを差分更新する (#1545)。"""
         if self._db_manager:
             self._db_manager.mark_image_reviewed(image_id, reviewed=True)
-        self.refresh()
+        if not self._results_widget.set_image_reviewed(image_id, reviewed=True):
+            self.refresh()
 
     @Slot(int)
     def _on_unaccept(self, image_id: int) -> None:
-        """Results 行の accept 取消: reviewed_at を解除して再描画する。"""
+        """Results 行の accept 取消: reviewed_at を解除し、該当行とサマリを差分更新する (#1545)。"""
         if self._db_manager:
             self._db_manager.mark_image_reviewed(image_id, reviewed=False)
-        self.refresh()
+        if not self._results_widget.set_image_reviewed(image_id, reviewed=False):
+            self.refresh()
 
     @Slot(list)
     def _on_accept_clean(self, image_ids: list[int]) -> None:
-        """問題なし画像を一括 accept して再描画する。"""
+        """問題なし画像を 1 トランザクションで一括 accept し、表示を更新する (#1545)。"""
+        if not image_ids:
+            return
         if self._db_manager:
-            for image_id in image_ids:
-                self._db_manager.mark_image_reviewed(image_id, reviewed=True)
+            batch_fn = getattr(self._db_manager, "mark_images_reviewed_batch", None)
+            if callable(batch_fn):
+                batch_fn(image_ids, reviewed=True)
+            else:
+                for image_id in image_ids:
+                    self._db_manager.mark_image_reviewed(image_id, reviewed=True)
             logger.info(f"一括 accept 完了: {len(image_ids)} 件")
-        self.refresh()
+        if not self._results_widget.set_images_reviewed(image_ids, reviewed=True):
+            self.refresh()
 
     def refresh(self) -> None:
         """ステージング集合のトリアージを再計算して描画する (タブ表示時に呼ぶ)。"""
@@ -186,7 +203,8 @@ class ResultsTabWidget(QWidget):
             self._results_widget.clear()
             return
 
-        image_ids = list(self._staging_state_manager.get_staged_items().keys())
+        staged_items = self._staging_state_manager.get_staged_items()
+        image_ids = list(staged_items.keys())
         if not image_ids:
             self._results_widget.clear()
             return
@@ -204,16 +222,21 @@ class ResultsTabWidget(QWidget):
 
         results = []
         valid_ids: list[int] = []
+        image_names: dict[int, str] = {}
         for image_id in image_ids:
             metadata = metadata_by_id.get(image_id)
             if metadata is None:
                 continue
             annotations = annotations_by_id.get(image_id, {})
+            filename = self._resolve_image_filename(metadata, staged_items.get(image_id))
+            if filename is not None:
+                image_names[image_id] = filename
             image_meta = {
                 "uuid": metadata.get("uuid"),
                 "width": metadata.get("width"),
                 "height": metadata.get("height"),
                 "reviewed_at": metadata.get("reviewed_at"),
+                "filename": filename,
             }
             results.append(self._quality_service.detect_image(image_id, image_meta, annotations))
             valid_ids.append(image_id)
@@ -238,7 +261,23 @@ class ResultsTabWidget(QWidget):
                 image_paths[image_id] = path
 
         summary = self._quality_service.summarize(results)
-        self._results_widget.display(summary, results, image_paths)
+        self._results_widget.display(summary, results, image_paths, image_names)
+
+    @staticmethod
+    def _resolve_image_filename(
+        metadata: dict[str, object],
+        staged_item: tuple[str, str] | None,
+    ) -> str | None:
+        """metadata またはステージング項目から表示用の画像ファイル名を解決する (#1545)。"""
+        for key in ("filename", "file_name", "original_image_path", "stored_image_path", "image_path"):
+            raw = metadata.get(key)
+            if isinstance(raw, str) and raw.strip():
+                return Path(raw).name
+        if staged_item is not None:
+            for item_part in staged_item:
+                if isinstance(item_part, str) and item_part.strip():
+                    return Path(item_part).name
+        return None
 
     def _resolve_thumbnail_path(self, metadata: dict[str, object], low_res_path: str | None) -> str | None:
         """行内サムネイル用の画像パスを解決する (#1104 / バッチ化 #1140)。

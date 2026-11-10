@@ -564,3 +564,127 @@ def test_issue_badge_has_short_label_and_guidance_tooltip(qapp):
     assert badges, "issue バッジが生成されていない"
     badge = next(b for b in badges if b.text() == _ISSUE_LABELS[IssueType.RATING_DISAGREEMENT])
     assert badge.toolTip() == _ISSUE_GUIDANCE[IssueType.RATING_DISAGREEMENT]
+
+
+# ─── #1545: 差分 accept・スクロール保持・CLEAN サンプル安定化・ファイル名表示・キーボード操作 ───
+
+
+def test_set_image_reviewed_updates_row_and_summary_in_place(qapp):
+    """set_image_reviewed は行ウィジェットを破棄せず状態とサマリ帯を更新する (#1545)。"""
+    widget = ResultsWidget()
+    results = [_result(10, [IssueType.EMPTY_TAGS]), _result(11, [])]
+    widget.display(_summary(), results)
+
+    row_10 = widget.findChild(object, "resultsRow_10")
+    row_11 = widget.findChild(object, "resultsRow_11")
+    assert row_10 is not None and row_11 is not None
+    assert bool(row_10.property("needsReview")) is True
+    assert not bool(row_10.property("accepted"))
+
+    assert widget.set_image_reviewed(10, reviewed=True) is True
+
+    # 行ウィジェットのインスタンスは同一のまま更新される
+    assert widget.findChild(object, "resultsRow_10") is row_10
+    assert widget.findChild(object, "resultsRow_11") is row_11
+    assert bool(row_10.property("needsReview")) is False
+    assert bool(row_10.property("accepted")) is True
+    assert widget.findChild(object, "resultsUnacceptButton_10") is not None
+    assert widget.findChild(object, "resultsAcceptButton_10") is None
+
+    accepted_label = widget.findChild(QLabel, "resultsSummary_accepted")
+    needs_review_label = widget.findChild(QLabel, "resultsSummary_needs_review")
+    assert accepted_label is not None and accepted_label.text() == "accepted: 1/2"
+    assert needs_review_label is not None and needs_review_label.text() == "要レビュー: 0"
+
+    # 取消 (unaccept) もインプレースで元に戻る
+    assert widget.set_image_reviewed(10, reviewed=False) is True
+    assert widget.findChild(object, "resultsRow_10") is row_10
+    assert bool(row_10.property("needsReview")) is True
+    assert bool(row_10.property("accepted")) is False
+    assert widget.findChild(object, "resultsAcceptButton_10") is not None
+    assert widget.findChild(object, "resultsUnacceptButton_10") is None
+
+
+def test_clean_audit_sample_stays_stable_across_accept_and_same_set_redisplay(qapp):
+    """CLEAN 監査サンプルは accept や同一集合の再 display で再抽選されない (#1545)。"""
+    widget = ResultsWidget()
+    # 30 件の clean 画像 (サンプル数は ceil(sqrt(30)) = 6 件) + 1 件の要レビュー画像
+    results = [_result(1, [IssueType.EMPTY_TAGS])] + [_result(i, []) for i in range(2, 32)]
+    widget.display(_summary(), results)
+
+    initial_sample = list(widget._clean_plan.sample_image_ids)
+    assert len(initial_sample) == 6
+
+    # 要レビュー画像の accept ではサンプルは一切変化しない
+    widget.set_image_reviewed(1, reviewed=True)
+    assert list(widget._clean_plan.sample_image_ids) == initial_sample
+
+    # 同一ステージング集合での再 display でもサンプルは保持される
+    widget.display(_summary(), widget._results_cache)
+    assert list(widget._clean_plan.sample_image_ids) == initial_sample
+
+    # ステージング集合自体が変わった場合は新規に抽選される
+    other_results = [_result(i, []) for i in range(100, 130)]
+    widget.display(_summary(), other_results)
+    assert set(widget._clean_plan.sample_image_ids) <= set(range(100, 130))
+
+
+def test_row_header_displays_filename(qapp):
+    """行ヘッダは #id とともにファイル名を表示する (#1545)。"""
+    widget = ResultsWidget()
+    r1 = ImageTriageResult(
+        image_id=10,
+        uuid="abcd1234",
+        width=1024,
+        height=768,
+        tags=[],
+        caption=None,
+        caption_word_count=0,
+        canonical_rating=None,
+        ratings=[],
+        canonical_tier=None,
+        scorers=[],
+        issues=[],
+        filename="sample_01.webp",
+    )
+    r2 = _result(11, [])
+    widget.display(_summary(), [r1, r2], image_paths={11: "/data/images/fallback_02.png"})
+
+    ident_10 = widget.findChild(QLabel, "resultsRowIdent_10")
+    ident_11 = widget.findChild(QLabel, "resultsRowIdent_11")
+    assert ident_10 is not None and "sample_01.webp" in ident_10.text()
+    assert ident_11 is not None and "fallback_02.png" in ident_11.text()
+
+
+def test_keyboard_navigation_moves_focus_and_emits_accept(qtbot):
+    """Up/Down キーでフォーカス行を移動し、Return/Space で accept シグナルを発火する (#1545)。"""
+    widget = ResultsWidget()
+    qtbot.addWidget(widget)
+    results = [
+        _result(10, [IssueType.EMPTY_TAGS]),
+        _result(11, []),
+        _result(12, []),
+    ]
+    widget.display(_summary(), results)
+
+    # 初期フォーカスは先頭行 (#10)
+    assert widget.focused_image_id == 10
+    assert bool(widget.findChild(object, "resultsRow_10").property("focused")) is True
+
+    # Down で #11 へ移動
+    qtbot.keyClick(widget, Qt.Key.Key_Down)
+    assert widget.focused_image_id == 11
+    assert bool(widget.findChild(object, "resultsRow_10").property("focused")) is False
+    assert bool(widget.findChild(object, "resultsRow_11").property("focused")) is True
+
+    # Space で #11 の accept_requested が発火
+    with qtbot.waitSignal(widget.accept_requested, timeout=1000) as blocker:
+        qtbot.keyClick(widget, Qt.Key.Key_Space)
+    assert blocker.args == [11]
+
+    # Up で #10 へ戻り Return で #10 の accept_requested が発火
+    qtbot.keyClick(widget, Qt.Key.Key_Up)
+    assert widget.focused_image_id == 10
+    with qtbot.waitSignal(widget.accept_requested, timeout=1000) as blocker2:
+        qtbot.keyClick(widget, Qt.Key.Key_Return)
+    assert blocker2.args == [10]
