@@ -261,6 +261,16 @@ class DatasetStateManager(QObject):
         self.images_filtered.emit(self._all_images)
 
         # 現在の選択状態を検証・クリア
+        if self._selected_image_ids:
+            valid_selected = [img_id for img_id in self._selected_image_ids if img_id in index]
+            if valid_selected != self._selected_image_ids:
+                logger.debug(
+                    f"検索結果外になった選択画像IDを除外: "
+                    f"{len(self._selected_image_ids)} -> {len(valid_selected)}件"
+                )
+                self._selected_image_ids = valid_selected
+                self.selection_changed.emit(self._selected_image_ids)
+
         if self._current_image_id:
             current_valid = any(img.get("id") == self._current_image_id for img in self._all_images)
             if not current_valid:

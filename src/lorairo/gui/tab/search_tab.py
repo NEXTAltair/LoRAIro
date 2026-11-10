@@ -685,6 +685,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         """サムネイル → プレビュー間の接続と、ステージ/クイックタグの上方 emit を行う。"""
         self._thumbnail_selector.image_selected.connect(self._image_preview_widget.load_image)
         self._thumbnail_selector.selection_synced.connect(self._update_review_selection)
+        self._thumbnail_selector.selection_synced.connect(self._handle_selection_changed_for_rating)
         if hasattr(self._thumbnail_selector, "stage_selected_requested"):
             self._thumbnail_selector.stage_selected_requested.connect(self.stage_to_annotation_requested)
         if hasattr(self._thumbnail_selector, "quick_tag_requested"):

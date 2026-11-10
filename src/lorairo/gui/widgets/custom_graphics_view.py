@@ -28,6 +28,7 @@ class CustomGraphicsView(QGraphicsView):
 
     itemClicked = Signal(ThumbnailItem, Qt.KeyboardModifier)
     emptySpaceClicked = Signal()
+    rubberBandSelectionFinished = Signal()
 
     @overload
     def __init__(self, parent: QWidget | None = None) -> None: ...
@@ -45,6 +46,7 @@ class CustomGraphicsView(QGraphicsView):
         """
         super().__init__(*args, **kwargs)
         self._drag_modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier
+        self._is_rubberband_dragging: bool = False
         # キーボードフォーカスを受け取れるように設定（将来のキー操作対応のため）
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
@@ -60,6 +62,7 @@ class CustomGraphicsView(QGraphicsView):
         Args:
             event: マウスイベント
         """
+        self._is_rubberband_dragging = False
         # 右クリックは無視（コンテキストメニューで処理）
         if event.button() != Qt.MouseButton.LeftButton:
             super().mousePressEvent(event)
@@ -79,16 +82,21 @@ class CustomGraphicsView(QGraphicsView):
             ):
                 # 修飾子なしの空スペースクリック → 選択解除用シグナル
                 self.emptySpaceClicked.emit()
+            self._is_rubberband_dragging = True
             super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         """
         マウスリリースイベント処理。
 
-        ラバーバンドドラッグ終了後にドラッグ修飾子をリセットする。
+        ラバーバンドドラッグ終了後に確定通知を発行し、ドラッグ修飾子をリセットする。
 
         Args:
             event: マウスイベント
         """
+        was_dragging = self._is_rubberband_dragging
+        self._is_rubberband_dragging = False
         super().mouseReleaseEvent(event)
+        if was_dragging:
+            self.rubberBandSelectionFinished.emit()
         self._drag_modifiers = Qt.KeyboardModifier.NoModifier

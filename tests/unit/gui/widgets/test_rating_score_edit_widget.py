@@ -369,7 +369,7 @@ class TestRatingScoreEditWidgetBatchMode:
         assert widget.ui.labelScoreValue.text() == "8.50"
 
     def test_populate_from_selection_different_scores(self, widget, mock_db_manager):
-        """異なるScoreの場合、デフォルト値が表示される"""
+        """異なるScoreの場合、未設定プレースホルダ "--" が表示される (#1533)"""
         mock_db_manager.image_repo.get_image_metadata.side_effect = [
             {"rating": "PG", "score_value": 3.0},
             {"rating": "PG", "score_value": 7.0},
@@ -377,8 +377,110 @@ class TestRatingScoreEditWidgetBatchMode:
 
         widget.populate_from_selection([1, 2], mock_db_manager)
 
+        assert widget._manual_score_set is False
         assert widget.ui.sliderScore.value() == 500
-        assert widget.ui.labelScoreValue.text() == "5.00"
+        assert widget.ui.labelScoreValue.text() == "--"
+
+    def test_populate_from_selection_extracts_rating_value_and_manual_score(self, widget, mock_db_manager):
+        """ImageRepository形式 (rating_value / manual_score_value) から共通値を判定する (#1533)"""
+        mock_db_manager.image_repo.get_image_metadata.side_effect = [
+            {"rating_value": "PG-13", "manual_score_value": 6.5, "score_value": 6.5},
+            {"rating_value": "PG-13", "manual_score_value": 6.5, "score_value": 6.5},
+        ]
+
+        widget.populate_from_selection([1, 2], mock_db_manager)
+
+        assert widget.ui.comboBoxRating.currentText() == "PG-13"
+        assert widget._manual_score_set is True
+        assert widget.ui.sliderScore.value() == 650
+        assert widget.ui.labelScoreValue.text() == "6.50"
+
+    def test_populate_from_selection_preserves_unset_manual_rating_when_ai_rating_present(
+        self, widget, mock_db_manager, qtbot
+    ):
+        """manual_rating_valueが空文字の場合はAIのrating_valueを採用せず未設定を維持する (#1533 Codex P2)"""
+        mock_db_manager.image_repo.get_images_metadata_batch.return_value = [
+            {
+                "id": 1,
+                "manual_rating_value": "",
+                "rating_value": "PG",
+                "ai_rating_value": "PG",
+                "manual_score_value": None,
+                "score_value": 6.0,
+            },
+            {
+                "id": 2,
+                "manual_rating_value": "",
+                "rating_value": "PG",
+                "ai_rating_value": "PG",
+                "manual_score_value": None,
+                "score_value": 6.0,
+            },
+        ]
+
+        widget.populate_from_selection([1, 2], mock_db_manager)
+
+        mock_db_manager.image_repo.get_images_metadata_batch.assert_called_once_with([1, 2])
+        mock_db_manager.image_repo.get_image_metadata.assert_not_called()
+        assert widget.ui.comboBoxRating.currentText() == "----"
+        assert widget._manual_score_set is False
+
+        # スコアのみ変更してSaveしても batch_rating_changed は発火しない
+        rating_emitted = False
+
+        def on_rating(*args):
+            nonlocal rating_emitted
+            rating_emitted = True
+
+        widget.batch_rating_changed.connect(on_rating)
+        widget.ui.sliderScore.setValue(800)
+
+        with qtbot.waitSignal(widget.batch_score_changed, timeout=1000) as score_blocker:
+            widget.ui.pushButtonSave.click()
+
+        assert score_blocker.args == [[1, 2], 800]
+        assert rating_emitted is False
+
+    def test_batch_save_mixed_score_does_not_emit_batch_score_changed(self, widget, mock_db_manager, qtbot):
+        """バッチモードでScoreが異なる(未変更 "--")場合、Rating保存時にbatch_score_changedを発行しない (#1533)"""
+        mock_db_manager.image_repo.get_image_metadata.side_effect = [
+            {"rating": "PG", "score_value": 3.0},
+            {"rating": "PG", "score_value": 8.0},
+        ]
+
+        widget.populate_from_selection([10, 20], mock_db_manager)
+        assert widget.ui.labelScoreValue.text() == "--"
+        assert widget._manual_score_set is False
+
+        score_emitted = False
+
+        def on_score_signal(*args):
+            nonlocal score_emitted
+            score_emitted = True
+
+        widget.batch_score_changed.connect(on_score_signal)
+
+        with qtbot.waitSignal(widget.batch_rating_changed, timeout=1000) as rating_blocker:
+            widget.ui.pushButtonSave.click()
+
+        assert rating_blocker.args == [[10, 20], "PG"]
+        assert score_emitted is False
+
+    def test_batch_save_slider_moved_emits_batch_score_changed(self, widget, mock_db_manager, qtbot):
+        """バッチモードでスライダーを操作した場合はbatch_score_changedを発行する (#1533)"""
+        mock_db_manager.image_repo.get_image_metadata.side_effect = [
+            {"rating": "PG", "score_value": 3.0},
+            {"rating": "PG", "score_value": 8.0},
+        ]
+
+        widget.populate_from_selection([10, 20], mock_db_manager)
+        widget.ui.sliderScore.setValue(750)
+        assert widget._manual_score_set is True
+
+        with qtbot.waitSignal(widget.batch_score_changed, timeout=1000) as score_blocker:
+            widget.ui.pushButtonSave.click()
+
+        assert score_blocker.args == [[10, 20], 750]
 
     def test_populate_from_selection_empty_list(self, widget, mock_db_manager):
         """空リストの場合、何も変更されない"""
@@ -522,3 +624,31 @@ class TestAiManualSeparation:
         widget.ui.sliderScore.setValue(700)
         assert widget._manual_score_set is True
         assert widget.ui.labelScoreValue.text() == "7.00"
+
+    def test_single_save_unset_score_does_not_emit_score_changed(self, widget, qtbot):
+        """単一選択でScore未設定 ("--") のままSaveしてもscore_changedを発行せず5.00上書きしない (#1533)。"""
+        widget.populate_from_image_data(
+            {
+                "id": 5,
+                "rating": "PG",
+                "score_value": None,
+                "ai_rating": "PG",
+                "ai_score_value": 6.0,
+            }
+        )
+        assert widget._manual_score_set is False
+        assert widget.ui.labelScoreValue.text() == "--"
+
+        score_emitted = False
+
+        def on_score(*args):
+            nonlocal score_emitted
+            score_emitted = True
+
+        widget.score_changed.connect(on_score)
+
+        with qtbot.waitSignal(widget.rating_changed, timeout=1000) as rating_blocker:
+            widget.ui.pushButtonSave.click()
+
+        assert rating_blocker.args == [5, "PG"]
+        assert score_emitted is False

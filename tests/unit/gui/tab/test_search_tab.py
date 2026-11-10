@@ -1164,3 +1164,27 @@ def test_search_tab_opens_image_comparison_from_thumbnail_menu(tab, monkeypatch)
     monkeypatch.setattr(tab._image_comparison_launcher, "open", lambda ids: opened.append(ids) or True)
     tab._thumbnail_selector.compare_requested.emit([3, 4])
     assert opened == [[3, 4]]
+
+
+@pytest.mark.gui
+def test_search_rubber_band_selection_syncs_rating_score_batch_mode(
+    tab: SearchTabWidget, dataset_state_manager, monkeypatch
+) -> None:
+    """ラバーバンド選択 (selection_synced) で Rating/Score カードがバッチモードに遷移する (#1535)。"""
+    populate_mock = Mock()
+    monkeypatch.setattr(
+        tab.selected_image_details_widget._rating_score_widget,
+        "populate_from_selection",
+        populate_mock,
+    )
+    dataset_state_manager.set_dataset_images(
+        [{"id": image_id, "stored_image_path": f"{image_id}.png"} for image_id in (1, 2, 3)]
+    )
+    thumbnail = tab.thumbnail_selector
+    thumbnail.graphics_view._drag_modifiers = Qt.KeyboardModifier.NoModifier
+    dragged_items = [Mock(spec=ThumbnailItem, image_id=image_id) for image_id in (1, 2)]
+    monkeypatch.setattr(thumbnail.scene, "selectedItems", lambda: dragged_items)
+
+    thumbnail.scene.selectionChanged.emit()
+
+    populate_mock.assert_called_once_with([1, 2], tab._db_manager)
