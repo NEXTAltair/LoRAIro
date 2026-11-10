@@ -128,7 +128,7 @@ class ProjectNotFoundError(ProjectError):
         if self.config_found is False:
             cfg = self.config_path or "config/lorairo.toml"
             parts.append(
-                f"カレントディレクトリ基準の設定ファイル '{cfg}' が見つかりません。"
+                f"設定ファイル '{cfg}' が見つかりません。"
                 "config/lorairo.toml があるワークスペースディレクトリから実行するか、"
                 "--workspace <dir> または --config <path> を指定してください。"
             )

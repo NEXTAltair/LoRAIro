@@ -327,15 +327,11 @@ class ProjectManagementService:
     def _raise_project_not_found(self, name: str) -> NoReturn:
         """探索先ディレクトリ・設定ファイル検出状況・候補一覧を添えて ProjectNotFoundError を送出する。"""
         runtime = get_runtime_configuration()
-        if runtime is not None and runtime.project_config_path is None:
-            config_path = runtime.config_path
-        else:
-            cwd_config = Path.cwd() / "config" / "lorairo.toml"
-            config_path = (
-                cwd_config
-                if (cwd_config.is_file() or not DEFAULT_CONFIG_PATH.is_file())
-                else DEFAULT_CONFIG_PATH
-            )
+        config_path = (
+            (runtime.project_config_path or runtime.config_path)
+            if runtime is not None
+            else DEFAULT_CONFIG_PATH
+        )
         raise ProjectNotFoundError(
             name,
             available=self._available_project_names(),

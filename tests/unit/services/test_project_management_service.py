@@ -409,6 +409,26 @@ class TestProjectCrud:
         assert isinstance(exc_info.value.details["config_found"], bool)
         assert exc_info.value.hint is not None
 
+    def test_get_project_not_found_reports_actual_default_config_not_unloaded_cwd_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--workspace/--config 未指定時は CWD の未読込 config ではなく実際の DEFAULT_CONFIG_PATH を報告する。"""
+        from lorairo.utils.config import DEFAULT_CONFIG_PATH
+
+        other_cwd = tmp_path / "other_cwd"
+        (other_cwd / "config").mkdir(parents=True)
+        unloaded_cwd_config = other_cwd / "config" / "lorairo.toml"
+        unloaded_cwd_config.write_text('[directories]\ndatabase_base_dir = "unused"\n', encoding="utf-8")
+        monkeypatch.chdir(other_cwd)
+
+        svc = ProjectManagementService(projects_base_dir=tmp_path / "projects")
+        with pytest.raises(ProjectNotFoundError) as exc_info:
+            svc.get_project("missing")
+
+        assert exc_info.value.details["config_path"] == str(DEFAULT_CONFIG_PATH)
+        assert exc_info.value.details["config_path"] != str(unloaded_cwd_config)
+        assert exc_info.value.details["config_found"] is DEFAULT_CONFIG_PATH.is_file()
+
     def test_list_projects_skips_metadata_less_dirs_without_per_dir_warning(
         self, service: ProjectManagementService
     ) -> None:
