@@ -440,7 +440,10 @@ def test_working_version_status_and_commit_discard_buttons(
     assert "編集中" in dialog.status_label.text()
 
     dialog.commit_working_button.click()
-    assert dialog.version_table.item(1, 7).text() == "確定済"
+    qtbot.waitUntil(
+        lambda: dialog.version_table.item(1, 7).text() == "確定済",
+        timeout=_TIMEOUT_MS,
+    )
     assert not dialog.commit_working_button.isEnabled()
 
     # 新たに作業版を作成して破棄ボタンを検証
@@ -452,4 +455,4 @@ def test_working_version_status_and_commit_discard_buttons(
         lambda: dialog._detail is not None and dialog._detail.version_id == working2.id, timeout=_TIMEOUT_MS
     )
     dialog.discard_working_button.click()
-    assert dialog.version_table.rowCount() == 2
+    qtbot.waitUntil(lambda: dialog.version_table.rowCount() == 2, timeout=_TIMEOUT_MS)

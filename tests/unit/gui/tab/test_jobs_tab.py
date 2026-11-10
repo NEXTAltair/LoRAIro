@@ -170,16 +170,18 @@ def test_sync_job_cancel_failure_does_not_emit_status(
 
 
 @pytest.mark.gui
-def test_dataset_import_cancel_shows_graceful_stop_notice(
+def test_dataset_import_cancel_shows_unsupported_notice(
     tab: JobsTabWidget, worker_service: MagicMock
 ) -> None:
-    """#1564: dataset_import_* ジョブのキャンセル要求時は処理完了後に停止する旨を通知する。"""
+    """#1564: dataset_import_* ジョブで cancel_job が False の場合は途中キャンセル非対応を通知する。"""
     worker_service.cancel_job.return_value = False
     received: list[tuple[str, int]] = []
     tab.status_message_requested.connect(lambda msg, t: received.append((msg, t)))
     tab.provider_batch_job_widget.sync_job_cancel_requested.emit("dataset_import_42")
     worker_service.cancel_job.assert_called_once_with("dataset_import_42")
-    assert received == [("データセット取込ジョブは現在のファイル処理完了後に停止します", 5000)]
+    assert received == [
+        ("データセット取込ジョブの途中キャンセルには対応していません（完了まで継続します）", 5000)
+    ]
 
 
 @pytest.mark.gui

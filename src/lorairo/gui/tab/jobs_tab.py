@@ -155,13 +155,12 @@ class JobsTabWidget(QWidget):
             logger.warning("WorkerService未初期化 - ジョブキャンセルをスキップ")
             return
         canceled = self._worker_service.cancel_job(job_id)
-        if job_id.startswith("dataset_import_"):
-            self.status_message_requested.emit(
-                "データセット取込ジョブは現在のファイル処理完了後に停止します", 5000
-            )
-            return
         if canceled:
             self.status_message_requested.emit(f"ジョブをキャンセルしています: {job_id}", 5000)
+        elif job_id.startswith("dataset_import_"):
+            self.status_message_requested.emit(
+                "データセット取込ジョブの途中キャンセルには対応していません（完了まで継続します）", 5000
+            )
         else:
             logger.warning(f"ジョブキャンセル要求に失敗: {job_id}")
 

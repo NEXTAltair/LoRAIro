@@ -43,9 +43,11 @@ from ...services.kohya_dataset_export_service import KohyaExportResult
 from ...utils.log import logger
 from ..message_box import show_information, show_warning
 from ..workers.kohya_version_workers import (
+    KohyaVersionCommitWorker,
     KohyaVersionCopyTagsWorker,
     KohyaVersionDetail,
     KohyaVersionDetailWorker,
+    KohyaVersionDiscardWorker,
     KohyaVersionExportWorker,
     KohyaVersionListWorker,
     KohyaVersionRevokeTagsWorker,
@@ -79,6 +81,8 @@ class KohyaVersionExportDialog(QDialog):
     _copy_tags_finished = Signal(object)
     _revoke_tags_previewed = Signal(object)
     _revoke_tags_finished = Signal(object)
+    _commit_working_finished = Signal(int, str)
+    _discard_working_finished = Signal(int, str)
     _task_failed = Signal(str, str)
 
     def __init__(self, repository: DatasetRepository, parent: QWidget | None = None) -> None:
@@ -108,6 +112,8 @@ class KohyaVersionExportDialog(QDialog):
         self._copy_tags_finished.connect(self._on_copy_tags_finished)
         self._revoke_tags_previewed.connect(self._on_revoke_tags_previewed)
         self._revoke_tags_finished.connect(self._on_revoke_tags_finished)
+        self._commit_working_finished.connect(self._on_commit_working_finished)
+        self._discard_working_finished.connect(self._on_discard_working_finished)
         self._task_failed.connect(self._on_task_failed)
         self.load_versions()
 
@@ -381,19 +387,31 @@ class KohyaVersionExportDialog(QDialog):
         version = self.selected_version()
         if version is None or not getattr(version, "is_working", False) or self._exporting:
             return
-        try:
-            self._repository.commit_working_version(version.version_id)
-        except Exception as exc:
-            self.status_label.setText("作業版の確定に失敗しました")
-            show_warning(self, "作業版の確定エラー", str(exc))
-            return
-        rows = self.version_table.selectionModel().selectedRows()
-        if rows:
-            row = rows[0].row()
-            if 0 <= row < len(self._versions):
-                self._versions[row] = replace(self._versions[row], is_working=False)
+        version_id = version.version_id
+        version_name = version.version_name
+        self._start_busy(f"作業版 {version_name} を確定中...")
+        worker = KohyaVersionCommitWorker(self._repository, version_id)
+        worker.finished.connect(
+            lambda _res, vid=version_id, vname=version_name: self._commit_working_finished.emit(vid, vname)
+        )
+        worker.error_occurred.connect(
+            lambda message: self._task_failed.emit("commit_working", str(message))
+        )
+        self._worker_manager.start_worker(f"kohya_commit_working_{version_id}", worker)
+
+    @Slot(int, str)
+    def _on_commit_working_finished(self, version_id: int, version_name: str) -> None:
+        self._end_export()
+        for row, ver in enumerate(self._versions):
+            if ver.version_id == version_id:
+                self._versions[row] = replace(ver, is_working=False)
                 self.version_table.setItem(row, 7, QTableWidgetItem("確定済"))
-        if self._detail is not None and hasattr(self._detail, "snapshot"):
+                break
+        if (
+            self._detail is not None
+            and self._detail.version_id == version_id
+            and hasattr(self._detail, "snapshot")
+        ):
             try:
                 self._detail = replace(
                     self._detail,
@@ -401,7 +419,7 @@ class KohyaVersionExportDialog(QDialog):
                 )
             except Exception:
                 pass
-        self.status_label.setText(f"作業版 {version.version_name} を確定しました (確定済)")
+        self.status_label.setText(f"作業版 {version_name} を確定しました (確定済)")
         self._update_export_enabled()
 
     @Slot()
@@ -419,21 +437,30 @@ class KohyaVersionExportDialog(QDialog):
         if reply != QMessageBox.StandardButton.Yes:
             self.status_label.setText("作業版の破棄をキャンセルしました")
             return
-        try:
-            self._repository.discard_working_version(version.version_id)
-        except Exception as exc:
-            self.status_label.setText("作業版の破棄に失敗しました")
-            show_warning(self, "作業版の破棄エラー", str(exc))
-            return
-        rows = self.version_table.selectionModel().selectedRows()
-        if rows:
-            row = rows[0].row()
-            if 0 <= row < len(self._versions):
+        version_id = version.version_id
+        version_name = version.version_name
+        self._start_busy(f"作業版 {version_name} を破棄中...")
+        worker = KohyaVersionDiscardWorker(self._repository, version_id)
+        worker.finished.connect(
+            lambda _res, vid=version_id, vname=version_name: self._discard_working_finished.emit(vid, vname)
+        )
+        worker.error_occurred.connect(
+            lambda message: self._task_failed.emit("discard_working", str(message))
+        )
+        self._worker_manager.start_worker(f"kohya_discard_working_{version_id}", worker)
+
+    @Slot(int, str)
+    def _on_discard_working_finished(self, version_id: int, version_name: str) -> None:
+        self._end_export()
+        for row, ver in enumerate(self._versions):
+            if ver.version_id == version_id:
                 self._versions.pop(row)
                 self.version_table.removeRow(row)
-        self._detail = None
-        self.folder_table.setRowCount(0)
-        self.status_label.setText(f"作業版 {version.version_name} を破棄しました")
+                break
+        if self._detail is not None and self._detail.version_id == version_id:
+            self._detail = None
+            self.folder_table.setRowCount(0)
+        self.status_label.setText(f"作業版 {version_name} を破棄しました")
         self._update_export_enabled()
 
     def _start_busy(self, status_text: str) -> None:
@@ -679,6 +706,16 @@ class KohyaVersionExportDialog(QDialog):
             self._end_export()
             self.status_label.setText("タグの取り消しに失敗しました")
             show_warning(self, "写したタグの取り消しエラー", message)
+            return
+        if task == "commit_working":
+            self._end_export()
+            self.status_label.setText("作業版の確定に失敗しました")
+            show_warning(self, "作業版の確定エラー", message)
+            return
+        if task == "discard_working":
+            self._end_export()
+            self.status_label.setText("作業版の破棄に失敗しました")
+            show_warning(self, "作業版の破棄エラー", message)
             return
         self.status_label.setText("読み込みに失敗しました")
         show_warning(self, "Kohya 版の読み込みエラー", message)
