@@ -247,6 +247,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         self._execution_policy = execution_policy
         self._execution_notes: list[str] = []
         self._completed_model_count = 0
+        # 推論して結果を保存しようとしたモデル (中止時に保存できたかを確認するため)
+        self._inferred_model_ids: set[str] = set()
         # 完了済みを外したモデルの保存先 image_id 集合 (最終保存の再試行でも同じ範囲に限る)
         self._model_save_scopes: dict[str, set[int]] = {}
 
@@ -441,11 +443,24 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         self,
         model_results: PHashAnnotationResults,
         model_errors: list[ModelErrorDetail],
+        phash_to_path: dict[str, str] | None = None,
     ) -> None:
-        """lib `result.error` を DB 保存せず summary 用 model_errors に集約する。"""
+        """lib `result.error` を DB 保存せず summary 用 model_errors に集約する。
+
+        Args:
+            model_results: phash → model → result。
+            model_errors: 追記先。
+            phash_to_path: このモデルに渡した画像の pHash → パス (ADR 0109)。指定時はバッチ全体の
+                対応より優先し、同じ pHash の完了済み画像へエラーを付け違えない。
+        """
         for phash, annotations in model_results.items():
-            image_label = self._phash_to_input_filename.get(phash, phash[:12] + "...")
-            image_raw_path = self._phash_to_input_path.get(phash)
+            scoped_path = phash_to_path.get(phash) if phash_to_path is not None else None
+            image_raw_path = scoped_path or self._phash_to_input_path.get(phash)
+            image_label = (
+                Path(scoped_path).name
+                if scoped_path
+                else self._phash_to_input_filename.get(phash, phash[:12] + "...")
+            )
             for model_name, unified_result in annotations.items():
                 error = self._extract_field(unified_result, "error")
                 if not error:
@@ -1058,7 +1073,12 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 {litellm_model_id},
                 state.model_errors,
             )
-            self._collect_l1_model_errors(valid_model_results, state.model_errors)
+            target_phash_to_path = (
+                dict(zip(targets.phashes, targets.paths, strict=True))
+                if targets.phashes is not None
+                else None
+            )
+            self._collect_l1_model_errors(valid_model_results, state.model_errors, target_phash_to_path)
             self._merge_annotation_results(state.merged_results, valid_model_results)
         except CancellationError:
             logger.info(f"モデル {litellm_model_id} のアノテーション処理がキャンセルされました")
@@ -1074,6 +1094,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             self._model_save_scopes[litellm_model_id] = targets.save_scope
         self._persist_model_results(valid_model_results, state.model_errors, targets)
         self._completed_model_count += 1
+        if any(litellm_model_id in annotations for annotations in valid_model_results.values()):
+            self._inferred_model_ids.add(litellm_model_id)
         state.errored_keys.update(self._stage_errored_model_keys(valid_model_results))
         if any(litellm_model_id in annotations for annotations in valid_model_results.values()):
             state.completed_keys.add(litellm_model_id)
@@ -1155,6 +1177,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         self._excluded_count = 0
         self._execution_notes = []
         self._completed_model_count = 0
+        self._inferred_model_ids = set()
         self._model_save_scopes = {}
 
         # Issue #803 (Codex P1): dry-run は実推論・送信・DB保存を一切行わず件数のみ算出する。
@@ -1240,9 +1263,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 AnnotationWorker._unconsumed_persisted_phashes.update(self._persisted_phashes)
                 self.partial_results_persisted.emit(set(self._persisted_phashes))
             # ADR 0109: 中止はモデルの境目で効き、完了したモデルの結果は保存済みで残る。
-            self._annotation_result_summary = (
-                f"中止しました。完了した {self._completed_model_count}モデルの結果は保存済みです"
-            )
+            self._annotation_result_summary = self._canceled_summary()
             self._report_annotation_phase(AnnotationPhase.CANCELED)
             logger.info("アノテーション処理がキャンセルされました")
             raise
@@ -1253,6 +1274,17 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             self._save_error_records(e, self.image_paths, model_name=None, error_type=self._ERROR_TYPE_L3)
             self._error_already_recorded = True
             raise
+
+    def _canceled_summary(self) -> str:
+        """中止時の終端表示。保存を確認できたモデルだけを「保存済み」と表示する (ADR 0109)。"""
+        persisted_models = {model for _key, model in self._persisted_keys}
+        unsaved = sorted(self._inferred_model_ids - persisted_models)
+        if not unsaved:
+            return f"中止しました。完了した {self._completed_model_count}モデルの結果は保存済みです"
+        return (
+            f"中止しました。完了した {self._completed_model_count}モデルのうち "
+            f"{len(unsaved)}モデル ({', '.join(unsaved)}) の結果を保存できませんでした"
+        )
 
     def _apply_refusal_prefilter(self) -> list[ModelErrorDetail]:
         """refusal を持つ画像を `self.image_paths` から除外する (Worker 内実行版)。

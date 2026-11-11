@@ -675,3 +675,65 @@ class TestRerunSkipScope:
         assert [(r["file_path"], r["image_id"]) for r in _memory_error_records(db)] == [
             ("/images/b.jpg", 2)
         ]
+
+    def test_result_error_is_reported_against_inferred_image_when_phash_is_shared(self) -> None:
+        """同じ pHash の完了済み画像ではなく、推論した画像にエラーを付ける。"""
+        db = _db_manager()
+        db.image_repo.get_phashes_by_filepaths.return_value = {
+            "/images/a.jpg": "phash-a",
+            "/images/b.jpg": "phash-a",
+        }
+        db.image_repo.find_image_ids_by_phashes.return_value = {"phash-a": 1}
+        db.image_repo.find_image_ids_by_phashes_multi.return_value = {"phash-a": [1, 2]}
+        # b.jpg は完了済み。バッチ全体の pHash 対応では代表が b.jpg になる
+        db.image_repo.get_image_ids_with_model_annotations.return_value = {2}
+        runner = RecordingRunner({"local-a": {"phash-a": {"local-a": {"tags": None, "error": "failed"}}}})
+        worker = _worker(
+            runner,
+            ["local-a"],
+            _registry(_model_info("local-a", requires_api_key=False)),
+            _policy(ScriptedProbe([16.0]), FakeClock(), skip_completed_on_rerun=True),
+            db,
+        )
+
+        result = worker.execute()
+
+        assert runner.calls[0][0] == ["/images/a.jpg"]
+        assert [(e.raw_image_path, e.image_path) for e in result.model_errors] == [
+            ("/images/a.jpg", "a.jpg")
+        ]
+
+
+@pytest.mark.unit
+class TestCancelSummaryAccuracy:
+    def test_cancel_summary_reports_models_whose_results_could_not_be_saved(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        runner = RecordingRunner({"local-a": _ok("local-a"), "local-b": _ok("local-b")})
+        registry = _registry(
+            _model_info("local-a", requires_api_key=False), _model_info("local-b", requires_api_key=False)
+        )
+        worker = _worker(
+            runner, ["local-a", "local-b"], registry, _policy(ScriptedProbe([16.0]), FakeClock())
+        )
+
+        def cancel_after_first(model: str) -> None:
+            if model == "local-a":
+                worker.cancel()
+
+        runner.after_call = cancel_after_first
+
+        def failing_persist(_chunk: dict[str, object], **_kwargs: object) -> tuple[int, int]:
+            raise RuntimeError("disk I/O error")
+
+        monkeypatch.setattr(worker, "_persist_incremental_results", failing_persist)
+        summaries: list[str] = []
+        worker.progress_updated.connect(lambda p: summaries.append(p.annotation_progress.detail_text()))
+
+        with pytest.raises(CancellationError):
+            worker.execute()
+
+        assert (
+            summaries[-1]
+            == "中止しました。完了した 1モデルのうち 1モデル (local-a) の結果を保存できませんでした"
+        )
