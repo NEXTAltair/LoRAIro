@@ -502,6 +502,10 @@ class WorkerService(QObject):
 
     # === Search ===
 
+    _current_search_conditions: SearchConditions | None = None
+    _current_search_conditions_worker_id: str | None = None
+    _current_search_conditions_generation: int = 0
+
     def set_search_review_context(
         self,
         service: "AnnotationReviewService | None",
@@ -518,12 +522,56 @@ class WorkerService(QObject):
         self._search_review_service = service
         self._search_review_store = store
 
-    def start_search(self, search_conditions: SearchConditions) -> str:
+    @property
+    def _active_search_generation(self) -> int:
+        return self._current_search_conditions_generation
+
+    @property
+    def _active_search_worker_id(self) -> str | None:
+        return self.current_search_worker_id
+
+    def _is_worker_canceling(self, worker_id: str | None) -> bool:
+        """ワーカーがキャンセル要求中またはキャンセル済みか判定する (#1540)。"""
+        if not worker_id:
+            return False
+        if not isinstance(getattr(self.worker_manager, "active_workers", None), dict):
+            return False
+        worker_info = self.worker_manager.active_workers.get(worker_id)
+        if not isinstance(worker_info, dict):
+            return False
+        if worker_info.get("cancel_reason") is not None:
+            return True
+        worker = worker_info.get("worker")
+        if worker is not None and getattr(worker, "is_canceled", None) and worker.is_canceled():
+            return True
+        return False
+
+    def invalidate_search_generation(self) -> None:
+        """検索世代をインクリメントし、実行中検索の重複判定キャッシュを無効化する (#1540)。
+
+        アノテーションやレビュー結果の変更時に呼び出すことで、同一検索条件であっても
+        重複スキップされずに最新データを反映する検索が再実行されるようにする。
+        """
+        self._search_generation += 1
+        self._current_search_conditions = None
+        self._current_search_conditions_worker_id = None
+
+    def bump_search_generation(self) -> None:
+        """invalidate_search_generation のエイリアス。"""
+        self.invalidate_search_generation()
+
+    def start_search(
+        self,
+        search_conditions: SearchConditions,
+        *,
+        force_refresh: bool = False,
+    ) -> str:
         """
         検索開始（既存の検索は自動キャンセル）
 
         Args:
             search_conditions: 検索条件
+            force_refresh: True の場合は同一条件であっても再検索を強制する
 
         Returns:
             str: ワーカーID
@@ -531,14 +579,49 @@ class WorkerService(QObject):
         Raises:
             RuntimeError: ワーカー開始失敗の場合
         """
-        # 既存の検索を破棄(新検索による置換。ユーザーキャンセルではない)
-        if self.current_search_worker_id:
+        # 既存の検索が同一条件で実行中なら再起動をスキップ (#1540)
+        if not force_refresh and self.current_search_worker_id:
+            is_same_generation = self._active_search_generation == self._search_generation
+            is_canceling = self._is_worker_canceling(self._active_search_worker_id)
+            active_conditions = (
+                self._current_search_conditions
+                if (
+                    self._current_search_conditions_worker_id == self.current_search_worker_id
+                    and is_same_generation
+                    and not is_canceling
+                )
+                else None
+            )
+            if (
+                active_conditions is None
+                and is_same_generation
+                and not is_canceling
+                and isinstance(getattr(self.worker_manager, "active_workers", None), dict)
+            ):
+                worker_info = self.worker_manager.active_workers.get(self.current_search_worker_id)
+                if isinstance(worker_info, dict) and worker_info.get("worker") is not None:
+                    active_conditions = getattr(worker_info["worker"], "search_conditions", None)
+
+            if (
+                active_conditions == search_conditions
+                and is_same_generation
+                and not is_canceling
+                and self.worker_manager.is_worker_active(self.current_search_worker_id)
+            ):
+                logger.debug(
+                    f"同一検索条件のワーカーが実行中のため検索開始をスキップ: {self.current_search_worker_id}"
+                )
+                return self.current_search_worker_id
+
+            # 既存の検索を破棄(新検索による置換。ユーザーキャンセルではない)
             logger.debug(f"前回検索を破棄(新検索で置換): {self.current_search_worker_id}")
-            self.worker_manager.cancel_worker(
+            self.worker_manager.request_cancel_worker(
                 self.current_search_worker_id,
                 reason=CancelReason.SEARCH_REPLACED,
             )
             self.current_search_worker_id = None
+            self._current_search_conditions = None
+            self._current_search_conditions_worker_id = None
 
         worker = SearchWorker(
             self.db_manager,
@@ -551,6 +634,9 @@ class WorkerService(QObject):
         self._register_operation(worker_id, OperationType.SEARCH, generation=self._search_generation)
         previous_search_worker_id = self.current_search_worker_id
         self.current_search_worker_id = worker_id
+        self._current_search_conditions = search_conditions
+        self._current_search_conditions_worker_id = worker_id
+        self._current_search_conditions_generation = self._search_generation
 
         # 進捗シグナル接続
         worker.progress_updated.connect(
@@ -569,6 +655,8 @@ class WorkerService(QObject):
             self._worker_operations.pop(worker_id, None)
             if self.current_search_worker_id == worker_id:
                 self.current_search_worker_id = previous_search_worker_id
+                self._current_search_conditions = None
+                self._current_search_conditions_worker_id = None
             raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
 
     def cancel_search(
@@ -577,6 +665,9 @@ class WorkerService(QObject):
         reason: CancelReason = CancelReason.USER_REQUESTED,
     ) -> bool:
         """検索キャンセル"""
+        if self._current_search_conditions_worker_id == worker_id:
+            self._current_search_conditions = None
+            self._current_search_conditions_worker_id = None
         return self._cancel_worker(worker_id, reason)
 
     # === Thumbnail ===
@@ -624,7 +715,7 @@ class WorkerService(QObject):
 
         if cancel_previous and self.current_thumbnail_worker_id:
             logger.debug(f"既存のサムネイル読み込みをキャンセル: {self.current_thumbnail_worker_id}")
-            self.worker_manager.cancel_worker(
+            self.worker_manager.request_cancel_worker(
                 self.current_thumbnail_worker_id,
                 reason=CancelReason.THUMBNAIL_REPLACED,
             )

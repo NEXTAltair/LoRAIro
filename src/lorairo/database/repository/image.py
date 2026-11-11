@@ -105,6 +105,7 @@ class ImageRepository(BaseRepository):
     # リポジトリ層の契約として持たせる。Qt-free (ADR 0001) のため GUI 定数を import せず、
     # 値の drift は test で assert する。バインド安全 (BATCH_CHUNK_SIZE) は副次的に満たす。
     EXACT_SET_MAX_IDS: ClassVar[int] = 500
+    MAX_TAG_FILTER_TERMS: ClassVar[int] = 500
 
     # --- Read-only maintenance scans (ADR 0099) ---
 
@@ -1773,6 +1774,11 @@ class ImageRepository(BaseRepository):
         """
         if not tags:
             return None
+        if len(tags) > self.MAX_TAG_FILTER_TERMS:
+            logger.warning(
+                f"タグ検索条件数が上限を超えたため切り詰めます: {len(tags)} -> {self.MAX_TAG_FILTER_TERMS}"
+            )
+            tags = tags[: self.MAX_TAG_FILTER_TERMS]
         if use_and:
             conditions: list[ColumnElement[bool]] = []
             for tag_term in tags:

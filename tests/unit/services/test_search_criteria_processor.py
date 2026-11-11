@@ -969,6 +969,29 @@ class TestResolveTagSearchTargets:
         # 元キーワード維持 + 翻訳ヒット追加 + 重複排除
         assert resolved == ["犬", "dog"]
 
+    def test_quoted_keyword_preserves_quotes_on_expanded_canonical_tags(self):
+        """完全一致指定 (\"...\") のキーワード展開時は正規タグも引用符付きで返し部分一致化を防ぐ (#1541 Codex P2)。"""
+        from types import SimpleNamespace
+
+        from lorairo.services.search_criteria_processor import (
+            SearchCriteriaProcessor,
+            resolve_tag_search_targets,
+        )
+
+        SearchCriteriaProcessor.clear_cache()
+        reader = Mock()
+        result = SimpleNamespace(items=[SimpleNamespace(tag="cat")])
+        with patch("genai_tag_db_tools.search_tags", return_value=result) as mock_search_tags:
+            resolved_ja = resolve_tag_search_targets(reader, ['"猫"'])
+            request_arg = mock_search_tags.call_args[0][1]
+            assert request_arg.query == "猫"
+            assert request_arg.partial is False
+            assert resolved_ja == ['"猫"', '"cat"']
+
+            # 既に '"cat"' が指定されている場合は非引用符の 'cat' が追加されない
+            resolved_en = resolve_tag_search_targets(reader, ['"cat"'])
+            assert resolved_en == ['"cat"']
+
     def test_search_failure_degrades_to_keywords(self):
         """search_tags が例外を投げても元キーワードで検索継続する。"""
         from lorairo.services import search_criteria_processor
@@ -977,6 +1000,179 @@ class TestResolveTagSearchTargets:
         with patch("genai_tag_db_tools.search_tags", side_effect=RuntimeError("boom")):
             resolved = search_criteria_processor.resolve_tag_search_targets(reader, ["犬"])
         assert resolved == ["犬"]
+
+    def test_caches_expanded_tags_and_clear_cache_resets(self):
+        """同一キーワードの展開結果をキャッシュし、clear_cache() で無効化できる (#1541)。"""
+        from types import SimpleNamespace
+
+        from lorairo.services.search_criteria_processor import (
+            SearchCriteriaProcessor,
+            resolve_tag_search_targets,
+        )
+
+        SearchCriteriaProcessor.clear_cache()
+        reader = Mock()
+        result = SimpleNamespace(items=[SimpleNamespace(tag="dog"), SimpleNamespace(tag="hound")])
+
+        with patch("genai_tag_db_tools.search_tags", return_value=result) as mock_search_tags:
+            first = resolve_tag_search_targets(reader, ["犬"])
+            second = resolve_tag_search_targets(reader, ["犬"])
+            assert first == ["犬", "dog", "hound"]
+            assert second == ["犬", "dog", "hound"]
+            assert mock_search_tags.call_count == 1
+
+            SearchCriteriaProcessor.clear_cache()
+            third = resolve_tag_search_targets(reader, ["犬"])
+            assert third == ["犬", "dog", "hound"]
+            assert mock_search_tags.call_count == 2
+
+    def test_invalidate_tag_search_cache_increments_epoch_and_clears_cache(self):
+        """invalidate_tag_search_cache() で epoch が加算されキャッシュがクリアされる (#1541)。"""
+        from types import SimpleNamespace
+
+        from lorairo.services.search_criteria_processor import (
+            SearchCriteriaProcessor,
+            resolve_tag_search_targets,
+        )
+
+        SearchCriteriaProcessor.clear_cache()
+        initial_epoch = SearchCriteriaProcessor._tag_cache_epoch
+        reader = Mock()
+        result = SimpleNamespace(items=[SimpleNamespace(tag="dog")])
+
+        with patch("genai_tag_db_tools.search_tags", return_value=result) as mock_search_tags:
+            first = resolve_tag_search_targets(reader, ["犬"])
+            assert first == ["犬", "dog"]
+            assert mock_search_tags.call_count == 1
+
+            SearchCriteriaProcessor.invalidate_tag_search_cache()
+            assert SearchCriteriaProcessor._tag_cache_epoch == initial_epoch + 1
+
+            second = resolve_tag_search_targets(reader, ["犬"])
+            assert second == ["犬", "dog"]
+            assert mock_search_tags.call_count == 2
+
+    def test_tag_search_cache_concurrent_invalidation_does_not_raise_keyerror(self):
+        """検索キャッシュの参照・昇格中に別スレッドから無効化されても KeyError にならない (#1541)。"""
+        import threading
+        from types import SimpleNamespace
+
+        from lorairo.services.search_criteria_processor import (
+            SearchCriteriaProcessor,
+            resolve_tag_search_targets,
+        )
+
+        SearchCriteriaProcessor.clear_cache()
+        reader = Mock()
+        result = SimpleNamespace(items=[SimpleNamespace(tag="dog")])
+        errors: list[Exception] = []
+
+        with patch("genai_tag_db_tools.search_tags", return_value=result):
+
+            def reader_thread():
+                try:
+                    for _ in range(100):
+                        resolve_tag_search_targets(reader, ["犬"])
+                except Exception as e:
+                    errors.append(e)
+
+            def invalidator_thread():
+                try:
+                    for _ in range(100):
+                        SearchCriteriaProcessor.invalidate_tag_search_cache()
+                except Exception as e:
+                    errors.append(e)
+
+            t1 = threading.Thread(target=reader_thread)
+            t2 = threading.Thread(target=invalidator_thread)
+            t1.start()
+            t2.start()
+            t1.join()
+            t2.join()
+
+        assert not errors
+
+    def test_caps_expanded_tags_at_max_expanded_tags(self):
+        """部分一致展開タグ数を MAX_EXPANDED_TAGS (500) 以下に制限する (#1541)。"""
+        from types import SimpleNamespace
+
+        from lorairo.services.search_criteria_processor import (
+            MAX_EXPANDED_TAGS,
+            SearchCriteriaProcessor,
+            resolve_tag_search_targets,
+        )
+
+        SearchCriteriaProcessor.clear_cache()
+        reader = Mock()
+        many_items = [SimpleNamespace(tag=f"tag_{i:04d}") for i in range(1200)]
+        result = SimpleNamespace(items=many_items)
+
+        with patch("genai_tag_db_tools.search_tags", return_value=result) as mock_search_tags:
+            resolved = resolve_tag_search_targets(
+                reader,
+                ["tag"],
+                limit_per_keyword=1200,
+            )
+            request_arg = mock_search_tags.call_args[0][1]
+            assert request_arg.limit == MAX_EXPANDED_TAGS
+
+        # 元キーワード 1 件 + 展開上限 MAX_EXPANDED_TAGS 件
+        assert resolved[0] == "tag"
+        assert len(resolved) == 1 + MAX_EXPANDED_TAGS
+
+    def test_lru_cache_evicts_oldest_entries_beyond_max_size(self):
+        """キャッシュ件数が TAG_EXPANSION_CACHE_MAX_SIZE を超えたら最古エントリを破棄する (#1541)。"""
+        from types import SimpleNamespace
+
+        from lorairo.services.search_criteria_processor import (
+            TAG_EXPANSION_CACHE_MAX_SIZE,
+            SearchCriteriaProcessor,
+            resolve_tag_search_targets,
+        )
+
+        SearchCriteriaProcessor.clear_cache()
+        reader = Mock()
+
+        def fake_search(_reader, request):
+            return SimpleNamespace(items=[SimpleNamespace(tag=f"resolved_{request.query}")])
+
+        with patch("genai_tag_db_tools.search_tags", side_effect=fake_search) as mock_search_tags:
+            for idx in range(TAG_EXPANSION_CACHE_MAX_SIZE + 10):
+                resolve_tag_search_targets(reader, [f"kw_{idx}"])
+
+            assert len(SearchCriteriaProcessor._tag_expansion_cache) == TAG_EXPANSION_CACHE_MAX_SIZE
+            calls_before = mock_search_tags.call_count
+
+            # 最新エントリはキャッシュヒットする
+            resolve_tag_search_targets(reader, [f"kw_{TAG_EXPANSION_CACHE_MAX_SIZE + 9}"])
+            assert mock_search_tags.call_count == calls_before
+
+            # 最古エントリ (kw_0) はエビクト済みのため再検索される
+            resolve_tag_search_targets(reader, ["kw_0"])
+            assert mock_search_tags.call_count == calls_before + 1
+
+    def test_sqlalchemy_error_not_relogged_as_error_in_processor(self):
+        """SQLAlchemyError は Repository 層で記録済みのため Processor 層で重複 ERROR ログを出さない (#1541)。"""
+        from sqlalchemy.exc import OperationalError
+
+        from lorairo.services import search_criteria_processor
+        from lorairo.services.search_criteria_processor import SearchCriteriaProcessor
+
+        db_manager = Mock()
+        db_manager.annotation_repo.get_merged_reader.return_value = None
+        db_manager.get_images_by_filter.side_effect = OperationalError(
+            "SELECT ...", {}, Exception("Expression tree is too large")
+        )
+        processor = SearchCriteriaProcessor(db_manager)
+        conditions = SearchConditions(search_type="tags", keywords=["tag"], tag_logic="and")
+
+        with (
+            patch.object(search_criteria_processor.logger, "error") as mock_error,
+            pytest.raises(OperationalError),
+        ):
+            processor.execute_search_with_filters(conditions)
+
+        mock_error.assert_not_called()
 
 
 class TestBuildTagResolverLazyReader:

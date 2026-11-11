@@ -818,6 +818,9 @@ class TagManagementService:
                 tag_id,
                 language,
             )
+            from .search_criteria_processor import SearchCriteriaProcessor
+
+            SearchCriteriaProcessor.invalidate_tag_search_cache()
         except Exception as e:
             logger.opt(exception=True).error(
                 "Error adding translation: tag_id={}, language={}: {}", tag_id, language, e
@@ -851,6 +854,9 @@ class TagManagementService:
                 language,
                 deleted,
             )
+            from .search_criteria_processor import SearchCriteriaProcessor
+
+            SearchCriteriaProcessor.invalidate_tag_search_cache()
         except ValueError as e:
             logger.opt(exception=True).error(
                 "Error deleting translation: tag_id={}, language={}: {}", tag_id, language, e
@@ -880,6 +886,9 @@ class TagManagementService:
                 tag_id,
                 language,
             )
+            from .search_criteria_processor import SearchCriteriaProcessor
+
+            SearchCriteriaProcessor.invalidate_tag_search_cache()
         except ValueError as e:
             logger.opt(exception=True).error(
                 "Error suppressing translation: tag_id={}, language={}: {}", tag_id, language, e

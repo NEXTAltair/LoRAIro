@@ -279,12 +279,12 @@ class TestWorkerService:
 
     @patch("lorairo.gui.services.worker_service.SearchWorker")
     def test_start_search_cancels_existing(self, mock_worker_class, worker_service):
-        """既存検索キャンセル付き検索開始テスト"""
+        """既存検索の非ブロッキングキャンセル付き検索開始テスト (#1540)"""
         # モックワーカー設定
         mock_worker = Mock()
         mock_worker_class.return_value = mock_worker
         worker_service.worker_manager.start_worker.return_value = True
-        worker_service.worker_manager.cancel_worker.return_value = True
+        worker_service.worker_manager.request_cancel_worker.return_value = True
 
         # 既存の検索ワーカーIDを設定
         existing_worker_id = "search_123456789"
@@ -296,15 +296,142 @@ class TestWorkerService:
         # 検索開始
         new_worker_id = worker_service.start_search(filter_conditions)
 
-        # 既存ワーカーのキャンセル確認
-        worker_service.worker_manager.cancel_worker.assert_called_once_with(
+        # 既存ワーカーの非ブロッキングキャンセル要求確認
+        worker_service.worker_manager.request_cancel_worker.assert_called_once_with(
             existing_worker_id,
             reason=CancelReason.SEARCH_REPLACED,
         )
+        worker_service.worker_manager.cancel_worker.assert_not_called()
 
         # 新しいワーカーID設定確認
         assert worker_service.current_search_worker_id == new_worker_id
         assert new_worker_id != existing_worker_id
+
+    @patch("lorairo.gui.services.worker_service.SearchWorker")
+    def test_start_search_skips_duplicate_active_search(self, mock_worker_class, worker_service):
+        """同一条件の検索が実行中の場合は重複起動をスキップする (#1540)"""
+        mock_worker = Mock()
+        mock_worker_class.return_value = mock_worker
+        worker_service.worker_manager.start_worker.return_value = True
+
+        conditions_1 = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
+        conditions_dup = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
+        conditions_diff = SearchConditions(search_type="tags", keywords=["other"], tag_logic="and")
+
+        first_worker_id = worker_service.start_search(conditions_1)
+        second_worker_id = worker_service.start_search(conditions_dup)
+
+        assert second_worker_id == first_worker_id
+        assert worker_service.worker_manager.start_worker.call_count == 1
+        worker_service.worker_manager.request_cancel_worker.assert_not_called()
+        worker_service.worker_manager.cancel_worker.assert_not_called()
+
+        # 条件が異なる場合は既存を非ブロッキングキャンセルして新規起動する
+        with patch("lorairo.gui.services.worker_service.uuid.uuid4") as mock_uuid:
+            mock_uuid.return_value.hex = "abcdef123456"
+            third_worker_id = worker_service.start_search(conditions_diff)
+
+        assert third_worker_id != first_worker_id
+        assert worker_service.worker_manager.start_worker.call_count == 2
+        worker_service.worker_manager.request_cancel_worker.assert_called_once_with(
+            first_worker_id,
+            reason=CancelReason.SEARCH_REPLACED,
+        )
+
+    @patch("lorairo.gui.services.worker_service.SearchWorker")
+    def test_start_search_does_not_skip_after_review_context_bumping_generation(
+        self, mock_worker_class, worker_service
+    ):
+        """レビュー設定変更で世代が進んだ後は同一条件でも重複扱いせず再起動する (#1540)"""
+        mock_worker = Mock()
+        mock_worker_class.return_value = mock_worker
+        worker_service.worker_manager.start_worker.return_value = True
+
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
+        first_worker_id = worker_service.start_search(conditions)
+
+        # active_workers にワーカー情報が存在する状態をシミュレート
+        mock_active_worker = Mock()
+        mock_active_worker.search_conditions = conditions
+        mock_active_worker.is_canceled.return_value = False
+        worker_service.worker_manager.active_workers = {first_worker_id: {"worker": mock_active_worker}}
+
+        # レビューコンテキスト設定で世代が進む
+        worker_service.set_search_review_context(Mock(), Mock())
+
+        # 同一条件で再検索 -> スキップされず新規ワーカーが起動する
+        second_worker_id = worker_service.start_search(conditions)
+        assert second_worker_id != first_worker_id
+        assert worker_service.worker_manager.start_worker.call_count == 2
+
+    @patch("lorairo.gui.services.worker_service.SearchWorker")
+    def test_start_search_does_not_skip_when_worker_is_canceling(self, mock_worker_class, worker_service):
+        """キャンセル中またはキャンセル済みのワーカーは重複判定で再利用しない (#1540)"""
+        mock_worker = Mock()
+        mock_worker_class.return_value = mock_worker
+        worker_service.worker_manager.start_worker.return_value = True
+
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
+        first_worker_id = worker_service.start_search(conditions)
+
+        # ワーカーがキャンセル中 (cancel_reason が付与されている)
+        mock_active_worker = Mock()
+        mock_active_worker.search_conditions = conditions
+        mock_active_worker.is_canceled.return_value = True
+        worker_service.worker_manager.active_workers = {
+            first_worker_id: {"worker": mock_active_worker, "cancel_reason": CancelReason.USER_REQUESTED}
+        }
+
+        second_worker_id = worker_service.start_search(conditions)
+        assert second_worker_id != first_worker_id
+        assert worker_service.worker_manager.start_worker.call_count == 2
+
+    @patch("lorairo.gui.services.worker_service.SearchWorker")
+    def test_start_search_reruns_when_generation_invalidated(self, mock_worker_class, worker_service):
+        """invalidate_search_generation() 後は同一検索条件でもスキップされず再実行される (#1540)"""
+        mock_worker = Mock()
+        mock_worker_class.return_value = mock_worker
+        worker_service.worker_manager.start_worker.return_value = True
+
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
+        first_worker_id = worker_service.start_search(conditions)
+
+        mock_active_worker = Mock()
+        mock_active_worker.search_conditions = conditions
+        mock_active_worker.is_canceled.return_value = False
+        worker_service.worker_manager.active_workers = {first_worker_id: {"worker": mock_active_worker}}
+
+        # 重複スキップされることを確認
+        assert worker_service.start_search(conditions) == first_worker_id
+        assert worker_service.worker_manager.start_worker.call_count == 1
+
+        # 世代を無効化
+        worker_service.invalidate_search_generation()
+
+        # 同一条件で再検索 -> スキップされず新規ワーカーが起動する
+        second_worker_id = worker_service.start_search(conditions)
+        assert second_worker_id != first_worker_id
+        assert worker_service.worker_manager.start_worker.call_count == 2
+
+    @patch("lorairo.gui.services.worker_service.SearchWorker")
+    def test_start_search_force_refresh_bypasses_dedup(self, mock_worker_class, worker_service):
+        """force_refresh=True の場合は同一条件でも重複スキップをバイパスする (#1540)"""
+        mock_worker = Mock()
+        mock_worker_class.return_value = mock_worker
+        worker_service.worker_manager.start_worker.return_value = True
+
+        conditions = SearchConditions(search_type="tags", keywords=["test"], tag_logic="and")
+        first_worker_id = worker_service.start_search(conditions)
+
+        mock_active_worker = Mock()
+        mock_active_worker.search_conditions = conditions
+        mock_active_worker.is_canceled.return_value = False
+        worker_service.worker_manager.active_workers = {first_worker_id: {"worker": mock_active_worker}}
+
+        # force_refresh=True で再検索
+        second_worker_id = worker_service.start_search(conditions, force_refresh=True)
+        assert second_worker_id != first_worker_id
+        assert worker_service.worker_manager.start_worker.call_count == 2
 
     def test_cancel_search(self, worker_service):
         """検索キャンセルテスト"""
@@ -354,7 +481,7 @@ class TestWorkerService:
 
     @patch("lorairo.gui.services.worker_service.ThumbnailWorker")
     def test_start_thumbnail_page_load_cancels_existing_worker(self, mock_worker_class, worker_service):
-        """ページ単位読み込みで既存ワーカーをキャンセルできる"""
+        """ページ単位読み込みで既存ワーカーを非ブロッキングキャンセルできる (#1540)"""
         mock_worker = Mock()
         mock_worker_class.return_value = mock_worker
         worker_service.worker_manager.start_worker.return_value = True
@@ -376,10 +503,11 @@ class TestWorkerService:
             cancel_previous=True,
         )
 
-        worker_service.worker_manager.cancel_worker.assert_called_with(
+        worker_service.worker_manager.request_cancel_worker.assert_called_with(
             "thumbnail_existing",
             reason=CancelReason.THUMBNAIL_REPLACED,
         )
+        worker_service.worker_manager.cancel_worker.assert_not_called()
 
     @patch("lorairo.gui.services.worker_service.ThumbnailWorker")
     def test_start_thumbnail_page_load_failure_keeps_current_worker_id(

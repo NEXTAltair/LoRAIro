@@ -46,6 +46,7 @@ class TestWorkerSystemCoordination:
         mock_worker_manager = Mock()
         mock_worker_manager.start_worker.return_value = True
         mock_worker_manager.cancel_worker.return_value = True
+        mock_worker_manager.request_cancel_worker.return_value = True
         mock_worker_manager_class.return_value = mock_worker_manager
 
         service = WorkerService(mock_db_manager, mock_fsm)
@@ -86,13 +87,13 @@ class TestWorkerSystemCoordination:
             )
             assert worker_service.current_search_worker_id == worker_id1
 
-            # 2番目の検索開始（1番目は自動キャンセル）
+            # 2番目の検索開始（1番目は自動非ブロッキングキャンセル）
             worker_id2 = worker_service.start_search(
                 SearchConditions(search_type="tags", keywords=["test2"], tag_logic="and")
             )
 
-            # 1番目のワーカーがキャンセルされたことを確認
-            worker_service.worker_manager.cancel_worker.assert_called_with(
+            # 1番目のワーカーに非ブロッキングキャンセル要求が送られたことを確認
+            worker_service.worker_manager.request_cancel_worker.assert_called_with(
                 worker_id1,
                 reason=CancelReason.SEARCH_REPLACED,
             )
@@ -264,8 +265,8 @@ class TestWorkerSystemCoordination:
                 SearchConditions(search_type="tags", keywords=["new_test"], tag_logic="and")
             )
 
-            # 古いワーカーがキャンセルされ、新しいIDが設定される
-            worker_service.worker_manager.cancel_worker.assert_called_with(
+            # 古いワーカーに非ブロッキングキャンセル要求が送られ、新しいIDが設定される
+            worker_service.worker_manager.request_cancel_worker.assert_called_with(
                 worker_id,
                 reason=CancelReason.SEARCH_REPLACED,
             )
