@@ -65,7 +65,7 @@ class FavoriteFilterPanel(QGroupBox):
         self._chip_container = QWidget()
         self._chip_layout = FlowLayout(self._chip_container, spacing=4)
         self._empty_label = QLabel("保存済みのお気に入りはありません")
-        self._empty_label.setStyleSheet(f"color: {theme.INK_FAINT}; font-size: {theme.FONT_SIZE_SMALL}px;")
+        self._empty_label.setStyleSheet(f"color: {theme.INK_MUTED}; font-size: {theme.FONT_SIZE_SMALL}px;")
 
         # ☆ お気に入りに保存 (DS の保存導線)
         self.button_save_filter = QPushButton("☆ お気に入りに保存")

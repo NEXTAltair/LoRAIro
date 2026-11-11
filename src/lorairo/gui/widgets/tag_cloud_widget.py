@@ -200,6 +200,7 @@ class _DrillChip(QWidget):
         layout.addWidget(name)
         close_btn = QPushButton("✕")
         close_btn.setFixedSize(16, 16)
+        close_btn.setToolTip(f"{self._tag} を除外から外す")
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.setStyleSheet(
             f"QPushButton{{border:none;background:transparent;color:{theme.ACCENT_HOVER};}}"
@@ -679,7 +680,7 @@ class NetworkGraphView(QWidget):
         font = _mono_font()
         font.setPixelSize(9)
         painter.setFont(font)
-        painter.setPen(QColor(theme.INK_FAINT))
+        painter.setPen(QColor(theme.INK_MUTED))
         painter.drawText(QPointF(x + 10, y + 14), "出現頻度  低 → 高")
         # ランプ
         for i in range(5):
@@ -699,7 +700,7 @@ class NetworkGraphView(QWidget):
         painter.setBrush(QBrush(QColor(255, 255, 255, 230)))
         painter.setPen(QPen(QColor(theme.LINE), 1))
         painter.drawRoundedRect(QRectF(x, 12, tw, 22), 11, 11)
-        painter.setPen(QColor(theme.INK_FAINT))
+        painter.setPen(QColor(theme.INK_MUTED))
         painter.drawText(QRectF(x, 12, tw, 22), Qt.AlignmentFlag.AlignCenter, text)
 
     def _draw_tooltip(self, painter: QPainter) -> None:
@@ -870,7 +871,7 @@ class TagCloudWidget(QWidget):
         self._message_label = QLabel()
         self._message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._message_label.setWordWrap(True)
-        self._message_label.setStyleSheet(f"color:{theme.INK_FAINT};")
+        self._message_label.setStyleSheet(f"color:{theme.INK_MUTED};")
         self._message_label.setFont(_mono_font(theme.FONT_SIZE_SMALL))
         self._stack.addWidget(self._message_label)  # PAGE_MESSAGE
 
@@ -899,7 +900,7 @@ class TagCloudWidget(QWidget):
 
         self._legend_label = QLabel("出現頻度: 低 → 高 · 線の太さ = 共起の強さ")
         self._legend_label.setFont(_mono_font(theme.FONT_SIZE_META))
-        self._legend_label.setStyleSheet(f"color:{theme.INK_FAINT};")
+        self._legend_label.setStyleSheet(f"color:{theme.INK_MUTED};")
         footer_layout.addWidget(self._legend_label)
 
         footer_layout.addStretch(1)
@@ -908,7 +909,7 @@ class TagCloudWidget(QWidget):
             "クリック: 絞り込み · ドラッグ: ノード固定/パン · ホイール: ズーム · ダブルクリック: 表示リセット"
         )
         self._hint_label.setFont(_mono_font(theme.FONT_SIZE_META))
-        self._hint_label.setStyleSheet(f"color:{theme.INK_FAINT};")
+        self._hint_label.setStyleSheet(f"color:{theme.INK_MUTED};")
         footer_layout.addWidget(self._hint_label)
 
         root.addWidget(self._footer_bar)
@@ -1088,13 +1089,13 @@ class TagCloudWidget(QWidget):
         self._clear_layout(self._chip_layout)
         lead = QLabel("ドリルダウン:")
         lead.setFont(_mono_font(theme.FONT_SIZE_META))
-        lead.setStyleSheet(f"color:{theme.INK_FAINT};")
+        lead.setStyleSheet(f"color:{theme.INK_MUTED};")
         self._chip_layout.addWidget(lead)
         if not self._selected_tags:
             hint = QLabel("なし — ノードをクリックして絞り込み")
             hint.setFont(_mono_font(theme.FONT_SIZE_META))
             hint.setStyleSheet(
-                f"color:{theme.INK_FAINT};border:{theme.BORDER_WIDTH}px dashed {theme.LINE_STRONG};"
+                f"color:{theme.INK_MUTED};border:{theme.BORDER_WIDTH}px dashed {theme.LINE_STRONG};"
                 f"border-radius:{theme.RADIUS_CHIP}px;padding:2px 8px;"
             )
             self._chip_layout.addWidget(hint)

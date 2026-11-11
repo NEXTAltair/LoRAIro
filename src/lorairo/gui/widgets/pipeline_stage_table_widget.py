@@ -396,7 +396,7 @@ class PipelineStageTableWidget(QWidget):
         count_label = QLabel(count_text, body)
         count_label.setObjectName(f"stageCount_{stage.name}")
         count_label.setStyleSheet(
-            f"font-family: {theme.FONT_MONO_CSS}; color: {theme.INK_FAINT};"
+            f"font-family: {theme.FONT_MONO_CSS}; color: {theme.INK_MUTED};"
             f" font-size: {theme.FONT_SIZE_META}px; border: none;"
         )
         row_layout.addWidget(count_label)

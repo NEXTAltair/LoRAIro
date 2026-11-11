@@ -146,7 +146,7 @@ class PreflightSummaryWidget(DsCard):
         # ステージング画像なし時のプレースホルダ
         self._placeholder_label = QLabel(_PLACEHOLDER_TEXT, body)
         self._placeholder_label.setObjectName("preflightPlaceholderLabel")
-        self._placeholder_label.setStyleSheet(f"color: {theme.INK_FAINT};")
+        self._placeholder_label.setStyleSheet(f"color: {theme.INK_MUTED};")
         body_layout.addWidget(self._placeholder_label)
 
         body_layout.addStretch(1)

@@ -47,8 +47,8 @@ _NODE_STYLES: dict[str, tuple[str, str, str]] = {
     "done": (theme.INK_SOFT, theme.INK_SOFT, "✓"),
     "cur": (theme.ACCENT, theme.ACCENT, ""),
     "cur_bad": (theme.ERR, theme.ERR, "✕"),
-    "cur_off": (theme.INK_FAINT, theme.INK_FAINT, "⊘"),
-    "cur_warn": (theme.INK_FAINT, theme.INK_FAINT, "◷"),
+    "cur_off": (theme.INK_MUTED, theme.INK_MUTED, "⊘"),
+    "cur_warn": (theme.INK_MUTED, theme.INK_MUTED, "◷"),
     "wait": (theme.CARD, theme.LINE, ""),
 }
 
@@ -169,7 +169,7 @@ class _TrackCheckpoint(QWidget):
         self.sub_label = QLabel(sub_text)
         self.sub_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.sub_label.setStyleSheet(
-            f"QLabel {{ color: {theme.INK_FAINT}; font-size: 10px; font-family: {theme.FONT_MONO_CSS}; }}"
+            f"QLabel {{ color: {theme.INK_MUTED}; font-size: 10px; font-family: {theme.FONT_MONO_CSS}; }}"
         )
         layout.addWidget(self.sub_label)
         layout.addStretch(1)
@@ -503,7 +503,7 @@ class ProviderBatchJobCard(QFrame):
         self._disc_button.setFlat(True)
         self._disc_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._disc_button.setStyleSheet(
-            f"QPushButton {{ border: none; color: {theme.INK_FAINT}; font-size: 10px;"
+            f"QPushButton {{ border: none; color: {theme.INK_MUTED}; font-size: 10px;"
             f" font-family: {theme.FONT_MONO_CSS}; padding: 2px 4px; text-align: left; }}"
             f"QPushButton:hover {{ color: {theme.ACCENT}; }}"
         )
@@ -513,7 +513,7 @@ class ProviderBatchJobCard(QFrame):
         note_text, note_is_error = self._footer_note()
         note = QLabel(note_text)
         note.setObjectName("labelCardNote")
-        note_color = theme.ERR if note_is_error else theme.INK_FAINT
+        note_color = theme.ERR if note_is_error else theme.INK_MUTED
         note.setStyleSheet(
             f"QLabel {{ color: {note_color}; font-size: 10px; font-family: {theme.FONT_MONO_CSS}; }}"
         )
@@ -638,7 +638,7 @@ class ProviderBatchJobCard(QFrame):
     def _kv_heading(text: str) -> QLabel:
         heading = QLabel(text.upper())
         heading.setStyleSheet(
-            f"QLabel {{ color: {theme.INK_FAINT}; font-size: 9px; letter-spacing: 1px;"
+            f"QLabel {{ color: {theme.INK_MUTED}; font-size: 9px; letter-spacing: 1px;"
             f" font-weight: 600; font-family: {theme.FONT_MONO_CSS}; margin-top: 4px; }}"
         )
         return heading
@@ -662,7 +662,7 @@ class ProviderBatchJobCard(QFrame):
             cell_layout.setSpacing(0)
             key_label = QLabel(key.upper())
             key_label.setStyleSheet(
-                f"QLabel {{ color: {theme.INK_FAINT}; font-size: 9px;"
+                f"QLabel {{ color: {theme.INK_MUTED}; font-size: 9px;"
                 f" font-family: {theme.FONT_MONO_CSS}; border: none; }}"
             )
             value_label = QLabel(value)

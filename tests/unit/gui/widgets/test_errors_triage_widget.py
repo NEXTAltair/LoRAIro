@@ -357,3 +357,17 @@ class TestEmptyState:
             assert btn.toolTip() != ""
         assert widget._group_toggle.toolTip() != ""
         assert widget._bulk_button.toolTip() != ""
+
+    def test_status_segment_is_ds_segmented_control(self, qtbot) -> None:
+        """Issue #1571: status 切替は DsSegmentedControl で、既定は未解決・変更で filter_changed。"""
+        from lorairo.gui.widgets.ds_segmented_control import DsSegmentedControl
+
+        widget = ErrorsTriageWidget()
+        qtbot.addWidget(widget)
+        assert isinstance(widget._status_control, DsSegmentedControl)
+        assert widget.get_filter().status is ErrorStatusFilter.UNRESOLVED
+        with qtbot.waitSignal(widget.filter_changed, timeout=2000):
+            widget._status_buttons[ErrorStatusFilter.ALL].click()
+        assert widget.get_filter().status is ErrorStatusFilter.ALL
+        assert widget._status_buttons[ErrorStatusFilter.ALL].isChecked()
+        assert not widget._status_buttons[ErrorStatusFilter.UNRESOLVED].isChecked()

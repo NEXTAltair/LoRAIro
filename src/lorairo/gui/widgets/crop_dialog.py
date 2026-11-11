@@ -84,7 +84,7 @@ class _CropPreviewLabel(QLabel):
         self.setStyleSheet(
             f"background-color: {theme.PAPER_SHADE};"
             f" border: {theme.BORDER_WIDTH}px solid {theme.LINE};"
-            f" color: {theme.INK_FAINT};"
+            f" color: {theme.INK_MUTED};"
         )
         self.setText(_NO_SELECTION_TEXT)
 

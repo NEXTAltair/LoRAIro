@@ -37,6 +37,9 @@ class TestTokenValues:
         assert theme.LINE == "#dcd8cc"
         assert theme.LINE_STRONG == "#b9b4a5"
 
+    def test_ink_muted_token(self):
+        assert theme.INK_MUTED == "#6b6b6b"
+
     def test_accent_tokens(self):
         assert theme.ACCENT == "#c25e3f"
         assert theme.ACCENT_HOVER == "#a94e33"
@@ -238,7 +241,7 @@ class TestChipQss:
             ("err", theme.ERR_SOFT, theme.ERR),
             ("info", theme.INFO_SOFT, theme.INFO),
             ("neutral", theme.PAPER_SHADE, theme.INK_SOFT),
-            ("muted", theme.PAPER_SHADE, theme.INK_FAINT),
+            ("muted", theme.PAPER_SHADE, theme.INK_MUTED),
             ("accent", theme.ACCENT_SOFT, theme.ACCENT_HOVER),
             # #1105: pipeline chip 定数から移植した色 (derived は transparent bg のため別テスト)
             ("primary", theme.CARD, theme.INK),
@@ -322,8 +325,8 @@ class TestJobStatusColor:
             ("completed", theme.OK),
             ("imported", theme.OK),
             ("failed", theme.ERR),
-            ("canceled", theme.INK_FAINT),
-            ("expired", theme.INK_FAINT),
+            ("canceled", theme.INK_MUTED),
+            ("expired", theme.INK_MUTED),
         ],
     )
     def test_known_statuses(self, status, expected):
@@ -334,3 +337,35 @@ class TestJobStatusColor:
 
     def test_unknown_status_falls_back_to_ink_soft(self):
         assert theme.job_status_color("mystery") == theme.INK_SOFT
+
+
+def _relative_luminance(hex_color: str) -> float:
+    """sRGB hex の WCAG 相対輝度を返す。"""
+    channels = [int(hex_color[i : i + 2], 16) / 255 for i in (1, 3, 5)]
+    linear = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def _contrast_ratio(fg: str, bg: str) -> float:
+    """2 色の WCAG コントラスト比を返す。"""
+    lighter, darker = sorted((_relative_luminance(fg), _relative_luminance(bg)), reverse=True)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+class TestInkMutedContrast:
+    """情報を伝える薄い文言用 INK_MUTED が WCAG AA (4.5:1) を満たすことを固定する (#1571)。"""
+
+    @pytest.mark.parametrize("background", [theme.CARD, theme.PAPER, theme.PAPER_SHADE])
+    def test_ink_muted_meets_aa_on_surfaces(self, background):
+        assert _contrast_ratio(theme.INK_MUTED, background) >= 4.5
+
+    def test_ink_faint_stays_below_aa_for_disabled_only(self):
+        # INK_FAINT は disabled / 装飾専用として残す (情報用途に使わない根拠)
+        assert _contrast_ratio(theme.INK_FAINT, theme.CARD) < 4.5
+
+    def test_placeholder_palette_uses_ink_muted(self):
+        from PySide6.QtGui import QColor, QPalette
+
+        palette = theme._build_light_palette()
+        color = palette.color(QPalette.ColorGroup.Active, QPalette.ColorRole.PlaceholderText)
+        assert color == QColor(theme.INK_MUTED)

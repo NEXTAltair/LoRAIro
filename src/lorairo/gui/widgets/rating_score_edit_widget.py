@@ -63,7 +63,7 @@ def _ai_rating_chip_qss(active: bool) -> str:
             f" font-size: {theme.FONT_SIZE_SMALL}px; font-weight: {theme.FONT_WEIGHT_SEMIBOLD}; }}"
         )
     return (
-        f"QLabel {{ background-color: transparent; color: {theme.INK_FAINT};"
+        f"QLabel {{ background-color: transparent; color: {theme.INK_MUTED};"
         f" border: {theme.BORDER_WIDTH}px solid transparent;"
         f" border-radius: {theme.RADIUS_BADGE}px; padding: 1px 8px;"
         f" font-size: {theme.FONT_SIZE_SMALL}px; }}"
@@ -104,7 +104,7 @@ def _delta_qss() -> str:
 def _footnote_qss() -> str:
     """カード末尾の注記 (mono / faint) の QSS。"""
     return (
-        f"color: {theme.INK_FAINT}; font-family: {theme.FONT_MONO_CSS};"
+        f"color: {theme.INK_MUTED}; font-family: {theme.FONT_MONO_CSS};"
         f" font-size: {theme.FONT_SIZE_SMALL}px;"
     )
 

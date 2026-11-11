@@ -215,7 +215,7 @@ class _RowThumbnail(QLabel):
         # DS: hairline border の枠。読み込み前/失敗時はプレースホルダ文言をこの枠内に出す。
         self.setStyleSheet(
             f"QLabel {{ border: {theme.BORDER_WIDTH}px solid {theme.LINE};"
-            f" border-radius: {theme.RADIUS}px; color: {theme.INK_FAINT}; }}"
+            f" border-radius: {theme.RADIUS}px; color: {theme.INK_MUTED}; }}"
         )
         self.setText("…")
 
@@ -936,7 +936,7 @@ class ResultsWidget(QWidget):
             evidence_label = QLabel(evidence)
             evidence_label.setObjectName("resultsIssueCardEvidence")
             evidence_label.setWordWrap(True)
-            evidence_label.setStyleSheet(f"color: {theme.INK_FAINT}; font-family: {theme.FONT_MONO_CSS};")
+            evidence_label.setStyleSheet(f"color: {theme.INK_MUTED}; font-family: {theme.FONT_MONO_CSS};")
             layout.addWidget(evidence_label)
 
         # 対処ガイド (1行アクション文) を添える (#1139)。

@@ -32,7 +32,7 @@ def _group_sub_qss() -> str:
     """DS Group ヘッダの mono サブコード用 QLabel QSS。"""
     return (
         f"font-family: {theme.FONT_MONO_CSS}; font-size: {theme.FONT_SIZE_META}px;"
-        f" color: {theme.INK_FAINT};"
+        f" color: {theme.INK_MUTED};"
     )
 
 

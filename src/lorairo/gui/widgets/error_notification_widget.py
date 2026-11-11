@@ -81,7 +81,7 @@ class ErrorNotificationWidget(QLabel):
         except Exception as e:
             logger.opt(exception=True).error(f"Failed to update error count: {e}")
             self.setText("エラー: 取得失敗")
-            self.setStyleSheet(f"QLabel {{ color: {theme.INK_FAINT}; }}")
+            self.setStyleSheet(f"QLabel {{ color: {theme.INK_MUTED}; }}")
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """マウスクリックイベント"""

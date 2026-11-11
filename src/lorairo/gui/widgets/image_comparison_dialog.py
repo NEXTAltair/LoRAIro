@@ -123,7 +123,7 @@ def _caption_side_html(diff: CaptionDiff, side: Side) -> str:
 
 
 def _placeholder_html(text: str) -> str:
-    return f'<div style="color:{theme.INK_FAINT}; font-style: italic;">{html.escape(text)}</div>'
+    return f'<div style="color:{theme.INK_MUTED}; font-style: italic;">{html.escape(text)}</div>'
 
 
 def _plain_html(text: str) -> str:

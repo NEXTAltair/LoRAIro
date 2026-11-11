@@ -142,13 +142,13 @@ class RelatedImagesWidget(QWidget):
     def _caption_label(self, text: str) -> QLabel:
         """「親」「子」の見出しラベルを作る。"""
         label = QLabel(text, self)
-        label.setStyleSheet(f"color: {theme.INK_FAINT}; font-size: {theme.FONT_SIZE_SMALL}px;")
+        label.setStyleSheet(f"color: {theme.INK_MUTED}; font-size: {theme.FONT_SIZE_SMALL}px;")
         return label
 
     def _empty_label(self) -> QLabel:
         """関連が無いときの「なし」ラベルを作る。"""
         label = QLabel(_EMPTY_TEXT, self)
-        label.setStyleSheet(f"color: {theme.INK_FAINT}; font-size: {theme.FONT_SIZE_SMALL}px;")
+        label.setStyleSheet(f"color: {theme.INK_MUTED}; font-size: {theme.FONT_SIZE_SMALL}px;")
         return label
 
     def _rebuild_rows(self) -> None:

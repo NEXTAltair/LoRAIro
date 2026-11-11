@@ -10,7 +10,6 @@ import re
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QButtonGroup,
     QComboBox,
     QFrame,
     QHBoxLayout,
@@ -32,6 +31,7 @@ from lorairo.services.error_triage_service import (
 )
 
 from .ds_chip import DsChip
+from .ds_segmented_control import DsSegmentedControl
 
 # status セグメントの並びと表示ラベル
 _STATUS_ORDER: list[tuple[ErrorStatusFilter, str]] = [
@@ -100,7 +100,7 @@ class ErrorsTriageWidget(QWidget):
         self._truncation_label = QLabel("最新500件を表示中", band)
         self._truncation_label.setObjectName("errorsTruncationLabel")
         self._truncation_label.setStyleSheet(
-            f"font-family: {theme.FONT_MONO_CSS}; color: {theme.INK_FAINT};"
+            f"font-family: {theme.FONT_MONO_CSS}; color: {theme.INK_MUTED};"
             f" font-size: {theme.FONT_SIZE_META}px;"
         )
         self._truncation_label.setVisible(False)
@@ -116,21 +116,21 @@ class ErrorsTriageWidget(QWidget):
         bar.setObjectName("errorsFilterBar")
         layout = QHBoxLayout(bar)
 
-        # status セグメント (排他ボタン)
-        self._status_group = QButtonGroup(self)
-        self._status_group.setExclusive(True)
+        # status セグメント (DS 公式部品 DsSegmentedControl, #1571)
+        self._status_control = DsSegmentedControl(
+            [(status.value, label) for status, label in _STATUS_ORDER],
+            value=ErrorStatusFilter.UNRESOLVED.value,
+            size="base",
+            parent=bar,
+        )
         self._status_buttons: dict[ErrorStatusFilter, QPushButton] = {}
         for status, label in _STATUS_ORDER:
-            btn = QPushButton(label, bar)
+            btn = self._status_control._buttons[status.value]
             btn.setObjectName(f"errorsStatusButton_{status.value}")
-            btn.setCheckable(True)
             btn.setToolTip(f"{label}のエラーを表示")
-            if status is ErrorStatusFilter.UNRESOLVED:
-                btn.setChecked(True)
-            self._status_group.addButton(btn)
             self._status_buttons[status] = btn
-            btn.clicked.connect(self.filter_changed.emit)
-            layout.addWidget(btn)
+        self._status_control.value_changed.connect(lambda _value: self.filter_changed.emit())
+        layout.addWidget(self._status_control)
 
         # operation / error_type / model combo
         self._operation_combo = self._make_filter_combo(
@@ -405,7 +405,7 @@ class ErrorsTriageWidget(QWidget):
             detail_lbl.setWordWrap(True)
             detail_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             detail_lbl.setStyleSheet(
-                f"font-family: {theme.FONT_MONO_CSS}; color: {theme.INK_FAINT};"
+                f"font-family: {theme.FONT_MONO_CSS}; color: {theme.INK_MUTED};"
                 f" font-size: {theme.FONT_SIZE_META}px;"
             )
             layout.addWidget(detail_lbl)
@@ -488,7 +488,7 @@ class ErrorsTriageWidget(QWidget):
             detail_label.setWordWrap(True)
             detail_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             detail_label.setStyleSheet(
-                f"font-family: {theme.FONT_MONO_CSS}; color: {theme.INK_FAINT};"
+                f"font-family: {theme.FONT_MONO_CSS}; color: {theme.INK_MUTED};"
                 f" font-size: {theme.FONT_SIZE_META}px;"
             )
             info_layout.addWidget(detail_label)
@@ -499,6 +499,7 @@ class ErrorsTriageWidget(QWidget):
             image_link = QPushButton(str(row.image_id), line)
             image_link.setObjectName(f"errorRowImageLink_{row.error_id}")
             image_link.setFlat(True)
+            image_link.setToolTip(f"画像 {row.image_id} を開く")
             image_id = row.image_id
             image_link.clicked.connect(
                 lambda _checked=False, iid=image_id: self.image_link_clicked.emit(iid)
@@ -558,10 +559,7 @@ class ErrorsTriageWidget(QWidget):
     # ------------------------------------------------------------------
     def get_filter(self) -> ErrorFilter:
         """フィルタ UI の現在の選択状態を返す。"""
-        status = next(
-            (s for s, btn in self._status_buttons.items() if btn.isChecked()),
-            ErrorStatusFilter.UNRESOLVED,
-        )
+        status = ErrorStatusFilter(self._status_control.value())
         return ErrorFilter(
             status=status,
             operation_type=self._combo_value(self._operation_combo),
