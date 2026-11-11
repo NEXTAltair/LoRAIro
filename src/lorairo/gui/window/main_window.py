@@ -79,6 +79,9 @@ if TYPE_CHECKING:
 # 切替後のウィンドウが GC で破棄される。
 _PROJECT_SWITCH_WINDOWS: list["MainWindow"] = []
 
+# タグ DB 背景準備の進捗キー (ProgressStateService.show_progress / finish_progress)
+_TAG_DB_WARMUP_PROGRESS_KEY = "tag_db_warmup"
+
 
 class MainWindow(QMainWindow, Ui_MainWindow):
     """
@@ -1847,6 +1850,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # Progress feedback connections
         self.worker_service.worker_progress_updated.connect(self._on_worker_progress_updated)
         self.worker_service.worker_batch_progress.connect(self._on_worker_batch_progress)
+        # 終端した worker の進捗を常設部品から消す (ADR 0108)
+        self.worker_service.worker_terminal.connect(self._on_worker_terminal_clear_progress)
 
         logger.info("WorkerService pipeline signals connected")
 
@@ -1965,6 +1970,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def _on_worker_batch_progress(self, worker_id: str, current: int, total: int, filename: str) -> None:
         self._delegate_to_progress_state("on_worker_batch_progress", worker_id, current, total, filename)
+
+    def _on_worker_terminal_clear_progress(self, event: Any) -> None:
+        """Worker 終端イベントで、その worker の進捗表示を消す (ADR 0108)。"""
+        worker_id = getattr(event, "worker_id", None)
+        if isinstance(worker_id, str):
+            self._delegate_to_progress_state("on_worker_terminal", worker_id)
 
     def _on_batch_annotation_started(self, total_images: int) -> None:
         self._delegate_to_progress_state("on_batch_annotation_started", total_images)
@@ -2496,7 +2507,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             return
         self._tag_db_manager = WorkerManager(self)
         self._tag_db_ready.connect(self._on_tag_db_warmup_done)
-        self.statusBar().showMessage("タグDBを準備中です (翻訳表示とタグ補完は準備完了後に有効になります)")
+        # 準備中は進捗 (所要時間不明) なので常設の進捗部品へ不定進捗で出す (ADR 0108)
+        progress_state = getattr(self, "progress_state_service", None)
+        if progress_state is not None:
+            progress_state.show_progress(
+                _TAG_DB_WARMUP_PROGRESS_KEY,
+                "タグDBを準備中です (翻訳表示とタグ補完は準備完了後に有効になります)",
+            )
         worker = TagDbWarmupWorker(self.service_container)
         self._tag_db_manager.worker_finished.connect(lambda _wid, result: self._tag_db_ready.emit(result))
         self._tag_db_manager.worker_error.connect(
@@ -2506,11 +2523,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._tag_db_manager.start_worker("tag_db_warmup", worker)
         logger.info("タグDBの背景初期化を開始")
 
+    def _finish_tag_db_warmup_progress(self) -> None:
+        """タグ DB 準備の進捗表示を常設部品から消す (ADR 0108)。"""
+        progress_state = getattr(self, "progress_state_service", None)
+        if progress_state is not None:
+            progress_state.finish_progress(_TAG_DB_WARMUP_PROGRESS_KEY)
+
     @Slot(object)
     def _on_tag_db_warmup_done(self, result: object) -> None:
         """タグ DB 準備の完了 (成功 / 失敗 / キャンセル) を受けて各タブへ反映する。"""
         if self._closing:
             return
+        self._finish_tag_db_warmup_progress()
         # 起動直後通知より後に判明する失敗なので、後から通知する経路で知らせる (#1599)
         late_warnings: list[tuple[str, str]] = []
         if isinstance(result, TagDbWarmupResult):
