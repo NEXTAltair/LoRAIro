@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from lorairo.gui import theme
+from lorairo.gui.widgets.ds_button import DsButton
 
 # 内部 status → カード表示状態
 CardViewState = Literal["active", "collectable", "imported", "failed", "canceled", "expired"]
@@ -528,17 +529,11 @@ class ProviderBatchJobCard(QFrame):
             self.cancel_button.setEnabled(str(getattr(self._job, "status", "")) in _CANCELABLE_STATUSES)
             self.cancel_button.clicked.connect(lambda: self.cancel_requested.emit(self._job_id))
             layout.addWidget(self.cancel_button)
-            self.check_button = QPushButton("↻ 状態を確認")
+            self.check_button = DsButton("↻ 状態を確認", kind="primary", size="small")
         elif self._view_state == "collectable":
-            self.check_button = QPushButton("↓ 結果を取得")
+            self.check_button = DsButton("↓ 結果を取得", kind="primary", size="small")
         if self.check_button is not None:
             self.check_button.setObjectName("buttonCardCheck")
-            self.check_button.setStyleSheet(
-                f"QPushButton {{ background-color: {theme.ACCENT}; color: #ffffff;"
-                f" border: 1px solid {theme.ACCENT}; border-radius: {theme.RADIUS}px;"
-                f" padding: 3px 10px; font-weight: 600; }}"
-                f"QPushButton:hover {{ background-color: {theme.ACCENT_HOVER}; }}"
-            )
             self.check_button.clicked.connect(lambda: self.check_requested.emit(self._job_id))
             layout.addWidget(self.check_button)
         return footer

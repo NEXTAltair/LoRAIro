@@ -9,6 +9,7 @@ from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QWheelEvent
 from PySide6.QtWidgets import QLabel, QWidget
 
+from lorairo.gui.widgets.ds_removable_chip import RemovableChip
 from lorairo.gui.widgets.tag_cloud_widget import (
     FlowLayout,
     NetworkGraphView,
@@ -355,6 +356,18 @@ class TestTagCloudWidget:
         widget._keyword = "hair"
         widget._selected_tags = ["smile", "blush"]
         widget._on_chip_removed("smile")
+        assert widget._selected_tags == ["blush"]
+
+    def test_drill_chip_is_removable_chip_and_click_removes_tag(self, qtbot: pytest.FixtureRequest) -> None:
+        widget = _make_widget(qtbot, _sample_graph())
+        widget._keyword = "hair"
+        widget._selected_tags = ["smile", "blush"]
+        widget._refresh_chips()
+        chips = widget.findChildren(RemovableChip)
+        assert [c.text() for c in chips] == ["smile", "blush"]
+        # 文脈固有のツールチップ (旧 _DrillChip と同文言) を保持する
+        assert chips[0]._remove_btn.toolTip() == "smile を除外から外す"
+        chips[0]._remove_btn.click()
         assert widget._selected_tags == ["blush"]
 
     def test_reset_clears_state(self, qtbot: pytest.FixtureRequest) -> None:

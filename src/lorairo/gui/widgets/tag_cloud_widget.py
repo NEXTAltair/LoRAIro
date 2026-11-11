@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
 )
 
 from lorairo.gui import theme
+from lorairo.gui.widgets.ds_removable_chip import RemovableChip
 from lorairo.services.tag_cloud_service import GraphResult, TagCloudService
 
 if TYPE_CHECKING:
@@ -177,37 +178,6 @@ class _TagCloudLabel(QLabel):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self._tag)
-
-
-class _DrillChip(QWidget):
-    """ドリルダウン中タグのチップ（× で解除）。"""
-
-    removed = Signal(str)
-
-    def __init__(self, tag: str, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._tag = tag
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 2, 4, 2)
-        layout.setSpacing(4)
-        self.setStyleSheet(
-            f"background:{theme.ACCENT_SOFT};border:{theme.BORDER_WIDTH}px solid {theme.ACCENT_BORDER};"
-            f"border-radius:{theme.RADIUS_CHIP}px;"
-        )
-        name = QLabel(tag)
-        name.setFont(_mono_font(theme.FONT_SIZE_META))
-        name.setStyleSheet(f"color:{theme.ACCENT_HOVER};border:none;background:transparent;")
-        layout.addWidget(name)
-        close_btn = QPushButton("✕")
-        close_btn.setFixedSize(16, 16)
-        close_btn.setToolTip(f"{self._tag} を除外から外す")
-        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setStyleSheet(
-            f"QPushButton{{border:none;background:transparent;color:{theme.ACCENT_HOVER};}}"
-            f"QPushButton:hover{{color:{theme.ERR};}}"
-        )
-        close_btn.clicked.connect(lambda: self.removed.emit(self._tag))
-        layout.addWidget(close_btn)
 
 
 @dataclass
@@ -1101,8 +1071,14 @@ class TagCloudWidget(QWidget):
             self._chip_layout.addWidget(hint)
             return
         for tag in self._selected_tags:
-            chip = _DrillChip(tag)
-            chip.removed.connect(self._on_chip_removed)
+            chip = RemovableChip(
+                tag,
+                radius=theme.RADIUS_CHIP,
+                remove_tooltip=f"{tag} を除外から外す",
+                monospace=True,
+                font_size=theme.FONT_SIZE_META,
+            )
+            chip.removed.connect(lambda t=tag: self._on_chip_removed(t))
             self._chip_layout.addWidget(chip)
 
     def _show_placeholder(self) -> None:

@@ -30,6 +30,7 @@ from lorairo.services.error_triage_service import (
     ErrorTriageSummary,
 )
 
+from .ds_card import DsCard
 from .ds_chip import DsChip
 from .ds_segmented_control import DsSegmentedControl
 
@@ -339,23 +340,17 @@ class ErrorsTriageWidget(QWidget):
             insert_at += 1
             self._rendered_group_keys.append((group.operation_type, group.error_type, group.model_name))
 
-    def _make_group_card(self, group: ErrorGroup) -> QFrame:
+    def _make_group_card(self, group: ErrorGroup) -> DsCard:
         """1 グループのカード widget を生成する。"""
         model_label = group.model_name if group.model_name is not None else "(model 無し)"
         model_key = _normalize_key(group.model_name) if group.model_name is not None else "none"
 
-        card = QFrame(self._content)
+        # DS: 原因別グループは DsCard (card 地 + hairline border、borders-not-shadows)
+        card = DsCard(parent=self._content)
         card.setObjectName(
             f"errorGroup_{_normalize_key(group.operation_type)}_"
             f"{_normalize_key(group.error_type)}_{model_key}"
         )
-        card.setFrameShape(QFrame.Shape.StyledPanel)
-        # DS: 原因別グループは card 地 + hairline border (borders-not-shadows)
-        card.setStyleSheet(
-            f"QFrame#{card.objectName()} {{ background-color: {theme.CARD};"
-            f" border: {theme.BORDER_WIDTH}px solid {theme.LINE}; border-radius: {theme.RADIUS}px; }}"
-        )
-        layout = QVBoxLayout(card)
 
         header = QLabel(f"{group.operation_type} · {group.error_type} · {model_label}", card)
         header.setObjectName("errorGroupHeader")
@@ -364,7 +359,7 @@ class ErrorsTriageWidget(QWidget):
             f"color: {theme.INK_SOFT}; font-weight: {theme.FONT_WEIGHT_BOLD};"
             f" letter-spacing: {theme.LETTER_CAPS}; font-size: {theme.FONT_SIZE_SMALL}px;"
         )
-        layout.addWidget(header)
+        card.add_widget(header)
 
         # DS: 件数バッジは未解決ありなら warn chip、全解決なら ok chip。
         # DS 公式 chip 部品へ寄せる (Issue #1105 項目1)。見た目維持のためドット無し。
@@ -375,7 +370,7 @@ class ErrorsTriageWidget(QWidget):
             parent=card,
         )
         badge.setObjectName("errorGroupCountBadge")
-        layout.addWidget(badge)
+        card.add_widget(badge)
 
         sample = QLabel(group.sample_message, card)
         sample.setObjectName("errorGroupSample")
@@ -385,7 +380,7 @@ class ErrorsTriageWidget(QWidget):
             f"font-family: {theme.FONT_MONO_CSS}; color: {theme.INK_SOFT};"
             f" font-size: {theme.FONT_SIZE_SMALL}px;"
         )
-        layout.addWidget(sample)
+        card.add_widget(sample)
 
         # グループ内レコードに file_path / stack_trace があればコンパクト詳細を表示 (#1563)
         group_detail_parts: list[str] = []
@@ -408,7 +403,7 @@ class ErrorsTriageWidget(QWidget):
                 f"font-family: {theme.FONT_MONO_CSS}; color: {theme.INK_MUTED};"
                 f" font-size: {theme.FONT_SIZE_META}px;"
             )
-            layout.addWidget(detail_lbl)
+            card.add_widget(detail_lbl)
 
         if group.image_ids:
             images_row = QFrame(card)
@@ -422,7 +417,7 @@ class ErrorsTriageWidget(QWidget):
                 link.clicked.connect(lambda _checked=False, iid=image_id: self.image_link_clicked.emit(iid))
                 images_layout.addWidget(link)
             images_layout.addStretch(1)
-            layout.addWidget(images_row)
+            card.add_widget(images_row)
 
         resolve_btn = QPushButton("このグループを resolve", card)
         resolve_btn.setObjectName("errorGroupResolveButton")
@@ -432,7 +427,7 @@ class ErrorsTriageWidget(QWidget):
             lambda _checked=False, ids=unresolved_ids: self.resolve_group_requested.emit(ids)
         )
         resolve_btn.setEnabled(bool(unresolved_ids))
-        layout.addWidget(resolve_btn)
+        card.add_widget(resolve_btn)
 
         return card
 
@@ -444,21 +439,19 @@ class ErrorsTriageWidget(QWidget):
             self._content_layout.insertWidget(insert_at, line)
             insert_at += 1
 
-    def _make_row_line(self, row: ErrorRow) -> QFrame:
+    def _make_row_line(self, row: ErrorRow) -> DsCard:
         """1 行の widget を生成する。"""
         model_label = row.model_name if row.model_name is not None else "-"
 
-        line = QFrame(self._content)
+        # DS: 個別行も DsCard (hairline border、borders-not-shadows)。
+        # 横並びの行内容は body コンテナ (QHBoxLayout) に載せる。
+        line = DsCard(parent=self._content)
         line.setObjectName(f"errorRow_{row.error_id}")
-        line.setFrameShape(QFrame.Shape.StyledPanel)
-        # DS: 個別行も hairline border (borders-not-shadows)
-        line.setStyleSheet(
-            f"QFrame#{line.objectName()} {{ background-color: {theme.CARD};"
-            f" border: {theme.BORDER_WIDTH}px solid {theme.LINE}; border-radius: {theme.RADIUS}px; }}"
-        )
-        layout = QHBoxLayout(line)
+        body = QWidget(line)
+        layout = QHBoxLayout(body)
+        layout.setContentsMargins(0, 0, 0, 0)
 
-        info_container = QWidget(line)
+        info_container = QWidget(body)
         info_layout = QVBoxLayout(info_container)
         info_layout.setContentsMargins(0, 0, 0, 0)
         info_layout.setSpacing(2)
@@ -496,7 +489,7 @@ class ErrorsTriageWidget(QWidget):
         layout.addWidget(info_container, stretch=1)
 
         if row.image_id is not None:
-            image_link = QPushButton(str(row.image_id), line)
+            image_link = QPushButton(str(row.image_id), body)
             image_link.setObjectName(f"errorRowImageLink_{row.error_id}")
             image_link.setFlat(True)
             image_link.setToolTip(f"画像 {row.image_id} を開く")
@@ -507,7 +500,7 @@ class ErrorsTriageWidget(QWidget):
             layout.addWidget(image_link)
 
         if not row.resolved:
-            resolve_btn = QPushButton("resolve", line)
+            resolve_btn = QPushButton("resolve", body)
             resolve_btn.setObjectName(f"errorRowResolveButton_{row.error_id}")
             resolve_btn.setToolTip(f"エラー #{row.error_id} を解決済みにする")
             error_id = row.error_id
@@ -516,8 +509,9 @@ class ErrorsTriageWidget(QWidget):
             )
             layout.addWidget(resolve_btn)
         else:
-            layout.addWidget(QLabel("解決済み", line))
+            layout.addWidget(QLabel("解決済み", body))
 
+        line.set_body(body)
         return line
 
     # ------------------------------------------------------------------

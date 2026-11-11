@@ -54,6 +54,7 @@ from PySide6.QtWidgets import (
 from lorairo.gui import theme
 from lorairo.gui.widgets.ds_badge import DsBadge
 from lorairo.gui.widgets.ds_chip import DsChip
+from lorairo.gui.widgets.ds_segmented_control import DsSegmentedControl
 from lorairo.services.cost_estimation_service import (
     CostEstimationService,
     format_per_image_cost,
@@ -385,7 +386,7 @@ class StageModelPickerDialog(QDialog):
         self._type_count_labels: dict[str, QLabel] = {}
         self._provider_buttons: dict[str, QRadioButton] = {}
         self._provider_count_labels: dict[str, QLabel] = {}
-        self._env_buttons: dict[str, QPushButton] = {}
+        self._env_segment: DsSegmentedControl | None = None
         self.search_edit = QLineEdit(self)
         self.search_edit.setObjectName("pickerSearchInput")
         self.search_edit.setPlaceholderText("モデル名・プロバイダで検索...")
@@ -740,28 +741,11 @@ class StageModelPickerDialog(QDialog):
         return panel
 
     def _build_env_segment(self, parent: QWidget) -> QWidget:
-        """実行環境のセグメントコントロール (排他チェック可能ボタン) を構築する。"""
-        wrap = QFrame(parent)
-        hl = QHBoxLayout(wrap)
-        hl.setContentsMargins(0, 0, 0, 0)
-        hl.setSpacing(0)
-        group = QButtonGroup(wrap)
-        group.setExclusive(True)
-        for value, label in _ENV_SEGMENTS:
-            btn = QPushButton(label, wrap)
-            btn.setObjectName("pickerEnvSegment")
-            btn.setCheckable(True)
-            btn.setChecked(value == self._env)
-            btn.clicked.connect(lambda _checked=False, v=value: self._set_env(v))
-            btn.setStyleSheet(
-                f"QPushButton#pickerEnvSegment {{ border-radius: 0; }}"
-                f" QPushButton#pickerEnvSegment:checked {{ background-color: {theme.ACCENT};"
-                f" color: {theme.TEXT_ON_ACCENT}; border-color: {theme.ACCENT}; }}"
-            )
-            group.addButton(btn)
-            hl.addWidget(btn)
-            self._env_buttons[value] = btn
-        return wrap
+        """実行環境のセグメントコントロール (DsSegmentedControl) を構築する。"""
+        self._env_segment = DsSegmentedControl(list(_ENV_SEGMENTS), value=self._env, parent=parent)
+        self._env_segment.setObjectName("pickerEnvSegment")
+        self._env_segment.value_changed.connect(self._set_env)
+        return self._env_segment
 
     def _build_footer(self) -> QWidget:
         """選択サマリと適用 / キャンセルボタンのフッタを構築する。"""
@@ -815,9 +799,8 @@ class StageModelPickerDialog(QDialog):
             return
         self._env = env
         self._provider = "all"
-        button = self._env_buttons.get(env)
-        if button is not None:
-            button.setChecked(True)
+        if self._env_segment is not None:
+            self._env_segment.set_value(env)
         self._rebuild_provider_radios()
         self._apply_filters()
 
