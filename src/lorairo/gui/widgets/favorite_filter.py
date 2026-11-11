@@ -267,7 +267,6 @@ class FavoriteFilterPanel(QGroupBox):
             conditions = self.favorite_filters_service.load_filter(filter_name)
             if conditions:
                 self._conditions_applier(conditions)
-                QMessageBox.information(self, "読込完了", f"フィルター '{filter_name}' を適用しました。")
                 logger.info("Loaded and applied favorite filter: {}", filter_name)
             else:
                 show_warning(

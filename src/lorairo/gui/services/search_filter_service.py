@@ -116,8 +116,8 @@ class SearchFilterService:
 
     def create_search_conditions(
         self,
-        search_type: str,
-        keywords: list[str],
+        search_type: str = "tags",
+        keywords: list[str] | None = None,
         excluded_keywords: list[str] | None = None,
         tag_logic: str = "and",
         search_tags: bool | None = None,
@@ -162,10 +162,10 @@ class SearchFilterService:
         """
         conditions = SearchConditions(
             search_type=search_type,
-            keywords=keywords,
+            keywords=list(keywords) if keywords else [],
             search_tags=search_tags,
             search_caption=search_caption,
-            excluded_keywords=excluded_keywords,
+            excluded_keywords=list(excluded_keywords) if excluded_keywords else [],
             tag_logic=tag_logic,
             resolution_filter=resolution_filter,
             aspect_ratio_filter=aspect_ratio_filter,
@@ -200,6 +200,20 @@ class SearchFilterService:
         self.current_conditions = conditions
         logger.debug(f"検索条件作成完了: {conditions}")
         return conditions
+
+    def execute_search_with_filters(
+        self, conditions: SearchConditions | None = None
+    ) -> tuple[list[dict[str, Any]], int]:
+        """検索条件に基づいて画像検索を実行する。
+
+        Args:
+            conditions: 検索条件。省略時は current_conditions または空条件 (全件検索) を使用する。
+
+        Returns:
+            tuple[list[dict[str, Any]], int]: (検索結果リスト, 総件数)
+        """
+        target_conditions = conditions or self.current_conditions or SearchConditions()
+        return self.criteria_processor.execute_search_with_filters(target_conditions)
 
     def _format_keyword_parts(self, conditions: SearchConditions) -> list[str]:
         """キーワード条件のプレビューパーツを返す。"""
@@ -405,6 +419,7 @@ class SearchFilterService:
         keywords = inputs.get("keywords", [])
         if not keywords and not any(
             [
+                inputs.get("excluded_keywords"),
                 inputs.get("only_untagged"),
                 inputs.get("only_uncaptioned"),
                 inputs.get("resolution_filter"),

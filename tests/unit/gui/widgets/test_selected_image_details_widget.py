@@ -1267,3 +1267,40 @@ class TestSameImageUpdateOptimization:
         assert len(tag_meta_calls) == 2
         assert len(refinement_calls) == 2
         assert widget._force_tag_metadata_refresh is False
+
+
+class TestSelectedImageDetailsWidgetScopeAndSaveFailed:
+    """Issue #1553: 対象スコープラベル表示と save_failed シグナルのテスト。"""
+
+    @pytest.fixture
+    def widget(self, qtbot):
+        widget = SelectedImageDetailsWidget()
+        qtbot.addWidget(widget)
+        return widget
+
+    def test_target_scope_label_lifecycle(self, widget) -> None:
+        assert widget._target_scope_label is not None
+        assert widget._target_scope_label.objectName() == "labelDetailsTargetScope"
+        assert widget._target_scope_label.text() == "対象: 未選択"
+
+        widget.update_target_scope(1, 42)
+        assert widget._target_scope_label.text() == "対象: 画像 #42 (1枚)"
+
+        widget.update_target_scope(3)
+        assert widget._target_scope_label.text() == "対象: 選択中 3枚"
+
+        widget.update_target_scope(0)
+        assert widget._target_scope_label.text() == "対象: 未選択"
+
+    def test_save_failed_emitted_on_write_error(self, widget) -> None:
+        emitted_msg = []
+        widget.save_failed.connect(emitted_msg.append)
+
+        def failing_fn():
+            raise RuntimeError("DB write error")
+
+        success = widget._execute_tag_write(failing_fn, "タグ保存")
+        assert success is False
+        assert len(emitted_msg) == 1
+        assert "タグ保存" in emitted_msg[0]
+        assert "DB write error" in emitted_msg[0]

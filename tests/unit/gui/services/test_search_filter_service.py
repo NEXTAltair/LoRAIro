@@ -523,3 +523,52 @@ class TestSearchFilterServiceAnnotation:
 
         assert not hasattr(service, "get_annotation_models_list")
         assert not hasattr(service, "validate_annotation_settings")
+
+
+class TestSearchFilterServiceIssue1548:
+    """Issue #1548: 空検索条件と -tag 単独検索のサポートテスト。"""
+
+    def test_create_search_conditions_empty(self) -> None:
+        from unittest.mock import Mock
+
+        service = SearchFilterService(db_manager=Mock(), model_selection_service=Mock())
+        conds = service.create_search_conditions()
+        assert conds.keywords == []
+        assert conds.excluded_keywords == []
+
+    def test_create_search_conditions_excluded_only(self) -> None:
+        from unittest.mock import Mock
+
+        service = SearchFilterService(db_manager=Mock(), model_selection_service=Mock())
+        conds = service.create_search_conditions(excluded_keywords=["solo_exclude"])
+        assert conds.keywords == []
+        assert conds.excluded_keywords == ["solo_exclude"]
+
+    def test_validate_inputs_allows_excluded_keywords_only(self) -> None:
+        from unittest.mock import Mock
+
+        service = SearchFilterService(db_manager=Mock(), model_selection_service=Mock())
+        result = service.validate_ui_inputs({"excluded_keywords": ["solo_exclude"]})
+        assert result.is_valid is True
+        assert len(result.warnings) == 0
+
+    def test_validate_inputs_empty_warns_all_images(self) -> None:
+        from unittest.mock import Mock
+
+        service = SearchFilterService(db_manager=Mock(), model_selection_service=Mock())
+        result = service.validate_ui_inputs({})
+        assert result.is_valid is True
+        assert len(result.warnings) == 1
+        assert "すべての画像が対象" in result.warnings[0]
+
+    def test_execute_search_with_filters_default_conditions(self) -> None:
+        from unittest.mock import Mock
+
+        mock_processor = Mock()
+        mock_processor.execute_search_with_filters.return_value = ([], 0)
+        service = SearchFilterService(db_manager=Mock(), model_selection_service=Mock())
+        service.criteria_processor = mock_processor
+        results, count = service.execute_search_with_filters(None)
+        assert results == []
+        assert count == 0
+        mock_processor.execute_search_with_filters.assert_called_once()

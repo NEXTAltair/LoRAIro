@@ -215,3 +215,26 @@ class TestPipelineStateEnumValues:
 
     def test_all_six_states_present(self) -> None:
         assert len(list(PipelineState)) == 6
+
+
+class TestPipelineStateMachineSetErrorState:
+    """Issue #1549: set_error_state によるエラーメッセージ管理テスト。"""
+
+    def test_set_error_state_with_custom_message(self) -> None:
+        sm = PipelineStateMachine()
+        assert sm.set_error_state("DB接続に失敗しました") is True
+        assert sm.current_state == PipelineState.ERROR
+        assert sm.current_message == "エラーが発生しました: DB接続に失敗しました"
+
+    def test_set_error_state_with_empty_message(self) -> None:
+        sm = PipelineStateMachine()
+        assert sm.set_error_state("") is True
+        assert sm.current_state == PipelineState.ERROR
+        assert sm.current_message == "エラーが発生しました"
+
+    def test_transition_out_of_error_restores_default_message(self) -> None:
+        sm = PipelineStateMachine()
+        sm.set_error_state("致命的エラー")
+        assert sm.current_message == "エラーが発生しました: 致命的エラー"
+        sm.transition_to(PipelineState.IDLE)
+        assert sm.state_messages[PipelineState.ERROR] == "エラーが発生しました"

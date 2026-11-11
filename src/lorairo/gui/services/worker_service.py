@@ -623,6 +623,14 @@ class WorkerService(QObject):
             self._current_search_conditions = None
             self._current_search_conditions_worker_id = None
 
+        if self.current_thumbnail_worker_id:
+            logger.debug(f"新検索開始に伴い前回サムネイル読込を破棄: {self.current_thumbnail_worker_id}")
+            self.worker_manager.request_cancel_worker(
+                self.current_thumbnail_worker_id,
+                reason=CancelReason.SEARCH_REPLACED,
+            )
+            self.current_thumbnail_worker_id = None
+
         worker = SearchWorker(
             self.db_manager,
             search_conditions,
@@ -679,6 +687,32 @@ class WorkerService(QObject):
     ) -> bool:
         """サムネイル読み込みキャンセル"""
         return self._cancel_worker(worker_id, reason)
+
+    def cancel_all_search_and_thumbnail_workers(
+        self,
+        reason: CancelReason = CancelReason.USER_REQUESTED,
+    ) -> None:
+        """検索およびサムネイル読み込み関連のワーカーのみをキャンセルする (#1548, Codex P1 #4532600298)。
+
+        アノテーション、インポート、モデルインストール等の他ジョブには影響を与えない。
+        """
+        target_ids: list[str] = []
+        for worker_id, ctx in list(self._worker_operations.items()):
+            if ctx.operation_type in (OperationType.SEARCH, OperationType.THUMBNAIL):
+                target_ids.append(worker_id)
+        if self.current_search_worker_id and self.current_search_worker_id not in target_ids:
+            target_ids.append(self.current_search_worker_id)
+        if self.current_thumbnail_worker_id and self.current_thumbnail_worker_id not in target_ids:
+            target_ids.append(self.current_thumbnail_worker_id)
+
+        for worker_id in target_ids:
+            try:
+                self._cancel_worker(worker_id, reason)
+            except Exception as e:
+                logger.debug(f"Failed to cancel search/thumbnail worker {worker_id}: {e}")
+
+        self.current_search_worker_id = None
+        self.current_thumbnail_worker_id = None
 
     def start_thumbnail_page_load(
         self,

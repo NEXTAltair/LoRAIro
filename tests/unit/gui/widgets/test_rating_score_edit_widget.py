@@ -652,3 +652,35 @@ class TestAiManualSeparation:
 
         assert rating_blocker.args == [5, "PG"]
         assert score_emitted is False
+
+
+class TestRatingScoreEditWidgetIssue1553:
+    """Issue #1553: pushButtonApply のバッチ件数表示と is_dirty 追跡のテスト。"""
+
+    @pytest.fixture
+    def widget(self, qtbot):
+        widget = RatingScoreEditWidget()
+        qtbot.addWidget(widget)
+        return widget
+
+    def test_is_dirty_tracking(self, widget: RatingScoreEditWidget) -> None:
+        assert widget.is_dirty is False
+
+        widget.ui.comboBoxRating.setCurrentText("PG")
+        assert widget.is_dirty is True
+
+        widget.clear_selection()
+        assert widget.is_dirty is False
+
+        widget.ui.sliderScore.setValue(850)
+        assert widget.is_dirty is True
+
+    def test_push_button_apply_batch_mode_text(self, widget: RatingScoreEditWidget) -> None:
+        assert widget.ui.pushButtonApply is widget.ui.pushButtonSave
+        assert widget.ui.pushButtonApply.text() == "保存"
+
+        widget.set_batch_mode(True, count=7)
+        assert widget.ui.pushButtonApply.text() == "7枚に保存"
+
+        widget.set_batch_mode(False)
+        assert widget.ui.pushButtonApply.text() == "保存"

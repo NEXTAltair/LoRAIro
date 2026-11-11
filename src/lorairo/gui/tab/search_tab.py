@@ -51,7 +51,7 @@ from ...services.service_container import ServiceContainer
 from ...services.tag_suggestion_service import TagSuggestionService
 from ...utils.log import logger
 from ..designer.SearchTab_ui import Ui_SearchTab
-from ..message_box import show_critical
+from ..message_box import show_critical, show_warning
 from ..services.crop_dialog_launcher import CropDialogLauncher
 from ..services.crop_relation_service import CropRelationService
 from ..services.image_db_write_service import ImageDBWriteService
@@ -499,7 +499,21 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
 
         favorite_filters_service = self._service_container.favorite_filters_service
         self._filter_search_panel.set_favorite_filters_service(favorite_filters_service)
+        if hasattr(self._filter_search_panel, "search_cancel_requested"):
+            self._filter_search_panel.search_cancel_requested.connect(self._on_search_cancel_requested)
         logger.debug("FavoriteFiltersService統合完了")
+
+    @Slot()
+    def _on_search_cancel_requested(self) -> None:
+        """検索/サムネイル読み込みの中止要求を処理する (#1549, Codex P1 #4532600298)。"""
+        if self._worker_service is not None:
+            if hasattr(self._worker_service, "cancel_all_search_and_thumbnail_workers"):
+                self._worker_service.cancel_all_search_and_thumbnail_workers()
+        if hasattr(self._thumbnail_selector, "cancel_loading"):
+            self._thumbnail_selector.cancel_loading()
+        window = self.window()
+        if hasattr(window, "pipeline_control_service") and window.pipeline_control_service:
+            window.pipeline_control_service.cancel_current_pipeline()
 
     def _create_search_filter_service(self) -> SearchFilterService:
         """SearchFilterService を生成する (ServiceContainer 経由でモデル選択を構築)。
@@ -760,7 +774,16 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         widget.score_changed.connect(self._handle_score_changed)
         widget.batch_rating_changed.connect(self._handle_batch_rating_changed)
         widget.batch_score_changed.connect(self._handle_batch_score_changed)
+        if hasattr(widget, "save_failed"):
+            widget.save_failed.connect(self._on_details_save_failed)
         logger.debug("SelectedImageDetailsWidget シグナル接続完了")
+
+    @Slot(str)
+    def _on_details_save_failed(self, message: str) -> None:
+        """詳細パネルの書き込み失敗通知をステータスへ反映する (#1553)。"""
+        if hasattr(self, "labelStatus") and self.labelStatus is not None:
+            self.labelStatus.setText(message)
+        self.status_message.emit(message)
 
     def _connect_dataset_state_signals(self) -> None:
         """DatasetStateManager の選択変更を rating/score バッチ表示更新へ接続する。"""
@@ -995,25 +1018,50 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
 
     # -- rating/score 編集ハンドラ -------------------------------------------
 
+    def _notify_rating_score_error(self, message: str) -> None:
+        """Rating/Score 更新失敗をステータス表示および警告ダイアログへ通知する (#1553)。"""
+        if hasattr(self, "labelStatus") and self.labelStatus is not None:
+            self.labelStatus.setText(message)
+        self.status_message.emit(message)
+        show_warning(self, "更新失敗", message)
+
     def _on_rating_update_requested(self, image_id: int, rating: str) -> None:
         """詳細パネルの Rating 更新シグナルハンドラ (ImageDBWriteService 経由)。"""
         if self._image_db_write_service is None:
             logger.warning("ImageDBWriteService未初期化")
             return
-        if self._image_db_write_service.update_rating(image_id, rating):
+        try:
+            success = self._image_db_write_service.update_rating(image_id, rating)
+        except Exception as e:
+            logger.opt(exception=True).error(
+                f"Rating更新例外: image_id={image_id}, rating={rating}, error={e}"
+            )
+            self._notify_rating_score_error(f"レーティングの更新に失敗しました: {e}")
+            return
+        if success:
             logger.debug(f"Rating更新: image_id={image_id}, rating={rating}")
         else:
             logger.error(f"Rating更新失敗: image_id={image_id}, rating={rating}")
+            self._notify_rating_score_error("レーティングの更新に失敗しました")
 
     def _on_score_update_requested(self, image_id: int, score: int) -> None:
         """詳細パネルの Score 更新シグナルハンドラ (ImageDBWriteService 経由)。"""
         if self._image_db_write_service is None:
             logger.warning("ImageDBWriteService未初期化")
             return
-        if self._image_db_write_service.update_score(image_id, score):
+        try:
+            success = self._image_db_write_service.update_score(image_id, score)
+        except Exception as e:
+            logger.opt(exception=True).error(
+                f"Score更新例外: image_id={image_id}, score={score}, error={e}"
+            )
+            self._notify_rating_score_error(f"スコアの更新に失敗しました: {e}")
+            return
+        if success:
             logger.debug(f"Score更新: image_id={image_id}, score={score}")
         else:
             logger.error(f"Score更新失敗: image_id={image_id}, score={score}")
+            self._notify_rating_score_error("スコアの更新に失敗しました")
 
     def _on_save_requested(self, save_data: dict[str, Any]) -> None:
         """詳細パネルの保存要求 (rating + score の一括書込) を処理する。"""
@@ -1053,22 +1101,40 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         if self._image_db_write_service is None:
             logger.warning("ImageDBWriteService未初期化")
             return
-        if self._image_db_write_service.update_rating(image_id, rating):
+        try:
+            success = self._image_db_write_service.update_rating(image_id, rating)
+        except Exception as e:
+            logger.opt(exception=True).error(
+                f"Rating更新例外: image_id={image_id}, rating={rating}, error={e}"
+            )
+            self._notify_rating_score_error(f"レーティングの更新に失敗しました: {e}")
+            return
+        if success:
             self._refresh_single_image_annotations(image_id)
             logger.debug(f"Rating更新成功: image_id={image_id}, rating={rating}")
         else:
             logger.error(f"Rating更新失敗: image_id={image_id}, rating={rating}")
+            self._notify_rating_score_error("レーティングの更新に失敗しました")
 
     def _handle_score_changed(self, image_id: int, score: int) -> None:
         """単一 Score 変更を書き込み、成功時にキャッシュを更新する。"""
         if self._image_db_write_service is None:
             logger.warning("ImageDBWriteService未初期化")
             return
-        if self._image_db_write_service.update_score(image_id, score):
+        try:
+            success = self._image_db_write_service.update_score(image_id, score)
+        except Exception as e:
+            logger.opt(exception=True).error(
+                f"Score更新例外: image_id={image_id}, score={score}, error={e}"
+            )
+            self._notify_rating_score_error(f"スコアの更新に失敗しました: {e}")
+            return
+        if success:
             self._refresh_single_image_annotations(image_id)
             logger.debug(f"Score更新成功: image_id={image_id}, score={score}")
         else:
             logger.error(f"Score更新失敗: image_id={image_id}, score={score}")
+            self._notify_rating_score_error("スコアの更新に失敗しました")
 
     def _handle_batch_rating_changed(self, image_ids: list[int], rating: str) -> None:
         """複数選択への Rating バッチ変更を書き込み、成功時にキャッシュを一括更新する。"""
@@ -1076,10 +1142,21 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         if self._image_db_write_service is None:
             logger.warning("ImageDBWriteService未初期化")
             return
-        if self._image_db_write_service.update_rating_batch(image_ids, rating):
+        try:
+            success = self._image_db_write_service.update_rating_batch(image_ids, rating)
+        except Exception as e:
+            logger.opt(exception=True).error(
+                f"バッチRating更新例外: count={len(image_ids)}, rating={rating}, error={e}"
+            )
+            self._notify_rating_score_error(f"一括レーティング更新に失敗しました: {e}")
+            return
+        if success:
             if self._dataset_state_manager is not None:
                 self._dataset_state_manager.refresh_images(image_ids)
             logger.info("バッチRating更新完了")
+        else:
+            logger.error(f"バッチRating更新失敗: count={len(image_ids)}, rating={rating}")
+            self._notify_rating_score_error("一括レーティング更新に失敗しました")
 
     def _handle_batch_score_changed(self, image_ids: list[int], score: int) -> None:
         """複数選択への Score バッチ変更を書き込み、成功時にキャッシュを一括更新する。"""
@@ -1087,10 +1164,44 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         if self._image_db_write_service is None:
             logger.warning("ImageDBWriteService未初期化")
             return
-        if self._image_db_write_service.update_score_batch(image_ids, score):
+        try:
+            success = self._image_db_write_service.update_score_batch(image_ids, score)
+        except Exception as e:
+            logger.opt(exception=True).error(
+                f"バッチScore更新例外: count={len(image_ids)}, score={score}, error={e}"
+            )
+            self._notify_rating_score_error(f"一括スコア更新に失敗しました: {e}")
+            return
+        if success:
             if self._dataset_state_manager is not None:
                 self._dataset_state_manager.refresh_images(image_ids)
             logger.info("バッチScore更新完了")
+        else:
+            logger.error(f"バッチScore更新失敗: count={len(image_ids)}, score={score}")
+            self._notify_rating_score_error("一括スコア更新に失敗しました")
+
+    def _sync_rating_for_empty_selection(self, widget: Any, rating_widget: Any) -> None:
+        """選択リストが空の場合の詳細パネル・Rating ウィジェット同期 (#1222/#1228/#1553)。"""
+        if widget.current_image_id is not None:
+            if hasattr(widget, "update_target_scope"):
+                widget.update_target_scope(1, widget.current_image_id)
+            details = widget.current_details
+            if details is not None:
+                rating_widget.populate_from_image_data(
+                    {
+                        "id": details.image_id,
+                        "rating": details.manual_rating_value or "----",
+                        "score_value": details.manual_score_value,
+                        "ai_rating": details.ai_rating_value or "----",
+                        "ai_score_value": details.ai_score_value,
+                    }
+                )
+            logger.debug(
+                "選択リスト空だが詳細パネルが画像表示中 - full clear 抑止 + rating 単一化 (#1222/#1228)"
+            )
+            return
+        widget._clear_display()
+        logger.debug("選択なし・表示画像なし - 詳細表示をクリア")
 
     def _handle_selection_changed_for_rating(self, image_ids: list[int]) -> None:
         """選択変更に応じて詳細パネルの rating/score 表示を更新する。
@@ -1106,46 +1217,14 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         rating_widget = widget._rating_score_widget
 
         if len(image_ids) == 0:
-            # 詳細パネルの表示ライフサイクルは current_image_data_changed 経由の単一画像選択
-            # (SelectedImageDetailsWidget._on_image_data_received) が SSoT で、バッチ選択
-            # (selected_image_ids) とは独立している。selection_changed([]) が来ても詳細ウィジェットが
-            # 画像を表示中 (widget.current_image_id is not None) なら full clear しない (#1222):
-            # _clear_display は current_image_id=None にし、直後に完了する tag_metadata /
-            # refinement worker の結果を image_id 照合で破棄させ、タグ / キャプションが空のまま
-            # 復旧しなくなる。
-            #
-            # 判定は DSM の _all_images ではなく詳細ウィジェット自身の current_image_id で行う:
-            # set_current_image の cache-miss 経路 (登録ビューからの表示要求等) で DSM キャッシュ外の
-            # 画像を DB 直読みして表示している場合、DSM.get_image_by_id は None を返すが表示は有効で、
-            # ここで消すと表示中画像を誤ってクリアしてしまう (#1228 Codex P2)。詳細表示の全クリアは
-            # current_image_data_changed({}) 経由 (dataset reset 等) が担当する。
-            if widget.current_image_id is not None:
-                # rating エディタが直前のバッチ選択 (populate_from_selection) で batch モードの
-                # ままだと、deselect 後に Save すると stale な複数選択へバッチ書き込みしてしまう
-                # (#1228 Codex P2)。表示中画像の詳細から rating を single モードへ戻す
-                # (populate_from_image_data が _is_batch_mode を False にする)。current_details は
-                # 表示時に設定済みで、DSM キャッシュ外から DB 直読みした表示画像でも有効。
-                details = widget.current_details
-                if details is not None:
-                    # dict 形状は SelectedImageDetailsWidget._update_details_display と揃える。
-                    rating_widget.populate_from_image_data(
-                        {
-                            "id": details.image_id,
-                            "rating": details.manual_rating_value or "----",
-                            "score_value": details.manual_score_value,
-                            "ai_rating": details.ai_rating_value or "----",
-                            "ai_score_value": details.ai_score_value,
-                        }
-                    )
-                logger.debug(
-                    "選択リスト空だが詳細パネルが画像表示中 - full clear 抑止 + rating 単一化 (#1222/#1228)"
-                )
-                return
-            widget._clear_display()
-            logger.debug("選択なし・表示画像なし - 詳細表示をクリア")
+            self._sync_rating_for_empty_selection(widget, rating_widget)
         elif len(image_ids) == 1:
+            if hasattr(widget, "update_target_scope"):
+                widget.update_target_scope(1, image_ids[0])
             self._populate_single_selection_rating(image_ids[0], widget, rating_widget)
         else:
+            if hasattr(widget, "update_target_scope"):
+                widget.update_target_scope(len(image_ids))
             if self._db_manager is not None:
                 rating_widget.populate_from_selection(image_ids, self._db_manager)
                 logger.debug(f"バッチモード: {len(image_ids)}件")
