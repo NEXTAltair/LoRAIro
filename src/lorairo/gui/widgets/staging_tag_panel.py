@@ -159,7 +159,7 @@ class StagingTagPanel(QWidget):
         # サマリラベル
         self._summary_label = QLabel("")
         self._summary_label.setObjectName("summaryLabel")
-        self._summary_label.setStyleSheet(f"color: {theme.INK_FAINT}; font-size: {theme.FONT_SIZE_META}px;")
+        self._summary_label.setStyleSheet(f"color: {theme.INK_MUTED}; font-size: {theme.FONT_SIZE_META}px;")
         root.addWidget(self._summary_label)
 
         # タグリスト

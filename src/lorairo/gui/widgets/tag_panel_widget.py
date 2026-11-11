@@ -1248,7 +1248,7 @@ class TagPanelWidget(QWidget):
         self._tags_translation_note = QLabel(self)
         self._tags_translation_note.setWordWrap(True)
         self._tags_translation_note.setStyleSheet(
-            f"color: {theme.INK_FAINT}; font-size: {theme.FONT_SIZE_SMALL - 1}px;"
+            f"color: {theme.INK_MUTED}; font-size: {theme.FONT_SIZE_SMALL - 1}px;"
         )
         self._tags_translation_note.setVisible(False)
         root.addWidget(self._tags_translation_note)
@@ -1986,7 +1986,7 @@ class TagPanelWidget(QWidget):
             flow = self._new_chip_flow_section()
             self._tags_chip_layout = flow
             placeholder = QLabel("-")
-            placeholder.setStyleSheet(f"color: {theme.INK_FAINT};")
+            placeholder.setStyleSheet(f"color: {theme.INK_MUTED};")
             flow.addWidget(placeholder)
             self._tags_translation_note.setVisible(False)
             self._group_by_type_checkbox.setEnabled(False)

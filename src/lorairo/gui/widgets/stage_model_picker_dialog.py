@@ -234,7 +234,7 @@ class _ModelRow(QFrame):
             fanout = QLabel(_MULTIMODAL_NOTE, self)
             fanout.setStyleSheet(
                 f"font-family: {theme.FONT_MONO_CSS}; font-size: {theme.FONT_SIZE_META}px;"
-                f" color: {theme.INK_FAINT};"
+                f" color: {theme.INK_MUTED};"
             )
             meta_layout.addWidget(fanout)
         row_layout.addLayout(meta_layout, 1)
@@ -547,7 +547,7 @@ class StageModelPickerDialog(QDialog):
             f"{self._stage.value} は既定で「{stage_type_label}」を出力できるモデルを候補に。", rail
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"font-size: {theme.FONT_SIZE_META}px; color: {theme.INK_FAINT};")
+        hint.setStyleSheet(f"font-size: {theme.FONT_SIZE_META}px; color: {theme.INK_MUTED};")
         vl.addWidget(hint)
 
         vl.addWidget(self._rail_group_title("2", "Provider"))
@@ -730,7 +730,7 @@ class StageModelPickerDialog(QDialog):
         self._no_match_label.setObjectName("noMatchLabel")
         self._no_match_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._no_match_label.setStyleSheet(
-            f"font-size: {theme.FONT_SIZE_SMALL}px; color: {theme.INK_FAINT}; padding: {theme.SPACE_4}px;"
+            f"font-size: {theme.FONT_SIZE_SMALL}px; color: {theme.INK_MUTED}; padding: {theme.SPACE_4}px;"
         )
         self._no_match_label.hide()
         self._rows_layout.addWidget(self._no_match_label)

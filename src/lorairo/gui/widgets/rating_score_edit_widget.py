@@ -104,7 +104,7 @@ def _delta_qss() -> str:
 def _footnote_qss() -> str:
     """カード末尾の注記 (mono / faint) の QSS。"""
     return (
-        f"color: {theme.INK_FAINT}; font-family: {theme.FONT_MONO_CSS};"
+        f"color: {theme.INK_MUTED}; font-family: {theme.FONT_MONO_CSS};"
         f" font-size: {theme.FONT_SIZE_SMALL}px;"
     )
 

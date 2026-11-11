@@ -102,7 +102,7 @@ class _SummaryStatCard(QFrame):
 
         self._sub_label = QLabel("", self)
         self._sub_label.setFont(caption_font)
-        self._sub_label.setStyleSheet(f"color: {theme.INK_FAINT};")
+        self._sub_label.setStyleSheet(f"color: {theme.INK_MUTED};")
 
         layout.addWidget(self._value_label)
         layout.addWidget(self._caption_label)
@@ -351,7 +351,7 @@ class SyncJobLedgerWidget(DsCard):
         font = QFont()
         font.setPointSize(theme.FONT_SIZE_SMALL)
         label.setFont(font)
-        label.setStyleSheet(f"color: {theme.INK_FAINT};")
+        label.setStyleSheet(f"color: {theme.INK_MUTED};")
         return label
 
     def _build_stage_bar(self, stage: StageProgress) -> QProgressBar:
