@@ -299,6 +299,8 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
                 self._review_service, self._review_store, load_history=False
             )
         except Exception as error:
+            # 理由はタブ内に表示されるためログのみ (#1599)
+            logger.warning(f"Clef レビュー設定を読み込めませんでした: {error}")
             self._review_store = None
             self._review_service = None
             # Optional review remains unavailable while the dataset can still be browsed.

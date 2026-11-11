@@ -181,6 +181,9 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         self._image_db_write_service = ImageDBWriteService(db_manager) if db_manager else None
         # widget ↔ state manager 双方向同期の再帰ガード
         self._syncing_model_selection = False
+        # 読み込み失敗で黙って使えなくなった機能 (機能名 → 詳細)。MainWindow が起動時の
+        # 警告ダイアログへ載せるために読む (#1599)。setupUi より前に用意する。
+        self._degraded_features: dict[str, str] = {}
 
         self.setupUi(self)
 
@@ -1199,6 +1202,28 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             )
         return resolved
 
+    def _record_degraded_feature(self, feature_name: str, detail: str) -> None:
+        """読み込み失敗で使えなくなった機能を記録する (#1599)。
+
+        Args:
+            feature_name: 利用者向けの機能名 (内部クラス名を含めない)。
+            detail: 例外文字列など調査用の補足。
+        """
+        degraded = getattr(self, "_degraded_features", None)
+        if not isinstance(degraded, dict):
+            degraded = {}
+            self._degraded_features = degraded
+        degraded.setdefault(feature_name, detail)
+
+    def degraded_features(self) -> dict[str, str]:
+        """初期化・読み込みで縮退した機能の一覧を返す (#1599)。
+
+        Returns:
+            {利用者向けの機能名: 詳細}。縮退が無ければ空 dict。
+        """
+        degraded = getattr(self, "_degraded_features", None)
+        return dict(degraded) if isinstance(degraded, dict) else {}
+
     def _preset_settings(self) -> QSettings:
         """カスタムプリセット永続化用の QSettings を返す (テストで差し替え可能な継ぎ目)。"""
         return QSettings()
@@ -1214,8 +1239,9 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             return {}
         try:
             data = json.loads(str(raw))
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
             logger.warning("保存済みプリセットの読み込みに失敗しました (JSON 不正) — 空として扱います")
+            self._record_degraded_feature("保存済みのカスタムプリセット", f"JSONDecodeError: {e}")
             return {}
         if not isinstance(data, dict):
             return {}
@@ -1474,8 +1500,9 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
                 "google": config_service.get_setting("api", "google_key", ""),
                 "openrouter": config_service.get_setting("api", "openrouter_key", ""),
             }
-        except (AttributeError, KeyError, TypeError):
+        except (AttributeError, KeyError, TypeError) as e:
             logger.opt(exception=True).warning("API キー設定の取得に失敗 (全 provider を needs key 扱い)")
+            self._record_degraded_feature("WebAPI モデルの API キー判定", f"{type(e).__name__}: {e}")
             return set()
         return build_available_providers(api_keys)
 
