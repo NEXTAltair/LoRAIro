@@ -13,19 +13,24 @@ from datetime import UTC, datetime, timedelta
 from enum import Enum
 
 
-def _to_aware_utc(dt: datetime) -> datetime:
-    """naive datetime を UTC とみなして aware に揃える。
+def _to_aware_utc(dt: datetime | str) -> datetime | None:
+    """naive datetime または ISO 文字列を UTC aware datetime に揃える。
 
     SQLite は TIMESTAMP の timezone を保持しないため、DB から読み戻した
     datetime は naive で返る。aware な閾値との比較で TypeError になるのを防ぐ。
     既に aware の場合はそのまま返す。
 
     Args:
-        dt: 正規化対象の datetime (naive または aware)。
+        dt: 正規化対象の datetime (naive または aware) または ISO 日時文字列。
 
     Returns:
-        UTC tzinfo を持つ aware datetime。
+        UTC tzinfo を持つ aware datetime。解析不能な文字列の場合は None。
     """
+    if isinstance(dt, str):
+        try:
+            dt = datetime.fromisoformat(dt)
+        except ValueError:
+            return None
     if dt.tzinfo is None:
         return dt.replace(tzinfo=UTC)
     return dt
@@ -50,7 +55,9 @@ class ErrorRow:
     error_message: str
     model_name: str | None
     resolved: bool
-    created_at: datetime | None
+    created_at: datetime | str | None = None
+    file_path: str | None = None
+    stack_trace: str | None = None
 
 
 @dataclass(frozen=True)
@@ -76,6 +83,7 @@ class ErrorGroup:
     image_ids: list[int] = field(default_factory=list)  # 影響画像 (重複排除・None 除外)
     error_ids: list[int] = field(default_factory=list)  # bulk resolve 用 (全件)
     unresolved_error_ids: list[int] = field(default_factory=list)  # bulk resolve 用 (未解決のみ)
+    unresolved_image_ids: list[int] = field(default_factory=list)  # 未解決エラーの影響画像 (#1563)
 
 
 @dataclass(frozen=True)
@@ -147,6 +155,12 @@ class ErrorTriageService:
                 if r.image_id is not None and r.image_id not in seen:
                     seen.add(r.image_id)
                     image_ids.append(r.image_id)
+            unresolved_image_ids: list[int] = []
+            unresolved_seen: set[int] = set()
+            for r in unresolved_rows:
+                if r.image_id is not None and r.image_id not in unresolved_seen:
+                    unresolved_seen.add(r.image_id)
+                    unresolved_image_ids.append(r.image_id)
             groups.append(
                 ErrorGroup(
                     operation_type=operation_type,
@@ -158,6 +172,7 @@ class ErrorTriageService:
                     image_ids=image_ids,
                     error_ids=[r.error_id for r in bucket],
                     unresolved_error_ids=[r.error_id for r in unresolved_rows],
+                    unresolved_image_ids=unresolved_image_ids,
                 )
             )
 
@@ -183,9 +198,13 @@ class ErrorTriageService:
         # SQLite は TIMESTAMP の tz を保持しないため DB 由来の created_at は naive で返る。
         # func.now() (= CURRENT_TIMESTAMP) は UTC なので naive を UTC とみなして aware に揃える。
         threshold = datetime.now(UTC) - timedelta(hours=24)
-        last_24h = sum(
-            1 for r in rows if r.created_at is not None and _to_aware_utc(r.created_at) >= threshold
-        )
+        last_24h = 0
+        for r in rows:
+            if r.created_at is None:
+                continue
+            aware_dt = _to_aware_utc(r.created_at)
+            if aware_dt is not None and aware_dt >= threshold:
+                last_24h += 1
 
         # by_error_type: 未解決行の error_type ごと件数
         by_error_type: dict[str, int] = {}

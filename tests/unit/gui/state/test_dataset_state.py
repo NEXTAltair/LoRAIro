@@ -600,15 +600,17 @@ class TestDatasetStateManager:
 
         assert [image["id"] for image in state_manager.filtered_images] == [1, 2, 3]
 
-    def test_update_from_search_results_prunes_stale_selected_images(
-        self, qtbot, state_manager, sample_image_metadata
+    def test_cache_external_image_metadata_does_not_modify_search_results(
+        self, state_manager, sample_image_metadata
     ):
-        """再検索で結果外となった選択画像IDは _selected_image_ids から除外され selection_changed が発火する (#1534)"""
+        """cache_external_image_metadata は検索結果やページネーションを変更せずメタデータのみ解決可能にする (#1563, Codex P2)"""
         state_manager.set_dataset_images(sample_image_metadata)
-        state_manager.set_selected_images([1, 2, 3])
+        external_meta = {"id": 999, "stored_image_path": "/test/external.jpg"}
 
-        with qtbot.waitSignal(state_manager.selection_changed, timeout=1000) as blocker:
-            state_manager.update_from_search_results(sample_image_metadata[:2])
+        state_manager.cache_external_image_metadata(external_meta)
 
-        assert state_manager.selected_image_ids == [1, 2]
-        assert blocker.args == [[1, 2]]
+        # 検索結果一覧や件数は一切変わらない
+        assert [image["id"] for image in state_manager.filtered_images] == [1, 2, 3]
+        assert state_manager.image_count == 3
+        # しかし ID 照会では外部メタデータが解決できる
+        assert state_manager.get_image_by_id(999) == external_meta

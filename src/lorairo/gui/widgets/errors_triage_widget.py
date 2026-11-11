@@ -8,13 +8,14 @@
 
 import re
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -53,7 +54,8 @@ class ErrorsTriageWidget(QWidget):
     resolve_requested = Signal(int)  # error_id (単一 resolve)
     resolve_group_requested = Signal(list)  # list[int] error_ids (グループ一括 resolve)
     filter_changed = Signal()  # フィルタ/表示モード変更 → controller が再取得
-    image_link_clicked = Signal(int)  # image_id (将来 Search 連携用)
+    image_link_clicked = Signal(int)  # image_id (Search 連携用)
+    restage_images_requested = Signal(list)  # list[int] image_ids (影響画像再ステージング)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -63,6 +65,9 @@ class ErrorsTriageWidget(QWidget):
         self._rendered_group_keys: list[tuple[str, str, str | None]] = []
         # bottom bulk 用: 直近 display で表示した全 unresolved_error_id (重複排除・順序保持)
         self._visible_unresolved_ids: list[int] = []
+        self._visible_unresolved_image_ids: list[int] = []
+        self._current_rows: list[ErrorRow] = []
+        self._is_truncated: bool = False
 
         self._root = QVBoxLayout(self)
         self._build_summary_band()
@@ -92,8 +97,16 @@ class ErrorsTriageWidget(QWidget):
             f"font-family: {theme.FONT_MONO_CSS}; color: {theme.INK_SOFT};"
             f" font-size: {theme.FONT_SIZE_META}px;"
         )
+        self._truncation_label = QLabel("最新500件を表示中", band)
+        self._truncation_label.setObjectName("errorsTruncationLabel")
+        self._truncation_label.setStyleSheet(
+            f"font-family: {theme.FONT_MONO_CSS}; color: {theme.INK_FAINT};"
+            f" font-size: {theme.FONT_SIZE_META}px;"
+        )
+        self._truncation_label.setVisible(False)
         layout.addWidget(self._summary_label)
         layout.addWidget(self._summary_by_type_label)
+        layout.addWidget(self._truncation_label)
         layout.addStretch(1)
         self._root.addWidget(band)
 
@@ -185,26 +198,38 @@ class ErrorsTriageWidget(QWidget):
         self._root.addWidget(self._scroll, stretch=1)
 
     def _build_bulk_bar(self) -> None:
-        """bottom の一括 resolve バー。"""
+        """bottom の一括 resolve / ステージング追加バー。"""
         bar = QFrame(self)
         bar.setObjectName("errorsBulkBar")
         layout = QHBoxLayout(bar)
         layout.addStretch(1)
+        self._restage_button = QPushButton("影響画像をステージングへ追加", bar)
+        self._restage_button.setObjectName("errorsRestageButton")
+        self._restage_button.setToolTip("未解決エラーの影響画像をステージングへ追加します")
+        self._restage_button.clicked.connect(self._on_restage_clicked)
+        layout.addWidget(self._restage_button)
         self._bulk_button = QPushButton("未解決をすべて resolve", bar)
         self._bulk_button.setObjectName("errorsBulkResolveButton")
         self._bulk_button.setToolTip("表示中の未解決エラーをすべて解決済みにする")
-        self._bulk_button.clicked.connect(self._on_bulk_resolve)
+        self._bulk_button.clicked.connect(self._on_bulk_resolve_clicked)
         layout.addWidget(self._bulk_button)
         self._root.addWidget(bar)
 
     # ------------------------------------------------------------------
     # 描画
     # ------------------------------------------------------------------
+    def set_truncated(self, is_truncated: bool) -> None:
+        """500件上限による切り詰め表示フラグを設定する。"""
+        self._is_truncated = is_truncated
+        self._truncation_label.setVisible(is_truncated)
+
     def display(
         self,
         summary: ErrorTriageSummary,
         groups: list[ErrorGroup],
         rows: list[ErrorRow],
+        *,
+        is_truncated: bool | None = None,
     ) -> None:
         """サマリ band + (グループ表示 or 個別行表示) を再描画する。
 
@@ -212,13 +237,18 @@ class ErrorsTriageWidget(QWidget):
             summary: 全体サマリ。
             groups: グループ表示用 (``service.group_errors`` の結果)。
             rows: 個別行表示用 (``service.apply_filter`` の結果)。
+            is_truncated: 取得件数上限に達している場合は True。
         """
+        if is_truncated is not None:
+            self._is_truncated = is_truncated
+        self._current_rows = list(rows)
         self._update_summary(summary)
         self._clear_content()
 
         # bottom bulk は「表示中の全 unresolved」。グループ表示でもグループの
         # unresolved_error_ids を、個別行表示でも未解決行の error_id を集約する。
         self._visible_unresolved_ids = self._collect_visible_unresolved(groups, rows)
+        self._visible_unresolved_image_ids = self._collect_visible_unresolved_image_ids(groups, rows)
 
         is_empty = not groups if self._grouped else not rows
         self._empty_state.setVisible(is_empty)
@@ -247,12 +277,39 @@ class ErrorsTriageWidget(QWidget):
                     ids.append(row.error_id)
         return ids
 
+    def _collect_visible_unresolved_image_ids(
+        self, groups: list[ErrorGroup], rows: list[ErrorRow]
+    ) -> list[int]:
+        """表示モードに応じた未解決エラーの影響 image_id を重複排除・順序保持で集める (#1563, Codex P2 #4531614958)。"""
+        image_ids: list[int] = []
+        seen: set[int] = set()
+        if rows:
+            for row in rows:
+                if not row.resolved and row.image_id is not None and row.image_id not in seen:
+                    seen.add(row.image_id)
+                    image_ids.append(row.image_id)
+        elif self._grouped:
+            for group in groups:
+                if group.unresolved_count > 0:
+                    target_ids = getattr(group, "unresolved_image_ids", None)
+                    if target_ids is None:
+                        target_ids = group.image_ids
+                    for image_id in target_ids:
+                        if image_id not in seen:
+                            seen.add(image_id)
+                            image_ids.append(image_id)
+        return image_ids
+
     def _update_summary(self, summary: ErrorTriageSummary) -> None:
         """サマリ band のラベルを更新する。"""
-        self._summary_label.setText(
+        base_text = (
             f"合計 {summary.total} · 未解決 {summary.unresolved} · "
             f"解決済み {summary.resolved} · 直近24h {summary.last_24h}"
         )
+        if self._is_truncated:
+            base_text = f"{base_text} · 最新500件を表示中"
+        self._summary_label.setText(base_text)
+        self._truncation_label.setVisible(self._is_truncated)
         if summary.by_error_type:
             parts = [f"{name}: {count}" for name, count in summary.by_error_type.items()]
             self._summary_by_type_label.setText(" / ".join(parts))
@@ -323,11 +380,35 @@ class ErrorsTriageWidget(QWidget):
         sample = QLabel(group.sample_message, card)
         sample.setObjectName("errorGroupSample")
         sample.setWordWrap(True)
+        sample.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         sample.setStyleSheet(
             f"font-family: {theme.FONT_MONO_CSS}; color: {theme.INK_SOFT};"
             f" font-size: {theme.FONT_SIZE_SMALL}px;"
         )
         layout.addWidget(sample)
+
+        # グループ内レコードに file_path / stack_trace があればコンパクト詳細を表示 (#1563)
+        group_detail_parts: list[str] = []
+        for row in self._current_rows:
+            if row.error_id in group.error_ids:
+                if row.file_path and isinstance(row.file_path, str):
+                    group_detail_parts.append(f"file: {row.file_path}")
+                if row.stack_trace and isinstance(row.stack_trace, str):
+                    group_detail_parts.append(row.stack_trace)
+                if group_detail_parts:
+                    break
+        if group_detail_parts:
+            group_detail_text = "\n".join(group_detail_parts)
+            sample.setToolTip(group_detail_text)
+            detail_lbl = QLabel(group_detail_text, card)
+            detail_lbl.setObjectName("errorGroupDetail")
+            detail_lbl.setWordWrap(True)
+            detail_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            detail_lbl.setStyleSheet(
+                f"font-family: {theme.FONT_MONO_CSS}; color: {theme.INK_FAINT};"
+                f" font-size: {theme.FONT_SIZE_META}px;"
+            )
+            layout.addWidget(detail_lbl)
 
         if group.image_ids:
             images_row = QFrame(card)
@@ -377,14 +458,52 @@ class ErrorsTriageWidget(QWidget):
         )
         layout = QHBoxLayout(line)
 
+        info_container = QWidget(line)
+        info_layout = QVBoxLayout(info_container)
+        info_layout.setContentsMargins(0, 0, 0, 0)
+        info_layout.setSpacing(2)
+
         info = QLabel(
             f"#{row.error_id} · {row.operation_type} · {row.error_type} · "
             f"{model_label} · {row.error_message}",
-            line,
+            info_container,
         )
+        info.setObjectName(f"errorRowInfo_{row.error_id}")
         info.setWordWrap(True)
+        info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         info.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;")
-        layout.addWidget(info, stretch=1)
+        info_layout.addWidget(info)
+
+        detail_parts: list[str] = []
+        if row.file_path and isinstance(row.file_path, str):
+            detail_parts.append(f"file: {row.file_path}")
+        if row.stack_trace and isinstance(row.stack_trace, str):
+            detail_parts.append(row.stack_trace)
+        if detail_parts:
+            detail_text = "\n".join(detail_parts)
+            info.setToolTip(detail_text)
+            line.setToolTip(detail_text)
+            detail_label = QLabel(detail_text, info_container)
+            detail_label.setObjectName(f"errorRowDetail_{row.error_id}")
+            detail_label.setWordWrap(True)
+            detail_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            detail_label.setStyleSheet(
+                f"font-family: {theme.FONT_MONO_CSS}; color: {theme.INK_FAINT};"
+                f" font-size: {theme.FONT_SIZE_META}px;"
+            )
+            info_layout.addWidget(detail_label)
+
+        layout.addWidget(info_container, stretch=1)
+
+        if row.image_id is not None:
+            image_link = QPushButton(str(row.image_id), line)
+            image_link.setObjectName(f"errorRowImageLink_{row.error_id}")
+            image_link.setFlat(True)
+            image_id = row.image_id
+            image_link.clicked.connect(
+                lambda _checked=False, iid=image_id: self.image_link_clicked.emit(iid)
+            )
+            layout.addWidget(image_link)
 
         if not row.resolved:
             resolve_btn = QPushButton("resolve", line)
@@ -413,9 +532,26 @@ class ErrorsTriageWidget(QWidget):
         """combo 変更で filter_changed を emit する。"""
         self.filter_changed.emit()
 
-    def _on_bulk_resolve(self) -> None:
-        """表示中の全 unresolved_error_id を集約して emit する。"""
-        self.resolve_group_requested.emit(list(self._visible_unresolved_ids))
+    def _on_restage_clicked(self) -> None:
+        """表示中の未解決エラー影響 image_id 群をステージング追加として emit する。"""
+        if self._visible_unresolved_image_ids:
+            self.restage_images_requested.emit(list(self._visible_unresolved_image_ids))
+
+    def _on_bulk_resolve_clicked(self) -> None:
+        """表示中の全 unresolved_error_id を確認ダイアログ後に集約して emit する (#1563)。"""
+        if not self._visible_unresolved_ids:
+            return
+        reply = QMessageBox.question(
+            self,
+            "一括 resolve の確認",
+            f"未解決のエラー {len(self._visible_unresolved_ids)} 件をすべて解決済みにしますか？",  # noqa: RUF001
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.resolve_group_requested.emit(list(self._visible_unresolved_ids))
+
+    _on_bulk_resolve = _on_bulk_resolve_clicked
 
     # ------------------------------------------------------------------
     # 公開 API

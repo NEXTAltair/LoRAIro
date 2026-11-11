@@ -916,3 +916,129 @@ def test_sync_job_cancel_button_emits_widget_signal(widget, qtbot):
         button.click()
 
     assert blocker.args == ["annotation_busy"]
+
+
+# === Issue #1560: 一括状態確認・一括取込・未取込完了バッジ・Results 遷移 ===
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_bulk_header_buttons_and_tooltips(widget):
+    """帯ヘッダに一括状態確認・一括取込ボタンが配置されている (#1560)。"""
+    assert widget.pushButtonRefreshAllStatuses.objectName() == "pushButtonRefreshAllStatuses"
+    assert widget.pushButtonRefreshAllStatuses.text() == "すべて状態確認"
+    assert (
+        widget.pushButtonRefreshAllStatuses.toolTip()
+        == "進行中ジョブの状態を一括でプロバイダーへ照会します"
+    )
+
+    assert widget.pushButtonImportAllCompleted.objectName() == "pushButtonImportAllCompleted"
+    assert widget.pushButtonImportAllCompleted.text() == "完了分を一括取込"
+    assert (
+        widget.pushButtonImportAllCompleted.toolTip()
+        == "プロバイダー側で完了済みの未反映ジョブを一括でDBへ取り込みます"
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_uncollected_completed_badge_counts_unimported_completed_jobs(widget, dependencies):
+    """未取込の完了ジョブがあるとき labelUncollectedBatchBadge に件数を表示する (#1560)。"""
+    workflow, repository = dependencies
+    repository.list_provider_batch_jobs.return_value = [
+        _job(id=1, status="completed", imported_at=None),
+        _job(id=2, status="completed", imported_at=None),
+        _job(id=3, status="imported", imported_at=datetime(2026, 1, 2, tzinfo=UTC)),
+        _job(id=4, status="submitted", imported_at=None),
+    ]
+
+    widget.set_dependencies(workflow, repository)
+
+    badge = widget.findChild(QLabel, "labelUncollectedBatchBadge")
+    assert badge is not None
+    assert badge.text() == "未取込の完了ジョブ: 2件"
+    assert not badge.isHidden()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_refresh_all_active_jobs_calls_refresh_job_status_for_active_only(
+    widget, dependencies, monkeypatch
+):
+    """すべて状態確認は進行中ジョブのみ refresh_job_status を呼ぶ (#1560)。"""
+    workflow, repository = dependencies
+    repository.list_provider_batch_jobs.return_value = [
+        _job(id=10, status="submitted"),
+        _job(id=11, status="IN_PROGRESS"),
+        _job(id=12, status="completed"),
+        _job(id=13, status="failed"),
+    ]
+    widget.set_dependencies(workflow, repository)
+
+    refreshed: list[int] = []
+    monkeypatch.setattr(widget, "refresh_job_status", refreshed.append)
+
+    widget.pushButtonRefreshAllStatuses.click()
+
+    assert refreshed == [10, 11]
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_import_all_completed_jobs_calls_import_job_results_for_uncollected_only(
+    widget, dependencies, monkeypatch
+):
+    """完了分を一括取込は未取込の完了ジョブのみ import_job_results を呼ぶ (#1560)。"""
+    workflow, repository = dependencies
+    repository.list_provider_batch_jobs.return_value = [
+        _job(id=20, status="completed", imported_at=None),
+        _job(id=21, status="COMPLETED", imported_at=None),
+        _job(id=22, status="completed", imported_at=datetime(2026, 1, 2, tzinfo=UTC)),
+        _job(id=23, status="submitted", imported_at=None),
+    ]
+    widget.set_dependencies(workflow, repository)
+
+    imported: list[int] = []
+    monkeypatch.setattr(widget, "import_job_results", imported.append)
+
+    widget.pushButtonImportAllCompleted.click()
+
+    assert imported == [20, 21]
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_import_completion_emits_open_results_and_switches_nav(widget, dependencies, qtbot):
+    """結果取込成功時に open_results_requested を発行し _switch_top_nav('tabResults') を呼ぶ (#1560)。"""
+    workflow, repository = dependencies
+    workflow.refresh.return_value = _job(status="completed", provider_status="completed")
+    widget.set_dependencies(workflow, repository)
+    widget._switch_top_nav = MagicMock()  # type: ignore[attr-defined]
+
+    with qtbot.waitSignal(widget.open_results_requested, timeout=5000):
+        _wait_collect(widget, qtbot, job_id=42)
+
+    widget._switch_top_nav.assert_called_once_with("tabResults")  # type: ignore[attr-defined]
+
+
+@pytest.mark.gui
+def test_current_jobs_snapshot_paginates_older_jobs(qtbot) -> None:
+    widget = ProviderBatchJobWidget()
+    qtbot.addWidget(widget)
+    repo = MagicMock()
+    page1 = [SimpleNamespace(id=i, status="completed", imported_at=None) for i in range(1, 101)]
+    page2 = [SimpleNamespace(id=101, status="running", imported_at=None)]
+
+    def fake_list(*, limit: int = 100, offset: int = 0):
+        if offset == 0:
+            return page1
+        if offset == 100:
+            return page2
+        return []
+
+    repo.list_provider_batch_jobs.side_effect = fake_list
+    widget._repository = repo
+
+    snapshot = widget._current_jobs_snapshot()
+    assert len(snapshot) == 101
+    assert snapshot[-1].id == 101
