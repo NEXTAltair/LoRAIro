@@ -149,6 +149,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._initialization_failed = False
         self._initialization_error: str | None = None
         self._startup_warnings: list[str] = []
+        # 項目名 → 詳細 (例外文字列など)。ダイアログの「詳細」側にだけ出す (#1599)
+        self._startup_warning_details: dict[str, str] = {}
         self._closing = False
         self._tag_db_manager: WorkerManager | None = None
 
@@ -244,7 +246,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("✅ FileSystemManager初期化成功")
         except Exception as e:
             logger.error(f"❌ FileSystemManager初期化失敗: {e}")
-            self._record_startup_warning("FileSystemManager")
+            self._record_startup_warning("画像ファイルの保存先管理", f"FileSystemManager: {e}")
             self.file_system_manager = None
 
         try:
@@ -266,7 +268,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("✅ DatasetStateManager初期化成功")
         except Exception as e:
             logger.error(f"❌ DatasetStateManager初期化失敗: {e}")
-            self._record_startup_warning("DatasetStateManager")
+            self._record_startup_warning("画像の選択と表示", f"DatasetStateManager: {e}")
             self.dataset_state_manager = None
 
         # ステージング集合の SSoT (Annotate / Jobs タブが共有する、ADR 0074)
@@ -304,22 +306,31 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         return fsm
 
     def show_startup_notice(self) -> bool:
-        """起動時の初期化失敗・部分縮退を、ログの場所つきで 1 回だけダイアログ通知する (#1569)。
+        """起動時の初期化失敗・部分縮退を、ログの場所つきでダイアログ通知する (#1569, #1599)。
 
         ステータスバーの 8 秒表示は見逃されやすいため、イベントループ開始後に
         呼び出し側 (main.py) が ``QTimer.singleShot(0, ...)`` で 1 度だけ呼ぶ。
-        2 回目以降の呼び出しは何もしない。
+        起動後に完了する背景準備 (タグ DB など) の失敗は ``_on_tag_db_warmup_done``
+        から再度呼ばれ、まだ通知していない項目だけを出す。通知済みの内容しか無い
+        呼び出しは何もしない。
+
+        本文には内部クラス名や例外文字列を入れず、項目名と例外などの詳細は
+        「詳細」側 (``detail``) にだけ載せる。
 
         Returns:
             ダイアログを表示した場合 True。通知対象が無い、または表示済みなら False。
         """
-        if getattr(self, "_startup_notice_shown", False):
-            return False
         warnings = list(getattr(self, "_startup_warnings", None) or [])
-        failed = bool(getattr(self, "_initialization_failed", False))
-        if not warnings and not failed:
+        notified_count = getattr(self, "_startup_notified_count", 0)
+        if not isinstance(notified_count, int):
+            notified_count = 0
+        already_shown = bool(getattr(self, "_startup_notice_shown", False))
+        new_warnings = warnings[notified_count:]
+        failed = bool(getattr(self, "_initialization_failed", False)) and not already_shown
+        if not new_warnings and not failed:
             return False
         self._startup_notice_shown = True
+        self._startup_notified_count = len(warnings)
 
         from ...utils.config import DEFAULT_LOG_PATH
 
@@ -328,28 +339,50 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 "起動時の初期化に失敗したため、一部の機能が正しく動作しない可能性があります。\n"
                 "アプリを再起動しても改善しない場合は、ログを添えて報告してください。"
             )
+        elif already_shown:
+            text = (
+                "起動後の準備処理で一部の機能を準備できませんでした。該当する機能は動作しない場合があります。\n"
+                "アプリを再起動しても改善しない場合は、ログを添えて報告してください。"
+            )
         else:
             text = (
                 "一部の機能の初期化をスキップして起動しました。該当する機能は動作しない場合があります。\n"
                 "アプリを再起動しても改善しない場合は、ログを添えて報告してください。"
             )
         lines = [f"ログの場所: {DEFAULT_LOG_PATH}"]
-        if warnings:
-            lines.append("スキップした項目: " + "、".join(warnings))
+        if new_warnings:
+            lines.append("スキップした項目: " + "、".join(new_warnings))
+            details = getattr(self, "_startup_warning_details", None)
+            if isinstance(details, dict):
+                for name in new_warnings:
+                    item_detail = details.get(name)
+                    if item_detail:
+                        lines.append(f"- {name}: {item_detail}")
         error = getattr(self, "_initialization_error", None)
         if failed and error:
             lines.append(str(error))
         show_warning(self, "起動時の警告", text, detail="\n".join(lines))
         return True
 
-    def _record_startup_warning(self, component_name: str) -> None:
-        """起動時の非致命的なコンポーネント初期化失敗・スキップを記録する (#1569)。"""
+    def _record_startup_warning(self, component_name: str, detail: str | None = None) -> None:
+        """起動時の非致命的なコンポーネント初期化失敗・スキップを記録する (#1569, #1599)。
+
+        Args:
+            component_name: 利用できなくなる機能の名前。ダイアログの「スキップした項目」に出る。
+            detail: 例外文字列など調査用の補足。ダイアログの「詳細」側にだけ出す。
+        """
         warnings = getattr(self, "_startup_warnings", None)
         if not isinstance(warnings, list):
             warnings = []
             self._startup_warnings = warnings
         if component_name not in warnings:
             warnings.append(component_name)
+        if detail:
+            details = getattr(self, "_startup_warning_details", None)
+            if not isinstance(details, dict):
+                details = {}
+                self._startup_warning_details = details
+            details.setdefault(component_name, detail)
 
     def _initialize_staging_state_manager(self) -> None:
         """ステージング集合の SSoT (StagingStateManager) を初期化する (ADR 0074)。
@@ -365,7 +398,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("✅ StagingStateManager初期化成功")
         except Exception as e:
             logger.error(f"❌ StagingStateManager初期化失敗: {e}")
-            MainWindow._record_startup_warning(self, "StagingStateManager")
+            MainWindow._record_startup_warning(self, "ステージング", f"StagingStateManager: {e}")
             self.staging_state_manager = None
 
     def _initialize_model_selection_state_manager(self) -> None:
@@ -375,7 +408,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("✅ ModelSelectionStateManager初期化成功")
         except RuntimeError as e:
             logger.opt(exception=True).error(f"❌ ModelSelectionStateManager初期化失敗: {e}")
-            MainWindow._record_startup_warning(self, "ModelSelectionStateManager")
+            MainWindow._record_startup_warning(self, "モデル選択", f"ModelSelectionStateManager: {e}")
             self.model_selection_state_manager = None
 
     def _update_database_status_label(self) -> None:
@@ -490,7 +523,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("✅ Service/Controller層初期化完了")
         except Exception as e:
             logger.error(f"❌ Controller初期化失敗: {e}")
-            MainWindow._record_startup_warning(self, "Controller")
+            MainWindow._record_startup_warning(
+                self, "アノテーション実行・データセット登録・設定", f"Controller: {e}"
+            )
             self.selection_state_service = None
             self.dataset_controller = None
             self.annotation_workflow_controller = None
@@ -568,7 +603,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("マップタブ (MapTabWidget) initialized")
         except Exception as e:
             self.map_tab = None
-            MainWindow._record_startup_warning(self, "MapTabWidget")
+            MainWindow._record_startup_warning(self, "マップタブ", f"MapTabWidget: {e}")
             logger.opt(exception=True).error(f"マップタブ initialization failed: {e}")
 
     def _setup_registration_summary_panel(self) -> None:
@@ -630,7 +665,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("✅ ジョブタブ (JobsTabWidget) initialized")
         except Exception as e:
             self.jobs_tab = None
-            MainWindow._record_startup_warning(self, "JobsTabWidget")
+            MainWindow._record_startup_warning(self, "ジョブタブ", f"JobsTabWidget: {e}")
             logger.opt(exception=True).error(f"❌ ジョブタブ initialization failed: {e}")
 
     def _connect_jobs_tab_signals(self) -> None:
@@ -670,7 +705,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         except Exception as e:
             logger.opt(exception=True).error(f"❌ ErrorNotificationWidget初期化失敗: {e}")
-            MainWindow._record_startup_warning(self, "ErrorNotificationWidget")
+            MainWindow._record_startup_warning(
+                self, "ステータスバーのエラー件数表示", f"ErrorNotificationWidget: {e}"
+            )
             self.error_notification_widget = None
 
     def _bind_tab_shortcut_action(self, action: QAction, number: int, tab: QWidget) -> None:
@@ -1096,6 +1133,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("    ✅ SearchTabWidget シグナル接続完了")
         except Exception as e:
             logger.error(f"    ❌ SearchTabWidget シグナル接続失敗: {e}")
+            # 検索タブのボタン (エクスポート/登録/設定など) が無反応になるため通知する (#1599)
+            MainWindow._record_startup_warning(
+                self, "検索タブの操作ボタン", f"SearchTabWidget signals: {e}"
+            )
 
     def _on_search_error(self, error_message: str) -> None:
         """検索/サムネ pipeline エラー → エラー通知バッジを更新する (#869)。
@@ -1132,6 +1173,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         )
         container.layout().addWidget(widget)
         self.annotate_tab = widget
+        # 構築中の読み込み失敗 (壊れたプリセット / API キー設定) を起動時の警告へ載せる (#1599)
+        degraded = widget.degraded_features()
+        if isinstance(degraded, dict):
+            for feature_name, detail in degraded.items():
+                MainWindow._record_startup_warning(self, feature_name, detail)
         logger.info("✅ アノテーションタブ (AnnotateTabWidget) initialized")
 
     def _on_error_notification_clicked(self) -> None:
@@ -1195,6 +1241,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("    ✅ 編集メニュー（全選択/選択解除）接続完了")
         except Exception as e:
             logger.error(f"    ❌ 編集メニュー接続失敗: {e}")
+            MainWindow._record_startup_warning(
+                self, "編集メニューの全選択/選択解除", f"edit menu actions: {e}"
+            )
 
     def _active_thumbnail_selector(self) -> Any:
         """現在アクティブなタブが所有する ThumbnailSelectorWidget を返す (#1551)。
@@ -1346,7 +1395,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """アクティブなプロジェクトディレクトリをウィンドウタイトルと検索タブへ反映する (#1547)。"""
         try:
             target_dir = (project_dir or get_current_project_root()).resolve()
-        except (OSError, RuntimeError):
+        except (OSError, RuntimeError) as e:
+            # 表示だけの縮退なのでログのみ (#1599)
+            logger.warning(f"プロジェクト表示の更新に失敗: {e}")
             return
         set_title = getattr(self, "setWindowTitle", None)
         if callable(set_title):
@@ -1580,6 +1631,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("    ✅ AnnotateTabWidget シグナル接続完了")
         except Exception as e:
             logger.error(f"    ❌ AnnotateTabWidget シグナル接続失敗: {e}")
+            # 実行ボタンと API キー設定導線が無反応になるため通知する (#1599)
+            MainWindow._record_startup_warning(
+                self, "アノテーションタブの実行ボタン", f"AnnotateTabWidget signals: {e}"
+            )
 
     def _on_annotation_execute_requested(self, dispatch_mode: str) -> None:
         """run bar 実行ボタン → AnnotationWorkflowController へ委譲する (#896 PR4c, #1099)。
@@ -1651,8 +1706,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if hasattr(self, "_on_settings_changed"):
             try:
                 self._on_settings_changed()
-            except Exception:
-                pass
+            except Exception as e:
+                # 黙って握らない: 設定は保存済みだが画面への反映に失敗したことを知らせる (#1599)
+                logger.opt(exception=True).warning(f"設定変更の反映に失敗: {e}")
+                show_warning(
+                    self,
+                    "設定の反映",
+                    "設定は保存しましたが、画面への反映に失敗しました。アプリを再起動すると反映されます。",
+                    detail=str(e),
+                )
         if self.annotate_tab is not None:
             self.annotate_tab.refresh()
 
@@ -1678,6 +1740,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("  ✅ イベント接続完了")
         except Exception as e:
             logger.opt(exception=True).error(f"イベント接続で予期しないエラー: {e}")
+            # 以降のメニュー・ワーカー進捗の配線がまとめてスキップされるため通知する (#1599)
+            MainWindow._record_startup_warning(
+                self, "メニュー操作と処理の進捗表示", f"event connections: {e}"
+            )
 
     def _connect_panel_toggle_actions(self) -> None:
         """パネル表示切替アクションを接続する。
@@ -1698,6 +1764,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         except Exception as e:
             logger.error(f"    ❌ パネル表示切替接続失敗: {e}")
+            MainWindow._record_startup_warning(
+                self, "表示メニューのパネル表示切替", f"panel toggle actions: {e}"
+            )
 
     def _toggle_filter_panel(self, checked: bool) -> None:
         """フィルターパネルの表示切替を SearchTabWidget へ委譲する (#869)。
@@ -2184,7 +2253,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except Exception as e:
             logger.opt(exception=True).error(f"Service層統合失敗: {e}")
             logger.warning("一部のService機能は利用できませんが、その他の機能は正常に動作します")
-            MainWindow._record_startup_warning(self, "Service層")
+            MainWindow._record_startup_warning(
+                self,
+                "検索・処理の進捗表示とキャンセル",
+                f"ResultHandler/PipelineControl/ProgressState: {e}",
+            )
             self.result_handler_service = None
             self.pipeline_control_service = None
             self.progress_state_service = None
@@ -2438,18 +2511,37 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """タグ DB 準備の完了 (成功 / 失敗 / キャンセル) を受けて各タブへ反映する。"""
         if self._closing:
             return
+        # 起動直後通知より後に判明する失敗なので、後から通知する経路で知らせる (#1599)
+        late_warnings: list[tuple[str, str]] = []
         if isinstance(result, TagDbWarmupResult):
             logger.info(
                 f"タグDB準備完了: reader={result.reader_ready}, tag_management={result.tag_management_ready}"
             )
-            self.statusBar().showMessage("タグDBの準備が完了しました", 5000)
+            if result.reader_ready:
+                self.statusBar().showMessage("タグDBの準備が完了しました", 5000)
+            else:
+                self.statusBar().showMessage(
+                    "タグDBを準備できませんでした (翻訳とタグ補完は無効です)", 10000
+                )
+                late_warnings.append(("タグの翻訳表示とタグ補完", "tag DB reader is not available"))
+            if not result.tag_management_ready:
+                late_warnings.append(("未分類タグの整理", "TagManagementService could not be prepared"))
+        elif result is None:
+            # キャンセル (終了処理など) は利用者の操作結果なので通知しない
+            logger.warning("タグDBの準備が中断されました (翻訳・タグ補完なしで継続)")
         else:
-            logger.warning(f"タグDBの準備に失敗または中断 (翻訳・タグ補完なしで継続): {result}")
+            logger.warning(f"タグDBの準備に失敗 (翻訳・タグ補完なしで継続): {result}")
             self.statusBar().showMessage("タグDBを準備できませんでした (翻訳とタグ補完は無効です)", 10000)
+            late_warnings.append(("タグの翻訳表示とタグ補完", str(result)))
         # 失敗時も peek ベースなので、各タブは未準備のまま (補完なし) で整合する。
         for tab in (self.search_tab, self.annotate_tab, self.results_tab, self.export_tab):
             if tab is not None:
                 tab.on_tag_db_ready()
+        # モーダルダイアログでタブ更新を遅らせないよう、通知はタブ反映の後に出す
+        for component_name, detail in late_warnings:
+            MainWindow._record_startup_warning(self, component_name, detail)
+        if late_warnings:
+            self.show_startup_notice()
 
     @staticmethod
     def _is_async_dispatch_running(controller: Any) -> bool:
@@ -2668,7 +2760,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 if 0 <= idx < tab_count:
                     tab_widget.setCurrentIndex(idx)
             except (TypeError, ValueError):
-                pass
+                # 前回のタブ位置を復元しないだけなのでログのみ (#1599)
+                logger.debug(f"保存済みタブ位置が不正なため復元をスキップ: {raw_index!r}")
 
     def _restore_window_state(self) -> None:
         """QSettingsからウィンドウ/スプリッター状態を復元する。"""
