@@ -8,6 +8,7 @@ Kohya 取り込みでは、`<数字>_<名前>` フォルダごとに取捨・繰
 従来の画像登録では、画像を直接含むサブフォルダごとに共通タグを入力できる (Issue #1409)。
 """
 
+import inspect
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -100,11 +101,12 @@ class SubfolderScanWorker(LoRAIroWorkerBase[SubfolderScanResult]):
         subfolders: tuple[ImageSubfolder, ...] = ()
         error_text = ""
         try:
-            raw_entries = (
-                self._scanner(self._directory)
-                if self._scanner is not None
-                else list_image_subfolders(self._directory)
-            )
+            if self._scanner is not None:
+                raw_entries = self._scanner(self._directory)
+            elif "cancel_check" in inspect.signature(list_image_subfolders).parameters:
+                raw_entries = list_image_subfolders(self._directory, cancel_check=self._check_cancellation)
+            else:
+                raw_entries = list_image_subfolders(self._directory)
             collected: list[ImageSubfolder] = []
             for entry in raw_entries:
                 self._check_cancellation()
