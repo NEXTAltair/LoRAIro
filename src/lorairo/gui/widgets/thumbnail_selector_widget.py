@@ -379,12 +379,18 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self._prefetch_queue.clear()
         self._prefetch_request_ids.clear()
 
+        requested_edge = max(self.thumbnail_size.width(), self.thumbnail_size.height())
         cached = self.page_cache.get_page(page)
         if cached is not None:
-            self._display_page(page)
-            self._hide_loading_overlay()
-            self._start_prefetch_if_needed(page)
-            return
+            cached_edge = self.page_cache.get_page_max_edge(page)
+            if cached_edge is not None and cached_edge < requested_edge:
+                self.page_cache.remove_page(page)
+                cached = None
+            else:
+                self._display_page(page)
+                self._hide_loading_overlay()
+                self._start_prefetch_if_needed(page)
+                return
 
         self._show_loading_overlay()
         self._request_page_load(page, cancel_previous=cancel_previous, mark_as_display=True)
@@ -616,23 +622,33 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             else:
                 self.update_thumbnail_layout()
         elif self.pagination_state:
-            target_page = self.pagination_state.current_page or self._current_display_page
-            cached_edge = self.page_cache.get_page_max_edge(target_page)
-            if cached_edge is None:
-                cached_edge = self.page_cache.get_page_max_edge(self._current_display_page)
-            if cached_edge is None and self._display_request_id is not None:
-                cached_edge = self._last_requested_max_edge
-            if cached_edge is not None and value > cached_edge:
-                self.page_cache.clear()
-                self._display_or_request_page(target_page, cancel_previous=True)
-            elif self.page_cache.has_page(target_page):
-                self._display_page(target_page)
-            elif self._display_request_id is None and self.page_cache.has_page(self._current_display_page):
-                self._display_page(self._current_display_page)
+            self._apply_debounced_size_pagination(value)
         elif self._explicit_path_items:
             self._display_explicit_path_items()
 
         self.thumbnail_size_changed.emit(value)
+
+    def _apply_debounced_size_pagination(self, value: int) -> None:
+        """ページネーションモードにおけるサイズ変更処理 (#1542)。"""
+        target_page = (
+            self.pagination_state.current_page or self._current_display_page
+            if self.pagination_state
+            else self._current_display_page
+        )
+        cached_edge = self.page_cache.get_page_max_edge(target_page)
+        if cached_edge is None and self._display_request_id is not None:
+            cached_edge = self._last_requested_max_edge
+        if cached_edge is None:
+            cached_edge = self.page_cache.get_page_max_edge(self._current_display_page)
+        self.page_cache.evict_undersized_pages(value)
+        if cached_edge is not None and value > cached_edge:
+            self._display_or_request_page(target_page, cancel_previous=True)
+        elif self.page_cache.has_page(target_page):
+            self._display_page(target_page)
+        elif not self.page_cache.has_page(target_page):
+            self._display_or_request_page(target_page, cancel_previous=True)
+        elif self._display_request_id is None and self.page_cache.has_page(self._current_display_page):
+            self._display_page(self._current_display_page)
 
     def _update_image_count_display(self) -> None:
         """

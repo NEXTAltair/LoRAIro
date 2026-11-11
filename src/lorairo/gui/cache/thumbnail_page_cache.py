@@ -171,6 +171,12 @@ class ThumbnailPageCache:
             return True
         return False
 
+    def evict_undersized_pages(self, min_edge: int) -> None:
+        """指定した min_edge より解像度が低いキャッシュページを全て破棄する (#1542)。"""
+        undersized = [page_num for page_num, edge in list(self._page_max_edge.items()) if edge < min_edge]
+        for page_num in undersized:
+            self.remove_page(page_num)
+
     def clear(self) -> None:
         """
         キャッシュを全てクリアする。

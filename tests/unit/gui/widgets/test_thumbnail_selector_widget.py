@@ -1052,3 +1052,52 @@ class TestThumbnailSelectorWidgetDebounceAndUpscaleReload:
             widget._apply_debounced_thumbnail_size()
             spy_load.assert_called_once()
             assert widget._explicit_loaded_max_edge == 256
+
+    def test_undersized_cached_page_is_evicted_and_reloaded_on_navigation(self, widget_with_state):
+        """解像度が不足しているキャッシュページへの遷移時はキャッシュを破棄して再要求する (#1542 Codex P2)。"""
+        from PySide6.QtGui import QPixmap
+
+        widget, _ = widget_with_state
+        worker_service = Mock()
+        worker_service.start_thumbnail_page_load.return_value = "thumbnail_page_worker"
+
+        search_result = self._build_search_result(150)
+        widget.initialize_pagination_search(search_result=search_result, worker_service=worker_service)
+        worker_service.start_thumbnail_page_load.reset_mock()
+
+        # Page 2 を 128px でキャッシュに投入
+        widget.page_cache.set_page(2, [(101, QPixmap(128, 128))])
+        # 現在のサムネイルサイズを 256px に設定
+        widget.thumbnail_size = QSize(256, 256)
+
+        # Page 2 を要求 -> 128px キャッシュは破棄されて新サイズで再読み込みが要求される
+        widget._display_or_request_page(2, cancel_previous=True)
+        assert not widget.page_cache.has_page(2)
+        worker_service.start_thumbnail_page_load.assert_called_once()
+        call_kwargs = worker_service.start_thumbnail_page_load.call_args.kwargs
+        assert call_kwargs["page_num"] == 2
+        assert call_kwargs["thumbnail_size"] == QSize(256, 256)
+
+    def test_slider_enlargement_evicts_all_undersized_cached_pages(self, widget_with_state):
+        """拡大時に現在ページ以外の未達解像度キャッシュページも全て破棄される (#1542 Codex P2)。"""
+        from PySide6.QtGui import QPixmap
+
+        widget, _ = widget_with_state
+        worker_service = Mock()
+        worker_service.start_thumbnail_page_load.return_value = "thumbnail_page_worker"
+
+        search_result = self._build_search_result(250)
+        widget.initialize_pagination_search(search_result=search_result, worker_service=worker_service)
+        worker_service.start_thumbnail_page_load.reset_mock()
+
+        # Page 1, 2 を 128px でキャッシュ
+        widget.page_cache.set_page(1, [(1, QPixmap(128, 128))])
+        widget.page_cache.set_page(2, [(101, QPixmap(128, 128))])
+        widget._current_display_page = 1
+
+        widget._on_thumbnail_size_slider_changed(200)
+        widget._size_slider_debounce_timer.stop()
+        widget._apply_debounced_thumbnail_size()
+
+        assert not widget.page_cache.has_page(1)
+        assert not widget.page_cache.has_page(2)

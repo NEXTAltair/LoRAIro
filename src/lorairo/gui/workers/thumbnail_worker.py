@@ -253,10 +253,8 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
             return False
         reader = QImageReader(str(path))
         orig_size = reader.size()
-        return (
-            orig_size.isValid()
-            and max(orig_size.width(), orig_size.height())
-            < max(self.thumbnail_size.width(), self.thumbnail_size.height())
+        return orig_size.isValid() and max(orig_size.width(), orig_size.height()) < max(
+            self.thumbnail_size.width(), self.thumbnail_size.height()
         )
 
     def _decode_thumbnail_with_fallback(
@@ -268,9 +266,7 @@ class ThumbnailWorker(LoRAIroWorkerBase[ThumbnailLoadResult]):
         if not (fallback_path and fallback_path != thumbnail_path and fallback_path.exists()):
             return thumbnail_path, scaled_qimage
 
-        should_fallback = scaled_qimage.isNull() or self._is_image_smaller_than_target(
-            thumbnail_path
-        )
+        should_fallback = scaled_qimage.isNull() or self._is_image_smaller_than_target(thumbnail_path)
         if should_fallback:
             return fallback_path, self._decode_thumbnail(fallback_path)
         return thumbnail_path, scaled_qimage
