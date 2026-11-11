@@ -268,6 +268,36 @@ class TestDefaultDbDirectoryLazyInit:
         assert db_core.IMG_DB_PATH == materialized_dir / db_core.IMG_DB_FILENAME
         assert len(list(data_root.glob("main_dataset_*"))) == 1
 
+    def test_find_latest_existing_project_dir_and_resolve_project_dir(self, tmp_path: Path):
+        """既存プロジェクトディレクトリがあれば再利用し、create_new=True のみ新規作成する (#1547)。"""
+        import lorairo.database.db_core as db_core
+
+        data_root = tmp_path / "lorairo_data"
+        data_root.mkdir(parents=True)
+
+        assert db_core.find_latest_existing_project_dir(data_root, "main_dataset") is None
+
+        older = data_root / "main_dataset_20260101_001"
+        older.mkdir()
+        (older / "image_database.db").touch()
+
+        newer = data_root / "main_dataset_20260102_002"
+        newer.mkdir()
+        (newer / "image_database.db").touch()
+
+        found = db_core.find_latest_existing_project_dir(data_root, "main_dataset")
+        assert found == newer
+
+        reused = db_core.resolve_project_dir(data_root, "main_dataset", create_new=False)
+        assert reused == newer
+
+        reused_get = db_core.get_project_dir(str(data_root), "main_dataset", reuse_existing=True)
+        assert reused_get == newer
+
+        created = db_core.resolve_project_dir(data_root, "main_dataset", create_new=True)
+        assert created != newer
+        assert created.exists()
+
 
 class TestEnsureTagDbInitializedConcurrency:
     """背景 warm-up と GUI スレッドが同時に呼んでも初期化は 1 回 (#1438)。"""

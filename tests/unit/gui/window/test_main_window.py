@@ -703,5 +703,410 @@ class TestMainWindowCloseConfirmationAndCancel:
         window.worker_service.cancel_all_workers.assert_called_once_with()
 
 
+class TestMainWindowWave5Features:
+    """Issue #1547, #1550, #1565 のユニットテスト。"""
+
+    def test_clamp_initial_window_size_clamps_1080p_overflow(self):
+        """初期ウィンドウサイズが 1600x900 を超える場合 1440x860 以下へクランプする (#1565)。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        window = Mock()
+        window.width.return_value = 1287
+        window.height.return_value = 1178
+        screen = Mock()
+        avail = Mock()
+        avail.width.return_value = 1920
+        avail.height.return_value = 1040
+        screen.availableGeometry.return_value = avail
+        window.screen.return_value = screen
+
+        MainWindow._clamp_initial_window_size(window)
+
+        window.resize.assert_called_once_with(1287, 860)
+
+    def test_populate_file_menu_adds_project_and_registration_actions(self, qapp):
+        """File メニューにプロジェクト操作・画像登録・ログフォルダ等のアクションを追加する (#1547, #1550)。"""
+        from PySide6.QtGui import QAction
+        from PySide6.QtWidgets import QMainWindow, QMenu
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        with patch.object(MainWindow, "__init__", QMainWindow.__init__):
+            window = MainWindow()
+        window.menuFile = QMenu("ファイル", window)
+        window.actionExit = QAction("終了", window)
+        window.menuFile.addAction(window.actionExit)
+
+        MainWindow._populate_file_menu(window)
+
+        action_names = [a.objectName() for a in window.menuFile.actions() if not a.isSeparator()]
+        assert "actionOpenProject" in action_names
+        assert "actionNewProject" in action_names
+        assert "actionRegisterImages" in action_names
+        assert "actionBatchImport" in action_names
+        assert "actionGoToExport" in action_names
+        assert "actionRefreshView" in action_names
+        assert "actionOpenLogFolder" in action_names
+        assert action_names[-1] == window.actionExit.objectName()
+
+    def test_restore_window_state_preserves_geometry_on_version_mismatch(self):
+        """SETTINGS_VERSION 不一致でも geometry / state / active_tab は復元し splitter のみスキップ (#1565)。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        window = Mock()
+        window.SETTINGS_VERSION = MainWindow.SETTINGS_VERSION
+        window.search_tab = Mock()
+        window.tabWidgetMainMode = Mock()
+        window.tabWidgetMainMode.count.return_value = 3
+        tab0 = Mock()
+        tab0.objectName.return_value = "tabWorkspace"
+        tab1 = Mock()
+        tab1.objectName.return_value = "tabBatchTag"
+        window.tabWidgetMainMode.widget.side_effect = lambda idx: [tab0, tab1, Mock()][idx]
+        window.tabWidgetMainMode.tabText.return_value = ""
+
+        values = {
+            "main_window/settings_version": MainWindow.SETTINGS_VERSION - 1,
+            "main_window/geometry": b"geom",
+            "main_window/state": b"state",
+            "current_tab_name": "tabBatchTag",
+        }
+        with patch("lorairo.gui.window.main_window.QSettings") as mock_qsettings:
+            mock_qsettings.return_value.value.side_effect = lambda k, *a, **kw: values.get(k)
+            MainWindow._restore_window_state(window)
+
+        window.restoreGeometry.assert_called_once_with(b"geom")
+        window.restoreState.assert_called_once_with(b"state")
+        window.tabWidgetMainMode.setCurrentIndex.assert_called_once_with(1)
+        window.search_tab.restore_layout_state.assert_not_called()
+
+    def test_show_about_dialog_includes_version_project_and_log_path(self, tmp_path):
+        """About ダイアログにバージョン・プロジェクトパス・ログパスを含める (#1550)。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        window = Mock()
+        with (
+            patch("lorairo.gui.window.main_window.get_current_project_root", return_value=tmp_path),
+            patch("lorairo.gui.window.main_window.QMessageBox.about") as mock_about,
+        ):
+            MainWindow._show_about_dialog(window)
+
+        mock_about.assert_called_once()
+        about_text = mock_about.call_args.args[2]
+        assert "バージョン:" in about_text
+        assert str(tmp_path.resolve()) in about_text
+        assert "ログファイル:" in about_text
+
+    def test_open_project_switches_container_persists_and_replaces_window(self, tmp_path):
+        """_open_project は ServiceContainer 切替 → 設定保存 → ウィンドウ再生成の順で行う (#1547)。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        proj_dir = tmp_path / "my_project_20260707_001"
+        proj_dir.mkdir()
+        call_order: list[str] = []
+        window = Mock()
+        window.service_container.set_active_project_directory.side_effect = lambda _p: call_order.append(
+            "switch"
+        )
+        window.config_service.save_settings.side_effect = lambda: call_order.append("persist")
+        new_window = Mock()
+
+        with (
+            patch.object(MainWindow, "_project_switch_block_reason", return_value=None),
+            patch.object(
+                MainWindow,
+                "_replace_with_project_window",
+                side_effect=lambda _w: (call_order.append("replace"), new_window)[1],
+            ),
+            patch("lorairo.gui.window.main_window.QSettings") as mock_qsettings,
+        ):
+            selected = MainWindow._open_project(window, proj_dir)
+
+        assert selected == proj_dir.resolve()
+        assert call_order == ["switch", "persist", "replace"]
+        window.service_container.set_active_project_directory.assert_called_once_with(proj_dir.resolve())
+        mock_qsettings.return_value.setValue.assert_called_once_with(
+            "project/active_project_dir", str(proj_dir.resolve())
+        )
+        window.config_service.update_setting.assert_called_once_with(
+            "directories", "database_dir", str(proj_dir.resolve())
+        )
+
+    def test_open_project_rejected_while_jobs_running(self, tmp_path):
+        """実行中の処理があれば理由をダイアログで示し、ダイアログ選択も DB 切替も行わない (#1547)。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        window = Mock()
+        with (
+            patch.object(
+                MainWindow, "_project_switch_block_reason", return_value="実行中のジョブが 1 件あります。"
+            ),
+            patch("lorairo.gui.window.main_window.show_warning") as mock_warn,
+            patch("lorairo.gui.window.main_window.QFileDialog.getExistingDirectory") as mock_dialog,
+        ):
+            result = MainWindow._open_project(window, tmp_path)
+
+        assert result is None
+        mock_warn.assert_called_once()
+        assert "実行中のジョブが 1 件あります。" in mock_warn.call_args.args[2]
+        mock_dialog.assert_not_called()
+        window.service_container.set_active_project_directory.assert_not_called()
+
+    def test_create_new_project_rejected_before_creating_directory(self):
+        """切替不可のときは新規プロジェクトのディレクトリを作らない (#1547)。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        window = Mock()
+        with (
+            patch.object(MainWindow, "_project_switch_block_reason", return_value="busy"),
+            patch("lorairo.gui.window.main_window.show_warning"),
+            patch("lorairo.gui.window.main_window.get_project_dir") as mock_get_dir,
+        ):
+            result = MainWindow._create_new_project(window, "new_dataset")
+
+        assert result is None
+        mock_get_dir.assert_not_called()
+
+    def test_create_new_project_persists_project_name_and_replaces_window(self, tmp_path):
+        """新規プロジェクトは名前と DB ディレクトリを保存してからウィンドウを作り直す (#1547)。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        new_dir = tmp_path / "new_dataset_20260707_001"
+        window = Mock()
+        window.config_service.get_setting.side_effect = lambda _s, _k, default: default
+        with (
+            patch.object(MainWindow, "_project_switch_block_reason", return_value=None),
+            patch.object(MainWindow, "_replace_with_project_window", return_value=Mock()) as mock_replace,
+            patch("lorairo.gui.window.main_window.get_project_dir", return_value=new_dir),
+            patch("lorairo.gui.window.main_window.QSettings"),
+        ):
+            result = MainWindow._create_new_project(window, "new_dataset")
+
+        assert result == new_dir.resolve()
+        window.service_container.set_active_project_directory.assert_called_once_with(new_dir.resolve())
+        window.config_service.update_setting.assert_any_call(
+            "directories", "database_project_name", "new_dataset"
+        )
+        window.config_service.update_setting.assert_any_call(
+            "directories", "database_dir", str(new_dir.resolve())
+        )
+        mock_replace.assert_called_once_with(window)
+
+    def test_activate_project_directory_aborts_when_database_cannot_open(self, tmp_path):
+        """DB を開けない場合は切替を中断し、設定保存もウィンドウ再生成もしない (#1547)。"""
+        from sqlalchemy.exc import OperationalError
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        window = Mock()
+        window.service_container.set_active_project_directory.side_effect = OperationalError(
+            "SELECT 1", {}, Exception("file is not a database")
+        )
+        with (
+            patch.object(MainWindow, "_replace_with_project_window") as mock_replace,
+            patch("lorairo.gui.window.main_window.show_warning") as mock_warn,
+            patch("lorairo.gui.window.main_window.QSettings") as mock_qsettings,
+        ):
+            result = MainWindow._activate_project_directory(window, tmp_path)
+
+        assert result is None
+        mock_warn.assert_called_once()
+        mock_replace.assert_not_called()
+        mock_qsettings.return_value.setValue.assert_not_called()
+        window.config_service.save_settings.assert_not_called()
+
+    def test_project_switch_block_reason_counts_jobs_and_batch_tag_writes(self, qapp):
+        """実行中ジョブ・Batch キャンセル・バッチタグ書込を切替拒否理由として数える (#1547)。"""
+        from PySide6.QtWidgets import QMainWindow
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        with patch.object(MainWindow, "__init__", QMainWindow.__init__):
+            window = MainWindow()
+        try:
+            window.worker_service = Mock()
+            window.worker_service.get_active_worker_count.return_value = 0
+            window.export_tab = None
+            window.annotation_workflow_controller = None
+            window.jobs_tab = None
+            window.annotate_tab = SimpleNamespace(has_pending_batch_tag_writes=lambda: False)
+            assert MainWindow._project_switch_block_reason(window) is None
+
+            window.worker_service.get_active_worker_count.return_value = 2
+            window.annotate_tab = SimpleNamespace(has_pending_batch_tag_writes=lambda: True)
+            reason = MainWindow._project_switch_block_reason(window)
+            assert reason is not None
+            assert "3 件" in reason
+        finally:
+            window.deleteLater()
+
+    def test_project_switch_block_reason_detects_running_child_thread(self, qapp):
+        """ウィンドウ配下の widget が持つ QThread が実行中なら切替を拒否する (#1547)。"""
+        import threading
+
+        from PySide6.QtCore import QThread
+        from PySide6.QtWidgets import QMainWindow
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        release = threading.Event()
+
+        class _BlockingThread(QThread):
+            def run(self) -> None:
+                release.wait(10)
+
+        with patch.object(MainWindow, "__init__", QMainWindow.__init__):
+            window = MainWindow()
+        window.worker_service = None
+        window.export_tab = None
+        window.annotation_workflow_controller = None
+        window.jobs_tab = None
+        window.annotate_tab = None
+        thread = _BlockingThread(window)
+        thread.start()
+        try:
+            reason = MainWindow._project_switch_block_reason(window)
+            assert reason is not None
+            assert "バックグラウンド処理" in reason
+        finally:
+            release.set()
+            assert thread.wait(10000)
+            window.deleteLater()
+
+    def test_replace_with_project_window_creates_new_window_and_closes_old(self, qapp):
+        """切替後は新しい MainWindow を生成・表示し、旧ウィンドウを閉じて破棄対象にする (#1547)。"""
+        from PySide6.QtWidgets import QMainWindow
+
+        from lorairo.gui.widgets.model_selection_widget import ModelSelectionWidget
+        from lorairo.gui.window import main_window as main_window_module
+        from lorairo.gui.window.main_window import MainWindow
+
+        with (
+            patch.object(MainWindow, "__init__", QMainWindow.__init__),
+            patch.object(MainWindow, "_save_window_state") as mock_save,
+            patch.object(MainWindow, "start_tag_db_warmup") as mock_warmup,
+            patch.object(ModelSelectionWidget, "reset_initial_model_registry_refresh") as mock_reset,
+        ):
+            old_window = MainWindow()
+            old_window.show()
+            new_window = MainWindow._replace_with_project_window(old_window)
+            try:
+                assert new_window is not old_window
+                assert isinstance(new_window, MainWindow)
+                assert new_window.isVisible()
+                assert not old_window.isVisible()
+                # closeEvent (通常の終了処理) が走ったこと。WA_DeleteOnClose は Qt が close 時に
+                # deleteLater を予約して false へ戻すため属性では検証しない
+                assert old_window._closing is True
+                assert new_window in main_window_module._PROJECT_SWITCH_WINDOWS
+                assert old_window not in main_window_module._PROJECT_SWITCH_WINDOWS
+                mock_reset.assert_called_once_with()
+                mock_warmup.assert_called_once_with()
+                assert mock_save.call_count >= 1
+            finally:
+                main_window_module._PROJECT_SWITCH_WINDOWS.remove(new_window)
+                new_window.close()
+                new_window.deleteLater()
+
+    def test_reset_initial_model_registry_refresh_allows_next_auto_sync(self):
+        """切替先プロジェクトでも起動時と同じ初回モデル同期を予約できるようにする (#1547)。"""
+        from lorairo.gui.widgets.model_selection_widget import ModelSelectionWidget
+
+        original = ModelSelectionWidget._auto_refresh_started
+        try:
+            ModelSelectionWidget._auto_refresh_started = True
+            ModelSelectionWidget.reset_initial_model_registry_refresh()
+            assert ModelSelectionWidget._auto_refresh_started is False
+        finally:
+            ModelSelectionWidget._auto_refresh_started = original
+
+    def test_annotate_tab_reports_pending_batch_tag_writes(self):
+        """AnnotateTab はバッチタグ書込 runner の有無を公開する (#1547)。"""
+        from lorairo.gui.tab.annotate_tab import AnnotateTabWidget
+
+        assert (
+            AnnotateTabWidget.has_pending_batch_tag_writes(SimpleNamespace(_batch_tag_runners=set()))
+            is False
+        )
+        assert (
+            AnnotateTabWidget.has_pending_batch_tag_writes(
+                SimpleNamespace(_batch_tag_runners={(Mock(), Mock())})
+            )
+            is True
+        )
+
+    def test_set_active_project_directory_defers_project_user_tag_db_switch(self, tmp_path):
+        """切替でタグDB初期化フラグを戻し、次回初期化で切替先の user DB を使う (#1547)。"""
+        import lorairo.database.db_core as db_core
+        from lorairo.services.service_container import ServiceContainer
+
+        proj_a = tmp_path / "proj_a"
+        proj_b = tmp_path / "proj_b"
+        proj_a.mkdir()
+        proj_b.mkdir()
+
+        container = ServiceContainer()
+        old_db_dir = db_core.DB_DIR
+        old_default_mat = db_core._default_db_dir_materialized
+        old_img_path = db_core.IMG_DB_PATH
+        old_url = db_core.DATABASE_URL
+        old_tag_init = db_core._tag_db_initialized
+        old_user_path = db_core.USER_TAG_DB_PATH
+        old_tag_mgmt = container._tag_management_service
+        try:
+            with (
+                patch("genai_tag_db_tools.initialize_databases", return_value=[Mock()]) as mock_init_db,
+                patch.object(container, "_dispose_active_engines"),
+                patch.object(container.file_system_manager, "initialize"),
+            ):
+                container.set_active_project_directory(proj_a)
+                db_core.ensure_tag_db_initialized()
+                assert db_core.USER_TAG_DB_PATH == proj_a.resolve() / "user_tags.sqlite"
+
+                container.set_active_project_directory(proj_b)
+                assert db_core._tag_db_initialized is False
+                assert db_core.USER_TAG_DB_PATH is None
+                assert container.peek_tag_management_service() is None
+                assert container._db_manager is None
+
+                db_core.ensure_tag_db_initialized()
+                assert db_core.USER_TAG_DB_PATH == proj_b.resolve() / "user_tags.sqlite"
+                assert mock_init_db.call_count == 2
+                assert mock_init_db.call_args_list[-1].kwargs["user_db_dir"] == proj_b.resolve()
+        finally:
+            db_core.DB_DIR = old_db_dir
+            db_core._default_db_dir_materialized = old_default_mat
+            db_core.IMG_DB_PATH = old_img_path
+            db_core.DATABASE_URL = old_url
+            db_core._tag_db_initialized = old_tag_init
+            db_core.USER_TAG_DB_PATH = old_user_path
+            container._tag_management_service = old_tag_mgmt
+
+    def test_set_active_project_directory_rolls_back_when_database_cannot_open(self, tmp_path):
+        """DB を開けない場合は切替前のグローバル状態とサービスへ戻して例外を送出する (#1547)。"""
+        from sqlalchemy.exc import OperationalError
+
+        import lorairo.database.db_core as db_core
+        from lorairo.services.service_container import ServiceContainer
+
+        container = ServiceContainer()
+        old_img_path = db_core.IMG_DB_PATH
+        old_db_dir = db_core.DB_DIR
+        old_repo = container._image_repository
+        with (
+            patch.object(container, "_dispose_active_engines"),
+            patch(
+                "lorairo.database.db_core.create_project_session_factory",
+                side_effect=OperationalError("SELECT 1", {}, Exception("file is not a database")),
+            ),
+            pytest.raises(OperationalError),
+        ):
+            container.set_active_project_directory(tmp_path / "broken")
+
+        assert db_core.IMG_DB_PATH == old_img_path
+        assert db_core.DB_DIR == old_db_dir
+        assert container._image_repository is old_repo
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

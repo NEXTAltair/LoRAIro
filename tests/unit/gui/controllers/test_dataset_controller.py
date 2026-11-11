@@ -398,3 +398,10 @@ class TestDatasetControllerKohyaImport:
             "ds_a": [(1, "v01"), (2, "v02")],
             "ds_b": [(3, "v01")],
         }
+
+    def test_batch_registration_finished_updates_status_bar(self, controller, mock_parent):
+        """登録完了時にステータスバーへ次ステップ案内を表示する (#1550)。"""
+        controller._on_batch_registration_finished()
+        mock_parent.statusBar.return_value.showMessage.assert_called_once()
+        msg = mock_parent.statusBar.return_value.showMessage.call_args.args[0]
+        assert "画像の登録が完了しました" in msg

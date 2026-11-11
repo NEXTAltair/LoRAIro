@@ -537,6 +537,10 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
                     "バッチタグ書き込み worker が時間内に停止しませんでした。完了まで参照を保持します"
                 )
 
+    def has_pending_batch_tag_writes(self) -> bool:
+        """バッチタグ書き込み worker が未完了かを返す (プロジェクト切替の可否判定用、#1547)。"""
+        return bool(self._batch_tag_runners)
+
     # -- バッチタグ書込 (#896: MainWindow から移送, #1544: 非同期 worker 化) -----
 
     def _execute_batch_tag_write(self, image_ids: list[int], tag: str) -> bool:

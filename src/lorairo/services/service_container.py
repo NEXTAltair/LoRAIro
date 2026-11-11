@@ -9,6 +9,7 @@ import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
@@ -464,6 +465,104 @@ class ServiceContainer:
             logger.debug("ProviderBatchWorkflowService初期化完了")
         return self._provider_batch_workflow_service
 
+    def set_active_project_directory(self, project_dir: Path | str) -> None:
+        """アクティブプロジェクトのディレクトリを指定して DB 接続と依存サービスを切り替える (#1547)。
+
+        DB を開けない場合はモジュールグローバルとキャッシュ済みサービスを切替前へ戻して
+        例外を再送出する。呼び出し元 (GUI) は切替を中断して現在のプロジェクトを使い続けられる。
+
+        Args:
+            project_dir: 切替先プロジェクトディレクトリ。
+
+        Raises:
+            OSError: プロジェクトディレクトリを作成できない場合。
+            SQLAlchemyError: プロジェクトの画像 DB を開けない場合。
+        """
+        from ..database import db_core
+        from ..database.access_policy import is_read_only
+        from ..database.db_core import create_project_session_factory
+
+        project_path = Path(project_dir).resolve()
+        project_path.mkdir(parents=True, exist_ok=True)
+        db_path = project_path / db_core.IMG_DB_FILENAME
+
+        from sqlalchemy import text
+
+        old_db_dir = db_core.DB_DIR
+        old_default_materialized = db_core._default_db_dir_materialized
+        old_img_db_path = db_core.IMG_DB_PATH
+        old_database_url = db_core.DATABASE_URL
+        old_tag_db_initialized = db_core._tag_db_initialized
+        old_user_tag_db_path = db_core.USER_TAG_DB_PATH
+        old_repo = self._image_repository
+        old_db_manager = self._db_manager
+        old_dataset_export = self._dataset_export_service
+        old_image_processing = self._image_processing_service
+        old_model_sync = self._model_sync_service
+        old_annotation_save = self._annotation_save_service
+        old_provider_batch = self._provider_batch_workflow_service
+        old_refinement = self._refinement_service
+        old_tag_management = self._tag_management_service
+        try:
+            # 既存プロジェクトや直前呼び出しの SQLAlchemy Engine を先に破棄して
+            # WAL/SHM ロックや接続プールを GC ファイナライザへ漏らさない (#1498)
+            self._dispose_active_engines()
+
+            db_core.DB_DIR = project_path
+            db_core._default_db_dir_materialized = True
+            db_core.IMG_DB_PATH = db_path
+            db_core.DATABASE_URL = f"sqlite:///{db_path.resolve()}?check_same_thread=False"
+            db_core._resolve_cache.clear()
+            db_core._resolve_cache_root = None
+            db_core._tag_db_initialized = False
+            db_core.USER_TAG_DB_PATH = None
+
+            session_factory = create_project_session_factory(db_path)
+            with session_factory() as session:
+                session.execute(text("SELECT 1"))
+
+            self._image_repository = ImageRepository(session_factory=session_factory)
+
+            if not is_read_only():
+                self.file_system_manager.initialize(project_path)
+
+            # 依存サービスをリセット（次参照時に新しい image_repository で再初期化）
+            self._db_manager = None
+            self._dataset_export_service = None
+            self._image_processing_service = None
+            self._model_sync_service = None
+            self._annotation_save_service = None
+            self._provider_batch_workflow_service = None
+            # refinement ignore は project DB に保存するため、切替後はアクティブ DB の
+            # session factory で作り直す (#931 Codex P2)。
+            self._refinement_service = None
+            self._tag_management_service = None
+
+            # タグDB (プロジェクトローカルの user DB) は再初期化フラグだけ戻し、次回の
+            # ensure_tag_db_initialized() (GUI は新ウィンドウのタグDB warmup、CLI は初回タグ参照)
+            # で切替先プロジェクトの user DB を初期化する。GUI スレッドで HF Hub 確認を走らせない。
+
+            logger.info(f"アクティブプロジェクトディレクトリ切替: {project_path} -> {db_path}")
+        except Exception:
+            db_core.DB_DIR = old_db_dir
+            db_core._default_db_dir_materialized = old_default_materialized
+            db_core.IMG_DB_PATH = old_img_db_path
+            db_core.DATABASE_URL = old_database_url
+            db_core._tag_db_initialized = old_tag_db_initialized
+            db_core.USER_TAG_DB_PATH = old_user_tag_db_path
+            db_core._resolve_cache.clear()
+            db_core._resolve_cache_root = None
+            self._image_repository = old_repo
+            self._db_manager = old_db_manager
+            self._dataset_export_service = old_dataset_export
+            self._image_processing_service = old_image_processing
+            self._model_sync_service = old_model_sync
+            self._annotation_save_service = old_annotation_save
+            self._provider_batch_workflow_service = old_provider_batch
+            self._refinement_service = old_refinement
+            self._tag_management_service = old_tag_management
+            raise
+
     def set_active_project(self, project_name: str) -> None:
         """CLI用: アクティブプロジェクトの DB に接続を切り替える。
 
@@ -478,42 +577,8 @@ class ServiceContainer:
         Raises:
             ProjectNotFoundError: プロジェクトが見つからない場合。
         """
-        from ..database import db_core
-        from ..database.db_core import create_project_session_factory
-
         project_info = self.project_management_service.get_project(project_name)
-        db_path = project_info.path / "image_database.db"
-
-        # 既存プロジェクトや直前呼び出しの SQLAlchemy Engine を先に破棄して
-        # WAL/SHM ロックや接続プールを GC ファイナライザへ漏らさない (#1498)
-        self._dispose_active_engines()
-
-        # P1: _get_current_project_id() が get_current_project_root() → IMG_DB_PATH.parent を
-        # 参照するため、セッション切り替えと同時にグローバルも更新して project_id が
-        # 正しいプロジェクトに紐付くようにする
-        db_core.IMG_DB_PATH = db_path
-
-        session_factory = create_project_session_factory(db_path)
-        self._image_repository = ImageRepository(session_factory=session_factory)
-
-        # FileSystemManager をプロジェクトディレクトリで初期化（CLI の DB 書き込みに必要）
-        from ..database.access_policy import is_read_only
-
-        if not is_read_only():
-            self.file_system_manager.initialize(project_info.path)
-
-        # 依存サービスをリセット（次参照時に新しい image_repository で再初期化）
-        self._db_manager = None
-        self._dataset_export_service = None
-        self._image_processing_service = None
-        self._model_sync_service = None
-        self._annotation_save_service = None
-        self._provider_batch_workflow_service = None
-        # refinement ignore は project DB に保存するため、切替後はアクティブ DB の
-        # session factory で作り直す (#931 Codex P2)。
-        self._refinement_service = None
-
-        logger.info(f"アクティブプロジェクト切替: {project_name} -> {db_path}")
+        self.set_active_project_directory(project_info.path)
 
     def get_service_summary(self) -> dict[str, Any]:
         """サービス初期化状況のサマリー取得

@@ -32,22 +32,36 @@ dir_config = config.get("directories", {})
 # SQLite 書き込みロック競合時の待機時間 (ミリ秒)。GUI/CLI 併用時の一時的な
 # `database is locked` を即時失敗させず、この時間まで再試行待機する (Issue #767)。
 BUSY_TIMEOUT_MS: int = int(db_config.get("busy_timeout_ms", 30000))
+IMG_DB_FILENAME: str = str(db_config.get("image_db_filename", "image_database.db"))
 
 
-def get_project_dir(base_dir_name: str, project_name: str) -> Path:
+def get_project_dir(
+    base_dir_name: str,
+    project_name: str,
+    *,
+    reuse_existing: bool = False,
+) -> Path:
     """プロジェクトディレクトリを生成（任意名前_日付_連番形式）
 
     Args:
         base_dir_name: ベースディレクトリ名 (例: "lorairo_data")
         project_name: プロジェクト名 (例: "main_dataset", "猫画像")
+        reuse_existing: True の場合、同名の既存プロジェクトディレクトリがあれば
+            最新のものを再利用する (#1547)。
 
     Returns:
-        Path: 生成されたプロジェクトディレクトリパス
+        Path: 生成または再利用されたプロジェクトディレクトリパス
     """
     from datetime import datetime
 
     base_dir = Path(base_dir_name)
     base_dir.mkdir(exist_ok=True)
+
+    if reuse_existing:
+        existing_dir = find_latest_existing_project_dir(base_dir, project_name)
+        if existing_dir is not None:
+            logger.info(f"既存のプロジェクトディレクトリを再利用します: {existing_dir}")
+            return existing_dir
 
     today = datetime.now().strftime("%Y%m%d")
 
@@ -82,6 +96,72 @@ def sanitize_project_name(name: str) -> str:
     # Windows/Linux共通で問題となる文字のみ置換
     invalid_chars = r'[<>:"/\\|?*]'
     return re.sub(invalid_chars, "_", name)
+
+
+def find_latest_existing_project_dir(
+    base_dir: Path,
+    project_name: str,
+    *,
+    require_db: bool = False,
+) -> Path | None:
+    """既存プロジェクトディレクトリ ({project_name}_YYYYMMDD_NNN) のうち最新のものを返す (#1547)。
+
+    Args:
+        base_dir: プロジェクト親ディレクトリ。
+        project_name: プロジェクト名。
+        require_db: True の場合、image_database.db を含むディレクトリのみ対象とする。
+
+    Returns:
+        最新の既存プロジェクトディレクトリ、または存在しない場合は None。
+    """
+    base_path = Path(base_dir)
+    if not base_path.is_dir():
+        return None
+
+    safe_name = sanitize_project_name(project_name)
+    prefix = f"{safe_name}_"
+    candidates: list[tuple[bool, str, int, float, Path]] = []
+    for entry in base_path.iterdir():
+        if not entry.is_dir() or not entry.name.startswith(prefix):
+            continue
+        suffix = entry.name[len(prefix) :]
+        parts = suffix.split("_")
+        if len(parts) != 2 or len(parts[0]) != 8 or not parts[0].isdigit() or not parts[1].isdigit():
+            continue
+        has_db = (entry / IMG_DB_FILENAME).exists()
+        if require_db and not has_db:
+            continue
+        try:
+            mtime = entry.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        candidates.append((has_db, parts[0], int(parts[1]), mtime, entry))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1], item[2], item[3]))
+    return candidates[-1][4]
+
+
+def resolve_project_dir(
+    base_dir: Path,
+    project_name: str,
+    *,
+    create_new: bool = False,
+    require_db: bool = False,
+) -> Path:
+    """プロジェクトディレクトリを解決する (#1547)。
+
+    create_new=False のとき、既存のプロジェクトディレクトリがあれば最新のものを再利用し、
+    存在しない場合のみ新規作成する。create_new=True のときは常に新規連番ディレクトリを作成する。
+    """
+    base_path = Path(base_dir)
+    if not create_new:
+        existing = find_latest_existing_project_dir(base_path, project_name, require_db=require_db)
+        if existing is not None:
+            logger.info(f"既存のプロジェクトディレクトリを再利用します: {existing}")
+            return existing
+    return get_project_dir(str(base_path), project_name)
 
 
 # Get database directory from config, or create new project directory
@@ -119,8 +199,13 @@ def _resolve_auto_project_dir(create: bool) -> Path:
     """Resolve the default auto project directory, creating it only when requested."""
     base_dir_name = dir_config.get("database_base_dir", "lorairo_data")
     project_name = dir_config.get("database_project_name", "main_dataset")
+    existing = find_latest_existing_project_dir(Path(base_dir_name), project_name, require_db=True)
+    if existing is not None:
+        return existing.resolve()
     if create:
-        return get_project_dir(base_dir_name, project_name).resolve()
+        return resolve_project_dir(
+            Path(base_dir_name), project_name, create_new=False, require_db=True
+        ).resolve()
     return _next_project_dir_path(base_dir_name, project_name).resolve()
 
 
@@ -130,21 +215,18 @@ _default_db_dir_materialized: bool = False
 def ensure_default_db_dir() -> Path:
     """Ensure and return the default DB directory for explicit default DB use."""
     global _default_db_dir_materialized
+    if _default_db_dir_materialized:
+        return DB_DIR
     configured_dir = _resolve_configured_db_dir()
     if configured_dir is not None:
         configured_dir.mkdir(parents=True, exist_ok=True)
         return configured_dir
-    if _default_db_dir_materialized:
-        return DB_DIR
     materialized_dir = _resolve_auto_project_dir(create=True)
     _default_db_dir_materialized = True
     return materialized_dir
 
 
 DB_DIR = _resolve_configured_db_dir() or _resolve_auto_project_dir(create=False)
-IMG_DB_FILENAME = db_config.get(
-    "image_db_filename", "image_database.db"
-)  # Keep default if not in db_config
 # Note: TAG_DB_PACKAGE and TAG_DB_FILENAME were removed (2026-01-02)
 # Tag databases are now managed via genai-tag-db-tools public API (initialize_databases)
 
@@ -294,11 +376,43 @@ def ensure_tag_db_initialized() -> None:
         _ensure_tag_db_initialized_locked()
 
 
+def _dispose_previous_tag_user_engine() -> None:
+    """タグDB再初期化前に既存の user engine があれば破棄する。"""
+    from genai_tag_db_tools.db import runtime as tag_db_runtime
+
+    old_user_engine = getattr(tag_db_runtime, "_user_engine", None)
+    if not isinstance(old_user_engine, Engine):
+        return
+    try:
+        old_user_engine.dispose()
+    except SQLAlchemyError as e:
+        # 破棄失敗は再初期化を妨げないので記録のみ (初期化本体は新しい engine を作る)
+        logger.warning(f"既存のユーザータグDB engine の破棄に失敗: {e}")
+
+
+def _resolve_tag_db_target_directory(
+    selected: Any,
+    scope: _TagDatabaseScope | None,
+) -> Path | None:
+    """タグDB初期化先ディレクトリを解決する。初期化済みなら None を返す。"""
+    global DB_DIR
+    if selected is not None:
+        if scope is None:
+            raise RuntimeError("Explicit configuration requires a tag database scope")
+        target_directory = get_tag_database_directory()
+        return None if scope.initialized_directory == target_directory else target_directory
+    if not _default_db_dir_materialized:
+        DB_DIR = ensure_default_db_dir()
+    if _tag_db_initialized and USER_TAG_DB_PATH == DB_DIR / "user_tags.sqlite":
+        return None
+    return DB_DIR
+
+
 def _ensure_tag_db_initialized_locked() -> None:
     """``ensure_tag_db_initialized`` の本体 (``_TAG_DB_INIT_LOCK`` 保持下で呼ぶ)。"""
     import os
 
-    global _tag_db_initialized, DB_DIR, USER_TAG_DB_PATH
+    global _tag_db_initialized, USER_TAG_DB_PATH
     selected = get_runtime_configuration()
     scope = _TAG_DATABASE_SCOPE.get()
     from .access_policy import is_read_only
@@ -310,22 +424,15 @@ def _ensure_tag_db_initialized_locked() -> None:
             "Read-only tag access requires an isolated configuration scope",
             reason="tag_database_scope_required",
         )
-    if selected is not None:
-        if scope is None:
-            raise RuntimeError("Explicit configuration requires a tag database scope")
-        target_directory = get_tag_database_directory()
-        if scope.initialized_directory == target_directory:
-            return
-    else:
-        if _tag_db_initialized:
-            return
-        DB_DIR = ensure_default_db_dir()
-        target_directory = DB_DIR
+    target_directory = _resolve_tag_db_target_directory(selected, scope)
+    if target_directory is None:
+        return
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
 
     from genai_tag_db_tools import ReadOnlyDatabaseError, initialize_databases
 
     try:
+        _dispose_previous_tag_user_engine()
         logger.info("Initializing genai-tag-db-tools databases...")
         results = initialize_databases(
             user_db_dir=target_directory,
