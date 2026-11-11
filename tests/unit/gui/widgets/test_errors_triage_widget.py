@@ -13,6 +13,7 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QMessageBox, QPushButton
 
+from lorairo.gui.widgets.ds_card import DsCard
 from lorairo.gui.widgets.errors_triage_widget import ErrorsTriageWidget
 from lorairo.services.error_triage_service import (
     ErrorGroup,
@@ -123,6 +124,14 @@ class TestGroupDisplay:
             ("annotation", "TimeoutError", "gpt-4o"),
             ("upscale", "ValueError", None),
         ]
+
+    def test_group_cards_are_ds_cards_with_stable_object_names(self, widget, summary, groups, rows):
+        widget.display(summary, groups, rows)
+
+        cards = [c for c in widget.findChildren(DsCard) if c.objectName().startswith("errorGroup_")]
+        assert len(cards) == 2
+        # 見た目は DsCard (card 地 + hairline border) に一元化され、個別 QSS 上書きを持たない
+        assert all("DsCard" in c.styleSheet() for c in cards)
 
     def test_group_resolve_emits_unresolved_error_ids(self, widget, qtbot, summary, groups, rows):
         widget.display(summary, groups, rows)

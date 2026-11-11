@@ -29,13 +29,13 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPlainTextEdit,
     QProgressBar,
-    QPushButton,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from lorairo.gui import theme
+from lorairo.gui.widgets.ds_button import DsButton
 from lorairo.gui.widgets.ds_removable_chip import RemovableChip
 from lorairo.gui.widgets.ds_segmented_control import DsSegmentedControl
 from lorairo.services.export_overlay import ExportTagOverlay, apply_overlay
@@ -321,10 +321,9 @@ class ExportOverlayBar(QWidget):
         self._suggest_combo.activated.connect(self._on_suggest_activated)
         row.addWidget(self._suggest_combo)
 
-        self._add_trigger_btn = QPushButton("追加")
+        self._add_trigger_btn = DsButton("追加", kind="primary", size="small")
         self._add_trigger_btn.setObjectName("addTriggerBtn")
         self._add_trigger_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._add_trigger_btn.setStyleSheet(self._accent_button_qss())
         self._add_trigger_btn.clicked.connect(self._on_trigger_commit)
         row.addWidget(self._add_trigger_btn)
 
@@ -435,25 +434,22 @@ class ExportOverlayBar(QWidget):
         self._progress_bar.setVisible(False)
         row.addWidget(self._progress_bar)
 
-        self._cancel_btn = QPushButton("キャンセル")
+        self._cancel_btn = DsButton("キャンセル", kind="secondary", size="small")
         self._cancel_btn.setObjectName("cancelExportBtn")
         self._cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._cancel_btn.setStyleSheet(self._secondary_button_qss())
         self._cancel_btn.setVisible(False)
         self._cancel_btn.clicked.connect(self.cancel_requested.emit)
         row.addWidget(self._cancel_btn)
 
-        self._validate_btn = QPushButton("検証")
+        self._validate_btn = DsButton("検証", kind="secondary", size="small")
         self._validate_btn.setObjectName("validateBtn")
         self._validate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._validate_btn.setStyleSheet(self._secondary_button_qss())
         self._validate_btn.clicked.connect(self.validate_requested.emit)
         row.addWidget(self._validate_btn)
 
-        self._export_btn = QPushButton("エクスポート")
+        self._export_btn = DsButton("エクスポート", kind="primary", size="small")
         self._export_btn.setObjectName("exportBtn")
         self._export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._export_btn.setStyleSheet(self._accent_button_qss())
         self._export_btn.clicked.connect(self.export_requested.emit)
         row.addWidget(self._export_btn)
 
@@ -600,29 +596,3 @@ class ExportOverlayBar(QWidget):
             self._tag_format,
         )
         self._preview.setPlainText(", ".join(result))
-
-    # ------------------------------------------------------------------
-    # QSS ヘルパー
-    # ------------------------------------------------------------------
-
-    def _accent_button_qss(self) -> str:
-        """主アクションボタン（橙）の QSS を返す。"""
-        return (
-            f"QPushButton {{ background: {theme.ACCENT}; color: {theme.TEXT_ON_ACCENT};"
-            f" border: none; border-radius: {theme.RADIUS}px; padding: 4px 12px;"
-            f" font-size: {theme.FONT_SIZE_SMALL}px; }}"
-            f" QPushButton:hover {{ background: {theme.ACCENT_HOVER}; }}"
-        )
-
-    def _secondary_button_qss(self) -> str:
-        """補助アクションボタン (検証など、非 checkable) の QSS を返す。
-
-        スコープセグメントは DsSegmentedControl へ移管したため (#1105)、本 QSS は
-        単独の補助ボタン専用となり checkable 用の ``:checked`` 節は持たない。
-        """
-        return (
-            f"QPushButton {{ background: {theme.PAPER_SHADE}; color: {theme.INK_SOFT};"
-            f" border: 1px solid {theme.LINE}; border-radius: {theme.RADIUS}px;"
-            f" padding: 4px 10px; font-size: {theme.FONT_SIZE_SMALL}px; }}"
-            f" QPushButton:hover {{ background: {theme.LINE}; }}"
-        )

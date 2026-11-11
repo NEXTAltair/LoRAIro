@@ -105,3 +105,18 @@ class TestDsCardSetBody:
         card_no_args.show()
         qtbot.waitUntil(lambda: card_no_args.isVisible(), timeout=3000)
         assert not body.isHidden()
+
+
+class TestDsCardAddWidget:
+    def test_add_widget_stacks_in_order_and_reparents(self, card_no_args: DsCard) -> None:
+        """add_widget は縦積みで末尾へ追加し、parent を card にする。"""
+        first = QLabel("first")
+        second = QLabel("second")
+        card_no_args.add_widget(first)
+        card_no_args.add_widget(second)
+        assert first.parent() is card_no_args
+        assert second.parent() is card_no_args
+        layout = card_no_args.layout()
+        assert layout is not None
+        assert layout.itemAt(0).widget() is first
+        assert layout.itemAt(1).widget() is second

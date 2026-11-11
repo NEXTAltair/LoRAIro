@@ -75,3 +75,31 @@ class TestRemovableChip:
         assert chip._remove_btn.toolTip() == "tag_a を削除"
         chip.set_text("tag_b")
         assert chip._remove_btn.toolTip() == "tag_b を削除"
+
+    def test_custom_remove_tooltip_kept_after_set_text(self, qtbot):
+        chip = RemovableChip("tag", remove_tooltip="tag を除外から外す")
+        qtbot.addWidget(chip)
+        assert chip._remove_btn.toolTip() == "tag を除外から外す"
+        chip.set_text("other")
+        assert chip._remove_btn.toolTip() == "tag を除外から外す"
+
+    def test_default_remove_tooltip_follows_text(self, qtbot):
+        chip = RemovableChip("tag")
+        qtbot.addWidget(chip)
+        assert chip._remove_btn.toolTip() == "tag を削除"
+        chip.set_text("other")
+        assert chip._remove_btn.toolTip() == "other を削除"
+
+    def test_monospace_and_font_size_applied_to_body(self, qtbot):
+        chip = RemovableChip("tag", monospace=True, font_size=theme.FONT_SIZE_META)
+        qtbot.addWidget(chip)
+        body_qss = chip._body.styleSheet()
+        assert theme.FONT_MONO_CSS in body_qss
+        assert f"font-size: {theme.FONT_SIZE_META}px" in body_qss
+
+    def test_default_body_is_proportional_small(self, qtbot):
+        chip = RemovableChip("tag")
+        qtbot.addWidget(chip)
+        body_qss = chip._body.styleSheet()
+        assert theme.FONT_MONO_CSS not in body_qss
+        assert f"font-size: {theme.FONT_SIZE_SMALL}px" in body_qss

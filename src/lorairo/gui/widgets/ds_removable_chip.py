@@ -26,6 +26,10 @@ class RemovableChip(QFrame):
         radius: 角丸半径 (px)。None (既定) は ``theme.RADIUS``。タグ寄りの丸みが
             必要なら ``theme.RADIUS_CHIP`` を渡す。
         remove_glyph: 削除ボタンの文字。既定は "✕"。
+        remove_tooltip: 削除ボタンのツールチップ。None (既定) は "{text} を削除"。
+            文脈に応じた文言 (例: 「除外から外す」) を出したいときに渡す。
+        monospace: True で本文を DS mono family にする (タグ名など)。
+        font_size: 本文の font-size (px)。None (既定) は ``theme.FONT_SIZE_SMALL``。
         parent: 親ウィジェット。
 
     Signals:
@@ -43,9 +47,15 @@ class RemovableChip(QFrame):
         clickable: bool = False,
         radius: int | None = None,
         remove_glyph: str = "✕",
+        remove_tooltip: str | None = None,
+        monospace: bool = False,
+        font_size: int | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        self._remove_tooltip = remove_tooltip
+        self._monospace = monospace
+        self._font_size = theme.FONT_SIZE_SMALL if font_size is None else font_size
         self.setObjectName("dsRemovableChip")
         chip_radius = theme.RADIUS if radius is None else radius
         self.setStyleSheet(
@@ -65,7 +75,7 @@ class RemovableChip(QFrame):
         self._remove_btn.setObjectName("dsRemovableChipRemove")
         self._remove_btn.setFixedSize(16, 16)
         self._remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._remove_btn.setToolTip(f"{text} を削除")
+        self._remove_btn.setToolTip(self._remove_button_tooltip(text))
         self._remove_btn.setStyleSheet(
             f"QPushButton {{ border: none; background: transparent; color: {theme.ACCENT_HOVER};"
             f" font-size: {theme.FONT_SIZE_META}px; }}"
@@ -81,7 +91,7 @@ class RemovableChip(QFrame):
     def set_text(self, text: str) -> None:
         """チップ本文を更新する。"""
         self._body.setText(text)
-        self._remove_btn.setToolTip(f"{text} を削除")
+        self._remove_btn.setToolTip(self._remove_button_tooltip(text))
 
     def text(self) -> str:
         """現在のチップ本文を返す。"""
@@ -91,12 +101,20 @@ class RemovableChip(QFrame):
     # 内部ヘルパー
     # ------------------------------------------------------------------
 
+    def _remove_button_tooltip(self, text: str) -> str:
+        """削除ボタンのツールチップ文言を返す (未指定なら既定文言)。"""
+        if self._remove_tooltip is not None:
+            return self._remove_tooltip
+        return f"{text} を削除"
+
     def _build_body(self, text: str, clickable: bool) -> QLabel | QPushButton:
         """本文ウィジェット (静的ラベル or クリック可能ボタン) を生成する。"""
         body_qss = (
-            f"color: {theme.ACCENT_HOVER}; font-size: {theme.FONT_SIZE_SMALL}px;"
+            f"color: {theme.ACCENT_HOVER}; font-size: {self._font_size}px;"
             f" border: none; background: transparent;"
         )
+        if self._monospace:
+            body_qss += f" font-family: {theme.FONT_MONO_CSS};"
         if clickable:
             button = QPushButton(text, self)
             button.setObjectName("dsRemovableChipBody")

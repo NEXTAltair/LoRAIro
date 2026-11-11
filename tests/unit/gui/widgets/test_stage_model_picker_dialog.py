@@ -13,6 +13,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QDialogButtonBox, QLabel, QPushButton
 
+from lorairo.gui.widgets.ds_segmented_control import DsSegmentedControl
 from lorairo.gui.widgets.stage_model_picker_dialog import StageModelPickerDialog, _ModelRow
 from lorairo.services.pipeline_composition import PipelineStage, StageModelInfo
 
@@ -159,6 +160,25 @@ class TestFilters:
         assert dialog._provider == "openai"
         dialog._set_env("local")
         assert dialog._provider == "all"
+
+    def test_env_segment_is_ds_segmented_control_and_click_filters(self, qtbot):
+        dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O, WD_TAGGER])
+        qtbot.addWidget(dialog)
+        segment = dialog._env_segment
+        assert isinstance(segment, DsSegmentedControl)
+        assert segment.value() == "all"
+        # ユーザークリック相当 (value_changed 経由) で環境フィルタが反映される
+        segment._buttons["local"].click()
+        assert dialog._env == "local"
+        assert _row_by_id(dialog, "openai/gpt-4o").isHidden()
+
+    def test_env_segment_follows_programmatic_env_change(self, qtbot):
+        dialog = StageModelPickerDialog(PipelineStage.TAGS, [GPT4O, WD_TAGGER])
+        qtbot.addWidget(dialog)
+        dialog._set_env("api")
+        assert dialog._env_segment is not None
+        assert dialog._env_segment.value() == "api"
+        assert dialog._env_segment._buttons["api"].isChecked()
 
     def test_type_filter_narrows_to_matching_stage(self, qtbot):
         # SCORE ステージ: multimodal(GPT4O) と score-only(AESTHETIC) が候補。

@@ -124,3 +124,15 @@ class DsCard(QFrame):
         widget.setParent(self)
         self._main_layout.addWidget(widget)
         self._body_widget = widget
+
+    def add_widget(self, widget: QWidget) -> None:
+        """カード本体の末尾に widget を縦積みで追加する。
+
+        複数の部品を縦に並べるカード (見出し + 件数 + 本文 + ボタン等) 向け。
+        :meth:`set_body` は単一ボディの差し替え用で、本メソッドとは併用しない。
+
+        Args:
+            widget: カード本体に追加するウィジェット。
+        """
+        widget.setParent(self)
+        self._main_layout.addWidget(widget)

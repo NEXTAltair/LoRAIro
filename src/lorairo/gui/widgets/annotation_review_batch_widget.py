@@ -44,6 +44,7 @@ from ..workers.annotation_review_results_loader import (
 from ..workers.base import WorkerProgress
 from ..workers.manager import WorkerManager
 from ..workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
+from .ds_button import DsButton
 from .tag_suggestion import TagSuggestionWidget
 
 if TYPE_CHECKING:
@@ -132,13 +133,8 @@ class AnnotationReviewBatchWidget(QGroupBox):
         self.target_list_button.setVisible(not self._selection_mode)
         target_bar.addWidget(self.target_list_button)
         layout.addLayout(target_bar)
-        self.start_button = QPushButton("チェックを実行", self)
+        self.start_button = DsButton("チェックを実行", kind="primary", parent=self)
         self.start_button.setObjectName("buttonStartAnnotationReviewBatch")
-        self.start_button.setStyleSheet(
-            f"QPushButton:enabled {{ background: {theme.ACCENT}; color: {theme.TEXT_ON_ACCENT};"
-            f" border-color: {theme.ACCENT}; font-weight: {theme.FONT_WEIGHT_SEMIBOLD}; }}"
-            f"QPushButton:enabled:hover {{ background: {theme.ACCENT_HOVER}; }}"
-        )
         self.start_button.clicked.connect(self._on_start_requested)
         self.cancel_button = QPushButton("中止", self)
         self.cancel_button.clicked.connect(self._on_cancel_requested)
