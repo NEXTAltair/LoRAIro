@@ -182,3 +182,24 @@ class TestSearchFacetsSidebar:
 
         hidden = [sidebar._model_list.item(i).isHidden() for i in range(sidebar._model_list.count())]
         assert hidden == [False, False]
+
+    def test_no_nested_scroll_area_and_updated_headers(self, qtbot: pytest.FixtureRequest) -> None:
+        """Issue #1571 / #1568: 入れ子の QScrollArea を持たず、見出しが日本語化され内部カラム名が露出しない。"""
+        from PySide6.QtWidgets import QLabel, QScrollArea
+
+        sidebar = SearchFacetsSidebar()
+        qtbot.addWidget(sidebar)
+
+        assert sidebar.findChildren(QScrollArea) == []
+        label_texts = {lbl.text() for lbl in sidebar.findChildren(QLabel)}
+        assert "アノテーション状態" in label_texts
+        assert "使用モデル" in label_texts
+        for internal_name in (
+            "is_edited_manually",
+            "reviewed_at",
+            "Clef",
+            "ErrorRecord",
+            "Model.name",
+            "Image.created_at",
+        ):
+            assert internal_name not in label_texts

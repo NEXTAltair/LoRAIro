@@ -111,6 +111,7 @@ class ErrorsTriageWidget(QWidget):
             btn = QPushButton(label, bar)
             btn.setObjectName(f"errorsStatusButton_{status.value}")
             btn.setCheckable(True)
+            btn.setToolTip(f"{label}のエラーを表示")
             if status is ErrorStatusFilter.UNRESOLVED:
                 btn.setChecked(True)
             self._status_group.addButton(btn)
@@ -134,6 +135,7 @@ class ErrorsTriageWidget(QWidget):
         self._group_toggle.setObjectName("errorsGroupToggleButton")
         self._group_toggle.setCheckable(True)
         self._group_toggle.setChecked(True)
+        self._group_toggle.setToolTip("原因別のグループ表示と個別行表示を切り替える")
         self._group_toggle.toggled.connect(self._on_group_toggled)
         layout.addWidget(self._group_toggle)
 
@@ -190,6 +192,7 @@ class ErrorsTriageWidget(QWidget):
         layout.addStretch(1)
         self._bulk_button = QPushButton("未解決をすべて resolve", bar)
         self._bulk_button.setObjectName("errorsBulkResolveButton")
+        self._bulk_button.setToolTip("表示中の未解決エラーをすべて解決済みにする")
         self._bulk_button.clicked.connect(self._on_bulk_resolve)
         layout.addWidget(self._bulk_button)
         self._root.addWidget(bar)
@@ -334,6 +337,7 @@ class ErrorsTriageWidget(QWidget):
                 link = QPushButton(str(image_id), images_row)
                 link.setObjectName(f"errorGroupImageLink_{image_id}")
                 link.setFlat(True)
+                link.setToolTip(f"画像 #{image_id} を検索画面で表示")
                 link.clicked.connect(lambda _checked=False, iid=image_id: self.image_link_clicked.emit(iid))
                 images_layout.addWidget(link)
             images_layout.addStretch(1)
@@ -341,6 +345,7 @@ class ErrorsTriageWidget(QWidget):
 
         resolve_btn = QPushButton("このグループを resolve", card)
         resolve_btn.setObjectName("errorGroupResolveButton")
+        resolve_btn.setToolTip("このグループの未解決エラーを一括で解決済みにする")
         unresolved_ids = list(group.unresolved_error_ids)
         resolve_btn.clicked.connect(
             lambda _checked=False, ids=unresolved_ids: self.resolve_group_requested.emit(ids)
@@ -384,6 +389,7 @@ class ErrorsTriageWidget(QWidget):
         if not row.resolved:
             resolve_btn = QPushButton("resolve", line)
             resolve_btn.setObjectName(f"errorRowResolveButton_{row.error_id}")
+            resolve_btn.setToolTip(f"エラー #{row.error_id} を解決済みにする")
             error_id = row.error_id
             resolve_btn.clicked.connect(
                 lambda _checked=False, eid=error_id: self.resolve_requested.emit(eid)

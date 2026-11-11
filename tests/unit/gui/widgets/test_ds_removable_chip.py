@@ -68,3 +68,10 @@ class TestRemovableChip:
         chip = RemovableChip("x")
         qtbot.addWidget(chip)
         assert theme.ERR in chip._remove_btn.styleSheet()
+
+    def test_remove_button_has_tooltip_and_updates_on_set_text(self, qtbot):
+        chip = RemovableChip("tag_a")
+        qtbot.addWidget(chip)
+        assert chip._remove_btn.toolTip() == "tag_a を削除"
+        chip.set_text("tag_b")
+        assert chip._remove_btn.toolTip() == "tag_b を削除"

@@ -456,3 +456,13 @@ def test_working_version_status_and_commit_discard_buttons(
     )
     dialog.discard_working_button.click()
     qtbot.waitUntil(lambda: dialog.version_table.rowCount() == 2, timeout=_TIMEOUT_MS)
+
+
+def test_dialog_buttons_have_tooltips(qtbot: QtBot, repo: DatasetRepository) -> None:
+    """Issue #1571: 主要アクションボタンにツールチップが設定されている。"""
+    dialog = KohyaVersionExportDialog(repo)
+    qtbot.addWidget(dialog)
+    assert dialog.browse_button.toolTip() != ""
+    assert dialog.copy_tags_button.toolTip() != ""
+    assert dialog.export_button.toolTip() != ""
+    assert dialog.close_button.toolTip() != ""

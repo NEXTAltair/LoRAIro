@@ -505,3 +505,12 @@ def test_reject_stops_in_flight_scan_worker_cleanly(qtbot, tmp_path):
 
     assert not dlg.is_scanning_kohya
     assert dlg._scan_runners == {}
+
+
+def test_dialog_buttons_have_tooltips(qtbot):
+    """Issue #1571: 参照・追加・削除ボタンにツールチップが設定されている。"""
+    dlg = DatasetSelectDialog()
+    qtbot.addWidget(dlg)
+    assert dlg.browse_button.toolTip() != ""
+    assert dlg.add_config_button.toolTip() != ""
+    assert dlg.remove_config_button.toolTip() != ""

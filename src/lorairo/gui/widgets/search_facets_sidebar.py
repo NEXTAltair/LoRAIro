@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QRadioButton,
-    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -82,32 +81,27 @@ class SearchFacetsSidebar(QWidget):
 
     def _setup_ui(self) -> None:
         """UIコンポーネントを初期化・配置する。"""
-        scroll_area = QScrollArea(self)
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-
-        container = QWidget()
-        container.setStyleSheet(f"background: {theme.PAPER};")
-        layout = QVBoxLayout(container)
+        self.setStyleSheet(f"background: {theme.PAPER};")
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 6, 10, 6)
         layout.setSpacing(0)
 
         # 手動編集セクション (annotations state · MANUAL_EDIT)
         manual_box, self._manual_edit_group, self._manual_edit_buttons = self._make_radio_group(
-            "手動編集", "is_edited_manually", ["全て", "あり", "なし"]
+            "手動編集", None, ["全て", "あり", "なし"]
         )
         layout.addWidget(manual_box)
         layout.addWidget(self._make_separator())
 
         # レビュー状態セクション
         reviewed_box, self._reviewed_group, self._reviewed_buttons = self._make_radio_group(
-            "レビュー", "reviewed_at", ["全て", "未レビュー", "済み"]
+            "レビュー", None, ["全て", "未レビュー", "済み"]
         )
         layout.addWidget(reviewed_box)
         layout.addWidget(self._make_separator())
 
         review_warnings_box, self._review_warnings_group, self._review_warnings_buttons = (
-            self._make_radio_group("アノテーションチェック", "Clef", ["全て", "要確認あり"])
+            self._make_radio_group("アノテーション状態", None, ["全て", "要確認あり"])
         )
         self._review_warnings_buttons[1].setToolTip(
             "現在の画像・タグ・キャプション・設定に対する保存済みの警告がある画像"
@@ -117,13 +111,13 @@ class SearchFacetsSidebar(QWidget):
 
         # エラー状態セクション
         error_box, self._error_group, self._error_buttons = self._make_radio_group(
-            "エラー状態", "ErrorRecord", ["全て", "あり", "なし"]
+            "エラー状態", None, ["全て", "あり", "なし"]
         )
         layout.addWidget(error_box)
         layout.addWidget(self._make_separator())
 
         # モデルセクション (検索 input + 複数選択リスト)
-        model_group, model_layout = self._make_group("モデル", "Model.name")
+        model_group, model_layout = self._make_group("使用モデル", None)
         self._model_search = QLineEdit()
         self._model_search.setPlaceholderText("モデル名で検索…")
         self._model_search.setClearButtonEnabled(True)
@@ -138,17 +132,12 @@ class SearchFacetsSidebar(QWidget):
         layout.addWidget(self._make_separator())
 
         # 登録日セクション
-        date_group, date_layout = self._make_group("登録日", "Image.created_at")
+        date_group, date_layout = self._make_group("登録日", None)
         self._histogram = DateHistogramWidget()
         date_layout.addWidget(self._histogram)
         layout.addWidget(date_group)
 
         layout.addStretch()
-        scroll_area.setWidget(container)
-
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(scroll_area)
 
         # シグナル接続
         self._manual_edit_group.buttonClicked.connect(lambda _: self._emit_facets_changed())
@@ -189,7 +178,7 @@ class SearchFacetsSidebar(QWidget):
         return group, outer
 
     def _make_radio_group(
-        self, title: str, sub: str, labels: list[str]
+        self, title: str, sub: str | None, labels: list[str]
     ) -> tuple[QWidget, QButtonGroup, list[QRadioButton]]:
         """DS Group 内に排他ラジオ行を配置したセクションを生成する。
 

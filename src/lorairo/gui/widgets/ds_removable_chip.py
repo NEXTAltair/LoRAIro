@@ -65,6 +65,7 @@ class RemovableChip(QFrame):
         self._remove_btn.setObjectName("dsRemovableChipRemove")
         self._remove_btn.setFixedSize(16, 16)
         self._remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._remove_btn.setToolTip(f"{text} を削除")
         self._remove_btn.setStyleSheet(
             f"QPushButton {{ border: none; background: transparent; color: {theme.ACCENT_HOVER};"
             f" font-size: {theme.FONT_SIZE_META}px; }}"
@@ -80,6 +81,7 @@ class RemovableChip(QFrame):
     def set_text(self, text: str) -> None:
         """チップ本文を更新する。"""
         self._body.setText(text)
+        self._remove_btn.setToolTip(f"{text} を削除")
 
     def text(self) -> str:
         """現在のチップ本文を返す。"""

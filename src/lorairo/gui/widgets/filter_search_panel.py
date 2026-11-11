@@ -62,6 +62,7 @@ from ..workers.manager import WorkerManager
 from ..workers.search_facets_worker import SearchFacetsResult, SearchFacetsWorker
 from .count_estimate import CountEstimateWidget
 from .custom_range_slider import CustomRangeSlider
+from .ds_no_scroll_combo_box import DsNoScrollComboBox, install_no_scroll_wheel_guard
 from .ds_segmented_control import DsSegmentedControl
 from .favorite_filter import FavoriteFilterPanel
 from .pipeline_state import PipelineState, PipelineStateMachine
@@ -126,8 +127,8 @@ _GENERATION_TOOL_OPTIONS: list[tuple[str | None, str]] = [
 ]
 
 
-class _ValueComboBox(QComboBox):
-    """表示ラベルと内部 userData のどちらでも選択できる QComboBox (Issue #1483)。"""
+class _ValueComboBox(DsNoScrollComboBox):
+    """表示ラベルと内部 userData のどちらでも選択できる QComboBox (Issue #1483 / #1567)。"""
 
     def setCurrentText(self, text: str) -> None:
         normalized = (text or "").strip()
@@ -355,6 +356,10 @@ class FilterSearchPanel(QScrollArea):
         self.logic_button_group.addButton(self.ui.radioAnd)
         self.logic_button_group.addButton(self.ui.radioOr)
         self.ui.radioAnd.setChecked(True)
+
+        # Issue #1567: スクロール中の意図しない値変更を防ぐホイールガード
+        install_no_scroll_wheel_guard(self.ui.comboResolution)
+        install_no_scroll_wheel_guard(self.ui.comboAspectRatio)
 
         # 進捗表示 UI
         self.progress_bar = QProgressBar()

@@ -41,6 +41,7 @@ from ...services.folder_common_tags import list_image_subfolders, parse_common_t
 from ...services.kohya_scanner import scan_kohya_directory
 from ...utils.log import logger
 from ..workers.base import LoRAIroWorkerBase
+from .ds_no_scroll_combo_box import DsNoScrollComboBox, DsNoScrollSpinBox
 
 # サブフォルダ共通タグ表の列
 _FOLDER_COLUMN = 0
@@ -280,6 +281,7 @@ class DatasetSelectDialog(QDialog):
         # 走査はキー入力ごとでなく、入力確定時と参照ボタン選択時に行う
         self.directory_edit.editingFinished.connect(self.refresh_subfolders)
         self.browse_button = QPushButton("参照...")
+        self.browse_button.setToolTip("画像ディレクトリを選択")
         self.browse_button.clicked.connect(self._browse_directory)
         dir_row.addWidget(self.directory_edit)
         dir_row.addWidget(self.browse_button)
@@ -303,8 +305,10 @@ class DatasetSelectDialog(QDialog):
         layout.addWidget(self.config_list)
         config_buttons = QHBoxLayout()
         self.add_config_button = QPushButton("追加...")
+        self.add_config_button.setToolTip("Kohya 設定 JSON ファイルを追加")
         self.add_config_button.clicked.connect(self._add_configs)
         self.remove_config_button = QPushButton("削除")
+        self.remove_config_button.setToolTip("選択中の設定 JSON を一覧から削除")
         self.remove_config_button.clicked.connect(self._remove_selected_configs)
         config_buttons.addWidget(self.add_config_button)
         config_buttons.addWidget(self.remove_config_button)
@@ -317,7 +321,7 @@ class DatasetSelectDialog(QDialog):
         self.dataset_name_edit.textChanged.connect(self._on_dataset_name_changed)
         self.version_name_edit = QLineEdit()
         self.version_name_edit.setPlaceholderText("空なら設定 JSON の output_name かフォルダ名から決定")
-        self.parent_version_combo = QComboBox()
+        self.parent_version_combo: QComboBox = DsNoScrollComboBox()
         form.addRow("データセット名", self.dataset_name_edit)
         form.addRow("版名", self.version_name_edit)
         form.addRow("親の版", self.parent_version_combo)
@@ -735,7 +739,7 @@ class DatasetSelectDialog(QDialog):
         folder_item.setFlags(read_only)
         self.kohya_table.setItem(row, _K_FOLDER_COLUMN, folder_item)
 
-        repeats = QSpinBox()
+        repeats = DsNoScrollSpinBox()
         repeats.setRange(1, _MAX_REPEATS)
         repeats.setValue(max(1, min(num_repeats, _MAX_REPEATS)))
         self.kohya_table.setCellWidget(row, _K_REPEATS_COLUMN, repeats)
@@ -759,6 +763,7 @@ class DatasetSelectDialog(QDialog):
         self.kohya_table.setItem(row, _K_CANDIDATE_COLUMN, candidate_item)
 
         adopt = QPushButton("採用")
+        adopt.setToolTip("トリガーワード候補を入力欄に採用")
         adopt.setEnabled(candidate is not None)
         if candidate is not None:
             adopt.clicked.connect(lambda _checked=False, r=row, word=candidate: self.adopt_trigger(r, word))

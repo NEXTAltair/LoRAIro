@@ -931,3 +931,34 @@ def test_export_non_empty_directory_asks_confirmation(
     assert len(asked) == 2
     assert export_service.export_with_criteria.called
     assert widget._last_export_dir == str(out_dir)
+
+
+@pytest.mark.gui
+def test_export_uses_configured_export_directory_as_initial_dir(
+    qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager, tmp_path
+) -> None:
+    """Issue #1566: config_service.get_export_directory() が QFileDialog の初期パスに渡される。"""
+    from PySide6.QtCore import QSettings
+    from PySide6.QtWidgets import QFileDialog
+
+    QSettings("LoRAIro", "LoRAIro").remove("export/last_output_dir")
+    configured_dir = tmp_path / "configured_exports"
+    service_container.config_service = Mock()
+    service_container.config_service.get_export_directory.return_value = configured_dir
+
+    captured_args: list[tuple[object, ...]] = []
+
+    def fake_get_dir(*args: object, **_kwargs: object) -> str:
+        captured_args.append(args)
+        return ""
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", fake_get_dir)
+
+    widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
+    qtbot.addWidget(widget)
+    staging_manager.add_image_ids([1, 2])
+
+    widget._overlay_bar._export_btn.click()
+
+    assert len(captured_args) == 1
+    assert captured_args[0][2] == str(configured_dir)

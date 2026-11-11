@@ -219,6 +219,13 @@ class TestBuildGlobalQss:
         # グローバル QSS では font-family を設定しない
         assert "font-family" not in theme.build_global_qss()
 
+    def test_focus_ring_selectors_present(self):
+        # Issue #1571: キーボードフォーカス可視化用の :focus ルールが含まれる
+        qss = theme.build_global_qss()
+        assert "QPushButton:focus, QToolButton:focus" in qss
+        assert "QCheckBox::indicator:focus, QGroupBox::indicator:focus" in qss
+        assert "QTabBar::tab:focus" in qss
+
 
 class TestChipQss:
     """チップ文法 API の検証。"""

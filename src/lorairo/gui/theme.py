@@ -437,6 +437,10 @@ QTabBar::tab:selected {{
     border-bottom: 2px solid {ACCENT};
     background: {PAPER};
 }}
+QTabBar::tab:focus {{
+    color: {INK};
+    border-bottom: 2px solid {ACCENT_BORDER};
+}}
 
 /* --- ボタン (mock .btn) --- */
 QPushButton {{
@@ -449,6 +453,9 @@ QPushButton {{
 QPushButton:hover {{
     border-color: {ACCENT};
     color: {ACCENT};
+}}
+QPushButton:focus, QToolButton:focus {{
+    border-color: {ACCENT};
 }}
 QPushButton:pressed {{
     background-color: {ACCENT_SOFT};
@@ -510,6 +517,9 @@ QCheckBox::indicator:checked, QGroupBox::indicator:checked {{
 QCheckBox::indicator:checked:hover, QGroupBox::indicator:checked:hover {{
     border-color: {ACCENT_HOVER};
     background: {ACCENT_HOVER};
+}}
+QCheckBox::indicator:focus, QGroupBox::indicator:focus {{
+    border-color: {ACCENT};
 }}
 QCheckBox:disabled {{
     color: {INK_FAINT};

@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
 from ...gui.designer.RatingScoreEditWidget_ui import Ui_RatingScoreEditWidget
 from ...utils.log import logger
 from .. import theme
+from .ds_no_scroll_combo_box import install_no_scroll_wheel_guard
 from .ds_segmented_control import DsSegmentedControl
 
 # Rating の正準順序 (PG が最も穏当、XXX が最も露骨)
@@ -212,6 +213,8 @@ class RatingScoreEditWidget(QWidget):
         # UI設定
         self.ui = Ui_RatingScoreEditWidget()
         self.ui.setupUi(self)
+        install_no_scroll_wheel_guard(self.ui.sliderScore)
+        install_no_scroll_wheel_guard(self.ui.comboBoxRating)
         self._initialize_rating_items()
         self._build_two_tier_card()
 
