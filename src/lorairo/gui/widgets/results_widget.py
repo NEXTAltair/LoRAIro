@@ -329,10 +329,18 @@ class ResultsWidget(QWidget):
             if curr_res is not None:
                 for row in self._row_widgets.get(image_id, []):
                     self._apply_row_state(row, curr_res)
-            if ensure_visible and self._scroll_area is not None:
-                target_row = self._main_row_widgets.get(image_id)
-                if target_row is not None:
-                    self._scroll_area.ensureWidgetVisible(target_row)
+            if ensure_visible:
+                self._ensure_row_visible_and_focused(image_id)
+
+    def _ensure_row_visible_and_focused(self, image_id: int) -> None:
+        """対象行をスクロール可視化し、子孫ウィジェットからフォーカスを回収する (#1545)。"""
+        if self._scroll_area is not None:
+            target_row = self._main_row_widgets.get(image_id)
+            if target_row is not None:
+                self._scroll_area.ensureWidgetVisible(target_row)
+        focus_widget = QApplication.focusWidget()
+        if focus_widget is not None and focus_widget is not self and self.isAncestorOf(focus_widget):
+            self.setFocus(Qt.FocusReason.ShortcutFocusReason)
 
     def focus_next_row(self) -> int | None:
         """フォーカスを次の行へ進める (#1545)。"""
@@ -387,9 +395,11 @@ class ResultsWidget(QWidget):
             return False
         if key in (Qt.Key.Key_Down, Qt.Key.Key_J):
             self.focus_next_row()
+            self.setFocus(Qt.FocusReason.ShortcutFocusReason)
             return True
         if key in (Qt.Key.Key_Up, Qt.Key.Key_K):
             self.focus_previous_row()
+            self.setFocus(Qt.FocusReason.ShortcutFocusReason)
             return True
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space, Qt.Key.Key_A):
             self.accept_focused_row()
