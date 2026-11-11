@@ -179,3 +179,14 @@ def test_execute_annotation_with_multiple_images(
 
     call_kwargs = mock_adapter.annotate.call_args.kwargs
     assert len(call_kwargs["images"]) == 3
+
+
+@pytest.mark.unit
+def test_get_execution_device_delegates_to_adapter(
+    logic: AnnotationRunner, mock_adapter: MagicMock
+) -> None:
+    """ADR 0109: 実行先の取得は adapter (lib 呼び出しの薄いラッパー) に委譲する。"""
+    mock_adapter.get_execution_device.return_value = "cpu"
+
+    assert logic.get_execution_device("deepdanbooru") == "cpu"
+    mock_adapter.get_execution_device.assert_called_once_with("deepdanbooru")

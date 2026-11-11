@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from lorairo.gui import theme
 from lorairo.gui.workers.annotation_worker import AnnotationExecutionResult, ModelErrorDetail
+from lorairo.services.annotation_execution_policy import is_memory_error_code
 
 # テーブルの最大表示行数
 _MAX_TABLE_ROWS = 50
@@ -110,6 +111,9 @@ class AnnotationSummaryDialog(QDialog):
         if getattr(self._result, "is_dry_run", False):
             layout.addWidget(self._create_dry_run_notice())
         layout.addWidget(self._create_summary_group())
+
+        if getattr(self._result, "execution_notes", None):
+            layout.addWidget(self._create_execution_notes_group())
 
         if self._result.image_summaries:
             layout.addWidget(self._create_results_group())
@@ -195,6 +199,12 @@ class AnnotationSummaryDialog(QDialog):
                 error_label = QLabel(f"{unique_model_errors}モデルでエラー発生")
                 error_label.setStyleSheet(f"color: {theme.WARN};")
                 form.addRow("モデルエラー:", error_label)
+            memory_models = {e.model_name for e in self._memory_errors}
+            if memory_models:
+                memory_label = QLabel(f"{len(memory_models)}モデル")
+                memory_label.setObjectName("memoryErrorCountLabel")
+                memory_label.setStyleSheet(f"color: {theme.WARN};")
+                form.addRow("メモリ不足:", memory_label)
             if self._integrity_violations:
                 integrity_label = QLabel(f"{len(self._integrity_violations)}件")
                 integrity_label.setStyleSheet(f"color: {theme.ERR}; font-weight: bold;")
@@ -210,6 +220,33 @@ class AnnotationSummaryDialog(QDialog):
             for error in self._result.model_errors
             if getattr(error, "error_type", "model_error") != _ERROR_TYPE_INTEGRITY
         ]
+
+    @property
+    def _memory_errors(self) -> list[ModelErrorDetail]:
+        """メモリ不足 (推論中の OOM・推論前の見積もり不足・アプリ側の見送り) のエラー (ADR 0109)。"""
+        return [
+            error
+            for error in self._regular_model_errors
+            if is_memory_error_code(getattr(error, "error_code", None))
+        ]
+
+    def _create_execution_notes_group(self) -> QGroupBox:
+        """CPU 実行・メモリ不足による見送りなどの実行状況を表示する (ADR 0109)。"""
+        group = QGroupBox("実行状況")
+        layout = QVBoxLayout(group)
+        for note in self._result.execution_notes:
+            label = QLabel(note)
+            label.setWordWrap(True)
+            layout.addWidget(label)
+        group.setObjectName("executionNotesGroup")
+        return group
+
+    @staticmethod
+    def _error_message_text(error: ModelErrorDetail) -> str:
+        """エラー表の表示文。メモリ不足は分類名を前置して他のエラーと区別する。"""
+        if is_memory_error_code(getattr(error, "error_code", None)):
+            return f"メモリ不足: {error.error_message}"
+        return error.error_message
 
     @property
     def _integrity_violations(self) -> list[ModelErrorDetail]:
@@ -318,7 +355,7 @@ class AnnotationSummaryDialog(QDialog):
         for row, error in enumerate(errors[:_MAX_TABLE_ROWS]):
             table.setItem(row, 0, QTableWidgetItem(error.image_path))
             table.setItem(row, 1, QTableWidgetItem(error.model_name))
-            table.setItem(row, 2, QTableWidgetItem(error.error_message))
+            table.setItem(row, 2, QTableWidgetItem(self._error_message_text(error)))
 
         layout.addWidget(table)
 

@@ -503,3 +503,33 @@ def test_get_error_image_ids_with_error_types_filter(
         error_types=["ApiTimeoutError"],
     )
     assert image_id not in refused_other
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("memory_code", ["OUT_OF_MEMORY", "INSUFFICIENT_MEMORY"])
+def test_memory_outcome_is_recorded_but_not_excluded_on_rerun(
+    save_service: AnnotationSaveService,
+    error_repo: ErrorRecordRepository,
+    registered_image: tuple[int, str],
+    memory_code: str,
+) -> None:
+    """ADR 0109: lib のメモリ不足は error_records に残すが、再実行の送信前 filter では除外しない。"""
+    image_id, file_path = registered_image
+    unified_result = {"error_code": SimpleNamespace(value=memory_code), "error": "memory exhausted"}
+
+    result_dict: dict = {"scores": [], "tags": [], "captions": [], "ratings": []}
+    save_service._process_model_result(
+        model_name="wd-v1-4-tagger",
+        unified_result=unified_result,
+        models_cache={},
+        result=result_dict,
+        image_id=image_id,
+    )
+
+    records = error_repo.get_error_records(operation_type="annotation")
+    assert [(r.error_type, r.image_id, r.model_name) for r in records] == [
+        (memory_code, image_id, "wd-v1-4-tagger")
+    ]
+    assert result_dict == {"scores": [], "tags": [], "captions": [], "ratings": []}
+    assert memory_code not in AnnotationSaveService.REFUSAL_ERROR_TYPES
+    assert save_service.filter_refused_image_paths([file_path]) == [file_path]

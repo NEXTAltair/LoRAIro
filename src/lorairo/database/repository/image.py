@@ -2133,16 +2133,10 @@ class ImageRepository(BaseRepository):
 
         return query
 
-    def _apply_missing_model_filter(
-        self,
-        query: Select[Any],
-        missing_model_litellm_id: str | None,
-    ) -> Select[Any]:
-        """指定モデルの annotation が無い画像のみを返すフィルタを適用する。"""
-        if not missing_model_litellm_id:
-            return query
-
-        model_id_subquery = select(Model.id).where(Model.litellm_model_id == missing_model_litellm_id)
+    @staticmethod
+    def _has_model_annotation(litellm_model_id: str) -> ColumnElement[bool]:
+        """画像に指定モデルの annotation (tag/caption/score/score_label/rating) があるかの条件。"""
+        model_id_subquery = select(Model.id).where(Model.litellm_model_id == litellm_model_id)
         has_tag = (
             exists()
             .where(
@@ -2185,10 +2179,58 @@ class ImageRepository(BaseRepository):
             )
             .correlate(Image)
         )
+        return or_(has_tag, has_caption, has_score, has_score_label, has_rating)
 
-        query = query.where(not_(or_(has_tag, has_caption, has_score, has_score_label, has_rating)))
+    def _apply_missing_model_filter(
+        self,
+        query: Select[Any],
+        missing_model_litellm_id: str | None,
+    ) -> Select[Any]:
+        """指定モデルの annotation が無い画像のみを返すフィルタを適用する。"""
+        if not missing_model_litellm_id:
+            return query
+
+        query = query.where(not_(self._has_model_annotation(missing_model_litellm_id)))
         logger.debug(f"Missing model filter applied: litellm_model_id={missing_model_litellm_id}")
         return query
+
+    def get_image_ids_with_model_annotations(self, image_ids: list[int], litellm_model_id: str) -> set[int]:
+        """指定画像のうち、指定モデルの annotation が既にある画像 ID を返す。
+
+        CLI --missing-model と同じ判定 (tag/caption は未 reject のもの、score/score_label/
+        rating は存在) を使う。GUI 再実行で完了済みの (画像, モデル) を飛ばすために使う (ADR 0109)。
+
+        Args:
+            image_ids: 検査対象の画像 ID。
+            litellm_model_id: モデルの litellm_model_id。
+
+        Returns:
+            annotation がある画像 ID の集合。
+
+        Raises:
+            SQLAlchemyError: データベース操作でエラーが発生した場合。
+        """
+        if not image_ids:
+            return set()
+        with self.session_factory() as session:
+            try:
+                found: set[int] = set()
+                for i in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
+                    chunk = image_ids[i : i + self.BATCH_CHUNK_SIZE]
+                    stmt = (
+                        select(Image.id)
+                        .where(Image.id.in_(chunk))
+                        .where(self._has_model_annotation(litellm_model_id))
+                    )
+                    found.update(session.execute(stmt).scalars().all())
+                logger.debug(
+                    f"モデル別アノテーション存在チェック: model={litellm_model_id}, "
+                    f"{len(found)}/{len(image_ids)}件にあり"
+                )
+                return found
+            except SQLAlchemyError as e:
+                logger.opt(exception=True).error(f"モデル別アノテーション存在チェック中にエラー: {e}")
+                raise
 
     def _apply_nsfw_filter(self, query: Select[Any], include_nsfw: bool, session: Session) -> Select[Any]:
         """クエリにNSFWフィルタを適用します。"""

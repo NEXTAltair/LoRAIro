@@ -597,3 +597,88 @@ class TestAnnotationSummaryDialogFooterActions:
         dialog.restage_failed_requested.connect(captured.append)
         btn_restage.click()
         assert captured == [["/custom/dir/db_fail.jpg"]]
+
+
+class TestAnnotationSummaryDialogExecutionControl:
+    """ADR 0109: メモリ不足・CPU 実行など実行状況の表示。"""
+
+    @staticmethod
+    def _memory_result() -> AnnotationExecutionResult:
+        return AnnotationExecutionResult(
+            results={"phash1": {"wd-tagger": {"tags": ["cat"]}}},
+            total_images=2,
+            models_used=["wd-tagger", "deepdanbooru"],
+            db_save_success=1,
+            model_errors=[
+                ModelErrorDetail(
+                    model_name="deepdanbooru",
+                    image_path="a.png",
+                    error_message="空きメモリが回復しなかったため実行を見送りました",
+                    error_type="INSUFFICIENT_MEMORY",
+                    raw_image_path="/data/a.png",
+                    error_code="INSUFFICIENT_MEMORY",
+                ),
+                ModelErrorDetail(
+                    model_name="wd-tagger",
+                    image_path="b.png",
+                    error_message="推論中にメモリ不足になりました",
+                    error_type="result_error",
+                    raw_image_path="/data/b.png",
+                    error_code="OUT_OF_MEMORY",
+                ),
+                ModelErrorDetail(
+                    model_name="gpt-4o-mini",
+                    image_path="b.png",
+                    error_message="rate_limited",
+                    error_type="result_error",
+                ),
+            ],
+            execution_notes=[
+                "wd-tagger: CPU で実行しました",
+                "deepdanbooru: 空きメモリが回復しなかったため実行を見送りました",
+            ],
+        )
+
+    def test_memory_errors_are_counted_and_labeled(self, qtbot, find_child_widget):
+        dialog = AnnotationSummaryDialog(self._memory_result())
+        qtbot.addWidget(dialog)
+
+        memory_label = find_child_widget(dialog, QLabel, "memoryErrorCountLabel")
+        assert memory_label is not None
+        assert memory_label.text() == "2モデル"
+        table = find_child_widget(dialog, QTableWidget, "errorTable")
+        messages = [table.item(row, 2).text() for row in range(table.rowCount())]
+        assert messages == [
+            "メモリ不足: 空きメモリが回復しなかったため実行を見送りました",
+            "メモリ不足: 推論中にメモリ不足になりました",
+            "rate_limited",
+        ]
+
+    def test_execution_notes_are_shown(self, qtbot, find_child_widget):
+        dialog = AnnotationSummaryDialog(self._memory_result())
+        qtbot.addWidget(dialog)
+
+        group = find_child_widget(dialog, QGroupBox, "executionNotesGroup")
+        assert group is not None
+        texts = [label.text() for label in group.findChildren(QLabel)]
+        assert texts == [
+            "wd-tagger: CPU で実行しました",
+            "deepdanbooru: 空きメモリが回復しなかったため実行を見送りました",
+        ]
+
+    def test_no_notes_hides_execution_group(self, qtbot, success_result):
+        dialog = AnnotationSummaryDialog(success_result)
+        qtbot.addWidget(dialog)
+
+        assert dialog.findChild(QGroupBox, "executionNotesGroup") is None
+        assert dialog.findChild(QLabel, "memoryErrorCountLabel") is None
+
+    def test_memory_skip_images_are_restage_candidates(self, qtbot, find_child_widget):
+        dialog = AnnotationSummaryDialog(self._memory_result())
+        qtbot.addWidget(dialog)
+        captured: list[list[str]] = []
+        dialog.restage_failed_requested.connect(captured.append)
+
+        find_child_widget(dialog, QPushButton, "buttonRestageFailed").click()
+
+        assert captured[0][:2] == ["/data/a.png", "/data/b.png"]

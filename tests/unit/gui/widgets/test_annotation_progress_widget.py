@@ -35,11 +35,16 @@ def test_elapsed_updates_during_api_wait_and_saving(qtbot, monkeypatch):
     registry = Mock()
     registry.get_available_models.return_value = []
 
+    called_models: list[str] = []
+
     def execute_annotation(**kwargs):
+        # ADR 0109: モデルは選択順に 1 つずつ、全画像で呼ばれる。最初のモデルで API 待ちを再現する。
         assert len(kwargs["image_paths"]) == 500
-        assert len(kwargs["litellm_model_ids"]) == 12
-        entered.set()
-        assert release_api.wait(10)
+        assert len(kwargs["litellm_model_ids"]) == 1
+        called_models.append(kwargs["litellm_model_ids"][0])
+        if len(called_models) == 1:
+            entered.set()
+            assert release_api.wait(10)
         return {}
 
     runner.execute_annotation.side_effect = execute_annotation
@@ -101,7 +106,7 @@ def test_elapsed_updates_during_api_wait_and_saving(qtbot, monkeypatch):
         qtbot.waitUntil(lambda: phases[-1] is AnnotationPhase.COMPLETED)
         assert widget.progress_bar.value() == 100
         assert not widget._elapsed_timer.isActive()
-        runner.execute_annotation.assert_called_once()
+        assert called_models == [f"model-{i}" for i in range(12)]
     finally:
         release_api.set()
         release_save.set()
@@ -476,3 +481,41 @@ def test_service_preserves_context_and_publishes_terminals(qtbot, progress, outc
     before = len(captured)
     service._on_annotation_progress(worker_id, WorkerProgress(0, "", annotation_progress=progress))
     assert len(captured) == before
+
+
+def test_waiting_for_memory_shows_reason_in_statusbar_widget(qtbot, progress):
+    """ADR 0109: 空きメモリ待機は理由と残り秒を常設部品の詳細行に出し、進行中として扱う。"""
+    statusbar = QStatusBar()
+    qtbot.addWidget(statusbar)
+    service = ProgressStateService(statusbar)
+    waiting = replace(
+        progress,
+        phase=AnnotationPhase.WAITING_FOR_MEMORY,
+        note="wd-tagger: 空きメモリ 2.0GB (必要 4.0GB)。空きの回復を待っています (残り 95秒)",
+    )
+
+    service.on_worker_progress_updated("annotation_1", WorkerProgress(0, "", annotation_progress=waiting))
+
+    widget = service._annotation_widget
+    assert not widget.isHidden()
+    assert widget.phase_label.text() == "空きメモリの回復待ち"
+    assert widget.detail_label.text() == waiting.note
+    assert widget.progress_bar.maximum() == 0
+    assert widget._elapsed_timer.isActive()
+
+
+@pytest.mark.parametrize("phase", [AnnotationPhase.RUNNING, AnnotationPhase.CANCELING])
+def test_note_replaces_default_detail_while_running(progress, phase):
+    assert replace(progress, phase=phase).detail_text() == "処理済み件数・残り時間は取得できません"
+    noted = replace(progress, phase=phase, note="deepdanbooru: CPU で実行しました")
+    assert noted.detail_text() == "deepdanbooru: CPU で実行しました"
+
+
+def test_terminal_detail_uses_result_summary_not_note(progress):
+    canceled = replace(
+        progress,
+        phase=AnnotationPhase.CANCELED,
+        note="古い待機理由",
+        result_summary="中止しました。完了した 1モデルの結果は保存済みです",
+    )
+    assert canceled.detail_text() == "中止しました。完了した 1モデルの結果は保存済みです"

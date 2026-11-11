@@ -8,6 +8,8 @@ from time import monotonic
 class AnnotationPhase(Enum):
     PREPARING = "準備中"
     RUNNING = "アノテーション実行中"
+    # ADR 0109: ローカル ML モデルの実行前に空きメモリの回復を待っている
+    WAITING_FOR_MEMORY = "空きメモリの回復待ち"
     SAVING = "結果保存中"
     CANCELING = "キャンセル要求済み・停止待ち"
     COMPLETED = "完了"
@@ -29,6 +31,8 @@ class AnnotationProgress:
     started_at: float
     stopped_at: float | None = None
     result_summary: str = ""
+    # ADR 0109: 実行中の状況説明 (待機理由と残り秒、CPU 実行、見送り理由など)。空なら既定の説明を出す。
+    note: str = ""
 
     def elapsed_text(self) -> str:
         end = self.stopped_at if self.stopped_at is not None else monotonic()
@@ -43,6 +47,10 @@ class AnnotationProgress:
         return f"対象 {self.total_images}枚 / {self.total_models}モデル    経過 {self.elapsed_text()}"
 
     def detail_text(self) -> str:
-        if self.phase in {AnnotationPhase.RUNNING, AnnotationPhase.CANCELING}:
-            return "処理済み件数・残り時間は取得できません"
+        if self.phase in {
+            AnnotationPhase.RUNNING,
+            AnnotationPhase.CANCELING,
+            AnnotationPhase.WAITING_FOR_MEMORY,
+        }:
+            return self.note or "処理済み件数・残り時間は取得できません"
         return self.result_summary
