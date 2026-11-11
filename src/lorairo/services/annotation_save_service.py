@@ -48,6 +48,7 @@ class AnnotationSaveResult:
     total_count: int
     error_details: list[str] = field(default_factory=list)
     image_outcomes: dict[int, str] = field(default_factory=dict)
+    phash_outcomes: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -768,6 +769,10 @@ class AnnotationSaveService:
         total_count = len(results)
         logger.info(f"DB保存完了: {success_count}/{total_count}件成功")
 
+        phash_outcomes = self._collect_phash_outcomes(
+            results, phash_to_image_ids, allowed_image_ids, image_outcomes
+        )
+
         return AnnotationSaveResult(
             success_count=success_count,
             skip_count=skip_count,
@@ -775,7 +780,32 @@ class AnnotationSaveService:
             total_count=total_count,
             error_details=error_details,
             image_outcomes=image_outcomes,
+            phash_outcomes=phash_outcomes,
         )
+
+    @staticmethod
+    def _collect_phash_outcomes(
+        results: Mapping[str, Any],
+        phash_to_image_ids: dict[str, list[int]],
+        allowed_image_ids: set[int] | None,
+        image_outcomes: dict[int, str],
+    ) -> dict[str, str]:
+        """各 pHash に対する最終保存ステータス (success / failed / skip) を算出する (#1555, #1559)。"""
+        outcomes: dict[str, str] = {}
+        for phash in results:
+            tids = phash_to_image_ids.get(phash) or []
+            scoped_ids = [iid for iid in tids if allowed_image_ids is None or iid in allowed_image_ids]
+            if not scoped_ids:
+                outcomes[str(phash)] = "skip"
+                continue
+            t_outcomes = [image_outcomes.get(tid) for tid in scoped_ids]
+            if any(o == "failed" for o in t_outcomes):
+                outcomes[str(phash)] = "failed"
+            elif any(o == "success" for o in t_outcomes):
+                outcomes[str(phash)] = "success"
+            else:
+                outcomes[str(phash)] = "skip"
+        return outcomes
 
     def save_provider_batch_results_by_image_id(
         self,

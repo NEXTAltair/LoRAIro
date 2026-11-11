@@ -9,6 +9,7 @@ DsCard + DsChip 化後のテスト。DsChip.text() はドット文字付きテ�
 from __future__ import annotations
 
 import pytest
+from PySide6.QtWidgets import QPushButton
 
 from lorairo.gui.widgets.preflight_summary_widget import (
     PreflightSummaryWidget,
@@ -76,7 +77,17 @@ class TestPreflightSummaryWidgetDisplay:
 
     def test_type_badge_shows_task_type(self, widget):
         widget.display({1: "PG"}, [1])
-        assert widget._badge.text() == "task_type=rating_preflight"
+        assert widget._badge.text() == "事前レーティング判定"
+
+    def test_run_rating_preflight_button_and_signal(self, widget, qtbot):
+        widget.display({1: "PG"}, [1])
+        btn = widget.findChild(QPushButton, "buttonRunRatingPreflight")
+        assert btn is not None
+        assert not btn.isHidden()
+        assert btn.text() == "先にレーティング判定を実行"
+
+        with qtbot.waitSignal(widget.run_rating_preflight_requested, timeout=1000):
+            btn.click()
 
 
 class TestPreflightSummaryWidgetPlaceholder:

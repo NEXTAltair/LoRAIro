@@ -95,3 +95,17 @@ def test_max_staging_images_cap():
     manager.add_image_ids(list(big_metadata.keys()))
 
     assert manager.count() == StagingStateManager.MAX_STAGING_IMAGES
+
+
+@pytest.mark.unit
+def test_max_staging_images_emits_cap_exceeded(qtbot):
+    """500枚上限を超えた時に cap_exceeded シグナルが発火する (#1559)。"""
+    big_metadata = {i: {"stored_image_path": f"/d/{i}.webp"} for i in range(1, 550)}
+    manager = StagingStateManager()
+    manager.set_dataset_state_manager(_dsm_with(big_metadata))
+
+    with qtbot.waitSignal(manager.cap_exceeded, timeout=1000) as blocker:
+        manager.add_image_ids(list(big_metadata.keys()))
+
+    assert blocker.args == [549, 500]
+    assert manager.count() == 500

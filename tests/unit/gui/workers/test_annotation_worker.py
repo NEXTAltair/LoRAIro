@@ -1299,6 +1299,38 @@ class TestAnnotationWorkerStageProgress:
         # result.error を持つ model-b は成功表示にしない
         assert last["model-b"].tone == "err"
 
+    def test_bulk_persistence_failure_does_not_trigger_model_fallback(self, mock_annotation_runner):
+        """DB保存失敗時に推論フォールバックを再実行せずエラー記録する (#1551, Codex P2 #4532613334)。"""
+        registry = Mock()
+        registry.get_available_models.return_value = [
+            self._model_info("model-a", ["tags"]),
+        ]
+        mock_db_manager = Mock()
+        mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {}
+        mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {}
+        mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {}
+
+        mock_annotation_runner.execute_annotation.return_value = {
+            "phash1": {"model-a": {"tags": ["cat"], "error": None}}
+        }
+
+        worker = AnnotationWorker(
+            annotation_runner=mock_annotation_runner,
+            image_paths=["/img.jpg"],
+            litellm_model_ids=["model-a"],
+            db_manager=mock_db_manager,
+            model_registry=registry,
+        )
+        worker._persist_incremental_results = Mock(side_effect=RuntimeError("disk I/O error"))
+        fallback_mock = Mock()
+        worker._run_annotation_per_model_fallback = fallback_mock
+
+        _merged, errors = worker._run_annotation()
+
+        fallback_mock.assert_not_called()
+        assert any(e.stage == "db_persistence" and "disk I/O error" in e.error_message for e in errors)
+        assert any(e.raw_image_path == "/img.jpg" for e in errors)
+
     def test_fallback_does_not_mark_unstarted_models_complete(self, mock_annotation_runner):
         """per-model fallback で未起動モデルを false 100% にしない (Codex P2)。"""
         registry = Mock()
@@ -1416,3 +1448,185 @@ class TestAnnotationWorkerStageProgress:
 
         assert captured == []
         assert result.total_images == 1
+
+
+class TestAnnotationWorkerIncrementalPersistence:
+    """インクリメンタル保存およびキャンセル時の部分保存テスト (#1555)。"""
+
+    def test_persist_incremental_results_deduplicates(self, mock_annotation_runner, monkeypatch):
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+
+        mock_db_manager = Mock()
+        worker = AnnotationWorker(
+            annotation_runner=mock_annotation_runner,
+            image_paths=["/path/to/img1.jpg"],
+            litellm_model_ids=["m1"],
+            db_manager=mock_db_manager,
+            model_registry=Mock(),
+            run_options=RunOptions(dry_run=False),
+        )
+
+        mock_save_service = Mock()
+        save_result = Mock(success_count=1, skip_count=0, total_count=1)
+        mock_save_service.save_annotation_results.return_value = save_result
+        monkeypatch.setattr(
+            "lorairo.gui.workers.annotation_worker.AnnotationSaveService",
+            Mock(return_value=mock_save_service),
+        )
+        monkeypatch.setattr(worker, "_resolve_batch_image_ids", Mock(return_value={101}))
+
+        chunk = {"phash1": {"m1": {"tags": ["cat"]}}}
+        s1, k1 = worker._persist_incremental_results(chunk)
+        assert s1 == 1
+        assert k1 == 0
+        assert mock_save_service.save_annotation_results.call_count == 1
+
+        # 同じ chunk を再投入しても重複保存されない
+        s2, k2 = worker._persist_incremental_results(chunk)
+        assert s2 == 0
+        assert k2 == 0
+        assert mock_save_service.save_annotation_results.call_count == 1
+
+    def test_cancellation_saves_partial_results(self, mock_annotation_runner, monkeypatch):
+        mock_db_manager = Mock()
+        mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {}
+        mock_registry = Mock()
+        mock_registry.get_available_models.return_value = []
+        worker = AnnotationWorker(
+            annotation_runner=mock_annotation_runner,
+            image_paths=["/path/to/img1.jpg"],
+            litellm_model_ids=["m1"],
+            db_manager=mock_db_manager,
+            model_registry=mock_registry,
+        )
+
+        persisted = []
+        monkeypatch.setattr(
+            worker,
+            "_persist_incremental_results",
+            lambda r, **kwargs: persisted.append(r) or (1, 0),
+        )
+
+        def fake_run():
+            worker._partial_results = {"phash1": {"m1": {"tags": ["tag1"]}}}
+            raise CancellationError("canceled")
+
+        monkeypatch.setattr(worker, "_run_annotation", fake_run)
+
+        with pytest.raises(CancellationError):
+            worker.execute()
+
+        assert len(persisted) == 1
+        assert "phash1" in persisted[0]
+
+    def test_dry_run_skips_incremental_persistence(self, mock_annotation_runner):
+        from lorairo.gui.widgets.run_settings_dialog import RunOptions
+
+        mock_db_manager = Mock()
+        worker = AnnotationWorker(
+            annotation_runner=mock_annotation_runner,
+            image_paths=["/path/to/img1.jpg"],
+            litellm_model_ids=["m1"],
+            db_manager=mock_db_manager,
+            model_registry=Mock(),
+            run_options=RunOptions(dry_run=True),
+        )
+        chunk = {"phash1": {"m1": {"tags": ["cat"]}}}
+        s, k = worker._persist_incremental_results(chunk)
+        assert s == 0
+        assert k == 0
+        assert len(worker._persisted_keys) == 0
+
+    def test_persist_incremental_results_attributes_per_image_outcomes(
+        self, mock_annotation_runner, monkeypatch
+    ):
+        mock_db_manager = Mock()
+        mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {
+            "phash_ok": [1],
+            "phash_fail": [2],
+        }
+        worker = AnnotationWorker(
+            annotation_runner=mock_annotation_runner,
+            image_paths=["/path/to/img1.jpg", "/path/to/img2.jpg"],
+            litellm_model_ids=["m1"],
+            db_manager=mock_db_manager,
+            model_registry=Mock(),
+        )
+
+        mock_save_service = Mock()
+        save_result = Mock(
+            success_count=1,
+            skip_count=0,
+            error_count=1,
+            total_count=2,
+            image_outcomes={1: "success", 2: "failed"},
+        )
+        mock_save_service.save_annotation_results.return_value = save_result
+        monkeypatch.setattr(
+            "lorairo.gui.workers.annotation_worker.AnnotationSaveService",
+            Mock(return_value=mock_save_service),
+        )
+        monkeypatch.setattr(worker, "_resolve_batch_image_ids", Mock(return_value={1, 2}))
+
+        chunk = {
+            "phash_ok": {"m1": {"tags": ["cat"]}},
+            "phash_fail": {"m1": {"tags": ["dog"]}},
+        }
+        worker._persist_incremental_results(chunk)
+
+        assert worker._phash_save_status["phash_ok"] == "success"
+        assert worker._phash_save_status["phash_fail"] == "failed"
+
+    def test_retry_success_clears_previous_failed_phash_status(self, mock_annotation_runner):
+        mock_db_manager = Mock()
+        worker = AnnotationWorker(
+            annotation_runner=mock_annotation_runner,
+            image_paths=["/path/to/img1.jpg"],
+            litellm_model_ids=["m1"],
+            db_manager=mock_db_manager,
+            model_registry=Mock(),
+        )
+        chunk = {"phash1": {"m1": {"tags": ["cat"]}}}
+        worker._apply_chunk_phash_outcomes({"phash1": "failed"}, chunk)
+        assert worker._phash_save_status["phash1"] == "failed"
+
+        worker._apply_chunk_phash_outcomes({"phash1": "success"}, chunk)
+        assert worker._phash_save_status["phash1"] == "success"
+
+    def test_collect_phash_outcomes_preserves_failure_on_fanout(self):
+        from lorairo.services.annotation_save_service import AnnotationSaveService
+
+        outcomes = AnnotationSaveService._collect_phash_outcomes(
+            results={"phash_shared": {"m1": {}}},
+            phash_to_image_ids={"phash_shared": [1, 2]},
+            allowed_image_ids={1, 2},
+            image_outcomes={1: "success", 2: "failed"},
+        )
+        assert outcomes["phash_shared"] == "failed"
+
+    def test_build_failed_save_paths_uses_failed_image_ids_on_shared_phash(self, mock_annotation_runner):
+        mock_db_manager = Mock()
+        mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {
+            "/path/img1.jpg": 1,
+            "/path/img2.jpg": 2,
+        }
+        worker = AnnotationWorker(
+            annotation_runner=mock_annotation_runner,
+            image_paths=["/path/img1.jpg", "/path/img2.jpg"],
+            litellm_model_ids=["m1"],
+            db_manager=mock_db_manager,
+            model_registry=Mock(),
+        )
+        worker._path_to_phash = {"/path/img1.jpg": "phash_shared", "/path/img2.jpg": "phash_shared"}
+        worker._phash_to_input_path = {"phash_shared": "/path/img1.jpg"}
+        save_result = Mock(
+            success_count=1,
+            skip_count=0,
+            error_count=1,
+            total_count=2,
+            phash_outcomes={"phash_shared": "failed"},
+            image_outcomes={1: "success", 2: "failed"},
+        )
+        worker._record_phash_save_outcomes({"phash_shared": {"m1": {}}}, save_result)
+        paths = worker._build_failed_save_paths({"phash_shared": "img1.jpg"})
+        assert paths == ["/path/img2.jpg"]

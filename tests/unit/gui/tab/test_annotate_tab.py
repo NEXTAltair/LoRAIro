@@ -1044,6 +1044,22 @@ class TestPreflightSummaryRefresh:
         repo.get_latest_normalized_ratings_by_image_ids.assert_not_called()
         tab._preflight_summary_widget.display.assert_called_once_with({}, [])
 
+    def test_run_rating_preflight_requested_triggers_execution(self, tab):
+        tab._pipeline_staged_count = 5
+        tab._find_rating_model_ids = Mock(return_value=["rating-model-1"])
+        tab._on_execute_clicked = Mock()
+        tab._batch_model_selection = Mock()
+
+        tab._on_run_rating_preflight_requested()
+
+        tab._batch_model_selection.set_selected_models.assert_called_once_with(["rating-model-1"])
+        tab._on_execute_clicked.assert_called_once_with("sync")
+
+    def test_run_rating_preflight_signal_wired(self, tab):
+        tab._on_run_rating_preflight_requested = Mock()
+        tab._preflight_summary_widget.run_rating_preflight_requested.emit()
+        tab._on_run_rating_preflight_requested.assert_called_once()
+
 
 # == パイプライン再描画配線 ===================================================
 
@@ -2111,3 +2127,42 @@ def test_staged_id_path_map_preserves_original_stored_image_path(
 
     tab._db_manager.get_low_res_image_paths_batch.assert_not_called()
     assert result == {1: "stored/orig1.png", 2: "stored/orig2.png"}
+
+
+@pytest.mark.gui
+def test_dry_run_indicator_visibility(tab: AnnotateTabWidget) -> None:
+    """RunOptions の dry_run 設定に応じてドライラン表示が切り替わる (#1558)。"""
+    from lorairo.gui.widgets.run_settings_dialog import RunOptions
+
+    assert tab._dry_run_indicator.isHidden()
+
+    tab.set_run_options(RunOptions(dry_run=True))
+    assert not tab._dry_run_indicator.isHidden()
+
+    tab.set_run_options(RunOptions(dry_run=False))
+    assert tab._dry_run_indicator.isHidden()
+
+
+@pytest.mark.gui
+def test_execute_button_tooltips(tab: AnnotateTabWidget, monkeypatch) -> None:
+    """ステージング件数とモデル選択数に応じたツールチップが実行ボタンに設定される (#1558)。"""
+    # 0 staging, 0 models
+    monkeypatch.setattr(tab, "selected_litellm_model_ids", lambda: [])
+    tab._update_annotation_target_ui(0)
+    assert tab._btn_sync_execute.toolTip() == "ステージング画像とモデルを選択してください"
+    assert tab._btn_batch_api_execute.toolTip() == "ステージング画像とモデルを選択してください"
+
+    # 0 staging, 1 model
+    monkeypatch.setattr(tab, "selected_litellm_model_ids", lambda: ["m1"])
+    tab._update_annotation_target_ui(0)
+    assert tab._btn_sync_execute.toolTip() == "ステージング画像がありません。画像を追加してください"
+
+    # 1 staging, 0 models
+    monkeypatch.setattr(tab, "selected_litellm_model_ids", lambda: [])
+    tab._update_annotation_target_ui(1)
+    assert tab._btn_sync_execute.toolTip() == "モデルが選択されていません。モデルを選択してください"
+
+    # 1 staging, 1 model
+    monkeypatch.setattr(tab, "selected_litellm_model_ids", lambda: ["m1"])
+    tab._update_annotation_target_ui(1)
+    assert tab._btn_sync_execute.toolTip() == ""

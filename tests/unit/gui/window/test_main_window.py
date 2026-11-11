@@ -158,6 +158,37 @@ class TestMainWindowAnnotationCompletion:
 
         mock_window_with_annotation.dataset_state_manager.refresh_annotations_after_execution.assert_not_called()
 
+    def test_summary_dialog_navigation_and_restage_handlers(self, mock_window_with_annotation):
+        """サマリーダイアログの各ハンドラがタブ遷移および再ステージングを行う (#1557)。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window_with_annotation.tabWidgetMainMode = Mock()
+        mock_window_with_annotation.tabResults = Mock()
+        mock_window_with_annotation.tabErrors = Mock()
+        mock_window_with_annotation.tabBatchTag = Mock()
+        mock_window_with_annotation.statusBar = Mock(return_value=Mock())
+
+        MainWindow._on_summary_open_results(mock_window_with_annotation)
+        mock_window_with_annotation.tabWidgetMainMode.setCurrentWidget.assert_called_with(
+            mock_window_with_annotation.tabResults
+        )
+
+        MainWindow._on_summary_open_errors(mock_window_with_annotation)
+        mock_window_with_annotation.tabWidgetMainMode.setCurrentWidget.assert_called_with(
+            mock_window_with_annotation.tabErrors
+        )
+
+        mock_window_with_annotation.staging_state_manager = Mock()
+        mock_window_with_annotation.db_manager.get_image_id_by_filepath.return_value = 42
+        mock_window_with_annotation.dataset_state_manager.get_image_by_id.return_value = None
+        mock_window_with_annotation.db_manager.get_image_metadata.return_value = {"id": 42}
+
+        MainWindow._restage_failed_annotation_paths(mock_window_with_annotation, ["/path/failed.jpg"])
+        mock_window_with_annotation.staging_state_manager.add_image_ids.assert_called_once_with([42])
+        mock_window_with_annotation.tabWidgetMainMode.setCurrentWidget.assert_called_with(
+            mock_window_with_annotation.tabBatchTag
+        )
+
     def test_close_stops_annotation_refresh_before_other_shutdown(self, qtbot):
         """実際のQt closeイベントで、終了フラグを立ててから取得を停止する。"""
         from PySide6.QtWidgets import QMainWindow
@@ -353,6 +384,25 @@ class TestProjectFileSystemManagerInitialization:
         assert window.file_system_manager.image_dataset_dir == tmp_path / "image_dataset"
         assert isinstance(window.worker_service, WorkerService)
         assert window.worker_service.fsm is window.file_system_manager
+
+    def test_on_annotation_canceled_invalidates_persisted_phashes(self):
+        from lorairo.gui.window.main_window import MainWindow
+        from lorairo.gui.workers.annotation_worker import AnnotationWorker
+
+        AnnotationWorker._unconsumed_persisted_phashes.clear()
+        AnnotationWorker._unconsumed_persisted_phashes.add("phash_saved")
+
+        window = Mock()
+        window._closing = False
+        window.dataset_state_manager = Mock()
+        window.db_manager = Mock()
+
+        MainWindow._on_annotation_canceled(window, "annotation_1")
+
+        window.dataset_state_manager.refresh_annotations_after_execution.assert_called_once_with(
+            {"phash_saved"}
+        )
+        assert AnnotationWorker._unconsumed_persisted_phashes == set()
 
 
 class TestMainWindowSelectDeselectScoping:

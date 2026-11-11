@@ -61,6 +61,8 @@ class ResultsTabWidget(QWidget):
         self._db_manager = db_manager
         self._staging_state_manager = staging_state_manager
         self._quality_service = QualityIssueDetectionService()
+        self._last_cohort_ids: list[int] = []
+        self._last_cohort_names: dict[int, str] = {}
 
         self._annotation_review_widget = AnnotationReviewBatchWidget(self)
         self._annotation_review_widget.manual_review_requested.connect(self.manual_review_requested)
@@ -149,10 +151,18 @@ class ResultsTabWidget(QWidget):
     @Slot(list)
     def _on_review_scope_changed(self, image_ids: list[int]) -> None:
         items = self._staging_state_manager.get_staged_items() if self._staging_state_manager else {}
-        self._annotation_review_widget.set_image_names(
+        if image_ids:
+            self._last_cohort_ids = list(image_ids)
+            if items:
+                self._last_cohort_names = {image_id: item[0] for image_id, item in items.items()}
+        target_ids = list(image_ids) if image_ids else list(self._last_cohort_ids)
+        target_names = (
             {image_id: item[0] for image_id, item in items.items()}
+            if items
+            else dict(self._last_cohort_names)
         )
-        self._annotation_review_widget.set_image_ids(image_ids)
+        self._annotation_review_widget.set_image_names(target_names)
+        self._annotation_review_widget.set_image_ids(target_ids)
 
     def shutdown(self) -> None:
         self._annotation_review_widget.shutdown()
@@ -226,6 +236,10 @@ class ResultsTabWidget(QWidget):
 
         staged_items = self._staging_state_manager.get_staged_items()
         image_ids = list(staged_items.keys())
+        if image_ids:
+            self._last_cohort_ids = list(image_ids)
+        else:
+            image_ids = list(self._last_cohort_ids)
         if not image_ids:
             self._results_widget.clear()
             return

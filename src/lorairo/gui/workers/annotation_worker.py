@@ -9,14 +9,17 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import monotonic
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from image_annotator_lib import PHashAnnotationResults
 from PySide6.QtCore import Signal
 
 from lorairo.annotation.annotation_runner import AnnotationRunner
 from lorairo.services.annotation_progress import AnnotationPhase, AnnotationProgress
-from lorairo.services.annotation_save_service import AnnotationSaveService
+from lorairo.services.annotation_save_service import (
+    AnnotationSaveResult,
+    AnnotationSaveService,
+)
 from lorairo.services.job_ledger_service import (
     StageModelInput,
     StageProgress,
@@ -49,6 +52,9 @@ class ModelErrorDetail:
     image_path: str
     error_message: str
     error_type: str = "model_error"
+    stage: str | None = None
+    image_id: int | None = None
+    raw_image_path: str | None = None
 
 
 @dataclass
@@ -95,6 +101,9 @@ class AnnotationExecutionResult:
     model_statistics: dict[str, ModelStatistics] = field(default_factory=dict)
     phash_to_filename: dict[str, str] = field(default_factory=dict)
     total_processing_time_sec: float = 0.0
+    is_dry_run: bool = False
+    excluded_count: int = 0
+    failed_save_paths: list[str] = field(default_factory=list)
 
 
 class _CancellationCheckingModelList(list[str]):
@@ -125,6 +134,16 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
     # Issue #805: DS JobsScreen のステージ別 progress 用。list[StageProgress] を運ぶ。
     stage_progress_updated = Signal(object)
+    # Issue #1555: 逐次保存・キャンセル時リカバリ保存で確定した pHash 集合を通知する。
+    partial_results_persisted = Signal(object)
+    _unconsumed_persisted_phashes: ClassVar[set[str]] = set()
+
+    @classmethod
+    def consume_canceled_persisted_phashes(cls) -> set[str]:
+        """キャンセルされたワーカーが逐次保存・リカバリ保存した pHash 集合を取り出してクリアする (#1555)。"""
+        phashes = set(cls._unconsumed_persisted_phashes)
+        cls._unconsumed_persisted_phashes.clear()
+        return phashes
 
     _OPERATION_TYPE = "annotation"
     _ERROR_TYPE_L2 = "lib_call_exception"
@@ -177,6 +196,15 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         self._annotation_phase: AnnotationPhase | None = None
         self._annotation_result_summary = ""
         self._results_saved = False
+        self._persisted_keys: set[tuple[str, str]] = set()
+        self._persisted_phashes: set[str] = set()
+        self._failed_keys: set[tuple[str, str]] = set()
+        self._partial_results: PHashAnnotationResults = PHashAnnotationResults()
+        self._incremental_save_call_count = 0
+        self._last_save_counts: tuple[int, int] = (0, 0)
+        self._phash_save_status: dict[str, str] = {}
+        self._failed_image_ids: set[int] = set()
+        self._excluded_count = 0
 
         logger.info(
             f"AnnotationWorker初期化 - Images: {len(self.image_paths)}, "
@@ -344,6 +372,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 image_path=image_label,
                 error_message=message,
                 error_type=self._ERROR_TYPE_INTEGRITY,
+                raw_image_path=str(image_path) if image_path else None,
             )
         )
 
@@ -371,6 +400,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         """lib `result.error` を DB 保存せず summary 用 model_errors に集約する。"""
         for phash, annotations in model_results.items():
             image_label = self._phash_to_input_filename.get(phash, phash[:12] + "...")
+            image_raw_path = self._phash_to_input_path.get(phash)
             for model_name, unified_result in annotations.items():
                 error = self._extract_field(unified_result, "error")
                 if not error:
@@ -381,6 +411,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                         image_path=image_label,
                         error_message=str(error),
                         error_type="result_error",
+                        raw_image_path=str(image_raw_path) if image_raw_path else None,
                     )
                 )
 
@@ -394,6 +425,192 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             if phash not in destination:
                 destination[phash] = {}
             destination[phash].update(annotations)
+
+    def _filter_unpersisted_results(
+        self,
+        results_chunk: PHashAnnotationResults,
+    ) -> PHashAnnotationResults:
+        """未保存の (image/phash, model_name) エントリのみを抽出する (#1555)。"""
+        unpersisted: PHashAnnotationResults = PHashAnnotationResults()
+        for phash, annotations in results_chunk.items():
+            image_path = self._phash_to_input_path.get(phash, phash)
+            pending_models: dict[str, Any] = {}
+            for model_name, unified_result in annotations.items():
+                if (phash, model_name) in self._persisted_keys or (
+                    image_path,
+                    model_name,
+                ) in self._persisted_keys:
+                    continue
+                pending_models[model_name] = unified_result
+            if pending_models:
+                unpersisted[phash] = pending_models
+        return unpersisted
+
+    def _mark_results_persisted(self, persisted_chunk: PHashAnnotationResults) -> None:
+        """保存済みエントリの (phash, model_name) および (image_path, model_name) を記録する (#1555)。"""
+        for phash, annotations in persisted_chunk.items():
+            image_path = self._phash_to_input_path.get(phash, phash)
+            for model_name in annotations:
+                self._persisted_keys.add((phash, model_name))
+                self._persisted_keys.add((image_path, model_name))
+
+    @staticmethod
+    def _fallback_phash_status(save_result: AnnotationSaveResult) -> str:
+        """統計値のみから pHash ステータスを推定するフォールバック (#1555)。"""
+        success = getattr(save_result, "success_count", 0)
+        error = getattr(save_result, "error_count", 0)
+        success_int = success if isinstance(success, int) else 0
+        error_int = error if isinstance(error, int) else 0
+        if success_int > 0 and error_int == 0:
+            return "success"
+        if error_int > 0 and success_int == 0:
+            return "failed"
+        if success_int > 0:
+            return "success"
+        return "skip"
+
+    def _resolve_from_image_outcomes(
+        self,
+        unpersisted: PHashAnnotationResults,
+        image_outcomes: dict[int, str],
+    ) -> dict[str, str] | None:
+        """image_outcomes と pHash 突合から各 pHash のステータスを解決する (#1559)。"""
+        if self.db_manager is None:
+            return None
+        try:
+            phash_to_ids = self.db_manager.image_repo.find_image_ids_by_phashes_multi(
+                set(unpersisted.keys())
+            )
+            if not isinstance(phash_to_ids, dict):
+                return None
+            resolved: dict[str, str] = {}
+            for phash in unpersisted:
+                ids = phash_to_ids.get(phash)
+                if isinstance(ids, list) and ids:
+                    outcomes = [image_outcomes[iid] for iid in ids if iid in image_outcomes]
+                    if any(o == "failed" for o in outcomes):
+                        resolved[phash] = "failed"
+                    elif any(o == "success" for o in outcomes):
+                        resolved[phash] = "success"
+                    else:
+                        resolved[phash] = "skip"
+            return resolved if resolved else None
+        except Exception as e:
+            logger.opt(exception=True).warning(f"pHash to image_id lookup failed: {e}")
+            return None
+
+    def _apply_chunk_phash_outcomes(
+        self,
+        chunk_outcomes: dict[str, str],
+        unpersisted: PHashAnnotationResults | None = None,
+    ) -> None:
+        """チャンク単位の保存結果を累積ステータスへマージする（未解消の失敗のみ保持、再試行成功で解除）。"""
+        for phash, status in chunk_outcomes.items():
+            if unpersisted is not None and phash in unpersisted:
+                for model_name in unpersisted[phash]:
+                    if status == "failed":
+                        self._failed_keys.add((phash, model_name))
+                    else:
+                        self._failed_keys.discard((phash, model_name))
+            elif status == "failed":
+                self._failed_keys.add((phash, "*"))
+
+            has_outstanding_failure = any(p == phash for p, _ in self._failed_keys)
+            prev = self._phash_save_status.get(phash)
+            if status == "failed" or has_outstanding_failure:
+                self._phash_save_status[phash] = "failed"
+                continue
+            if prev == "success" and status == "skip":
+                continue
+            self._phash_save_status[phash] = status
+
+    def _record_failed_image_ids_from_outcomes(self, image_outcomes: object) -> None:
+        """image_outcomes から失敗・再試行成功した image_id を記録する (#1559)。"""
+        if not isinstance(image_outcomes, dict):
+            return
+        for raw_id, outcome in image_outcomes.items():
+            if not isinstance(raw_id, int):
+                continue
+            if outcome == "failed":
+                self._failed_image_ids.add(raw_id)
+            elif outcome == "success":
+                self._failed_image_ids.discard(raw_id)
+
+    def _record_phash_save_outcomes(
+        self,
+        unpersisted: PHashAnnotationResults,
+        save_result: AnnotationSaveResult,
+    ) -> dict[str, str]:
+        """保存結果に基づき各 pHash のステータスを記録し、今回チャンクの判定辞書を返す (#1555, #1559)。"""
+        image_outcomes = getattr(save_result, "image_outcomes", None)
+        self._record_failed_image_ids_from_outcomes(image_outcomes)
+
+        chunk_outcomes: dict[str, str] = {}
+        phash_outcomes = getattr(save_result, "phash_outcomes", None)
+        if isinstance(phash_outcomes, dict) and phash_outcomes:
+            for phash in unpersisted:
+                if phash in phash_outcomes:
+                    chunk_outcomes[phash] = phash_outcomes[phash]
+            if chunk_outcomes:
+                self._apply_chunk_phash_outcomes(chunk_outcomes, unpersisted)
+                return chunk_outcomes
+
+        if isinstance(image_outcomes, dict) and image_outcomes:
+            resolved = self._resolve_from_image_outcomes(unpersisted, image_outcomes)
+            if resolved:
+                self._apply_chunk_phash_outcomes(resolved, unpersisted)
+                return resolved
+
+        fallback_status = self._fallback_phash_status(save_result)
+        for phash in unpersisted:
+            chunk_outcomes[phash] = fallback_status
+        self._apply_chunk_phash_outcomes(chunk_outcomes, unpersisted)
+        return chunk_outcomes
+
+    def _persist_incremental_results(
+        self,
+        results_chunk: PHashAnnotationResults,
+        *,
+        allowed_image_ids: set[int] | None = None,
+        resolved_allowed_ids: bool = False,
+    ) -> tuple[int, int]:
+        """完了分のアノテーション結果を逐次DB保存し、二重保存を防ぐ (#1555)。"""
+        if self._dry_run or self.db_manager is None:
+            return (0, 0)
+        self._merge_annotation_results(self._partial_results, results_chunk)
+        unpersisted = self._filter_unpersisted_results(results_chunk)
+        if not unpersisted:
+            return (0, 0)
+
+        batch_image_ids = allowed_image_ids if resolved_allowed_ids else self._resolve_batch_image_ids()
+        save_result = AnnotationSaveService(
+            annotation_repo=self.db_manager.annotation_repo,
+            image_repo=self.db_manager.image_repo,
+            model_repo=self.db_manager.model_repo,
+            error_record_repo=self.db_manager.error_record_repo,
+        ).save_annotation_results(unpersisted, allowed_image_ids=batch_image_ids)
+
+        chunk_outcomes = self._record_phash_save_outcomes(unpersisted, save_result)
+        persisted_subset: PHashAnnotationResults = PHashAnnotationResults(
+            {
+                phash: models
+                for phash, models in unpersisted.items()
+                if chunk_outcomes.get(phash) != "failed"
+            }
+        )
+        self._mark_results_persisted(persisted_subset)
+        newly_saved = {phash for phash in persisted_subset if chunk_outcomes.get(phash) == "success"}
+        if not newly_saved and save_result.success_count > 0:
+            newly_saved = set(persisted_subset.keys())
+        if newly_saved:
+            self._persisted_phashes.update(newly_saved)
+            AnnotationWorker._unconsumed_persisted_phashes.update(newly_saved)
+            self.partial_results_persisted.emit(set(newly_saved))
+        self._incremental_save_call_count += 1
+        self._last_save_counts = (save_result.success_count, save_result.skip_count)
+        if save_result.success_count > 0:
+            self._results_saved = True
+        return save_result.success_count, save_result.skip_count
 
     def _build_stage_model_inputs(self) -> list[StageModelInput]:
         """選択モデルを registry 解決して StageModelInput 列に変換する (Issue #805)。
@@ -502,7 +719,6 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 ),
                 phash_list=phash_list,
             )
-            self._check_cancellation()
             valid_results = self._collect_valid_model_results(
                 bulk_results,
                 set(self.litellm_model_ids),
@@ -510,24 +726,6 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             )
             self._collect_l1_model_errors(valid_results, model_errors)
             self._merge_annotation_results(merged_results, valid_results)
-
-            # 一括実行完了: result.error を持つモデル (例外を投げない L1 エラー) は
-            # 失敗ステージとして通知し、それ以外を完了 (100% / ok) にする。
-            # finished=True で一律 ok にすると result_error のモデルが成功表示になり、
-            # サマリーと矛盾する (Codex P2)。
-            errored_keys = self._stage_errored_model_keys(valid_results)
-            returned_keys = {key for annotations in valid_results.values() for key in annotations}
-            completed_keys = returned_keys - errored_keys
-            self._emit_stage_progress(
-                stage_inputs,
-                processed_count=len(self.image_paths),
-                completed_keys=completed_keys,
-                errored_keys=errored_keys,
-                progress_unknown=True,
-            )
-            logger.debug(f"モデル一括実行完了: 結果={len(bulk_results)}件")
-            return merged_results, model_errors
-
         except CancellationError:
             logger.info("モデル一括アノテーション処理がキャンセルされました")
             raise
@@ -536,6 +734,43 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 f"モデル一括実行に失敗したためモデル単位 fallback に切り替えます: {bulk_error}"
             )
             return self._run_annotation_per_model_fallback(phash_list)
+
+        try:
+            self._persist_incremental_results(valid_results)
+        except Exception as persist_error:
+            logger.opt(exception=True).error(
+                f"アノテーション結果のDB保存に失敗しました (推論成功後のため再推論はスキップ): {persist_error}"
+            )
+            for path in self.image_paths:
+                model_errors.append(
+                    ModelErrorDetail(
+                        model_name="db_persistence",
+                        stage="db_persistence",
+                        error_type=type(persist_error).__name__,
+                        error_message=f"DB保存失敗: {persist_error}",
+                        image_path=Path(path).name,
+                        raw_image_path=str(path),
+                    )
+                )
+
+        self._check_cancellation()
+
+        # 一括実行完了: result.error を持つモデル (例外を投げない L1 エラー) は
+        # 失敗ステージとして通知し、それ以外を完了 (100% / ok) にする。
+        # finished=True で一律 ok にすると result_error のモデルが成功表示になり、
+        # サマリーと矛盾する (Codex P2)。
+        errored_keys = self._stage_errored_model_keys(valid_results)
+        returned_keys = {key for annotations in valid_results.values() for key in annotations}
+        completed_keys = returned_keys - errored_keys
+        self._emit_stage_progress(
+            stage_inputs,
+            processed_count=len(self.image_paths),
+            completed_keys=completed_keys,
+            errored_keys=errored_keys,
+            progress_unknown=True,
+        )
+        logger.debug(f"モデル一括実行完了: 結果={len(bulk_results)}件")
+        return merged_results, model_errors
 
     def _run_annotation_per_model_fallback(
         self,
@@ -580,7 +815,6 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                     phash_list=phash_list,
                 )
 
-                self._check_cancellation()
                 valid_model_results = self._collect_valid_model_results(
                     model_results,
                     {litellm_model_id},
@@ -589,6 +823,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 self._collect_l1_model_errors(valid_model_results, model_errors)
 
                 self._merge_annotation_results(merged_results, valid_model_results)
+                self._persist_incremental_results(valid_model_results)
+                self._check_cancellation()
 
                 errored_keys.update(self._stage_errored_model_keys(valid_model_results))
                 if any(litellm_model_id in annotations for annotations in valid_model_results.values()):
@@ -623,6 +859,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                             image_path=Path(image_path).name,
                             error_message=str(e),
                             error_type=self._ERROR_TYPE_L2,
+                            raw_image_path=str(image_path),
                         )
                     )
                 # エラーでも次のモデルに進む(部分的成功を許容)
@@ -658,6 +895,15 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
 
         self._report_annotation_phase(AnnotationPhase.PREPARING)
         self._results_saved = False
+        self._persisted_keys.clear()
+        self._persisted_phashes.clear()
+        self._failed_keys.clear()
+        self._partial_results = PHashAnnotationResults()
+        self._incremental_save_call_count = 0
+        self._last_save_counts = (0, 0)
+        self._phash_save_status.clear()
+        self._failed_image_ids.clear()
+        self._excluded_count = 0
 
         # Issue #803 (Codex P1): dry-run は実推論・送信・DB保存を一切行わず件数のみ算出する。
         # RunSettings 契約は「実際に推論せずジョブ件数・推定コストだけを検証する」であり、
@@ -674,6 +920,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 results=PHashAnnotationResults(),
                 total_images=len(self.image_paths),
                 models_used=list(self.litellm_model_ids),
+                is_dry_run=True,
+                excluded_count=self._excluded_count,
             )
 
         try:
@@ -707,7 +955,9 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 f"保存 {db_save_success}件 / 保存スキップ {db_save_skip}件 / エラー {len(model_errors)}件"
             )
             self._report_annotation_phase(AnnotationPhase.COMPLETED)
+            AnnotationWorker._unconsumed_persisted_phashes.difference_update(self._persisted_phashes)
 
+            failed_save_paths = self._build_failed_save_paths(phash_to_filename)
             logger.info(f"アノテーション処理完了: {len(merged_results)}件の結果")
             return AnnotationExecutionResult(
                 results=merged_results,
@@ -720,9 +970,20 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 model_statistics=model_statistics,
                 phash_to_filename=phash_to_filename,
                 total_processing_time_sec=0.0,
+                is_dry_run=False,
+                excluded_count=self._excluded_count,
+                failed_save_paths=failed_save_paths,
             )
 
         except CancellationError:
+            if self._partial_results and not self._dry_run:
+                try:
+                    self._persist_incremental_results(self._partial_results)
+                except Exception as save_error:
+                    logger.warning(f"キャンセル時の部分結果保存に失敗: {save_error}")
+            if self._persisted_phashes:
+                AnnotationWorker._unconsumed_persisted_phashes.update(self._persisted_phashes)
+                self.partial_results_persisted.emit(set(self._persisted_phashes))
             self._report_annotation_phase(AnnotationPhase.CANCELED)
             logger.info("アノテーション処理がキャンセルされました")
             raise
@@ -777,6 +1038,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             if not self._rating_gate:
                 self.image_paths = filtered_image_paths
                 excluded = original_count - len(self.image_paths)
+                self._excluded_count = excluded
                 if excluded > 0:
                     logger.info(
                         f"prefilter 適用 (rating ゲート無効): {original_count}件 → "
@@ -807,6 +1069,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             return []
 
         excluded = original_count - len(self.image_paths)
+        self._excluded_count = excluded
         if excluded > 0:
             logger.info(
                 f"prefilter 適用: {original_count}件 → {len(self.image_paths)}件 "
@@ -818,6 +1081,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 image_path=Path(skip.image_path).name,
                 error_message=skip.message,
                 error_type=skip.reason,
+                raw_image_path=str(skip.image_path),
             )
             for skip in preflight_result.skipped
         ]
@@ -835,14 +1099,30 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         """
         # #633: 保存対象をこのバッチで実際に処理した image_id 集合に限定する
         # (同一 pHash の未選択別版へ結果を書き込み汚染しないため)。
-        allowed_image_ids = self._resolve_batch_image_ids()
+        unpersisted = self._filter_unpersisted_results(results)
+        if unpersisted:
+            allowed_image_ids = self._resolve_batch_image_ids()
+            self._persist_incremental_results(
+                unpersisted,
+                allowed_image_ids=allowed_image_ids,
+                resolved_allowed_ids=True,
+            )
+        elif self._incremental_save_call_count == 0:
+            allowed_image_ids = self._resolve_batch_image_ids()
+            save_result = AnnotationSaveService(
+                annotation_repo=self.db_manager.annotation_repo,
+                image_repo=self.db_manager.image_repo,
+                model_repo=self.db_manager.model_repo,
+                error_record_repo=self.db_manager.error_record_repo,
+            ).save_annotation_results(results, allowed_image_ids=allowed_image_ids)
+            self._last_save_counts = (save_result.success_count, save_result.skip_count)
+            self._record_phash_save_outcomes(results, save_result)
 
-        save_result = AnnotationSaveService(
-            annotation_repo=self.db_manager.annotation_repo,
-            image_repo=self.db_manager.image_repo,
-            model_repo=self.db_manager.model_repo,
-            error_record_repo=self.db_manager.error_record_repo,
-        ).save_annotation_results(results, allowed_image_ids=allowed_image_ids)
+        if self._incremental_save_call_count <= 1:
+            success_count, skip_count = self._last_save_counts
+        else:
+            success_count = sum(1 for status in self._phash_save_status.values() if status == "success")
+            skip_count = sum(1 for status in self._phash_save_status.values() if status == "skip")
 
         # GUIサマリー用: phash→ファイル名マップを構築 (#633: 別版で複数 image_id になり得る)
         phash_to_image_ids = self.db_manager.image_repo.find_image_ids_by_phashes_multi(set(results.keys()))
@@ -856,8 +1136,62 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             if phash_to_image_ids.get(phash)
         ]
 
-        logger.info(f"DB保存完了: {save_result.success_count}/{save_result.total_count}件成功")
-        return save_result.success_count, save_result.skip_count, image_summaries, phash_to_filename
+        total_count = success_count + skip_count
+        logger.info(f"DB保存完了: {success_count}/{total_count}件成功")
+        return success_count, skip_count, image_summaries, phash_to_filename
+
+    def _build_image_id_to_path_map(self) -> dict[int, str]:
+        """現在の image_paths から image_id → パスの逆引き辞書を構築する。"""
+        path_to_image_id: dict[str, int] = dict(self._path_to_image_id)
+        try:
+            resolved_ids = self.db_manager.image_repo.get_image_ids_by_filepaths(self.image_paths)
+            if isinstance(resolved_ids, dict):
+                for p, iid in resolved_ids.items():
+                    if isinstance(iid, int):
+                        path_to_image_id[p] = iid
+        except Exception as exc:
+            logger.debug(f"get_image_ids_by_filepaths failed during failed_save_paths build: {exc}")
+        return {iid: path for path, iid in path_to_image_id.items()}
+
+    def _resolve_covered_failed_phashes(self, covered_phashes: set[str]) -> set[str]:
+        """_failed_image_ids でカバー済みの失敗 pHash 集合を補完する。"""
+        if covered_phashes or not self._failed_image_ids or self.db_manager is None:
+            return covered_phashes
+        try:
+            phash_to_ids = self.db_manager.image_repo.find_image_ids_by_phashes_multi(
+                {p for p, s in self._phash_save_status.items() if s == "failed"}
+            )
+            if isinstance(phash_to_ids, dict):
+                for ph, ids in phash_to_ids.items():
+                    if isinstance(ids, list) and any(iid in self._failed_image_ids for iid in ids):
+                        covered_phashes.add(ph)
+        except Exception as exc:
+            logger.debug(f"find_image_ids_by_phashes_multi failed during failed_save_paths: {exc}")
+        return covered_phashes
+
+    def _build_failed_save_paths(self, phash_to_filename: dict[str, str]) -> list[str]:
+        """保存失敗した画像を再ステージング用のパスまたはID一覧へ変換する (#1559, Codex P2 #4533605305)。"""
+        id_to_path = self._build_image_id_to_path_map()
+        failed_paths: list[str] = []
+        covered_phashes: set[str] = set()
+
+        for iid in sorted(self._failed_image_ids):
+            path_or_id = str(id_to_path.get(iid, iid))
+            if path_or_id not in failed_paths:
+                failed_paths.append(path_or_id)
+            mapped_path = id_to_path.get(iid)
+            ph = self._path_to_phash.get(mapped_path) if mapped_path else None
+            if ph is not None:
+                covered_phashes.add(ph)
+
+        covered_phashes = self._resolve_covered_failed_phashes(covered_phashes)
+        for phash, status in self._phash_save_status.items():
+            if status == "failed" and phash not in covered_phashes:
+                candidate = str(self._phash_to_input_path.get(phash) or phash_to_filename.get(phash, phash))
+                if candidate not in failed_paths:
+                    failed_paths.append(candidate)
+
+        return failed_paths
 
     def _resolve_batch_image_ids(self) -> set[int] | None:
         """このバッチの image_paths を DB 上の image_id 集合に解決する (#633)。

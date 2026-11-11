@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from lorairo.gui import theme
 from lorairo.gui.widgets.ds_card import DsCard
@@ -29,7 +29,7 @@ _DESCRIPTION_HTML = (
     "（PG/PG-13/R は送信）。violence/graphic は R 止まり。"
 )
 _PLACEHOLDER_TEXT = "ステージング画像なし"
-_BADGE_TEXT = "task_type=rating_preflight"
+_BADGE_TEXT = "事前レーティング判定"
 _HELD_TOOLTIP = "最新 rating が X / XXX の画像は annotation WebAPI に送らず保留します"
 _UNRATED_TOOLTIP = "rating 未登録の画像。送信前 moderation で判定してから送信可否が決まります"
 
@@ -84,6 +84,8 @@ class PreflightSummaryWidget(DsCard):
     テーマトークン駆動で描画する。
     """
 
+    run_rating_preflight_requested = Signal()  # 事前レーティング判定要求 (#1558)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(title=_TITLE_TEXT, parent=parent)
 
@@ -132,6 +134,12 @@ class PreflightSummaryWidget(DsCard):
         self._badge.setStyleSheet(theme.badge_qss())
         chip_row.addWidget(self._badge)
 
+        # 先にレーティング判定を実行ボタン (#1558)
+        self._btn_run_rating_preflight = QPushButton("先にレーティング判定を実行", body)
+        self._btn_run_rating_preflight.setObjectName("buttonRunRatingPreflight")
+        self._btn_run_rating_preflight.clicked.connect(self.run_rating_preflight_requested)
+        chip_row.addWidget(self._btn_run_rating_preflight)
+
         chip_row.addStretch(1)
         body_layout.addLayout(chip_row)
 
@@ -168,6 +176,7 @@ class PreflightSummaryWidget(DsCard):
         self._unrated_chip.set_text(f"{summary.unrated} 未判定")
         self._unrated_chip.setVisible(summary.unrated > 0)
         self._badge.setVisible(True)
+        self._btn_run_rating_preflight.setVisible(True)
 
     def clear(self) -> None:
         """「ステージング画像なし」プレースホルダ状態に切り替える。"""
@@ -175,4 +184,6 @@ class PreflightSummaryWidget(DsCard):
         self._held_chip.setVisible(False)
         self._unrated_chip.setVisible(False)
         self._badge.setVisible(False)
+        if hasattr(self, "_btn_run_rating_preflight"):
+            self._btn_run_rating_preflight.setVisible(False)
         self._placeholder_label.setVisible(True)
