@@ -1588,6 +1588,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         stage: PipelineStage,
     ) -> None:
         """開いているピッカーダイアログのキー状況と候補リストを更新する (#1570)。"""
+        self._invalidate_model_caches()
         available_providers = self._available_api_providers()
         if hasattr(dialog, "refresh_key_status"):
             dialog.refresh_key_status(available_providers)

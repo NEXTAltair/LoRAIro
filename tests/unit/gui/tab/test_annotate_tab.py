@@ -9,7 +9,7 @@ run bar・トップレベル Signal) を、実 ``AnnotateTabWidget`` インス�
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from PySide6.QtWidgets import QDialog
@@ -506,6 +506,24 @@ class TestPipelineAddModelHandler:
             "openai/gpt-4o",
             "wd-v1-4-tagger",
         ]
+
+    def test_reload_stage_picker_candidates_invalidates_model_caches(self, tab, qtbot):
+        """ピッカー再読込時にタブのモデルキャッシュが破棄され最新の load_models が反映される (#1570 Codex P2)。"""
+        from lorairo.gui.widgets.stage_model_picker_dialog import StageModelPickerDialog
+
+        dialog = StageModelPickerDialog(
+            PipelineStage.TAGS,
+            [],
+            available_providers=set(),
+        )
+        qtbot.addWidget(dialog)
+
+        old_cached = [Mock(available=True, litellm_model_id="stale_model")]
+        tab._cached_loaded_models = old_cached
+        with patch.object(tab, "_invalidate_model_caches", wraps=tab._invalidate_model_caches) as spy_inv:
+            tab._reload_stage_picker_candidates(dialog, PipelineStage.TAGS)
+            spy_inv.assert_called_once()
+            assert tab._cached_loaded_models is not old_cached
 
 
 # == 4. モデル選択 SSoT: 削除ハンドラ =========================================
