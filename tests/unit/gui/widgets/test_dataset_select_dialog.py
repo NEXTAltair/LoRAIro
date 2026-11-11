@@ -13,7 +13,8 @@ from lorairo.services.dataset_import_service import FolderOverride
 def dialog(qtbot):
     dlg = DatasetSelectDialog()
     qtbot.addWidget(dlg)
-    return dlg
+    yield dlg
+    dlg._stop_scan_workers()
 
 
 def _ok_enabled(dlg: DatasetSelectDialog) -> bool:
@@ -154,6 +155,7 @@ def test_browse_scans_picked_directory(dialog, tmp_path, monkeypatch):
     _make_tree(tmp_path)
     monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: str(tmp_path))
     dialog.browse_button.click()
+    assert dialog.wait_for_scan()
     assert dialog.folder_table.rowCount() == 2
 
 
@@ -505,6 +507,71 @@ def test_reject_stops_in_flight_scan_worker_cleanly(qtbot, tmp_path):
 
     assert not dlg.is_scanning_kohya
     assert dlg._scan_runners == {}
+
+
+def test_async_subfolder_scan_on_browse_and_kohya_untoggle(qtbot, tmp_path, monkeypatch):
+    """_browse_directory / _on_kohya_mode_toggled は背景 worker でサブフォルダ走査し、
+    走査中は「スキャン中...」を表示して完了後にテーブルへ反映する (#1546)。"""
+    import threading
+
+    from lorairo.services.folder_common_tags import ImageSubfolder
+
+    _make_tree(tmp_path)
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_subfolder_scanner(_directory: Path):
+        started.set()
+        release.wait(timeout=5.0)
+        return [
+            ImageSubfolder(Path("chara_a"), 2),
+            ImageSubfolder(Path("style/b"), 1),
+        ]
+
+    dlg = DatasetSelectDialog(subfolder_scanner=slow_subfolder_scanner)
+    qtbot.addWidget(dlg)
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: str(tmp_path))
+
+    dlg.browse_button.click()
+    assert started.wait(timeout=5.0)
+    assert dlg.is_scanning_subfolders
+    assert "スキャン中..." in dlg.folder_empty_label.text()
+
+    release.set()
+    assert dlg.wait_for_scan()
+    assert not dlg.is_scanning_subfolders
+    assert dlg.folder_table.rowCount() == 2
+
+    # Kohya モード中にディレクトリが変わり、Kohya をオフに戻した際も非同期走査し accept で停止する
+    started.clear()
+    release.clear()
+    other_dir = tmp_path / "chara_a"
+    dlg.kohya_check.setChecked(True)
+    dlg.directory_edit.setText(str(other_dir))
+    dlg.kohya_check.setChecked(False)
+    assert started.wait(timeout=5.0)
+    assert dlg.is_scanning_subfolders
+
+    release.set()
+    dlg.accept()
+    assert not dlg.is_scanning_subfolders
+    assert dlg._subfolder_scan_runners == {}
+
+
+def test_editing_finished_routes_to_async_subfolder_scan(qtbot, tmp_path):
+    """directory_edit.editingFinished シグナルは同期走査でなく refresh_subfolders_async を呼ぶ (#1546 Codex P2)。"""
+    from lorairo.services.folder_common_tags import ImageSubfolder
+
+    _make_tree(tmp_path)
+    dlg = DatasetSelectDialog(
+        subfolder_scanner=lambda _d: [ImageSubfolder(Path("chara_a"), 2)],
+    )
+    qtbot.addWidget(dlg)
+
+    dlg.directory_edit.setText(str(tmp_path))
+    dlg.directory_edit.editingFinished.emit()
+    assert dlg.wait_for_scan()
+    assert dlg.folder_table.rowCount() == 1
 
 
 def test_dialog_buttons_have_tooltips(qtbot):

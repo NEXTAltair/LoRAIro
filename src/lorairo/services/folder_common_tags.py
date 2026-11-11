@@ -5,7 +5,7 @@
 タグ DB の入力規則には合わせず、入力した表記のまま保存する。
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -28,7 +28,10 @@ class ImageSubfolder:
     image_count: int
 
 
-def list_image_subfolders(directory: Path) -> list[ImageSubfolder]:
+def list_image_subfolders(
+    directory: Path,
+    cancel_check: Callable[[], None] | None = None,
+) -> list[ImageSubfolder]:
     """画像を直接含むサブフォルダを相対パス順で列挙する。
 
     走査対象と拡張子判定は登録処理と同じ ``FileSystemManager.get_image_files`` に従う
@@ -36,6 +39,7 @@ def list_image_subfolders(directory: Path) -> list[ImageSubfolder]:
 
     Args:
         directory: 取り込み対象として選んだディレクトリ。
+        cancel_check: 走査中にキャンセル要求を検査するコールバック。
 
     Returns:
         サブフォルダの一覧。ディレクトリでなければ空。
@@ -43,11 +47,22 @@ def list_image_subfolders(directory: Path) -> list[ImageSubfolder]:
     if not directory.is_dir():
         return []
     counts: dict[Path, int] = {}
-    for image_path in FileSystemManager.get_image_files(directory):
-        relative = image_path.parent.relative_to(directory)
-        if relative == Path("."):
-            continue
-        counts[relative] = counts.get(relative, 0) + 1
+    if cancel_check is None:
+        for image_path in FileSystemManager.get_image_files(directory):
+            relative = image_path.parent.relative_to(directory)
+            if relative == Path("."):
+                continue
+            counts[relative] = counts.get(relative, 0) + 1
+    else:
+        exts = {ext.lower() for ext in FileSystemManager.image_extensions}
+        for path in directory.rglob("*"):
+            cancel_check()
+            if not path.is_file() or path.suffix.lower() not in exts:
+                continue
+            relative = path.parent.relative_to(directory)
+            if relative == Path("."):
+                continue
+            counts[relative] = counts.get(relative, 0) + 1
     return [ImageSubfolder(path, counts[path]) for path in sorted(counts, key=lambda p: p.as_posix())]
 
 

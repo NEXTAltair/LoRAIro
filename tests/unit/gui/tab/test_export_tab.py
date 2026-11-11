@@ -934,6 +934,174 @@ def test_export_non_empty_directory_asks_confirmation(
 
 
 @pytest.mark.gui
+def test_render_thumbnails_uses_batch_metadata_and_caches_across_filter_changes(
+    qtbot, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """_populate で get_images_metadata_batch / get_low_res_image_paths_batch を一括取得し、
+    タグ絞り込みの切り替えでは DB を再クエリしない (#1546)。"""
+    db_manager = Mock()
+    db_manager.get_images_metadata_batch.side_effect = lambda ids: [
+        {"id": iid, "stored_image_path": f"/orig/{iid}.png"} for iid in ids
+    ]
+    db_manager.get_low_res_image_paths_batch.side_effect = lambda ids: {
+        iid: f"/thumb/{iid}_512.webp" for iid in ids
+    }
+    db_manager.get_rejected_tags.return_value = []
+
+    tab = ExportTabWidget(
+        service_container=service_container,
+        db_manager=db_manager,
+        staging_state_manager=staging_manager,
+    )
+    qtbot.addWidget(tab)
+    tab._staging_tag_panel.load_tags = Mock()
+    tab._thumbnail_selector.load_thumbnails_from_paths = Mock()
+    tab._aggregation_service = Mock()
+    tab._selected_image_details_widget._refinement_service = None
+
+    tab._populate([1, 2, 3])
+
+    db_manager.get_images_metadata_batch.assert_called_once_with([1, 2, 3])
+    db_manager.get_low_res_image_paths_batch.assert_called_once_with([1, 2, 3])
+    db_manager.get_image_metadata.assert_not_called()
+    assert tab._staged_low_res_paths == {
+        1: "/thumb/1_512.webp",
+        2: "/thumb/2_512.webp",
+        3: "/thumb/3_512.webp",
+    }
+
+    # タグ絞り込みと解除を繰り返してもキャッシュから解決し DB 再クエリしない
+    db_manager.get_images_metadata_batch.reset_mock()
+    db_manager.get_low_res_image_paths_batch.reset_mock()
+    tab._aggregation_service.images_with_tag.return_value = [2]
+
+    tab._staging_tag_panel.filter_tag_changed.emit("smile")
+    tab._staging_tag_panel.filter_tag_changed.emit(None)
+
+    db_manager.get_images_metadata_batch.assert_not_called()
+    db_manager.get_low_res_image_paths_batch.assert_not_called()
+    db_manager.get_image_metadata.assert_not_called()
+
+
+@pytest.mark.gui
+def test_staged_metadata_cache_invalidated_on_db_reject_and_kohya_mutation(
+    qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """DB reject および Kohya タグ更新時にステージングメタデータキャッシュを再取得する (#1546)。"""
+    from PySide6.QtWidgets import QMessageBox
+
+    db_manager = Mock()
+    db_manager.get_images_metadata_batch.side_effect = lambda ids: [
+        {"id": iid, "stored_image_path": f"/orig/{iid}.png"} for iid in ids
+    ]
+    db_manager.get_low_res_image_paths_batch.return_value = {}
+    db_manager.soft_reject_tag_batch.return_value = 2
+    db_manager.get_rejected_tags.return_value = []
+
+    tab = ExportTabWidget(
+        service_container=service_container,
+        db_manager=db_manager,
+        staging_state_manager=staging_manager,
+    )
+    qtbot.addWidget(tab)
+    tab._staging_tag_panel.load_tags = Mock()
+    tab._thumbnail_selector.load_thumbnails_from_paths = Mock()
+    tab._aggregation_service = Mock()
+    tab._selected_image_details_widget._refinement_service = None
+
+    tab._image_ids = [1, 2]
+    tab._populate([1, 2])
+    assert db_manager.get_images_metadata_batch.call_count == 1
+
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    tab._on_db_reject_everywhere("smile")
+    assert db_manager.get_images_metadata_batch.call_count == 2
+
+    tab._on_kohya_tags_mutated()
+    assert db_manager.get_images_metadata_batch.call_count == 3
+
+
+@pytest.mark.gui
+def test_export_tab_refresh_invalidates_cache_even_when_image_ids_unchanged(
+    qtbot, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """refresh() は staged_ids が同一でもメタデータキャッシュを破棄し再取得する (#1546 Codex P2)。"""
+    db_manager = Mock()
+    db_manager.get_images_metadata_batch.side_effect = lambda ids: [
+        {"id": iid, "stored_image_path": f"/orig/{iid}.png"} for iid in ids
+    ]
+    db_manager.get_low_res_image_paths_batch.return_value = {}
+
+    tab = ExportTabWidget(
+        service_container=service_container,
+        db_manager=db_manager,
+        staging_state_manager=staging_manager,
+    )
+    qtbot.addWidget(tab)
+    tab._staging_tag_panel.load_tags = Mock()
+    tab._thumbnail_selector.load_thumbnails_from_paths = Mock()
+    tab._aggregation_service = Mock()
+    tab._selected_image_details_widget._refinement_service = None
+
+    staging_manager.add_image_ids([1, 2])
+    tab.show()
+
+    assert db_manager.get_images_metadata_batch.call_count == 1
+    assert set(tab._staged_metadata_by_id.keys()) == {1, 2}
+
+    # staged_ids が変わっていなくても refresh() でキャッシュが破棄され再取得される
+    tab.refresh()
+    assert db_manager.get_images_metadata_batch.call_count == 2
+    assert set(tab._staged_metadata_by_id.keys()) == {1, 2}
+
+    # 絞り込み切り替え時は再クエリせずキャッシュが維持される
+    db_manager.get_images_metadata_batch.reset_mock()
+    tab._aggregation_service.images_with_tag.return_value = [1]
+    tab._staging_tag_panel.filter_tag_changed.emit("tag")
+    tab._staging_tag_panel.filter_tag_changed.emit(None)
+    db_manager.get_images_metadata_batch.assert_not_called()
+
+
+@pytest.mark.gui
+def test_export_tab_refresh_preserves_active_filter_tag(
+    qtbot, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """refresh() で staged_ids が同一のときアクティブなタグ絞り込みが維持される (#1546 Codex P2)。"""
+    db_manager = Mock()
+    db_manager.get_images_metadata_batch.side_effect = lambda ids: [
+        {"id": iid, "stored_image_path": f"/orig/{iid}.png"} for iid in ids
+    ]
+    db_manager.get_low_res_image_paths_batch.return_value = {}
+
+    tab = ExportTabWidget(
+        service_container=service_container,
+        db_manager=db_manager,
+        staging_state_manager=staging_manager,
+    )
+    qtbot.addWidget(tab)
+    tab._staging_tag_panel.load_tags = Mock(
+        side_effect=lambda ids: tab._staging_tag_panel.filter_tag_changed.emit(None)
+    )
+    tab._thumbnail_selector.load_thumbnails_from_paths = Mock()
+    tab._aggregation_service = Mock()
+    tab._aggregation_service.images_with_tag.return_value = [1]
+    tab._selected_image_details_widget._refinement_service = None
+
+    staging_manager.add_image_ids([1, 2])
+    tab.show()
+
+    # タグ "tag1" で絞り込みを適用
+    tab._on_filter_tag_changed("tag1")
+    assert tab._active_filter_tag == "tag1"
+    assert tab._filtered_ids == [1]
+
+    # refresh() 後もアクティブタグと filtered_ids が保持される
+    tab.refresh()
+    assert tab._active_filter_tag == "tag1"
+    assert tab._filtered_ids == [1]
+
+
+@pytest.mark.gui
 def test_export_uses_configured_export_directory_as_initial_dir(
     qtbot, monkeypatch, service_container: Mock, staging_manager: StagingStateManager, tmp_path
 ) -> None:

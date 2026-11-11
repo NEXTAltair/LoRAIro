@@ -8,6 +8,7 @@ Kohya 取り込みでは、`<数字>_<名前>` フォルダごとに取捨・繰
 従来の画像登録では、画像を直接含むサブフォルダごとに共通タグを入力できる (Issue #1409)。
 """
 
+import inspect
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -37,7 +38,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...services.dataset_import_service import FolderOverride, FolderScanSummary, summarize_folder
-from ...services.folder_common_tags import list_image_subfolders, parse_common_tags
+from ...services.folder_common_tags import ImageSubfolder, list_image_subfolders, parse_common_tags
 from ...services.kohya_scanner import scan_kohya_directory
 from ...utils.log import logger
 from ..workers.base import LoRAIroWorkerBase
@@ -65,9 +66,66 @@ _SCAN_SHUTDOWN_WAIT_MS = 5000
 
 FolderScanEntry = tuple[str, int, FolderScanSummary]
 FolderScanner = Callable[[Path], Sequence[FolderScanEntry]]
+SubfolderScanner = Callable[[Path], Sequence[ImageSubfolder]]
 ParentVersionEntry = tuple[int, str]
 ParentVersionsByDataset = Mapping[str, Sequence[ParentVersionEntry]]
 ParentVersionsProvider = Callable[[str], Sequence[ParentVersionEntry]]
+
+
+@dataclass(frozen=True)
+class SubfolderScanResult:
+    """サブフォルダ共通タグ表の非同期スキャン結果 (#1546)。"""
+
+    directory: Path
+    subfolders: tuple[ImageSubfolder, ...]
+    error_text: str = ""
+
+
+class SubfolderScanWorker(LoRAIroWorkerBase[SubfolderScanResult]):
+    """サブフォルダ共通タグ表のスキャンを背景スレッドで行う worker (#1546)。"""
+
+    _OPERATION_TYPE = "subfolder_scan"
+
+    def __init__(
+        self,
+        directory: Path,
+        scanner: SubfolderScanner | None = None,
+    ) -> None:
+        super().__init__()
+        self._directory = directory
+        self._scanner = scanner
+
+    def execute(self) -> SubfolderScanResult:
+        """対象ディレクトリ内の画像を直接含むサブフォルダを走査して返す。"""
+        self._check_cancellation()
+        subfolders: tuple[ImageSubfolder, ...] = ()
+        error_text = ""
+        try:
+            if self._scanner is not None:
+                raw_entries = self._scanner(self._directory)
+            elif "cancel_check" in inspect.signature(list_image_subfolders).parameters:
+                raw_entries = list_image_subfolders(self._directory, cancel_check=self._check_cancellation)
+            else:
+                raw_entries = list_image_subfolders(self._directory)
+            collected: list[ImageSubfolder] = []
+            for entry in raw_entries:
+                self._check_cancellation()
+                collected.append(entry)
+            subfolders = tuple(collected)
+        except OSError as e:
+            logger.opt(exception=True).warning(f"サブフォルダのスキャンに失敗: {self._directory}")
+            error_text = f"フォルダを読めませんでした: {type(e).__name__}"
+        return SubfolderScanResult(
+            directory=self._directory,
+            subfolders=subfolders,
+            error_text=error_text,
+        )
+
+    def _should_cancel_completed_result(self) -> bool:
+        return False
+
+
+_ACTIVE_SUBFOLDER_SCAN_RUNNERS: set[tuple[QThread, SubfolderScanWorker]] = set()
 
 
 @dataclass(frozen=True)
@@ -213,8 +271,11 @@ class DatasetSelectDialog(QDialog):
     # worker スレッドから GUI スレッドへスキャン結果を渡す内部シグナル
     _kohya_scan_completed = Signal(int, object)
     _kohya_scan_failed = Signal(int, object, str)
+    _subfolder_scan_completed = Signal(int, object)
+    _subfolder_scan_failed = Signal(int, object, str)
     # テストや外部からスキャン完了を監視できる公開シグナル (世代番号)
     kohya_scan_finished = Signal(int)
+    subfolder_scan_finished = Signal(int)
 
     def __init__(
         self,
@@ -223,6 +284,7 @@ class DatasetSelectDialog(QDialog):
         *,
         parent_versions_provider: ParentVersionsProvider | None = None,
         folder_scanner: FolderScanner | None = None,
+        subfolder_scanner: SubfolderScanner | None = None,
     ) -> None:
         """ダイアログを初期化する。
 
@@ -233,6 +295,7 @@ class DatasetSelectDialog(QDialog):
                 ダイアログは DB に直接触れず、外から渡された一覧を表示する。
             parent_versions_provider: データセット名を受け取り `(version_id, version_name)` の列を返す関数。
             folder_scanner: Kohya フォルダ走査関数 (テストでの差し替え用)。
+            subfolder_scanner: サブフォルダ走査関数 (テストでの差し替え用)。
         """
         super().__init__(parent)
         self.setWindowTitle("データセットを選択")
@@ -242,6 +305,12 @@ class DatasetSelectDialog(QDialog):
         self._auto_dataset_name = ""
         # サブフォルダ表を作った時点のディレクトリ (同じなら作り直さず入力を保つ)
         self._scanned_directory: Path | None = None
+        self._subfolder_error_text = ""
+        self._subfolder_scan_generation = 0
+        self._scanning_subfolders = False
+        self._scanning_subfolder_directory: Path | None = None
+        self._subfolder_scan_runners: dict[int, tuple[QThread, SubfolderScanWorker]] = {}
+        self._subfolder_scanner = subfolder_scanner
         # Kohya フォルダ表を作った時点のディレクトリ (同じなら作り直さず入力を保つ)
         self._kohya_scanned_directory: Path | None = None
         # Kohya フォルダのスキャンに失敗したときの表示文
@@ -261,6 +330,8 @@ class DatasetSelectDialog(QDialog):
 
         self._kohya_scan_completed.connect(self._on_kohya_scan_finished)
         self._kohya_scan_failed.connect(self._on_kohya_scan_error)
+        self._subfolder_scan_completed.connect(self._on_subfolder_scan_finished)
+        self._subfolder_scan_failed.connect(self._on_subfolder_scan_error)
         self._setup_ui()
         if parent_versions_by_dataset is not None:
             self.set_available_parent_versions(parent_versions_by_dataset)
@@ -278,8 +349,8 @@ class DatasetSelectDialog(QDialog):
         self.directory_edit = QLineEdit()
         self.directory_edit.setPlaceholderText("画像ディレクトリを選択")
         self.directory_edit.textChanged.connect(self._on_directory_changed)
-        # 走査はキー入力ごとでなく、入力確定時と参照ボタン選択時に行う
-        self.directory_edit.editingFinished.connect(self.refresh_subfolders)
+        # 走査はキー入力ごとでなく、入力確定時と参照ボタン選択時に非同期で行う (#1546)
+        self.directory_edit.editingFinished.connect(self.refresh_subfolders_async)
         self.browse_button = QPushButton("参照...")
         self.browse_button.setToolTip("画像ディレクトリを選択")
         self.browse_button.clicked.connect(self._browse_directory)
@@ -492,14 +563,19 @@ class DatasetSelectDialog(QDialog):
         """Kohya フォルダ表の非同期スキャンが進行中か。"""
         return self._scanning_kohya
 
+    @property
+    def is_scanning_subfolders(self) -> bool:
+        """サブフォルダ共通タグ表の非同期スキャンが進行中か (#1546)。"""
+        return self._scanning_subfolders
+
     def _browse_directory(self) -> None:
-        """ディレクトリ選択ダイアログを開く。"""
+        """ディレクトリ選択ダイアログを開き、非同期でサブフォルダを走査する (#1546)。"""
         directory = QFileDialog.getExistingDirectory(
             self, "データセットディレクトリを選択してください", "", QFileDialog.Option.ShowDirsOnly
         )
         if directory:
             self.directory_edit.setText(directory)
-            self.refresh_subfolders()
+            self.refresh_subfolders_async()
 
     def _add_configs(self) -> None:
         """設定 JSON の選択ダイアログを開き、一覧へ追加する。"""
@@ -542,36 +618,42 @@ class DatasetSelectDialog(QDialog):
             self._scan_generation += 1
             self._scanning_kohya = False
             self._scanning_directory = None
+        if self._scanning_subfolders and new_directory != self._scanning_subfolder_directory:
+            self._subfolder_scan_generation += 1
+            self._scanning_subfolders = False
+            self._scanning_subfolder_directory = None
         self._update_state()
 
     def _on_kohya_toggled(self, checked: bool) -> None:
-        """Kohya 取り込みに切り替えたら、フォルダ表を作る。"""
+        """Kohya 取り込みの切り替え時にフォルダ表を非同期更新する (#1546)。"""
         if checked:
+            if self._scanning_subfolders or self._subfolder_scan_runners:
+                self._subfolder_scan_generation += 1
+                self._scanning_subfolders = False
+                self._scanning_subfolder_directory = None
+                for _old_gen, (_old_thread, old_sub_worker) in list(self._subfolder_scan_runners.items()):
+                    old_sub_worker.cancel()
             self.refresh_kohya_folders()
-        elif self._scanning_kohya:
-            self._scan_generation += 1
-            self._scanning_kohya = False
-            self._scanning_directory = None
+        else:
+            if self._scanning_kohya or self._scan_runners:
+                self._scan_generation += 1
+                self._scanning_kohya = False
+                self._scanning_directory = None
+                for _old_gen, (_old_thread, old_kohya_worker) in list(self._scan_runners.items()):
+                    old_kohya_worker.cancel()
+            directory = self._current_directory()
+            if directory is not None and directory != self._scanned_directory:
+                self.refresh_subfolders_async()
         self._update_state()
+
+    _on_kohya_mode_toggled = _on_kohya_toggled
 
     def _current_directory(self) -> Path | None:
         text = self.directory_edit.text().strip()
         return Path(text) if text else None
 
-    def refresh_subfolders(self) -> None:
-        """入力中のディレクトリを走査し、サブフォルダ共通タグ表 (と Kohya フォルダ表) を作り直す。
-
-        同じディレクトリなら作り直さず、入力済みのタグを保つ。Kohya フォルダ表は Kohya 取り込みが
-        オンのときだけ作る。
-        """
-        if self.kohya_check.isChecked():
-            self.refresh_kohya_folders()
-        text = self.directory_edit.text().strip()
-        directory = Path(text) if text else None
-        if directory == self._scanned_directory:
-            return
-        self._scanned_directory = directory
-        subfolders = list_image_subfolders(directory) if directory is not None else []
+    def _populate_folder_table(self, subfolders: Sequence[ImageSubfolder]) -> None:
+        """サブフォルダ共通タグ表を指定のサブフォルダ一覧で構築する。"""
         self.folder_table.setRowCount(len(subfolders))
         read_only = Qt.ItemFlag.ItemIsEnabled
         for row, subfolder in enumerate(subfolders):
@@ -583,7 +665,126 @@ class DatasetSelectDialog(QDialog):
             self.folder_table.setItem(row, _FOLDER_COLUMN, folder_item)
             self.folder_table.setItem(row, _COUNT_COLUMN, count_item)
             self.folder_table.setItem(row, _TAGS_COLUMN, QTableWidgetItem(""))
+
+    def refresh_subfolders(self) -> None:
+        """入力中のディレクトリを走査し、サブフォルダ共通タグ表 (と Kohya フォルダ表) を作り直す。
+
+        同じディレクトリなら作り直さず、入力済みのタグを保つ。Kohya フォルダ表は Kohya 取り込みが
+        オンのときだけ作る。単体テスト互換性のため本メソッドの直接呼び出しは同期走査を維持する (#1546)。
+        """
+        if self.kohya_check.isChecked():
+            self.refresh_kohya_folders()
+        directory = self._current_directory()
+        if not self._scanning_subfolders and directory == self._scanned_directory:
+            return
+        if self._scanning_subfolders or self._subfolder_scan_runners:
+            self._subfolder_scan_generation += 1
+            self._scanning_subfolders = False
+            self._scanning_subfolder_directory = None
+            for _old_gen, (_old_thread, old_worker) in list(self._subfolder_scan_runners.items()):
+                old_worker.cancel()
+        self._scanned_directory = directory
+        self._subfolder_error_text = ""
+        if directory is None:
+            subfolders: Sequence[ImageSubfolder] = ()
+        elif self._subfolder_scanner is not None:
+            subfolders = self._subfolder_scanner(directory)
+        else:
+            subfolders = list_image_subfolders(directory)
+        self._populate_folder_table(subfolders)
         self._update_state()
+
+    def refresh_subfolders_async(self) -> None:
+        """入力中のディレクトリを非同期スキャンし、サブフォルダ共通タグ表を作り直す (#1546)。"""
+        if self.kohya_check.isChecked():
+            self.refresh_kohya_folders()
+            return
+        directory = self._current_directory()
+        if not self._scanning_subfolders and directory == self._scanned_directory:
+            return
+        if self._scanning_subfolders and directory == self._scanning_subfolder_directory:
+            return
+
+        self._subfolder_scan_generation += 1
+        generation = self._subfolder_scan_generation
+        for _old_gen, (_old_thread, old_worker) in list(self._subfolder_scan_runners.items()):
+            old_worker.cancel()
+        self._scanned_directory = None
+        self._subfolder_error_text = ""
+        self.folder_table.setRowCount(0)
+
+        if directory is None:
+            self._scanning_subfolders = False
+            self._scanning_subfolder_directory = None
+            self._update_state()
+            return
+
+        self._scanning_subfolders = True
+        self._scanning_subfolder_directory = directory
+        self._update_state()
+        self._start_subfolder_scan_worker(generation, directory)
+
+    def _start_subfolder_scan_worker(self, generation: int, directory: Path) -> None:
+        """専用 QThread で SubfolderScanWorker を起動する (#1546)。"""
+        thread = QThread()
+        worker = SubfolderScanWorker(directory, scanner=self._subfolder_scanner)
+        worker.moveToThread(thread)
+        runner = (thread, worker)
+        _ACTIVE_SUBFOLDER_SCAN_RUNNERS.add(runner)
+        self._subfolder_scan_runners[generation] = runner
+
+        thread.started.connect(worker.run)
+        worker.finished.connect(
+            lambda result, gen=generation: self._subfolder_scan_completed.emit(gen, result)
+        )
+        worker.error_occurred.connect(
+            lambda message, gen=generation, d=directory: self._subfolder_scan_failed.emit(
+                gen, d, str(message)
+            )
+        )
+        worker.finished.connect(thread.quit)
+        worker.error_occurred.connect(thread.quit)
+        worker.canceled.connect(thread.quit)
+        thread.finished.connect(
+            lambda gen=generation, r=runner: self._on_subfolder_scan_thread_finished(gen, r)
+        )
+        thread.finished.connect(thread.deleteLater)
+        thread.start()
+
+    def _on_subfolder_scan_thread_finished(
+        self, generation: int, runner: tuple[QThread, SubfolderScanWorker]
+    ) -> None:
+        """サブフォルダスキャン用 QThread の終了時に GUI スレッドで参照を解放する (#1546)。"""
+        self._subfolder_scan_runners.pop(generation, None)
+        _ACTIVE_SUBFOLDER_SCAN_RUNNERS.discard(runner)
+
+    @Slot(int, object)
+    def _on_subfolder_scan_finished(self, generation: int, result: object) -> None:
+        """非同期サブフォルダスキャン完了時に最新世代の結果だけを表へ反映する (#1546)。"""
+        if generation != self._subfolder_scan_generation or not isinstance(result, SubfolderScanResult):
+            return
+        if result.directory != self._current_directory():
+            return
+
+        self._scanning_subfolders = False
+        self._scanning_subfolder_directory = None
+        self._scanned_directory = result.directory
+        self._subfolder_error_text = result.error_text
+        self._populate_folder_table(result.subfolders)
+        self._update_state()
+        self.subfolder_scan_finished.emit(generation)
+
+    @Slot(int, object, str)
+    def _on_subfolder_scan_error(self, generation: int, directory: object, message: str) -> None:
+        """非同期サブフォルダスキャンの予期しない失敗を最新世代に限り反映する (#1546)。"""
+        if generation != self._subfolder_scan_generation:
+            return
+        self._scanning_subfolders = False
+        self._scanning_subfolder_directory = None
+        self._scanned_directory = directory if isinstance(directory, Path) else None
+        self._subfolder_error_text = f"フォルダを読めませんでした: {message}"
+        self._update_state()
+        self.subfolder_scan_finished.emit(generation)
 
     def refresh_kohya_folders(self) -> None:
         """入力中のディレクトリを Kohya 形式として非同期スキャンし、フォルダ表を作り直す。
@@ -688,7 +889,7 @@ class DatasetSelectDialog(QDialog):
         self.kohya_scan_finished.emit(generation)
 
     def wait_for_scan(self, timeout_ms: int = _SCAN_SHUTDOWN_WAIT_MS) -> bool:
-        """進行中の Kohya フォルダスキャンが終わるまでイベントを処理して待つ。
+        """進行中のフォルダスキャン (Kohya / サブフォルダ) が終わるまでイベントを処理して待つ。
 
         Args:
             timeout_ms: 最大待機ミリ秒。
@@ -697,25 +898,35 @@ class DatasetSelectDialog(QDialog):
             スキャンが完了していれば True。
         """
         deadline = time.monotonic() + (timeout_ms / 1000.0)
-        while self._scanning_kohya and time.monotonic() < deadline:
+        while (self._scanning_kohya or self._scanning_subfolders) and time.monotonic() < deadline:
             QCoreApplication.processEvents()
             time.sleep(0.005)
         QCoreApplication.processEvents()
-        return not self._scanning_kohya
+        return not (self._scanning_kohya or self._scanning_subfolders)
 
     def _stop_scan_workers(self) -> None:
-        """実行中の Kohya フォルダスキャン worker スレッドへ協調キャンセルを送り、共通デッドライン内で待機する。"""
+        """実行中のフォルダスキャン worker スレッドへ協調キャンセルを送り、共通デッドライン内で待機する。"""
         if self._scanning_kohya or self._scan_runners:
             self._scan_generation += 1
         self._scanning_kohya = False
         self._scanning_directory = None
+        if self._scanning_subfolders or self._subfolder_scan_runners:
+            self._subfolder_scan_generation += 1
+        self._scanning_subfolders = False
+        self._scanning_subfolder_directory = None
+
         runners = list(self._scan_runners.items())
-        for _generation, (thread, worker) in runners:
-            worker.cancel()
+        subfolder_runners = list(self._subfolder_scan_runners.items())
+        for _generation, (thread, kohya_worker) in runners:
+            kohya_worker.cancel()
             thread.quit()
+        for _generation, (thread, sub_worker) in subfolder_runners:
+            sub_worker.cancel()
+            thread.quit()
+
         deadline = time.monotonic() + (_SCAN_SHUTDOWN_WAIT_MS / 1000.0)
         for generation, runner in runners:
-            thread, _worker = runner
+            thread, _kohya_worker = runner
             remaining_ms = max(0, int((deadline - time.monotonic()) * 1000))
             if thread.wait(remaining_ms):
                 self._scan_runners.pop(generation, None)
@@ -723,6 +934,16 @@ class DatasetSelectDialog(QDialog):
             else:
                 logger.warning(
                     f"Kohya フォルダスキャン worker が時間内に停止しませんでした (gen={generation})"
+                )
+        for generation, sub_runner in subfolder_runners:
+            thread, _sub_worker = sub_runner
+            remaining_ms = max(0, int((deadline - time.monotonic()) * 1000))
+            if thread.wait(remaining_ms):
+                self._subfolder_scan_runners.pop(generation, None)
+                _ACTIVE_SUBFOLDER_SCAN_RUNNERS.discard(sub_runner)
+            else:
+                logger.warning(
+                    f"サブフォルダスキャン worker が時間内に停止しませんでした (gen={generation})"
                 )
 
     def _fill_kohya_row(
@@ -870,8 +1091,16 @@ class DatasetSelectDialog(QDialog):
         # 共通タグは普段の画像のタグ (Tag) に付く。Kohya 取り込みとは独立 (Issue #1409)
         self.folder_tags_label.setVisible(not is_kohya)
         self.folder_table.setEnabled(not is_kohya)
-        self.folder_table.setVisible(not is_kohya and self.folder_table.rowCount() > 0)
-        self.folder_empty_label.setVisible(not is_kohya and self.folder_table.rowCount() == 0)
+        if not is_kohya and self._scanning_subfolders:
+            self.folder_empty_label.setText(_SCANNING_STATUS_TEXT)
+            self.folder_table.setVisible(False)
+            self.folder_empty_label.setVisible(True)
+        else:
+            self.folder_empty_label.setText(
+                self._subfolder_error_text or "画像を含むサブフォルダはありません"
+            )
+            self.folder_table.setVisible(not is_kohya and self.folder_table.rowCount() > 0)
+            self.folder_empty_label.setVisible(not is_kohya and self.folder_table.rowCount() == 0)
         self.kohya_label.setVisible(is_kohya)
         self.kohya_table.setVisible(is_kohya and self.kohya_table.rowCount() > 0)
         self.kohya_summary_label.setVisible(is_kohya)

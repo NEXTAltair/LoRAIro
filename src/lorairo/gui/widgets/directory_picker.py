@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
@@ -16,13 +17,20 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
         self._require_images: bool = True
         self.setupUi(self)
         self.set_label_text("フォルダを選択")
+        # returnPressed 直後の editingFinished による同一パス二重検証・二重 emit を防ぐ (#1546)
+        self._last_validated_path: str | None = None
 
         self.DirectoryPicker.pushButtonPicker.clicked.connect(self.select_folder)
         self.DirectoryPicker.comboBoxHistory.currentIndexChanged.connect(self.on_history_item_selected)
+        self.DirectoryPicker.lineEditPicker.textChanged.connect(self._on_text_changed)
 
         # Enterキーとフォーカスアウト時にバリデーション実行
         self.DirectoryPicker.lineEditPicker.returnPressed.connect(self._validate_and_emit)
         self.DirectoryPicker.lineEditPicker.editingFinished.connect(self._validate_and_emit)
+
+    def _on_text_changed(self, _text: str) -> None:
+        """入力文字列が変わったら直近検証キャッシュをリセットする。"""
+        self._last_validated_path = None
 
     def set_require_images(self, require_images: bool) -> None:
         """ディレクトリ検証時に画像ファイルの存在を必須とするか設定する。"""
@@ -32,6 +40,7 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
         dir_path = QFileDialog.getExistingDirectory(self, "フォルダを選択")
         if dir_path:
             self.DirectoryPicker.lineEditPicker.setText(dir_path)
+            self._last_validated_path = dir_path.strip()
             self.DirectoryPicker.update_history(dir_path)
             logger.debug(f"フォルダが選択: {dir_path}")
             # ダイアログで選択されたパスは確実に有効なので即座に発信
@@ -44,6 +53,7 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
         )  # ツールチップデータ (フルパス) を取得
         if selected_path:  # None チェック追加
             self.DirectoryPicker.lineEditPicker.setText(selected_path)
+            self._last_validated_path = str(selected_path).strip()
             logger.debug(f"履歴からフォルダが選択: {selected_path}")
             # 履歴のパスも基本的に有効なので発信（軽量チェック後）
             if self._quick_validation_check(selected_path):
@@ -56,6 +66,10 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
         if not current_path:
             logger.debug("空のパスのため、シグナル発信をスキップ")
             return
+
+        if current_path == self._last_validated_path:
+            return
+        self._last_validated_path = current_path
 
         if not self._require_images:
             if self._quick_validation_check(current_path):
@@ -98,29 +112,20 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
             # 画像拡張子リスト
             image_extensions = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
 
-            # pathlibを使用した再帰的探索（max_depth対応）
-            for file_path in path_obj.rglob("*"):
-                # 階層深度チェック
-                try:
-                    current_depth = len(file_path.relative_to(path_obj).parts)
-                    if current_depth > max_depth:
-                        continue
-                except ValueError:
-                    # relative_to が失敗した場合はスキップ
-                    continue
+            # os.walk で階層深度に応じた枝刈りを行い、深いサブツリーの無用な走査を避ける (#1546)
+            for root, dirs, files in os.walk(path_obj):
+                current_depth = len(Path(root).relative_to(path_obj).parts) + 1
+                if current_depth >= max_depth:
+                    dirs[:] = []
 
-                # ファイルのみ処理（ディレクトリはスキップ）
-                if not file_path.is_file():
-                    continue
-
-                total_files += 1
+                total_files += len(files)
                 if total_files > max_files:
                     logger.warning(f"ファイル数が上限を超過: {directory_path} ({max_files}+件)")
                     return False
 
-                # 画像ファイルチェック
-                if file_path.suffix.lower() in image_extensions:
-                    image_count += 1
+                image_count += sum(
+                    1 for filename in files if Path(filename).suffix.lower() in image_extensions
+                )
 
             # 最終判定
             if image_count == 0:
@@ -143,6 +148,7 @@ class DirectoryPickerWidget(QWidget, Ui_DirectoryPickerWidget):
         return self.DirectoryPicker.lineEditPicker.text()
 
     def set_path(self, path: str) -> None:
+        self._last_validated_path = None
         self.DirectoryPicker.lineEditPicker.setText(path)
 
     def on_path_changed(self, new_path: str) -> None:

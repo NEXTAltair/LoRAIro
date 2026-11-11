@@ -21,11 +21,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Qt, QThread, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSplitter,
@@ -57,10 +58,36 @@ _IMPORTED_STATUS = "imported"
 # 生かし続けるため (#1159 Codex P2 2巡目: timeout で参照を落とすと実行中スレッドが解放済み
 # オブジェクトに触ってクラッシュする)。thread.finished で初めて解放する。
 _ACTIVE_COLLECT_RUNNERS: set[tuple[QThread, ProviderBatchImportWorker]] = set()
+_ACTIVE_CANCEL_RUNNERS: set[tuple[QThread, ProviderBatchCancelWorker]] = set()
 
 # shutdown() が実行中 worker の停止を待つ上限 (ms)。ネットワーク停滞での無限ハングを避ける。
 # timeout してもスレッド参照は落とさず (module 保持) 完了時の finished で解放する (#1159 P2)。
 _COLLECT_SHUTDOWN_WAIT_MS = 5000
+
+
+class ProviderBatchCancelWorker(QObject):
+    """1 ジョブの cancel を GUI スレッド外で実行する worker (#1546)。"""
+
+    succeeded = Signal(int, object)  # (job_id, canceled_job)
+    failed = Signal(int, object)  # (job_id, 例外)
+    finished = Signal()
+
+    def __init__(self, workflow_service: Any, job_id: int) -> None:
+        super().__init__()
+        self._workflow_service = workflow_service
+        self._job_id = job_id
+
+    @Slot()
+    def run(self) -> None:
+        """cancel を実行し、完了を succeeded で通知する。"""
+        job_id = self._job_id
+        try:
+            result = self._workflow_service.cancel(job_id)
+            self.succeeded.emit(job_id, result)
+        except Exception as e:
+            self.failed.emit(job_id, e)
+        finally:
+            self.finished.emit()
 
 
 class ProviderBatchJobWidget(QWidget):
@@ -83,6 +110,9 @@ class ProviderBatchJobWidget(QWidget):
         # worker への Python 参照が切れると実行中に GC され「QThread: Destroyed while
         # thread is still running」でクラッシュする。thread 終了時に pop する。
         self._collect_runners: dict[int, tuple[QThread, ProviderBatchImportWorker]] = {}
+        # キャンセル要求を非同期実行中のジョブ (#1546)。
+        self._canceling_job_ids: set[int] = set()
+        self._cancel_runners: dict[int, tuple[QThread, ProviderBatchCancelWorker]] = {}
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
@@ -506,6 +536,17 @@ class ProviderBatchJobWidget(QWidget):
                 logger.warning(
                     f"結果回収 worker が時間内に停止しませんでした。完了まで参照を保持します (job {job_id})"
                 )
+        for job_id, cancel_runner in list(self._cancel_runners.items()):
+            thread, _cancel_worker = cancel_runner
+            thread.quit()
+            if thread.wait(_COLLECT_SHUTDOWN_WAIT_MS):
+                self._canceling_job_ids.discard(job_id)
+                self._cancel_runners.pop(job_id, None)
+                _ACTIVE_CANCEL_RUNNERS.discard(cancel_runner)
+            else:
+                logger.warning(
+                    f"キャンセル worker が時間内に停止しませんでした。完了まで参照を保持します (job {job_id})"
+                )
 
     @Slot(int, object)
     def _on_collect_succeeded(self, job_id: int, outcome: ProviderBatchCollectOutcome) -> None:
@@ -534,18 +575,70 @@ class ProviderBatchJobWidget(QWidget):
 
     @Slot(int)
     def cancel_job(self, job_id: int) -> None:
-        """ジョブのキャンセルを要求する。"""
+        """確認ダイアログ後にジョブのキャンセルを非同期要求する (#1546)。"""
         if self._workflow_service is None:
             return
-        try:
-            self._workflow_service.cancel(job_id)
-            self.refresh_jobs(update_label=False)
-            self.select_job(job_id)
-            self.labelStatus.setText(f"バッチAPIジョブ {job_id} のキャンセルを要求しました")
-        except ProviderBatchError as e:
-            # #1150: 想定内の業務エラーでも事後診断できるよう WARNING で記録する。
-            logger.warning(f"バッチAPI cancel failed (job {job_id}): {e}")
-            show_warning(self, "バッチAPI", str(e))
-            self.labelStatus.setText(str(e))
-        except Exception as e:
-            self._handle_action_error("cancel", e)
+        if job_id in self._canceling_job_ids:
+            return
+        reply = QMessageBox.question(
+            self,
+            "バッチジョブのキャンセル確認",
+            f"バッチAPIジョブ {job_id} をキャンセルしますか?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._start_cancel_worker(job_id)
+
+    def _start_cancel_worker(self, job_id: int) -> None:
+        """キャンセル要求を専用 QThread で実行する (#1546, ADR 0044)。"""
+        self._canceling_job_ids.add(job_id)
+        self.labelStatus.setText(f"バッチAPIジョブ {job_id} をキャンセル中…")
+        card = self._cards.get(job_id)
+        if card is not None and card.cancel_button is not None:
+            card.cancel_button.setEnabled(False)
+
+        thread = QThread()
+        worker = ProviderBatchCancelWorker(self._workflow_service, job_id)
+        worker.moveToThread(thread)
+        runner = (thread, worker)
+        _ACTIVE_CANCEL_RUNNERS.add(runner)
+        self._cancel_runners[job_id] = runner
+
+        thread.started.connect(worker.run)
+        worker.succeeded.connect(self._on_cancel_succeeded)
+        worker.failed.connect(self._on_cancel_failed)
+        worker.finished.connect(thread.quit)
+        thread.finished.connect(lambda: self._on_cancel_thread_finished(job_id, runner))
+        thread.finished.connect(thread.deleteLater)
+
+        thread.start()
+
+    def _on_cancel_thread_finished(
+        self, job_id: int, runner: tuple[QThread, ProviderBatchCancelWorker]
+    ) -> None:
+        """cancel worker thread 終了時に再入ガードと GC 保護を解除する (#1546)。"""
+        self._canceling_job_ids.discard(job_id)
+        self._cancel_runners.pop(job_id, None)
+        _ACTIVE_CANCEL_RUNNERS.discard(runner)
+
+    @Slot(int, object)
+    def _on_cancel_succeeded(self, job_id: int, _job: object) -> None:
+        """キャンセル要求成功: 台帳を再描画しステータス文言を表示する (#1546)。"""
+        self.refresh_jobs(update_label=False)
+        self.select_job(job_id)
+        self.labelStatus.setText(f"バッチAPIジョブ {job_id} のキャンセルを要求しました")
+
+    @Slot(int, object)
+    def _on_cancel_failed(self, job_id: int, error: Exception) -> None:
+        """キャンセル要求失敗: 業務エラーは WARNING、想定外は _handle_action_error (#1546)。"""
+        card = self._cards.get(job_id)
+        if card is not None and card.cancel_button is not None:
+            card.cancel_button.setEnabled(True)
+        if isinstance(error, ProviderBatchError):
+            logger.warning(f"バッチAPI cancel failed (job {job_id}): {error}")
+            show_warning(self, "バッチAPI", str(error))
+            self.labelStatus.setText(str(error))
+        else:
+            self._handle_action_error("cancel", error)

@@ -638,14 +638,79 @@ def test_check_status_for_terminal_non_importable_jobs_shows_distinct_status(
 
 @pytest.mark.unit
 @pytest.mark.gui
-def test_cancel_job_calls_workflow(widget, dependencies):
+def test_cancel_job_calls_workflow(widget, dependencies, qtbot, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
     workflow, repository = dependencies
     widget.set_dependencies(workflow, repository)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
 
     widget.cancel_job(42)
+    qtbot.waitUntil(lambda: 42 not in widget._canceling_job_ids, timeout=5000)
 
     workflow.cancel.assert_called_once_with(42)
     assert "キャンセルを要求しました" in widget.labelStatus.text()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_cancel_job_aborts_when_confirmation_declined(widget, dependencies, monkeypatch):
+    """#1546: キャンセル確認ダイアログで No が選ばれた場合は cancel を実行しない。"""
+    from PySide6.QtWidgets import QMessageBox
+
+    workflow, repository = dependencies
+    widget.set_dependencies(workflow, repository)
+    captured_args: list[tuple] = []
+
+    def fake_question(*args, **kwargs):
+        captured_args.append(args)
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(QMessageBox, "question", fake_question)
+
+    widget.cancel_job(42)
+
+    assert len(captured_args) == 1
+    assert captured_args[0][4] == QMessageBox.StandardButton.No
+    workflow.cancel.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.gui
+def test_cancel_job_runs_off_gui_thread_and_guards_reentry(widget, dependencies, qtbot, monkeypatch):
+    """#1546: キャンセルは専用 QThread で非同期実行され、同一ジョブの連打を弾き shutdown で回収される。"""
+    from PySide6.QtWidgets import QMessageBox
+
+    workflow, repository = dependencies
+    widget.set_dependencies(workflow, repository)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+
+    cancel_started = threading.Event()
+    release_cancel = threading.Event()
+
+    def slow_cancel(job_id: int):
+        cancel_started.set()
+        release_cancel.wait(timeout=5.0)
+        return _job(id=job_id, status="canceling")
+
+    workflow.cancel.side_effect = slow_cancel
+
+    try:
+        widget.cancel_job(42)
+        qtbot.waitUntil(cancel_started.is_set, timeout=5000)
+        assert 42 in widget._canceling_job_ids
+        assert 42 in widget._cancel_runners
+        assert widget.labelStatus.text() == "バッチAPIジョブ 42 をキャンセル中…"
+
+        # 連打は再入ガードで弾かれる
+        widget.cancel_job(42)
+        assert workflow.cancel.call_count == 1
+    finally:
+        release_cancel.set()
+
+    widget.shutdown()
+    assert 42 not in widget._canceling_job_ids
+    assert 42 not in widget._cancel_runners
 
 
 def _capture_warnings(func) -> list[str]:
@@ -677,15 +742,22 @@ def test_check_job_status_provider_error_logs_warning(widget, dependencies, qtbo
     assert "adapter 未登録" in widget.labelStatus.text()
 
 
-def test_cancel_job_provider_error_logs_warning(widget, dependencies):
+def test_cancel_job_provider_error_logs_warning(widget, dependencies, qtbot, monkeypatch):
     """#1150: cancel_job の ProviderBatchError が WARNING ログに残る。"""
+    from PySide6.QtWidgets import QMessageBox
+
     from lorairo.services.provider_batch_service import ProviderBatchError
 
     workflow, repository = dependencies
     workflow.cancel.side_effect = ProviderBatchError("ジョブは既に完了しています")
     widget.set_dependencies(workflow, repository)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
 
-    messages = _capture_warnings(lambda: widget.cancel_job(42))
+    def _run_and_wait():
+        widget.cancel_job(42)
+        qtbot.waitUntil(lambda: 42 not in widget._canceling_job_ids, timeout=5000)
+
+    messages = _capture_warnings(_run_and_wait)
 
     assert any("cancel failed (job 42)" in m and "既に完了" in m for m in messages)
     assert "既に完了" in widget.labelStatus.text()
@@ -693,28 +765,36 @@ def test_cancel_job_provider_error_logs_warning(widget, dependencies):
 
 @pytest.mark.unit
 @pytest.mark.gui
-def test_cancel_via_card_button_click(widget, dependencies):
+def test_cancel_via_card_button_click(widget, dependencies, qtbot, monkeypatch):
     """カード footer のキャンセルボタンクリックでキャンセルが走る。"""
+    from PySide6.QtWidgets import QMessageBox
+
     workflow, repository = dependencies
     widget.set_dependencies(workflow, repository)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
 
     card = _card(widget)
     assert card.cancel_button is not None
     card.cancel_button.click()
+    qtbot.waitUntil(lambda: 42 not in widget._canceling_job_ids, timeout=5000)
 
     workflow.cancel.assert_called_once_with(42)
 
 
 @pytest.mark.unit
 @pytest.mark.gui
-def test_action_handlers_catch_unexpected_errors(widget, dependencies, monkeypatch):
+def test_action_handlers_catch_unexpected_errors(widget, dependencies, qtbot, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
     workflow, repository = dependencies
     widget.set_dependencies(workflow, repository)
     workflow.cancel.side_effect = RuntimeError("adapter exploded")
     critical = MagicMock()
     monkeypatch.setattr(widget_module, "show_critical", critical)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
 
     widget.cancel_job(42)
+    qtbot.waitUntil(lambda: 42 not in widget._canceling_job_ids, timeout=5000)
 
     critical.assert_called_once()
     assert widget.labelStatus.text() == "cancel に失敗しました"
