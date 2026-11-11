@@ -92,6 +92,9 @@ class TestExportPerformance:
             設定済みの Mock オブジェクト。
         """
         mock_db_manager = Mock()
+        # 外部 tag_db なし (reader=None) を明示する。未指定だと Mock が reader として
+        # タグ変換に渡り、全画像が export_error で失敗して TXT が 1 件も出力されない。
+        mock_db_manager.annotation_repo.get_merged_reader.return_value = None
 
         # get_images_by_filter: criteria を受け取り全 image_id を返す
         def get_images_side_effect(criteria: ImageFilterCriteria):
