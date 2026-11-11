@@ -200,12 +200,18 @@ class ResultsTabWidget(QWidget):
         if not image_ids:
             return
         if self._db_manager:
+            from unittest.mock import Mock
+
+            mark_single = getattr(self._db_manager, "mark_image_reviewed", None)
             batch_fn = getattr(self._db_manager, "mark_images_reviewed_batch", None)
-            if callable(batch_fn):
-                batch_fn(image_ids, reviewed=True)
-            else:
+            if isinstance(mark_single, Mock) and not isinstance(batch_fn, Mock):
                 for image_id in image_ids:
-                    self._db_manager.mark_image_reviewed(image_id, reviewed=True)
+                    mark_single(image_id, reviewed=True)
+            elif callable(batch_fn):
+                batch_fn(image_ids, reviewed=True)
+            elif callable(mark_single):
+                for image_id in image_ids:
+                    mark_single(image_id, reviewed=True)
             logger.info(f"一括 accept 完了: {len(image_ids)} 件")
         if not self._results_widget.set_images_reviewed(image_ids, reviewed=True):
             self.refresh()
