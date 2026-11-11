@@ -121,6 +121,19 @@ class AnnotationExecutionResult:
     execution_notes: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class _ModelTargets:
+    """1 モデルに渡す画像と、その結果の保存先を限定する image_id 集合 (ADR 0109)。
+
+    ``save_scope`` は完了済みの画像を推論から外した場合だけ設定する。同じ pHash の
+    完了済み画像へ結果が fan-out して既存の結果を上書きしないよう、保存先をこの集合に限る。
+    """
+
+    paths: list[str]
+    phashes: list[str] | None
+    save_scope: set[int] | None = None
+
+
 @dataclass
 class _ModelLoopState:
     """モデル単位ループ (ADR 0109) の 1 回の実行中だけ使う可変状態。"""
@@ -234,6 +247,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         self._execution_policy = execution_policy
         self._execution_notes: list[str] = []
         self._completed_model_count = 0
+        # 完了済みを外したモデルの保存先 image_id 集合 (最終保存の再試行でも同じ範囲に限る)
+        self._model_save_scopes: dict[str, set[int]] = {}
 
         logger.info(
             f"AnnotationWorker初期化 - Images: {len(self.image_paths)}, "
@@ -744,35 +759,49 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         self,
         litellm_model_id: str,
         phash_list: list[str] | None,
-    ) -> tuple[list[str], list[str] | None]:
-        """モデルに渡す画像パスと pHash を返す。
+    ) -> _ModelTargets:
+        """モデルに渡す画像パスと pHash、保存先の限定を返す。
 
         ``skip_completed_on_rerun`` が有効なら、同じモデルの結果が既にある画像を外す
         (ADR 0109)。無効時や判定できない場合は全画像を返す。
         """
+        everything = _ModelTargets(self.image_paths, phash_list)
         if not self._execution_policy.settings.skip_completed_on_rerun:
-            return self.image_paths, phash_list
-        path_ids = [(path, self._path_to_image_id.get(path)) for path in self.image_paths]
+            return everything
+        # pHash 経由の対応 (_path_to_image_id) は同じ pHash の別画像を区別できないため、
+        # パスから image_id を直接引く。
+        try:
+            path_to_id = self.db_manager.image_repo.get_image_ids_by_filepaths(self.image_paths)
+        except SQLAlchemyError as exc:
+            logger.warning(f"完了済み判定に失敗したため全画像を対象にします: {litellm_model_id}: {exc}")
+            return everything
+        if not isinstance(path_to_id, dict):
+            return everything
+        path_ids = [
+            (path, image_id if isinstance(image_id := path_to_id.get(path), int) else None)
+            for path in self.image_paths
+        ]
         known_ids = [image_id for _path, image_id in path_ids if image_id is not None]
         if not known_ids:
-            return self.image_paths, phash_list
+            return everything
         try:
             completed_ids = self.db_manager.image_repo.get_image_ids_with_model_annotations(
                 known_ids, litellm_model_id
             )
         except SQLAlchemyError as exc:
             logger.warning(f"完了済み判定に失敗したため全画像を対象にします: {litellm_model_id}: {exc}")
-            return self.image_paths, phash_list
+            return everything
         if not isinstance(completed_ids, set) or not completed_ids:
-            return self.image_paths, phash_list
+            return everything
         keep = [index for index, (_path, image_id) in enumerate(path_ids) if image_id not in completed_ids]
         paths = [self.image_paths[index] for index in keep]
         phashes = [phash_list[index] for index in keep] if phash_list is not None else None
+        save_scope = {image_id for index in keep if (image_id := path_ids[index][1]) is not None}
         logger.info(
             f"完了済みの画像を推論から除外: model={litellm_model_id}, "
             f"除外={len(self.image_paths) - len(paths)}件, 対象={len(paths)}件"
         )
-        return paths, phashes
+        return _ModelTargets(paths, phashes, save_scope)
 
     def _wait_for_memory(self, litellm_model_id: str) -> AdmissionDecision:
         """空きメモリが安全余裕を超えるまで待ち、受付または見送りの判定を返す (ADR 0109)。"""
@@ -803,11 +832,15 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         litellm_model_id: str,
         message: str,
         model_errors: list[ModelErrorDetail],
+        target_paths: list[str],
     ) -> None:
-        """メモリ不足で実行を見送ったモデルを error_records と summary に記録する (ADR 0109)。"""
+        """メモリ不足で実行を見送ったモデルを error_records と summary に記録する (ADR 0109)。
+
+        記録は推論するはずだった画像だけに付ける (完了済みとして外した画像は失敗扱いにしない)。
+        """
         logger.warning(f"モデルの実行を見送りました: model={litellm_model_id}, {message}")
         self._execution_notes.append(f"{litellm_model_id}: {message}")
-        for image_path in self.image_paths:
+        for image_path in target_paths:
             model_errors.append(
                 ModelErrorDetail(
                     model_name=litellm_model_id,
@@ -864,16 +897,21 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         self,
         model_results: PHashAnnotationResults,
         model_errors: list[ModelErrorDetail],
-        target_paths: list[str],
+        targets: _ModelTargets,
     ) -> None:
         """1 モデル分の結果を即時保存する。保存失敗は再推論せず summary に記録する (#1551)。"""
         try:
-            self._persist_incremental_results(model_results)
+            if targets.save_scope is None:
+                self._persist_incremental_results(model_results)
+            else:
+                self._persist_incremental_results(
+                    model_results, allowed_image_ids=targets.save_scope, resolved_allowed_ids=True
+                )
         except Exception as persist_error:
             logger.opt(exception=True).error(
                 f"アノテーション結果のDB保存に失敗しました (推論成功後のため再推論はスキップ): {persist_error}"
             )
-            for path in target_paths:
+            for path in targets.paths:
                 model_errors.append(
                     ModelErrorDetail(
                         model_name="db_persistence",
@@ -953,7 +991,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         logger.debug(f"モデル単位実行完了: 最終結果={len(state.merged_results)}件")
         return state.merged_results, state.model_errors
 
-    def _admit_model(self, litellm_model_id: str, state: _ModelLoopState) -> bool:
+    def _admit_model(self, litellm_model_id: str, target_paths: list[str], state: _ModelLoopState) -> bool:
         """ローカル ML モデルの受付判定。見送る場合は理由を記録して False を返す。"""
         if litellm_model_id not in state.local_model_ids:
             return True
@@ -962,6 +1000,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 litellm_model_id,
                 "前のモデルでメモリ不足が発生し、空きが回復しなかったため実行を見送りました",
                 state.model_errors,
+                target_paths,
             )
             return False
         decision = self._wait_for_memory(litellm_model_id)
@@ -972,6 +1011,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 f"空きメモリが回復しなかったため実行を見送りました ({decision.shortage_text()}、"
                 f"{int(decision.waited_sec)}秒待機)",
                 state.model_errors,
+                target_paths,
             )
             return False
         return True
@@ -982,16 +1022,18 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             self._report_annotation_phase(AnnotationPhase.RUNNING)
 
     def _run_single_model(self, model_idx: int, litellm_model_id: str, state: _ModelLoopState) -> None:
-        """1 モデルを受付判定 → 推論 → 即時保存 → メモリ不足後の継続判定まで進める。"""
-        if not self._admit_model(litellm_model_id, state):
-            state.errored_keys.add(litellm_model_id)
-            return
-
-        target_paths, target_phashes = self._select_targets_for_model(litellm_model_id, state.phash_list)
+        """1 モデルを対象選択 → 受付判定 → 推論 → 即時保存 → メモリ不足後の継続判定まで進める。"""
+        # 完了済みの判定を受付判定より先に行い、推論不要のモデルで待機・見送りを起こさない。
+        targets = self._select_targets_for_model(litellm_model_id, state.phash_list)
+        target_paths = targets.paths
         if not target_paths:
             self._execution_notes.append(f"{litellm_model_id}: 全画像に結果があるため実行を省略しました")
             state.completed_keys.add(litellm_model_id)
             self._completed_model_count += 1
+            return
+
+        if not self._admit_model(litellm_model_id, target_paths, state):
+            state.errored_keys.add(litellm_model_id)
             return
 
         logger.debug(
@@ -1002,7 +1044,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             model_results = self.annotation_runner.execute_annotation(
                 image_paths=target_paths,
                 litellm_model_ids=[litellm_model_id],
-                phash_list=target_phashes,
+                phash_list=targets.phashes,
             )
             valid_model_results = self._collect_valid_model_results(
                 model_results,
@@ -1021,7 +1063,9 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             return
 
         # モデルごとに即時保存し、後続モデルの中止・メモリ不足・プロセス終了でも残す。
-        self._persist_model_results(valid_model_results, state.model_errors, target_paths)
+        if targets.save_scope is not None:
+            self._model_save_scopes[litellm_model_id] = targets.save_scope
+        self._persist_model_results(valid_model_results, state.model_errors, targets)
         self._completed_model_count += 1
         state.errored_keys.update(self._stage_errored_model_keys(valid_model_results))
         if any(litellm_model_id in annotations for annotations in valid_model_results.values()):
@@ -1104,6 +1148,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         self._excluded_count = 0
         self._execution_notes = []
         self._completed_model_count = 0
+        self._model_save_scopes = {}
 
         # Issue #803 (Codex P1): dry-run は実推論・送信・DB保存を一切行わず件数のみ算出する。
         # RunSettings 契約は「実際に推論せずジョブ件数・推定コストだけを検証する」であり、
@@ -1307,11 +1352,20 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         unpersisted = self._filter_unpersisted_results(results)
         if unpersisted:
             allowed_image_ids = self._resolve_batch_image_ids()
-            self._persist_incremental_results(
-                unpersisted,
-                allowed_image_ids=allowed_image_ids,
-                resolved_allowed_ids=True,
-            )
+            unscoped, scoped = self._split_by_save_scope(unpersisted)
+            if unscoped:
+                self._persist_incremental_results(
+                    unscoped,
+                    allowed_image_ids=allowed_image_ids,
+                    resolved_allowed_ids=True,
+                )
+            # ADR 0109: 完了済みを外したモデルは、再試行でも推論した画像だけに保存する。
+            for model_name, chunk in scoped.items():
+                self._persist_incremental_results(
+                    chunk,
+                    allowed_image_ids=self._model_save_scopes[model_name],
+                    resolved_allowed_ids=True,
+                )
         elif self._incremental_save_call_count == 0:
             allowed_image_ids = self._resolve_batch_image_ids()
             save_result = AnnotationSaveService(
@@ -1344,6 +1398,21 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         total_count = success_count + skip_count
         logger.info(f"DB保存完了: {success_count}/{total_count}件成功")
         return success_count, skip_count, image_summaries, phash_to_filename
+
+    def _split_by_save_scope(
+        self, results: PHashAnnotationResults
+    ) -> tuple[PHashAnnotationResults, dict[str, PHashAnnotationResults]]:
+        """保存先を限定するモデル (ADR 0109) の結果を、モデルごとの塊に分けて返す。"""
+        unscoped: PHashAnnotationResults = PHashAnnotationResults()
+        scoped: dict[str, PHashAnnotationResults] = {}
+        for phash, annotations in results.items():
+            for model_name, unified_result in annotations.items():
+                if model_name in self._model_save_scopes:
+                    chunk = scoped.setdefault(model_name, PHashAnnotationResults())
+                    chunk.setdefault(phash, {})[model_name] = unified_result
+                else:
+                    unscoped.setdefault(phash, {})[model_name] = unified_result
+        return unscoped, scoped
 
     def _build_image_id_to_path_map(self) -> dict[int, str]:
         """現在の image_paths から image_id → パスの逆引き辞書を構築する。"""

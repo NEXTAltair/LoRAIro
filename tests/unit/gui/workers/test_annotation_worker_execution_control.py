@@ -519,3 +519,113 @@ def test_default_policy_is_built_from_config_service() -> None:
     settings = worker._execution_policy.settings
     assert settings.wait_timeout_sec == 7.0
     assert settings.ram_safety_margin_gb == 1.5
+
+
+@pytest.mark.unit
+class TestRerunSkipScope:
+    """skip_completed_on_rerun の完了済み判定と保存範囲 (Codex P2 on PR #1612)。"""
+
+    @staticmethod
+    def _spy_persist(worker: AnnotationWorker, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object]]:
+        calls: list[dict[str, object]] = []
+        original = worker._persist_incremental_results
+
+        def spy(chunk: dict[str, object], **kwargs: object) -> tuple[int, int]:
+            calls.append({"models": {m for a in chunk.values() for m in a}, **kwargs})
+            return original(chunk, **kwargs)
+
+        monkeypatch.setattr(worker, "_persist_incremental_results", spy)
+        return calls
+
+    def test_fully_completed_model_is_skipped_before_memory_admission(self) -> None:
+        db = _db_manager()
+        db.image_repo.get_image_ids_with_model_annotations.return_value = {1, 2}
+        probe = ScriptedProbe([0.5])
+        runner = RecordingRunner({"local-a": _ok("local-a")})
+        worker = _worker(
+            runner,
+            ["local-a"],
+            _registry(_model_info("local-a", requires_api_key=False)),
+            _policy(probe, FakeClock(), skip_completed_on_rerun=True),
+            db,
+        )
+
+        result = worker.execute()
+
+        assert runner.calls == []
+        assert probe.calls == 0
+        assert _memory_error_records(db) == []
+        assert result.model_errors == []
+        assert result.execution_notes == ["local-a: 全画像に結果があるため実行を省略しました"]
+
+    def test_memory_skip_records_only_remaining_targets(self) -> None:
+        db = _db_manager()
+        db.image_repo.get_image_ids_with_model_annotations.return_value = {1}
+        runner = RecordingRunner({"local-a": _ok("local-a")})
+        worker = _worker(
+            runner,
+            ["local-a"],
+            _registry(_model_info("local-a", requires_api_key=False)),
+            _policy(ScriptedProbe([0.5]), FakeClock(), skip_completed_on_rerun=True),
+            db,
+        )
+
+        result = worker.execute()
+
+        assert [r["file_path"] for r in _memory_error_records(db)] == ["/images/b.jpg"]
+        assert [e.raw_image_path for e in result.model_errors] == ["/images/b.jpg"]
+
+    def test_saves_are_scoped_to_inferred_images_when_phash_is_shared(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """同じ pHash の完了済み画像へ結果を fan-out しない。"""
+        db = _db_manager()
+        db.image_repo.get_phashes_by_filepaths.return_value = {
+            "/images/a.jpg": "phash-a",
+            "/images/b.jpg": "phash-a",
+        }
+        db.image_repo.find_image_ids_by_phashes.return_value = {"phash-a": 1}
+        db.image_repo.find_image_ids_by_phashes_multi.return_value = {"phash-a": [1, 2]}
+        db.image_repo.get_image_ids_by_filepaths.return_value = {"/images/a.jpg": 1, "/images/b.jpg": 2}
+        db.image_repo.get_image_ids_with_model_annotations.return_value = {1}
+        runner = RecordingRunner({"local-a": {"phash-a": {"local-a": {"tags": ["x"], "error": None}}}})
+        worker = _worker(
+            runner,
+            ["local-a"],
+            _registry(_model_info("local-a", requires_api_key=False)),
+            _policy(ScriptedProbe([16.0]), FakeClock(), skip_completed_on_rerun=True),
+            db,
+        )
+        calls = self._spy_persist(worker, monkeypatch)
+
+        worker.execute()
+
+        assert runner.calls[0][0] == ["/images/b.jpg"]
+        assert calls[0]["allowed_image_ids"] == {2}
+        assert calls[0]["resolved_allowed_ids"] is True
+
+    def test_final_save_retry_keeps_model_scope(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        db = _db_manager()
+        runner = RecordingRunner({})
+        worker = _worker(
+            runner,
+            ["local-a", "api-x"],
+            _registry(),
+            _policy(ScriptedProbe([16.0]), FakeClock()),
+            db,
+        )
+        worker._model_save_scopes = {"local-a": {2}}
+        calls = self._spy_persist(worker, monkeypatch)
+        results = {
+            "phash-a": {
+                "local-a": {"tags": ["x"], "error": None},
+                "api-x": {"tags": ["y"], "error": None},
+            }
+        }
+
+        worker._save_results_to_database(results)
+
+        scoped = [c for c in calls if c["models"] == {"local-a"}]
+        unscoped = [c for c in calls if c["models"] == {"api-x"}]
+        assert scoped and scoped[0]["allowed_image_ids"] == {2}
+        assert unscoped and unscoped[0]["allowed_image_ids"] == {1, 2}
