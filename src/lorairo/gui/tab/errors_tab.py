@@ -73,6 +73,11 @@ class ErrorsTabWidget(QWidget):
         """内包する `ErrorsTriageWidget` を返す (タブ内配線・テスト用)。"""
         return self._triage_widget
 
+    def rebind_project_dependencies(self, db_manager: ImageDatabaseManager | None) -> None:
+        """プロジェクト切り替えに伴い DB 関連の依存を再設定する (#1547)。"""
+        self._db_manager = db_manager
+        self.refresh()
+
     def refresh(self) -> None:
         """タブ表示時 / フィルタ変更時にトリアージを再計算して描画する。"""
         if not self._db_manager:

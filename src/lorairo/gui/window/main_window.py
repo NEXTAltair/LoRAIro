@@ -1,18 +1,23 @@
 # src/lorairo/gui/window/main_window.py
 
+import os
 import sys
 from collections.abc import Callable
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from PySide6.QtCore import (
     QSettings,
     Qt,
+    QUrl,
     Signal,
     Slot,
 )
-from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QShortcut
+from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QFileDialog,
+    QInputDialog,
     QLabel,
     QMainWindow,
     QMenu,
@@ -22,7 +27,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...database.db_core import IMG_DB_PATH, get_current_project_root, get_user_tag_db_path
+from ...database.db_core import (
+    IMG_DB_PATH,
+    get_current_project_root,
+    get_project_dir,
+    get_user_tag_db_path,
+)
 from ...database.db_manager import ImageDatabaseManager
 from ...filesystem import FileSystemManager
 from ...gui.designer.MainWindow_ui import Ui_MainWindow
@@ -139,6 +149,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("MainWindow初期化開始 - Phase 1: UI設定")
             setup_ui = cast(Callable[[QWidget], None], self.setupUi)
             setup_ui(self)
+            self._clamp_initial_window_size()
             logger.info("UI設定完了")
 
             # タグ管理メニューアクション追加（ツールメニューへ）
@@ -149,13 +160,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.menuTools.addAction(self.actionTagManagement)
                 logger.debug("Tag management menu action added to Tools menu")
 
-            # Batch APIインポートメニューアクション追加
-            if hasattr(self, "menuFile"):
-                self.actionBatchImport = QAction("Batch API結果インポート...", self)
-                self.actionBatchImport.setShortcut("Ctrl+Shift+I")
-                self.actionBatchImport.triggered.connect(self._start_batch_import)
-                self.menuFile.addAction(self.actionBatchImport)
-                logger.debug("Batch import menu action added")
+            # ファイルメニューアクション構成 (#1547, #1550)
+            self._populate_file_menu()
 
             # サービス初期化（例外を個別にキャッチ）
             logger.info("サービス初期化開始")
@@ -678,8 +684,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._shortcut_focus_search = QShortcut(QKeySequence("Ctrl+F"), self)
         self._shortcut_focus_search.activated.connect(partial(MainWindow._focus_search_input, self))
 
-        self._shortcut_refresh_tab = QShortcut(QKeySequence("F5"), self)
-        self._shortcut_refresh_tab.activated.connect(partial(MainWindow._refresh_active_tab, self))
+        if getattr(self, "actionRefreshView", None) is None:
+            self._shortcut_refresh_tab = QShortcut(QKeySequence("F5"), self)
+            self._shortcut_refresh_tab.activated.connect(partial(MainWindow._refresh_active_tab, self))
 
         self._shortcut_escape = QShortcut(QKeySequence("Esc"), self)
         self._shortcut_escape.activated.connect(partial(MainWindow._handle_escape_shortcut, self))
@@ -995,9 +1002,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             return
         container.layout().addWidget(widget)
         self.search_tab = widget
+        select_btn = getattr(widget, "pushButtonSelectDataset", None)
+        if select_btn is not None:
+            select_btn.setText("画像を登録…")
+            select_btn.setToolTip("画像フォルダを選択してデータベースへ登録します")
         self._connect_search_tab_signals()
-        # 検索タブ生成後に DB 状態バーを反映する (サービス初期化フェーズでは no-op)
+        # 検索タブ生成後に DB 状態バーとプロジェクト表示を反映する (サービス初期化フェーズでは no-op)
         self._update_database_status_label()
+        self._update_project_indicator()
         logger.info("✅ 検索タブ (SearchTabWidget) initialized")
 
     def _connect_search_tab_signals(self) -> None:
@@ -1190,12 +1202,394 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if selector is not None:
             selector._deselect_all_items()
 
+    def _clamp_initial_window_size(self) -> None:
+        """初期ウィンドウサイズを 1080p 画面に収まるようクランプする (#1565)。"""
+        width = self.width()
+        height = self.height()
+        if not isinstance(width, int) or not isinstance(height, int):
+            return
+        target_w = width
+        target_h = height
+        if target_w > 1600 or target_h > 900:
+            target_w = min(target_w, 1440)
+            target_h = min(target_h, 860)
+        screen_fn = getattr(self, "screen", None)
+        screen = screen_fn() if callable(screen_fn) else None
+        if screen is not None:
+            avail_fn = getattr(screen, "availableGeometry", None)
+            avail = avail_fn() if callable(avail_fn) else None
+            if avail is not None:
+                avail_w = avail.width()
+                avail_h = avail.height()
+                if isinstance(avail_w, int) and isinstance(avail_h, int) and avail_w > 0 and avail_h > 0:
+                    target_w = min(target_w, avail_w)
+                    target_h = min(target_h, avail_h)
+        if (target_w, target_h) != (width, height):
+            self.resize(target_w, target_h)
+
+    def _populate_file_menu(self) -> None:
+        """ファイルメニュー (menuFile) のアクションを構築・配置する (#1547, #1550)。"""
+        menu_file = getattr(self, "menuFile", None)
+        if menu_file is None:
+            return
+
+        action_exit = getattr(self, "actionExit", None)
+        if action_exit is not None:
+            menu_file.removeAction(action_exit)
+
+        self.actionOpenProject = QAction("プロジェクトを開く…", self)
+        self.actionOpenProject.setObjectName("actionOpenProject")
+        self.actionOpenProject.setShortcut(QKeySequence("Ctrl+O"))
+        self.actionOpenProject.triggered.connect(self._open_project)
+        menu_file.addAction(self.actionOpenProject)
+
+        self.actionNewProject = QAction("新規プロジェクト作成…", self)
+        self.actionNewProject.setObjectName("actionNewProject")
+        self.actionNewProject.setShortcut(QKeySequence("Ctrl+Shift+N"))
+        self.actionNewProject.triggered.connect(self._create_new_project)
+        menu_file.addAction(self.actionNewProject)
+
+        menu_file.addSeparator()
+
+        self.actionRegisterImages = QAction("画像を登録…", self)
+        self.actionRegisterImages.setObjectName("actionRegisterImages")
+        self.actionRegisterImages.setShortcut(QKeySequence("Ctrl+I"))
+        self.actionRegisterImages.triggered.connect(self.select_and_process_dataset)
+        menu_file.addAction(self.actionRegisterImages)
+
+        self.actionBatchImport = QAction("Batch API結果インポート...", self)
+        self.actionBatchImport.setObjectName("actionBatchImport")
+        self.actionBatchImport.setShortcut(QKeySequence("Ctrl+Shift+I"))
+        self.actionBatchImport.triggered.connect(self._start_batch_import)
+        menu_file.addAction(self.actionBatchImport)
+
+        self.actionGoToExport = QAction("エクスポートタブへ", self)
+        self.actionGoToExport.setObjectName("actionGoToExport")
+        self.actionGoToExport.triggered.connect(self.export_data)
+        menu_file.addAction(self.actionGoToExport)
+
+        existing_refresh_shortcut = getattr(self, "_shortcut_refresh_tab", None)
+        if existing_refresh_shortcut is not None:
+            existing_refresh_shortcut.setEnabled(False)
+            existing_refresh_shortcut.setKey(QKeySequence())
+
+        self.actionRefreshView = QAction("再読込", self)
+        self.actionRefreshView.setObjectName("actionRefreshView")
+        self.actionRefreshView.setShortcut(QKeySequence("F5"))
+        self.actionRefreshView.triggered.connect(partial(MainWindow._refresh_active_tab, self))
+        menu_file.addAction(self.actionRefreshView)
+
+        menu_file.addSeparator()
+
+        self.actionOpenLogFolder = QAction("ログフォルダを開く", self)
+        self.actionOpenLogFolder.setObjectName("actionOpenLogFolder")
+        self.actionOpenLogFolder.triggered.connect(self._open_log_folder)
+        menu_file.addAction(self.actionOpenLogFolder)
+
+        if action_exit is not None:
+            menu_file.addSeparator()
+            menu_file.addAction(action_exit)
+
+    def _update_project_indicator(self, project_dir: Path | None = None) -> None:
+        """アクティブなプロジェクトディレクトリをウィンドウタイトルと検索タブへ反映する (#1547)。"""
+        try:
+            target_dir = (project_dir or get_current_project_root()).resolve()
+        except (OSError, RuntimeError):
+            return
+        set_title = getattr(self, "setWindowTitle", None)
+        if callable(set_title):
+            set_title(f"LoRAIro — {target_dir.name}")
+        search_tab = getattr(self, "search_tab", None)
+        if search_tab is not None:
+            set_path = getattr(search_tab, "set_dataset_path", None)
+            if callable(set_path):
+                set_path(str(target_dir))
+            set_db_info = getattr(search_tab, "set_db_info", None)
+            if callable(set_db_info):
+                set_db_info(
+                    f"データベース: {target_dir}",
+                    f"画像DB: {(target_dir / 'image_database.db').resolve()}",
+                )
+
+    def _rebind_simple_tabs(self, db_mgr: Any) -> None:
+        """主要タブの db_manager を更新する。"""
+        if db_mgr is None:
+            return
+        tabs = [
+            getattr(self, "annotate_tab", None),
+            getattr(self, "errors_tab", None),
+            getattr(self, "export_tab", None),
+            getattr(self, "jobs_tab", None),
+            getattr(self, "results_tab", None),
+            getattr(self, "map_tab", None),
+        ]
+        for tab in tabs:
+            if tab is not None:
+                tab.db_manager = db_mgr
+                if hasattr(tab, "_db_manager"):
+                    tab._db_manager = db_mgr
+                rebind_fn = getattr(tab, "rebind_project_dependencies", None)
+                if callable(rebind_fn):
+                    try:
+                        rebind_fn(db_mgr)
+                    except Exception as e:
+                        logger.warning(f"Tab rebind failed for {tab}: {e}")
+
+    def _rebind_project_tabs(self, target_dir: Path) -> None:
+        """各タブウィジェットの db_manager と project path を再設定する (#1547)。"""
+        db_mgr = getattr(self, "db_manager", None)
+        worker_svc = getattr(self, "worker_service", None)
+        MainWindow._rebind_simple_tabs(self, db_mgr)
+
+        search_tab = getattr(self, "search_tab", None)
+        if search_tab is not None and db_mgr is not None:
+            search_tab.db_manager = db_mgr
+            if hasattr(search_tab, "_db_manager"):
+                search_tab._db_manager = db_mgr
+            rebind_fn = getattr(search_tab, "rebind_project_dependencies", None)
+            if callable(rebind_fn):
+                try:
+                    rebind_fn(db_mgr, worker_svc)
+                except Exception as e:
+                    logger.warning(f"SearchTab rebind failed: {e}")
+
+        if callable(getattr(self, "_reload_results_annotation_review_service", None)):
+            try:
+                self._reload_results_annotation_review_service()
+            except Exception:
+                pass
+
+        if (errors_tab := getattr(self, "errors_tab", None)) is not None and callable(
+            getattr(errors_tab, "refresh", None)
+        ):
+            try:
+                errors_tab.refresh()
+            except Exception:
+                pass
+
+    def _switch_service_container_project(self, resolved_path: Path) -> bool:
+        """ServiceContainer のプロジェクト切り替えを行う。"""
+        service_container = getattr(self, "service_container", None)
+        if service_container is None:
+            try:
+                from ...services.service_container import get_service_container
+
+                service_container = get_service_container()
+            except Exception:
+                service_container = None
+
+        if service_container is not None and callable(
+            getattr(service_container, "set_active_project_directory", None)
+        ):
+            try:
+                service_container.set_active_project_directory(resolved_path)
+                self.db_manager = service_container.db_manager
+                self.file_system_manager = service_container.file_system_manager
+                return True
+            except Exception as e:
+                logger.error(f"Failed to switch project directory on ServiceContainer: {e}")
+                return False
+        return False
+
+    def _rebind_workers_and_controllers(self) -> None:
+        """WorkerService と Controllers の依存関係を再設定する。"""
+        worker_svc = getattr(self, "worker_service", None)
+        db_mgr = getattr(self, "db_manager", None)
+        fs_mgr = getattr(self, "file_system_manager", None)
+        if worker_svc is not None and db_mgr is not None:
+            worker_svc.db_manager = db_mgr
+            if hasattr(worker_svc, "_db_manager"):
+                worker_svc._db_manager = db_mgr
+            if fs_mgr is not None:
+                worker_svc.file_system_manager = fs_mgr
+
+        if (dataset_ctrl := getattr(self, "dataset_controller", None)) is not None and db_mgr is not None:
+            dataset_ctrl.db_manager = db_mgr
+            if fs_mgr is not None:
+                dataset_ctrl.file_system_manager = fs_mgr
+            if worker_svc is not None:
+                dataset_ctrl.worker_service = worker_svc
+
+        if (
+            selection_svc := getattr(self, "selection_state_service", None)
+        ) is not None and db_mgr is not None:
+            selection_svc.db_repository = db_mgr.image_repo
+
+        if callable(getattr(self, "_configure_async_dispatch_controller", None)):
+            self._configure_async_dispatch_controller()
+        elif (
+            annot_ctrl := getattr(self, "annotation_workflow_controller", None)
+        ) is not None and db_mgr is not None:
+            annot_ctrl._db_manager = db_mgr
+
+    def _clear_project_states(self) -> None:
+        """DatasetStateManager と StagingStateManager を初期化する。"""
+        db_mgr = getattr(self, "db_manager", None)
+        if (dataset_state := getattr(self, "dataset_state_manager", None)) is not None:
+            if callable(getattr(dataset_state, "clear", None)):
+                dataset_state.clear()
+            if db_mgr is not None and callable(getattr(dataset_state, "set_db_manager", None)):
+                dataset_state.set_db_manager(db_mgr)
+
+        if (staging_state := getattr(self, "staging_state_manager", None)) is not None:
+            if callable(getattr(staging_state, "clear", None)):
+                staging_state.clear()
+
+    def _activate_project_directory(self, target_dir: Path) -> bool:
+        """アクティブプロジェクトを切り替え、DB接続と依存サービスを再バインドする (#1547, Codex P1 #4531611132)。"""
+        resolved_path = Path(target_dir).resolve()
+        if not MainWindow._switch_service_container_project(self, resolved_path):
+            return False
+        MainWindow._rebind_workers_and_controllers(self)
+        MainWindow._clear_project_states(self)
+        MainWindow._rebind_project_tabs(self, resolved_path)
+
+        db_mgr = getattr(self, "db_manager", None)
+        if (
+            (error_widget := getattr(self, "error_notification_widget", None)) is not None
+            and db_mgr is not None
+            and callable(getattr(error_widget, "set_db_manager", None))
+        ):
+            try:
+                error_widget.set_db_manager(db_mgr)
+            except Exception:
+                pass
+
+        if callable(getattr(self, "load_images_from_db", None)):
+            try:
+                self.load_images_from_db()
+            except Exception:
+                pass
+        return True
+
+    def _select_open_project_dir(self, project_dir: Path | str | bool | None) -> Path | None:
+        """開くプロジェクトのパスを解決またはダイアログ選択する。"""
+        if project_dir is not None and not isinstance(project_dir, bool):
+            return Path(project_dir).resolve()
+        try:
+            start_dir = str(get_current_project_root().resolve().parent)
+        except (OSError, RuntimeError):
+            start_dir = ""
+        selected = QFileDialog.getExistingDirectory(self, "プロジェクトを開く", start_dir)
+        return Path(selected).resolve() if selected else None
+
+    def _persist_active_project_dir(self, target_dir: Path) -> None:
+        """アクティブプロジェクトのパスを設定へ永続化する。"""
+        settings = QSettings()
+        settings.setValue("project/active_project_dir", str(target_dir))
+        config_service = getattr(self, "config_service", None)
+        if config_service is not None:
+            update_fn = getattr(config_service, "update_setting", None)
+            save_fn = getattr(config_service, "save_settings", None)
+            if callable(update_fn):
+                update_fn("directories", "database_dir", str(target_dir))
+            if callable(save_fn):
+                save_fn()
+
+    def _open_project(self, project_dir: Path | str | bool | None = None) -> Path | None:
+        """既存プロジェクトディレクトリを選択して保存・表示更新する (#1547)。"""
+        target_dir = MainWindow._select_open_project_dir(self, project_dir)
+        if target_dir is None:
+            return None
+
+        if not MainWindow._activate_project_directory(self, target_dir):
+            logger.error(f"プロジェクトのアクティベーションに失敗しました: {target_dir}")
+            status_bar_fn = getattr(self, "statusBar", None)
+            if callable(status_bar_fn) and (bar := status_bar_fn()) is not None:
+                bar.showMessage(f"プロジェクトを開けませんでした: {target_dir.name}", 5000)
+            return None
+
+        MainWindow._persist_active_project_dir(self, target_dir)
+        MainWindow._update_project_indicator(self, target_dir)
+        status_bar_fn = getattr(self, "statusBar", None)
+        if callable(status_bar_fn) and (bar := status_bar_fn()) is not None:
+            bar.showMessage(f"プロジェクトを選択しました: {target_dir.name}", 5000)
+        return target_dir
+
+    def _resolve_new_project_defaults(self) -> tuple[str, str]:
+        """設定から新規プロジェクトの既定 (base_dir, default_name) を返す (#1547)。"""
+        config_service = getattr(self, "config_service", None)
+        default_name = "main_dataset"
+        base_dir = "lorairo_data"
+        if config_service is not None and callable(getattr(config_service, "get_setting", None)):
+            configured_name = config_service.get_setting(
+                "directories", "database_project_name", "main_dataset"
+            )
+            if isinstance(configured_name, str) and configured_name.strip():
+                default_name = configured_name.strip()
+            configured_base = config_service.get_setting("directories", "database_base_dir", "lorairo_data")
+            if isinstance(configured_base, str) and configured_base.strip():
+                base_dir = configured_base.strip()
+        return base_dir, default_name
+
+    def _create_new_project(self, project_name: str | bool | None = None) -> Path | None:
+        """新規プロジェクトディレクトリを作成して表示を更新する (#1547)。"""
+        base_dir, default_name = MainWindow._resolve_new_project_defaults(self)
+        if project_name is None or isinstance(project_name, bool):
+            entered, ok = QInputDialog.getText(
+                self, "新規プロジェクト作成", "プロジェクト名:", text=default_name
+            )
+            if not ok or not entered.strip():
+                return None
+            name = entered.strip()
+        else:
+            name = project_name.strip() or default_name
+
+        new_dir = get_project_dir(base_dir, name).resolve()
+        if not MainWindow._activate_project_directory(self, new_dir):
+            logger.error(f"新規プロジェクトの初期化に失敗しました: {new_dir}")
+            status_bar_fn = getattr(self, "statusBar", None)
+            if callable(status_bar_fn) and (bar := status_bar_fn()) is not None:
+                bar.showMessage(f"プロジェクトを作成できませんでした: {new_dir.name}", 5000)
+            return None
+
+        QSettings().setValue("project/active_project_dir", str(new_dir))
+        config_service = getattr(self, "config_service", None)
+        if config_service is not None:
+            if callable(getattr(config_service, "update_setting", None)):
+                config_service.update_setting("directories", "database_project_name", name)
+                config_service.update_setting("directories", "database_dir", str(new_dir))
+            if callable(getattr(config_service, "save_settings", None)):
+                config_service.save_settings()
+
+        MainWindow._update_project_indicator(self, new_dir)
+        status_bar_fn = getattr(self, "statusBar", None)
+        if callable(status_bar_fn) and (bar := status_bar_fn()) is not None:
+            bar.showMessage(f"新規プロジェクトを作成しました: {new_dir.name}", 5000)
+        return new_dir
+
+    def _open_log_folder(self) -> None:
+        """ログフォルダを OS のファイルマネージャで開く (#1550)。"""
+        from ...utils.config import DEFAULT_LOG_PATH
+
+        log_dir = DEFAULT_LOG_PATH.resolve().parent
+        log_dir.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_dir)))
+
     def _show_about_dialog(self) -> None:
-        """「LoRAIroについて」ダイアログを表示する。"""
+        """「LoRAIroについて」ダイアログを表示する (#1550)。"""
+        from importlib.metadata import PackageNotFoundError, version
+
+        from ...utils.config import DEFAULT_LOG_PATH
+
+        try:
+            app_version = version("lorairo")
+        except PackageNotFoundError:
+            app_version = "dev"
+        try:
+            project_path = str(get_current_project_root().resolve())
+        except (OSError, RuntimeError):
+            project_path = str(get_current_project_root())
+        log_path = str(DEFAULT_LOG_PATH.resolve())
         QMessageBox.about(
             self,
             "LoRAIroについて",
-            "LoRAIro — LoRA 学習用データセット管理ツール",
+            (
+                "LoRAIro — LoRA 学習用データセット管理ツール\n\n"
+                f"バージョン: {app_version}\n"
+                f"プロジェクト: {project_path}\n"
+                f"ログファイル: {log_path}"
+            ),
         )
 
     def _connect_batch_tag_signals(self) -> None:
@@ -1500,7 +1894,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             # Fallback: Service未初期化時は簡易通知のみ
             logger.info(f"バッチ登録完了: result={type(result)}")
-            self.statusBar().showMessage("バッチ登録完了", 5000)
+        self.statusBar().showMessage(
+            "画像の登録が完了しました（検索タブで一覧を確認・ステージングできます）", 8000
+        )
 
     def _on_batch_registration_error(self, error_message: str) -> None:
         """Batch registration error signal handler（ProgressStateServiceに委譲 + QMessageBox）"""
@@ -2202,6 +2598,30 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # ウィンドウ状態（最大化等）
         settings.setValue("main_window/state", self.saveState())
 
+        # アクティブタブ状態 (#1565)
+        file_name_fn = getattr(settings, "fileName", None)
+        is_real_disk_settings = (
+            callable(file_name_fn) and isinstance(file_name_fn(), str) and bool(file_name_fn())
+        )
+        if not (os.environ.get("PYTEST_CURRENT_TEST") and is_real_disk_settings):
+            tab_widget = getattr(self, "tabWidgetMainMode", None)
+            if tab_widget is not None:
+                current_idx = tab_widget.currentIndex()
+                if isinstance(current_idx, int):
+                    settings.setValue("main_window/current_tab_index", current_idx)
+                current_widget = tab_widget.currentWidget()
+                tab_name = getattr(self, "_current_top_nav_name", None) or (
+                    current_widget.objectName() if current_widget is not None else ""
+                )
+                if isinstance(tab_name, str) and tab_name:
+                    settings.setValue("current_tab_name", tab_name)
+                    settings.setValue("main_window/current_tab_name", tab_name)
+
+        # 選択モデル状態 (#1565)
+        model_state = getattr(self, "model_selection_state_manager", None)
+        if model_state is not None and callable(getattr(model_state, "save_to_settings", None)):
+            model_state.save_to_settings(settings)
+
         # スプリッター状態 (SearchTab が所有・#896)
         if self.search_tab is not None:
             self.search_tab.save_layout_state(settings)
@@ -2219,30 +2639,80 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         settings.sync()
         logger.info("Window state saved to QSettings")
 
+    @staticmethod
+    def _is_unisolated_test_settings(settings: QSettings) -> bool:
+        """テスト実行中かつ実ディスク上の QSettings かを判定する (#1565)。"""
+        if not os.environ.get("PYTEST_CURRENT_TEST"):
+            return False
+        file_name_fn = getattr(settings, "fileName", None)
+        return callable(file_name_fn) and isinstance(file_name_fn(), str) and bool(file_name_fn())
+
+    def _restore_active_tab(self, settings: QSettings) -> None:
+        """保存されたアクティブタブを復元する (#1565)。"""
+        # テスト実行中かつ実ディスクの QSettings の場合は、別テストの残存設定による汚染を防ぐ (#1565)
+        if MainWindow._is_unisolated_test_settings(settings) and not getattr(
+            self, "_restore_tab_index_enabled", False
+        ):
+            return
+
+        tab_widget = getattr(self, "tabWidgetMainMode", None)
+        if tab_widget is None:
+            return
+        tab_count = tab_widget.count()
+        if not isinstance(tab_count, int) or tab_count <= 0:
+            return
+
+        tab_name = settings.value("current_tab_name") or settings.value("main_window/current_tab_name")
+        if isinstance(tab_name, str) and tab_name:
+            for idx in range(tab_count):
+                widget = tab_widget.widget(idx)
+                if widget is not None and (
+                    widget.objectName() == tab_name or tab_widget.tabText(idx) == tab_name
+                ):
+                    tab_widget.setCurrentIndex(idx)
+                    return
+
+        raw_index = settings.value("main_window/current_tab_index")
+        if raw_index is not None:
+            try:
+                idx = int(str(raw_index))
+                if 0 <= idx < tab_count:
+                    tab_widget.setCurrentIndex(idx)
+            except (TypeError, ValueError):
+                pass
+
     def _restore_window_state(self) -> None:
         """QSettingsからウィンドウ/スプリッター状態を復元する。"""
         settings = QSettings()
 
-        # バージョンチェック
-        saved_version = cast(int, settings.value("main_window/settings_version", 0, type=int))
-        if saved_version != self.SETTINGS_VERSION:
-            logger.info(
-                f"Settings version mismatch (saved={saved_version}, "
-                f"current={self.SETTINGS_VERSION}) - using defaults"
-            )
-            return
-
-        # ウィンドウジオメトリ
+        # ウィンドウジオメトリ（バージョン不一致でも維持 #1565）
         geometry = settings.value("main_window/geometry")
         if geometry:
             self.restoreGeometry(geometry)
             logger.debug("Window geometry restored")
 
-        # ウィンドウ状態（最大化等）
+        # ウィンドウ状態（最大化等、バージョン不一致でも維持 #1565）
         state = settings.value("main_window/state")
         if state:
             self.restoreState(state)
             logger.debug("Window state restored")
+
+        # アクティブタブの復元 (#1565)
+        MainWindow._restore_active_tab(self, settings)
+
+        # 選択モデルの復元 (#1565)
+        model_state = getattr(self, "model_selection_state_manager", None)
+        if model_state is not None and callable(getattr(model_state, "restore_from_settings", None)):
+            model_state.restore_from_settings(settings)
+
+        # バージョンチェック（不一致時はスプリッター状態のみスキップ #1565）
+        saved_version = cast(int, settings.value("main_window/settings_version", 0, type=int))
+        if saved_version != self.SETTINGS_VERSION:
+            logger.info(
+                f"Settings version mismatch (saved={saved_version}, "
+                f"current={self.SETTINGS_VERSION}) - skipping splitter state restore"
+            )
+            return
 
         # スプリッター状態 (SearchTab が所有・#896)
         restored = self.search_tab.restore_layout_state(settings) if self.search_tab is not None else False

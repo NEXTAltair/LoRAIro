@@ -161,13 +161,20 @@ class DatasetController:
                 )
 
     def _on_dataset_import_finished(self, result: DatasetImportResult) -> None:
-        """取り込み完了ポップアップを表示する。
+        """取り込み完了ポップアップを表示する (#1550)。
 
         Args:
             result: 取り込み結果
         """
         if not self.parent:
             return
+        status_bar_fn = getattr(self.parent, "statusBar", None)
+        if callable(status_bar_fn):
+            bar = status_bar_fn()
+            if bar is not None:
+                bar.showMessage(
+                    "画像の登録が完了しました（検索タブで一覧を確認・ステージングできます）", 8000
+                )
         show_information(
             self.parent,
             "データセット取り込み完了",
@@ -176,9 +183,22 @@ class DatasetController:
                 f"画像数: {result.image_count}\n"
                 f"スキップ数: {result.skipped_images}\n"
                 f"学習テキストの無い画像数: {result.images_without_text}\n"
-                f"学習設定数: {len(result.training_config_ids)}"
+                f"学習設定数: {len(result.training_config_ids)}\n\n"
+                "画像の登録が完了しました（検索タブで一覧を確認・ステージングできます）"
             ),
         )
+
+    def _on_batch_registration_finished(self, _result: object = None) -> None:
+        """バッチ登録完了時にステータスバーへ次ステップの案内を表示する (#1550)。"""
+        if not self.parent:
+            return
+        status_bar_fn = getattr(self.parent, "statusBar", None)
+        if callable(status_bar_fn):
+            bar = status_bar_fn()
+            if bar is not None:
+                bar.showMessage(
+                    "画像の登録が完了しました（検索タブで一覧を確認・ステージングできます）", 8000
+                )
 
     def _on_dataset_import_error(self, error_message: str) -> None:
         """取り込み失敗の警告ポップアップを表示する。

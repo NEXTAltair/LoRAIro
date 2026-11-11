@@ -25,11 +25,21 @@ class MapTabWidget(QWidget):
             parent: 親ウィジェット。
         """
         super().__init__(parent)
+        self.db_manager = db_manager
+        self._db_manager = db_manager
         self._tag_cloud = TagCloudWidget(db_manager=db_manager, parent=self)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._tag_cloud)
+
+    def rebind_project_dependencies(self, db_manager: ImageDatabaseManager | None) -> None:
+        """プロジェクト切り替えに伴い内包する TagCloudWidget の DB 依存を再設定する (#1547)。"""
+        if db_manager is None:
+            return
+        self.db_manager = db_manager
+        self._db_manager = db_manager
+        self._tag_cloud.rebind_project_dependencies(db_manager)
 
     @property
     def tag_cloud(self) -> TagCloudWidget:

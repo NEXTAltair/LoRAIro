@@ -502,17 +502,19 @@ class SelectedImageDetailsWidget(QWidget):
         """
         self._db_manager = db_manager
         self.annotation_display.set_tag_edit_enabled(True)
-        self.annotation_display.tag_disable_requested.connect(self._on_tag_disable)
-        self.annotation_display.tag_exclude_requested.connect(self._on_tag_exclude)
-        self.annotation_display.tag_restore_requested.connect(self._on_tag_restore)
-        self.annotation_display.tag_add_requested.connect(self._on_tag_add)
-        self.annotation_display.tags_exclude_requested.connect(self._on_tags_exclude)
-        self.annotation_display.tags_toggle_requested.connect(self._on_tags_toggle)
-        self.annotation_display.tag_replace_requested.connect(self._on_tag_replace)
-        self.annotation_display.tag_move_to_caption_requested.connect(self._on_tag_move_to_caption)
+        if not getattr(self, "_db_edit_signals_connected", False):
+            self.annotation_display.tag_disable_requested.connect(self._on_tag_disable)
+            self.annotation_display.tag_exclude_requested.connect(self._on_tag_exclude)
+            self.annotation_display.tag_restore_requested.connect(self._on_tag_restore)
+            self.annotation_display.tag_add_requested.connect(self._on_tag_add)
+            self.annotation_display.tags_exclude_requested.connect(self._on_tags_exclude)
+            self.annotation_display.tags_toggle_requested.connect(self._on_tags_toggle)
+            self.annotation_display.tag_replace_requested.connect(self._on_tag_replace)
+            self.annotation_display.tag_move_to_caption_requested.connect(self._on_tag_move_to_caption)
+            self.annotation_display.caption_edit_requested.connect(self._edit_caption)
+            self._db_edit_signals_connected = True
         self._image_db_write_service = ImageDBWriteService(db_manager)
         self.annotation_display.caption_review_panel.set_editable(True)
-        self.annotation_display.caption_edit_requested.connect(self._edit_caption)
         logger.debug("SelectedImageDetailsWidget: soft-reject 編集モードを有効化")
 
     def set_crop_relation_service(self, service: CropRelationService) -> None:

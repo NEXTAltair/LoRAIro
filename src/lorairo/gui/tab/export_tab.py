@@ -258,6 +258,36 @@ class ExportTabWidget(QWidget):
 
         self._connect_panel_signals()
 
+    def rebind_project_dependencies(self, db_manager: ImageDatabaseManager | None) -> None:
+        """プロジェクト切り替えに伴い DB 関連の依存を再設定する (#1547)。"""
+        self._db_manager = db_manager
+        if self._dataset_state_manager is not None and db_manager is not None:
+            self._dataset_state_manager.set_db_manager(db_manager)
+        self._aggregation_service = (
+            StagingTagAggregationService(db_manager) if db_manager is not None else None
+        )
+        if hasattr(self, "_staging_tag_panel") and self._staging_tag_panel is not None:
+            self._staging_tag_panel.set_service(self._aggregation_service)
+        if (
+            hasattr(self, "_selected_image_details_widget")
+            and self._selected_image_details_widget is not None
+            and db_manager is not None
+        ):
+            self._selected_image_details_widget.set_db_manager(db_manager)
+        if hasattr(self, "_kohya_export_button") and self._kohya_export_button is not None:
+            self._kohya_export_button.setEnabled(db_manager is not None)
+        self._refinement_service = self._resolve_refinement_service()
+        if (
+            hasattr(self, "_selected_image_details_widget")
+            and self._selected_image_details_widget is not None
+            and hasattr(self._selected_image_details_widget, "set_refinement_service")
+        ):
+            try:
+                self._selected_image_details_widget.set_refinement_service(self._refinement_service)
+            except Exception as e:
+                logger.warning(f"RefinementService 再設定失敗: {e}")
+        self.refresh()
+
     def _wire_tag_management_service(self) -> None:
         """構築済みの TagManagementService があれば詳細ペインへ注入する (初期化は起動しない, #1438)。"""
         service = self._service_container.peek_tag_management_service()

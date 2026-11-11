@@ -78,3 +78,22 @@ def test_clear_emits_only_when_nonempty(qtbot, manager: ModelSelectionStateManag
     manager.selection_changed.connect(lambda ids: received.append(ids))
     manager.clear()  # 既に空
     assert received == []
+
+
+def test_save_and_restore_from_settings(tmp_path) -> None:
+    """QSettings への保存と復元が正しく動作する (#1565)。"""
+    from PySide6.QtCore import QSettings
+
+    settings_file = tmp_path / "settings.ini"
+    settings = QSettings(str(settings_file), QSettings.Format.IniFormat)
+
+    source = ModelSelectionStateManager()
+    source.set_selected(["openai/gpt-4o", "anthropic/claude-3-5-sonnet"])
+    source.save_to_settings(settings)
+    settings.sync()
+
+    restored_manager = ModelSelectionStateManager()
+    assert restored_manager.get_selected() == []
+    restored = restored_manager.restore_from_settings(settings)
+    assert restored == ["openai/gpt-4o", "anthropic/claude-3-5-sonnet"]
+    assert restored_manager.get_selected() == ["openai/gpt-4o", "anthropic/claude-3-5-sonnet"]

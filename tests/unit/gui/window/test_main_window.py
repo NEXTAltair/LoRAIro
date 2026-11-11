@@ -703,5 +703,226 @@ class TestMainWindowCloseConfirmationAndCancel:
         window.worker_service.cancel_all_workers.assert_called_once_with()
 
 
+class TestMainWindowWave5Features:
+    """Issue #1547, #1550, #1565 のユニットテスト。"""
+
+    def test_clamp_initial_window_size_clamps_1080p_overflow(self):
+        """初期ウィンドウサイズが 1600x900 を超える場合 1440x860 以下へクランプする (#1565)。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        window = Mock()
+        window.width.return_value = 1287
+        window.height.return_value = 1178
+        screen = Mock()
+        avail = Mock()
+        avail.width.return_value = 1920
+        avail.height.return_value = 1040
+        screen.availableGeometry.return_value = avail
+        window.screen.return_value = screen
+
+        MainWindow._clamp_initial_window_size(window)
+
+        window.resize.assert_called_once_with(1287, 860)
+
+    def test_populate_file_menu_adds_project_and_registration_actions(self, qapp):
+        """File メニューにプロジェクト操作・画像登録・ログフォルダ等のアクションを追加する (#1547, #1550)。"""
+        from PySide6.QtGui import QAction
+        from PySide6.QtWidgets import QMainWindow, QMenu
+
+        from lorairo.gui.window.main_window import MainWindow
+
+        with patch.object(MainWindow, "__init__", QMainWindow.__init__):
+            window = MainWindow()
+        window.menuFile = QMenu("ファイル", window)
+        window.actionExit = QAction("終了", window)
+        window.menuFile.addAction(window.actionExit)
+
+        MainWindow._populate_file_menu(window)
+
+        action_names = [a.objectName() for a in window.menuFile.actions() if not a.isSeparator()]
+        assert "actionOpenProject" in action_names
+        assert "actionNewProject" in action_names
+        assert "actionRegisterImages" in action_names
+        assert "actionBatchImport" in action_names
+        assert "actionGoToExport" in action_names
+        assert "actionRefreshView" in action_names
+        assert "actionOpenLogFolder" in action_names
+        assert action_names[-1] == window.actionExit.objectName()
+
+    def test_open_project_updates_title_and_settings(self, tmp_path):
+        """_open_project がプロジェクト選択・QSettings 保存・タイトル更新を行う (#1547)。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        proj_dir = tmp_path / "my_project_20260707_001"
+        proj_dir.mkdir()
+        window = Mock()
+        window.config_service = Mock()
+        window.search_tab = Mock()
+        window.statusBar.return_value = Mock()
+
+        with patch("lorairo.gui.window.main_window.QSettings") as mock_qsettings:
+            selected = MainWindow._open_project(window, proj_dir)
+
+        assert selected == proj_dir.resolve()
+        mock_qsettings.return_value.setValue.assert_called_once_with(
+            "project/active_project_dir", str(proj_dir.resolve())
+        )
+        window.setWindowTitle.assert_called_once_with(f"LoRAIro — {proj_dir.name}")
+        window.search_tab.set_dataset_path.assert_called_once_with(str(proj_dir.resolve()))
+
+    def test_open_project_rebinds_live_services_and_clears_state(self, tmp_path):
+        """_open_project が ServiceContainer と依存サービス/状態マネージャを再バインドする (#1547, Codex P1 #4531611132)。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        proj_dir = tmp_path / "dataset_switch_test"
+        proj_dir.mkdir()
+        window = Mock()
+        window.config_service = Mock()
+        window.service_container = Mock()
+        new_db_mgr = Mock()
+        window.service_container.db_manager = new_db_mgr
+        window.service_container.file_system_manager = Mock()
+        window.worker_service = Mock()
+        window.dataset_state_manager = Mock()
+        window.staging_state_manager = Mock()
+        window.dataset_controller = Mock()
+        window.search_tab = Mock()
+        window.annotate_tab = Mock()
+        window.errors_tab = Mock()
+        window.export_tab = Mock()
+        window.jobs_tab = Mock()
+        window.results_tab = Mock()
+        window.map_tab = Mock()
+        window.statusBar.return_value = Mock()
+
+        with patch("lorairo.gui.window.main_window.QSettings"):
+            MainWindow._open_project(window, proj_dir)
+
+        window.service_container.set_active_project_directory.assert_called_once_with(proj_dir.resolve())
+        assert window.db_manager is new_db_mgr
+        assert window.worker_service.db_manager is new_db_mgr
+        assert window.dataset_controller.db_manager is new_db_mgr
+        window._configure_async_dispatch_controller.assert_called_once_with()
+        window.dataset_state_manager.clear.assert_called_once()
+        window.dataset_state_manager.set_db_manager.assert_called_once_with(new_db_mgr)
+        window.staging_state_manager.clear.assert_called_once()
+        assert window.search_tab.db_manager is new_db_mgr
+        assert window.annotate_tab.db_manager is new_db_mgr
+        assert window.errors_tab.db_manager is new_db_mgr
+        assert window.export_tab.db_manager is new_db_mgr
+        assert window.jobs_tab.db_manager is new_db_mgr
+        assert window.results_tab.db_manager is new_db_mgr
+        assert window.map_tab.db_manager is new_db_mgr
+        window.load_images_from_db.assert_called_once()
+
+    def test_restore_window_state_preserves_geometry_on_version_mismatch(self):
+        """SETTINGS_VERSION 不一致でも geometry / state / active_tab は復元し splitter のみスキップ (#1565)。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        window = Mock()
+        window.SETTINGS_VERSION = MainWindow.SETTINGS_VERSION
+        window.search_tab = Mock()
+        window.tabWidgetMainMode = Mock()
+        window.tabWidgetMainMode.count.return_value = 3
+        tab0 = Mock()
+        tab0.objectName.return_value = "tabWorkspace"
+        tab1 = Mock()
+        tab1.objectName.return_value = "tabBatchTag"
+        window.tabWidgetMainMode.widget.side_effect = lambda idx: [tab0, tab1, Mock()][idx]
+        window.tabWidgetMainMode.tabText.return_value = ""
+
+        values = {
+            "main_window/settings_version": MainWindow.SETTINGS_VERSION - 1,
+            "main_window/geometry": b"geom",
+            "main_window/state": b"state",
+            "current_tab_name": "tabBatchTag",
+        }
+        with patch("lorairo.gui.window.main_window.QSettings") as mock_qsettings:
+            mock_qsettings.return_value.value.side_effect = lambda k, *a, **kw: values.get(k)
+            MainWindow._restore_window_state(window)
+
+        window.restoreGeometry.assert_called_once_with(b"geom")
+        window.restoreState.assert_called_once_with(b"state")
+        window.tabWidgetMainMode.setCurrentIndex.assert_called_once_with(1)
+        window.search_tab.restore_layout_state.assert_not_called()
+
+    def test_show_about_dialog_includes_version_project_and_log_path(self, tmp_path):
+        """About ダイアログにバージョン・プロジェクトパス・ログパスを含める (#1550)。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        window = Mock()
+        with (
+            patch("lorairo.gui.window.main_window.get_current_project_root", return_value=tmp_path),
+            patch("lorairo.gui.window.main_window.QMessageBox.about") as mock_about,
+        ):
+            MainWindow._show_about_dialog(window)
+
+        mock_about.assert_called_once()
+        about_text = mock_about.call_args.args[2]
+        assert "バージョン:" in about_text
+        assert str(tmp_path.resolve()) in about_text
+        assert "ログファイル:" in about_text
+
+    def test_map_tab_rebind_project_dependencies_updates_tag_cloud(self, qtbot):
+        from lorairo.gui.tab.map_tab import MapTabWidget
+
+        db1 = Mock()
+        db2 = Mock()
+        tab = MapTabWidget(db_manager=db1)
+        qtbot.addWidget(tab)
+
+        tab.rebind_project_dependencies(db2)
+
+        assert tab.db_manager is db2
+        assert tab.tag_cloud._db is db2
+
+    def test_search_tab_rebind_crop_and_comparison_launchers_resets_state(self):
+        from lorairo.gui.tab.search_tab import SearchTabWidget
+
+        crop_launcher = Mock()
+        crop_launcher._closing = True
+        comparison_launcher = Mock()
+        comparison_launcher._dialog = Mock()
+        tab = SimpleNamespace(
+            _crop_dialog_launcher=crop_launcher,
+            _image_comparison_launcher=comparison_launcher,
+            _worker_service=None,
+            _service_container=SimpleNamespace(file_system_manager=Mock()),
+            _dataset_state_manager=Mock(),
+        )
+        db2 = Mock()
+
+        with patch("lorairo.gui.tab.search_tab.ImageComparisonLauncher") as mock_cmp_cls:
+            SearchTabWidget._rebind_crop_and_comparison_launchers(tab, db2)
+
+        crop_launcher.shutdown.assert_called_once()
+        assert crop_launcher._closing is False
+        assert crop_launcher._db_manager is db2
+        comparison_launcher.shutdown.assert_called_once()
+        assert comparison_launcher._dialog is None
+        mock_cmp_cls.assert_called_once_with(db2, tab, tab._dataset_state_manager)
+
+    def test_results_tab_rebind_project_dependencies_clears_retained_cohort(self):
+        from lorairo.gui.tab.results_tab import ResultsTabWidget
+
+        tab = SimpleNamespace(
+            _db_manager=Mock(),
+            _last_cohort_ids=[10, 20],
+            _last_cohort_names={10: "a.png", 20: "b.png"},
+            _annotation_review_widget=Mock(),
+            refresh=Mock(),
+        )
+        db2 = Mock()
+
+        ResultsTabWidget.rebind_project_dependencies(tab, db2)
+
+        assert tab._db_manager is db2
+        assert tab._last_cohort_ids == []
+        assert tab._last_cohort_names == {}
+        tab._annotation_review_widget.set_image_names.assert_called_once_with({})
+        tab._annotation_review_widget.set_image_ids.assert_called_once_with([])
+        tab.refresh.assert_called_once_with()
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

@@ -795,6 +795,16 @@ class TagCloudWidget(QWidget):
         self._build_ui()
         self._show_placeholder()
 
+    def rebind_project_dependencies(self, db_manager: ImageDatabaseManager | None) -> None:
+        """プロジェクト切り替えに伴い DB 接続と TagCloudService を更新する (#1547)。"""
+        if db_manager is None:
+            return
+        self._db = db_manager
+        self._service = TagCloudService(db_manager)
+        self._loaded_once = False
+        self._result = None
+        self._recompute()
+
     # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------

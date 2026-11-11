@@ -301,6 +301,11 @@ if not __name__ == "__main__":
                     "モデル一覧の読み込みに失敗しました。再読み込みしてください。"
                 )
 
+        def set_model_selection_service(self, service: ModelSelectionService) -> None:
+            """ModelSelectionService を差し替えてモデル一覧を再読み込みする (#1547)。"""
+            self.model_selection_service = service
+            self.load_models()
+
         @Slot()
         def refresh_model_registry(self, automatic: bool = False) -> None:
             """image-annotator-libのモデル一覧を更新し、DB表示を再読込する。"""

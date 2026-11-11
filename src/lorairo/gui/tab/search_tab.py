@@ -544,6 +544,8 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             return
 
         self._image_db_write_service = ImageDBWriteService(self._db_manager)
+        if getattr(self, "_write_service_signals_connected", False):
+            return
         widget = self._selected_image_details_widget
         if (
             hasattr(widget, "rating_updated")
@@ -553,6 +555,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             widget.rating_updated.connect(self._on_rating_update_requested)
             widget.score_updated.connect(self._on_score_update_requested)
             widget.save_requested.connect(self._on_save_requested)
+            self._write_service_signals_connected = True
             logger.debug("ImageDBWriteService 編集シグナル接続完了")
         else:
             logger.debug("SelectedImageDetailsWidget は閲覧専用 - 編集シグナル未接続")
@@ -934,6 +937,64 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
     def refresh(self) -> None:
         """タブ表示時の再計算 (results/errors と同型)。"""
         self._update_database_status_label()
+
+    def _rebind_crop_and_comparison_launchers(self, db_manager: ImageDatabaseManager | None) -> None:
+        """クロップ・比較ランチャーを新プロジェクトの依存へ更新する (#1547)。"""
+        if db_manager is not None:
+            crop_launcher = getattr(self, "_crop_dialog_launcher", None)
+            if crop_launcher is not None:
+                crop_launcher.shutdown()
+                crop_launcher._closing = False
+                crop_launcher._db_manager = db_manager
+                worker_fsm = getattr(self._worker_service, "fsm", None)
+                crop_launcher._fsm = (
+                    worker_fsm
+                    if isinstance(worker_fsm, FileSystemManager)
+                    else self._service_container.file_system_manager
+                )
+                crop_launcher.set_merged_reader(db_manager.annotation_repo.peek_merged_reader())
+            elif hasattr(self, "_setup_crop_integration"):
+                self._setup_crop_integration()
+        if getattr(self, "_image_comparison_launcher", None) is not None:
+            self._image_comparison_launcher.shutdown()
+            self._image_comparison_launcher._dialog = None
+            self._image_comparison_launcher._metadata_source = db_manager
+            if db_manager is not None:
+                self._image_comparison_launcher = ImageComparisonLauncher(
+                    db_manager, self, getattr(self, "_dataset_state_manager", None)
+                )
+
+    def rebind_project_dependencies(
+        self,
+        db_manager: ImageDatabaseManager | None,
+        worker_service: WorkerService | None = None,
+    ) -> None:
+        """プロジェクト切り替えに伴い DB 関連の依存を再設定する (#1547)。"""
+        self._db_manager = db_manager
+        if worker_service is not None:
+            self._worker_service = worker_service
+        if getattr(self, "_selected_image_details_widget", None) is not None and db_manager is not None:
+            self._selected_image_details_widget.set_db_manager(db_manager)
+            self._selected_image_details_widget.set_crop_relation_service(CropRelationService(db_manager))
+        if hasattr(self, "_setup_search_filter_integration") and db_manager is not None:
+            try:
+                self._setup_search_filter_integration()
+            except Exception as e:
+                logger.warning(f"SearchFilterService 再設定失敗: {e}")
+        if hasattr(self, "_setup_image_db_write_service"):
+            self._setup_image_db_write_service()
+        if hasattr(self, "reload_annotation_review_service"):
+            self.reload_annotation_review_service()
+        self._rebind_crop_and_comparison_launchers(db_manager)
+        self._refinement_service = self._resolve_refinement_service()
+        if getattr(self, "_selected_image_details_widget", None) is not None and hasattr(
+            self._selected_image_details_widget, "set_refinement_service"
+        ):
+            try:
+                self._selected_image_details_widget.set_refinement_service(self._refinement_service)
+            except Exception as e:
+                logger.warning(f"RefinementService 再設定失敗: {e}")
+        self.refresh()
 
     @Slot(str, str)
     def set_db_info(self, text: str, tooltip: str = "") -> None:

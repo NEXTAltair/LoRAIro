@@ -537,6 +537,31 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
                     "バッチタグ書き込み worker が時間内に停止しませんでした。完了まで参照を保持します"
                 )
 
+    def rebind_project_dependencies(self, db_manager: ImageDatabaseManager | None) -> None:
+        """プロジェクト切り替えに伴い DB 関連の依存を再設定する (#1547)。"""
+        self._db_manager = db_manager
+        self._image_db_write_service = ImageDBWriteService(db_manager) if db_manager else None
+        old_launcher = getattr(self, "_image_comparison_launcher", None)
+        if old_launcher is not None:
+            if getattr(self, "_batch_tag_add_widget", None) is not None:
+                try:
+                    self._batch_tag_add_widget.compare_requested.disconnect(old_launcher.open)
+                except (RuntimeError, TypeError):
+                    pass
+            old_launcher.shutdown()
+            old_launcher.deleteLater()
+        self._image_comparison_launcher = ImageComparisonLauncher(
+            self._db_manager, self, self._dataset_state_manager
+        )
+        if getattr(self, "_batch_tag_add_widget", None) is not None:
+            self._batch_tag_add_widget.compare_requested.connect(self._image_comparison_launcher.open)
+            self._batch_tag_add_widget.set_tag_suggestion_service(self._resolve_tag_suggestion_service())
+        if getattr(self, "_batch_model_selection", None) is not None and db_manager is not None:
+            self._batch_model_selection.set_model_selection_service(
+                ModelSelectionService.create(db_repository=db_manager.model_repo)
+            )
+        self.refresh()
+
     # -- バッチタグ書込 (#896: MainWindow から移送, #1544: 非同期 worker 化) -----
 
     def _execute_batch_tag_write(self, image_ids: list[int], tag: str) -> bool:

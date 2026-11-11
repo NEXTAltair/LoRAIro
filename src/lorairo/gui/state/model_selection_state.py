@@ -10,7 +10,7 @@ hoist し、各 ``ModelSelectionWidget`` は本マネージャを購読する vi
 
 from collections import OrderedDict
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QSettings, Signal
 
 from ...utils.log import logger
 
@@ -25,6 +25,8 @@ class ModelSelectionStateManager(QObject):
     Signals:
         selection_changed: 選択集合が変化したとき、現在の選択 ``list[str]`` を載せて発行。
     """
+
+    SETTINGS_KEY = "annotate/selected_model_ids"
 
     selection_changed = Signal(list)  # list[str] - 選択 litellm_model_id (追加順)
 
@@ -88,3 +90,23 @@ class ModelSelectionStateManager(QObject):
         self._selected.clear()
         logger.debug("選択モデル集合をクリア")
         self.selection_changed.emit([])
+
+    def save_to_settings(self, settings: QSettings | None = None) -> None:
+        """選択中のモデル集合を QSettings に保存する (#1565)。"""
+        target = settings if settings is not None else QSettings()
+        target.setValue(self.SETTINGS_KEY, self.get_selected())
+
+    def restore_from_settings(self, settings: QSettings | None = None) -> list[str]:
+        """QSettings から選択モデル集合を復元する (#1565)。"""
+        target = settings if settings is not None else QSettings()
+        raw = target.value(self.SETTINGS_KEY, [])
+        if raw is None:
+            restored: list[str] = []
+        elif isinstance(raw, str):
+            restored = [raw] if raw else []
+        elif isinstance(raw, (list, tuple)):
+            restored = [str(item) for item in raw if item is not None and str(item)]
+        else:
+            restored = []
+        self.set_selected(restored)
+        return self.get_selected()

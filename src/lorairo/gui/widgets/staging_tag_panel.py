@@ -281,6 +281,16 @@ class StagingTagPanel(QWidget):
     # Public API
     # ------------------------------------------------------------------
 
+    def set_service(self, service: StagingTagAggregationService | None) -> None:
+        """タグ集計サービスを設定/更新する (#1547)。
+
+        Args:
+            service: タグ集計サービス。None で集計を無効化する。
+        """
+        self._service = service
+        if self._image_ids:
+            self.load_tags(self._image_ids)
+
     def set_tag_suggestion_service(self, service: TagSuggestionService | None) -> None:
         """置換先タグ入力欄の補完候補ソースを設定する (Issue #1439)。
 

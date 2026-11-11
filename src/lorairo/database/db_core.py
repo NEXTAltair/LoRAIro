@@ -32,22 +32,50 @@ dir_config = config.get("directories", {})
 # SQLite 書き込みロック競合時の待機時間 (ミリ秒)。GUI/CLI 併用時の一時的な
 # `database is locked` を即時失敗させず、この時間まで再試行待機する (Issue #767)。
 BUSY_TIMEOUT_MS: int = int(db_config.get("busy_timeout_ms", 30000))
+IMG_DB_FILENAME: str = str(db_config.get("image_db_filename", "image_database.db"))
 
 
-def get_project_dir(base_dir_name: str, project_name: str) -> Path:
+def get_project_dir(
+    base_dir_name: str,
+    project_name: str,
+    *,
+    reuse_existing: bool = False,
+) -> Path:
     """プロジェクトディレクトリを生成（任意名前_日付_連番形式）
 
     Args:
         base_dir_name: ベースディレクトリ名 (例: "lorairo_data")
         project_name: プロジェクト名 (例: "main_dataset", "猫画像")
+        reuse_existing: True の場合、既存ディレクトリまたは QSettings の
+            active_project_dir を再利用する (#1547)。
 
     Returns:
-        Path: 生成されたプロジェクトディレクトリパス
+        Path: 生成または再利用されたプロジェクトディレクトリパス
     """
     from datetime import datetime
 
     base_dir = Path(base_dir_name)
     base_dir.mkdir(exist_ok=True)
+
+    if reuse_existing:
+        try:
+            from PySide6.QtCore import QSettings
+
+            active = QSettings().value("project/active_project_dir")
+            if active:
+                active_path = Path(str(active)).resolve()
+                if active_path.is_dir():
+                    logger.info(
+                        f"QSettings のアクティブプロジェクトディレクトリを再利用します: {active_path}"
+                    )
+                    return active_path
+        except Exception:
+            pass
+
+        existing_dir = find_latest_existing_project_dir(base_dir, project_name)
+        if existing_dir is not None:
+            logger.info(f"既存のプロジェクトディレクトリを再利用します: {existing_dir}")
+            return existing_dir
 
     today = datetime.now().strftime("%Y%m%d")
 
@@ -82,6 +110,72 @@ def sanitize_project_name(name: str) -> str:
     # Windows/Linux共通で問題となる文字のみ置換
     invalid_chars = r'[<>:"/\\|?*]'
     return re.sub(invalid_chars, "_", name)
+
+
+def find_latest_existing_project_dir(
+    base_dir: Path,
+    project_name: str,
+    *,
+    require_db: bool = False,
+) -> Path | None:
+    """既存プロジェクトディレクトリ ({project_name}_YYYYMMDD_NNN) のうち最新のものを返す (#1547)。
+
+    Args:
+        base_dir: プロジェクト親ディレクトリ。
+        project_name: プロジェクト名。
+        require_db: True の場合、image_database.db を含むディレクトリのみ対象とする。
+
+    Returns:
+        最新の既存プロジェクトディレクトリ、または存在しない場合は None。
+    """
+    base_path = Path(base_dir)
+    if not base_path.is_dir():
+        return None
+
+    safe_name = sanitize_project_name(project_name)
+    prefix = f"{safe_name}_"
+    candidates: list[tuple[bool, str, int, float, Path]] = []
+    for entry in base_path.iterdir():
+        if not entry.is_dir() or not entry.name.startswith(prefix):
+            continue
+        suffix = entry.name[len(prefix) :]
+        parts = suffix.split("_")
+        if len(parts) != 2 or len(parts[0]) != 8 or not parts[0].isdigit() or not parts[1].isdigit():
+            continue
+        has_db = (entry / IMG_DB_FILENAME).exists()
+        if require_db and not has_db:
+            continue
+        try:
+            mtime = entry.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        candidates.append((has_db, parts[0], int(parts[1]), mtime, entry))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1], item[2], item[3]))
+    return candidates[-1][4]
+
+
+def resolve_project_dir(
+    base_dir: Path,
+    project_name: str,
+    *,
+    create_new: bool = False,
+    require_db: bool = False,
+) -> Path:
+    """プロジェクトディレクトリを解決する (#1547)。
+
+    create_new=False のとき、既存のプロジェクトディレクトリがあれば最新のものを再利用し、
+    存在しない場合のみ新規作成する。create_new=True のときは常に新規連番ディレクトリを作成する。
+    """
+    base_path = Path(base_dir)
+    if not create_new:
+        existing = find_latest_existing_project_dir(base_path, project_name, require_db=require_db)
+        if existing is not None:
+            logger.info(f"既存のプロジェクトディレクトリを再利用します: {existing}")
+            return existing
+    return get_project_dir(str(base_path), project_name)
 
 
 # Get database directory from config, or create new project directory
@@ -119,8 +213,13 @@ def _resolve_auto_project_dir(create: bool) -> Path:
     """Resolve the default auto project directory, creating it only when requested."""
     base_dir_name = dir_config.get("database_base_dir", "lorairo_data")
     project_name = dir_config.get("database_project_name", "main_dataset")
+    existing = find_latest_existing_project_dir(Path(base_dir_name), project_name, require_db=True)
+    if existing is not None:
+        return existing.resolve()
     if create:
-        return get_project_dir(base_dir_name, project_name).resolve()
+        return resolve_project_dir(
+            Path(base_dir_name), project_name, create_new=False, require_db=True
+        ).resolve()
     return _next_project_dir_path(base_dir_name, project_name).resolve()
 
 
@@ -142,9 +241,6 @@ def ensure_default_db_dir() -> Path:
 
 
 DB_DIR = _resolve_configured_db_dir() or _resolve_auto_project_dir(create=False)
-IMG_DB_FILENAME = db_config.get(
-    "image_db_filename", "image_database.db"
-)  # Keep default if not in db_config
 # Note: TAG_DB_PACKAGE and TAG_DB_FILENAME were removed (2026-01-02)
 # Tag databases are now managed via genai-tag-db-tools public API (initialize_databases)
 
