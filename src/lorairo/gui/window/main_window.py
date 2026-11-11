@@ -1335,6 +1335,31 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     except Exception as e:
                         logger.warning(f"Tab rebind failed for {tab}: {e}")
 
+    def _reset_tag_management_dialog_and_notify_tabs(self) -> None:
+        """タグ管理ダイアログを破棄し、各タブのタグDB参照を更新する (#1547)。"""
+        tag_dialog = getattr(self, "tag_management_dialog", None)
+        if tag_dialog is not None:
+            for method_name in ("close", "deleteLater"):
+                fn = getattr(tag_dialog, method_name, None)
+                if callable(fn):
+                    try:
+                        fn()
+                    except Exception:
+                        pass
+            self.tag_management_dialog = None
+        for tab in (
+            getattr(self, "search_tab", None),
+            getattr(self, "annotate_tab", None),
+            getattr(self, "results_tab", None),
+            getattr(self, "export_tab", None),
+        ):
+            on_ready = getattr(tab, "on_tag_db_ready", None)
+            if callable(on_ready):
+                try:
+                    on_ready()
+                except Exception:
+                    pass
+
     def _rebind_project_tabs(self, target_dir: Path) -> None:
         """各タブウィジェットの db_manager と project path を再設定する (#1547)。"""
         db_mgr = getattr(self, "db_manager", None)
@@ -1352,6 +1377,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     rebind_fn(db_mgr, worker_svc)
                 except Exception as e:
                     logger.warning(f"SearchTab rebind failed: {e}")
+
+        MainWindow._reset_tag_management_dialog_and_notify_tabs(self)
 
         if callable(getattr(self, "_reload_results_annotation_review_service", None)):
             try:

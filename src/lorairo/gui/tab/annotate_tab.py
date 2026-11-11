@@ -249,7 +249,10 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         """
         # 初期化は起動しない (#1438)。未準備なら補完なしで始め、on_tag_db_ready() で後付けする。
         try:
-            merged_reader = self._service_container.db_manager.annotation_repo.peek_merged_reader()
+            db_mgr = (
+                self._db_manager if self._db_manager is not None else self._service_container.db_manager
+            )
+            merged_reader = db_mgr.annotation_repo.peek_merged_reader() if db_mgr is not None else None
         except (AttributeError, RuntimeError) as e:
             logger.warning(f"MergedTagReader 取得に失敗 (タグ補完なしで継続): {e}")
             return None

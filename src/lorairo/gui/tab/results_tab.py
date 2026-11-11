@@ -174,6 +174,9 @@ class ResultsTabWidget(QWidget):
         self._last_cohort_names = {}
         self._annotation_review_widget.set_image_names({})
         self._annotation_review_widget.set_image_ids([])
+        on_ready = getattr(self, "on_tag_db_ready", None)
+        if callable(on_ready):
+            on_ready()
         self.refresh()
 
     def closeEvent(self, event: QCloseEvent) -> None:

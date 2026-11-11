@@ -480,8 +480,11 @@ class ServiceContainer:
         from sqlalchemy import text
 
         old_db_dir = db_core.DB_DIR
+        old_default_materialized = db_core._default_db_dir_materialized
         old_img_db_path = db_core.IMG_DB_PATH
         old_database_url = db_core.DATABASE_URL
+        old_tag_db_initialized = db_core._tag_db_initialized
+        old_user_tag_db_path = db_core.USER_TAG_DB_PATH
         old_repo = self._image_repository
         old_db_manager = self._db_manager
         old_dataset_export = self._dataset_export_service
@@ -490,6 +493,12 @@ class ServiceContainer:
         old_annotation_save = self._annotation_save_service
         old_provider_batch = self._provider_batch_workflow_service
         old_refinement = self._refinement_service
+        old_tag_management = self._tag_management_service
+        old_merged_reader_ready = (
+            old_db_manager is not None
+            and getattr(old_db_manager, "annotation_repo", None) is not None
+            and old_db_manager.annotation_repo.peek_merged_reader() is not None
+        )
 
         try:
             # 既存プロジェクトや直前呼び出しの SQLAlchemy Engine を先に破棄して
@@ -497,10 +506,13 @@ class ServiceContainer:
             self._dispose_active_engines()
 
             db_core.DB_DIR = project_path
+            db_core._default_db_dir_materialized = True
             db_core.IMG_DB_PATH = db_path
             db_core.DATABASE_URL = f"sqlite:///{db_path.resolve()}?check_same_thread=False"
             db_core._resolve_cache.clear()
             db_core._resolve_cache_root = None
+            db_core._tag_db_initialized = False
+            db_core.USER_TAG_DB_PATH = None
 
             session_factory = create_project_session_factory(db_path)
             with session_factory() as session:
@@ -521,12 +533,28 @@ class ServiceContainer:
             # refinement ignore は project DB に保存するため、切替後はアクティブ DB の
             # session factory で作り直す (#931 Codex P2)。
             self._refinement_service = None
+            self._tag_management_service = None
+
+            if old_tag_db_initialized or old_tag_management is not None or old_merged_reader_ready:
+                try:
+                    ensure_tag_db_initialized()
+                    if old_tag_db_initialized or old_merged_reader_ready:
+                        self.db_manager.annotation_repo.get_merged_reader()
+                    if old_tag_db_initialized or old_tag_management is not None:
+                        _ = self.tag_management_service
+                except Exception as e:
+                    logger.warning(
+                        f"プロジェクト切替時のタグDB再初期化に失敗 (遅延初期化へフォールバック): {e}"
+                    )
 
             logger.info(f"アクティブプロジェクトディレクトリ切替: {project_path} -> {db_path}")
         except Exception:
             db_core.DB_DIR = old_db_dir
+            db_core._default_db_dir_materialized = old_default_materialized
             db_core.IMG_DB_PATH = old_img_db_path
             db_core.DATABASE_URL = old_database_url
+            db_core._tag_db_initialized = old_tag_db_initialized
+            db_core.USER_TAG_DB_PATH = old_user_tag_db_path
             db_core._resolve_cache.clear()
             db_core._resolve_cache_root = None
             self._image_repository = old_repo
@@ -537,6 +565,7 @@ class ServiceContainer:
             self._annotation_save_service = old_annotation_save
             self._provider_batch_workflow_service = old_provider_batch
             self._refinement_service = old_refinement
+            self._tag_management_service = old_tag_management
             raise
 
     def set_active_project(self, project_name: str) -> None:

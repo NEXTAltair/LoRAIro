@@ -229,12 +229,12 @@ _default_db_dir_materialized: bool = False
 def ensure_default_db_dir() -> Path:
     """Ensure and return the default DB directory for explicit default DB use."""
     global _default_db_dir_materialized
+    if _default_db_dir_materialized:
+        return DB_DIR
     configured_dir = _resolve_configured_db_dir()
     if configured_dir is not None:
         configured_dir.mkdir(parents=True, exist_ok=True)
         return configured_dir
-    if _default_db_dir_materialized:
-        return DB_DIR
     materialized_dir = _resolve_auto_project_dir(create=True)
     _default_db_dir_materialized = True
     return materialized_dir
@@ -390,11 +390,41 @@ def ensure_tag_db_initialized() -> None:
         _ensure_tag_db_initialized_locked()
 
 
+def _dispose_previous_tag_user_engine() -> None:
+    """タグDB再初期化前に既存の user engine があれば破棄する。"""
+    try:
+        from genai_tag_db_tools.db import runtime as tag_db_runtime
+
+        old_user_engine = getattr(tag_db_runtime, "_user_engine", None)
+        if old_user_engine is not None and callable(getattr(old_user_engine, "dispose", None)):
+            old_user_engine.dispose()
+    except Exception:
+        pass
+
+
+def _resolve_tag_db_target_directory(
+    selected: Any,
+    scope: _TagDatabaseScope | None,
+) -> Path | None:
+    """タグDB初期化先ディレクトリを解決する。初期化済みなら None を返す。"""
+    global DB_DIR
+    if selected is not None:
+        if scope is None:
+            raise RuntimeError("Explicit configuration requires a tag database scope")
+        target_directory = get_tag_database_directory()
+        return None if scope.initialized_directory == target_directory else target_directory
+    if not _default_db_dir_materialized:
+        DB_DIR = ensure_default_db_dir()
+    if _tag_db_initialized and USER_TAG_DB_PATH == DB_DIR / "user_tags.sqlite":
+        return None
+    return DB_DIR
+
+
 def _ensure_tag_db_initialized_locked() -> None:
     """``ensure_tag_db_initialized`` の本体 (``_TAG_DB_INIT_LOCK`` 保持下で呼ぶ)。"""
     import os
 
-    global _tag_db_initialized, DB_DIR, USER_TAG_DB_PATH
+    global _tag_db_initialized, USER_TAG_DB_PATH
     selected = get_runtime_configuration()
     scope = _TAG_DATABASE_SCOPE.get()
     from .access_policy import is_read_only
@@ -406,22 +436,15 @@ def _ensure_tag_db_initialized_locked() -> None:
             "Read-only tag access requires an isolated configuration scope",
             reason="tag_database_scope_required",
         )
-    if selected is not None:
-        if scope is None:
-            raise RuntimeError("Explicit configuration requires a tag database scope")
-        target_directory = get_tag_database_directory()
-        if scope.initialized_directory == target_directory:
-            return
-    else:
-        if _tag_db_initialized:
-            return
-        DB_DIR = ensure_default_db_dir()
-        target_directory = DB_DIR
+    target_directory = _resolve_tag_db_target_directory(selected, scope)
+    if target_directory is None:
+        return
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
 
     from genai_tag_db_tools import ReadOnlyDatabaseError, initialize_databases
 
     try:
+        _dispose_previous_tag_user_engine()
         logger.info("Initializing genai-tag-db-tools databases...")
         results = initialize_databases(
             user_db_dir=target_directory,

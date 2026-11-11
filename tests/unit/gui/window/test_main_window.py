@@ -923,6 +923,54 @@ class TestMainWindowWave5Features:
         tab._annotation_review_widget.set_image_ids.assert_called_once_with([])
         tab.refresh.assert_called_once_with()
 
+    def test_set_active_project_directory_switches_project_user_tag_db(self, tmp_path):
+        import lorairo.database.db_core as db_core
+        from lorairo.services.service_container import ServiceContainer
+
+        proj_a = tmp_path / "proj_a"
+        proj_b = tmp_path / "proj_b"
+        proj_a.mkdir()
+        proj_b.mkdir()
+
+        container = ServiceContainer()
+        old_db_dir = db_core.DB_DIR
+        old_default_mat = db_core._default_db_dir_materialized
+        old_img_path = db_core.IMG_DB_PATH
+        old_url = db_core.DATABASE_URL
+        old_tag_init = db_core._tag_db_initialized
+        old_user_path = db_core.USER_TAG_DB_PATH
+        old_tag_mgmt = container._tag_management_service
+        try:
+            with (
+                patch("genai_tag_db_tools.initialize_databases", return_value=[Mock()]) as mock_init_db,
+                patch("lorairo.services.tag_management_service.TagManagementService") as mock_tms_cls,
+                patch.object(container, "_dispose_active_engines"),
+                patch.object(container.file_system_manager, "initialize"),
+            ):
+                tms_a = Mock(name="tms_a")
+                tms_b = Mock(name="tms_b")
+                mock_tms_cls.side_effect = [tms_a, tms_b]
+
+                container.set_active_project_directory(proj_a)
+                assert container.tag_management_service is tms_a
+                assert db_core._tag_db_initialized is True
+                assert db_core.USER_TAG_DB_PATH == proj_a.resolve() / "user_tags.sqlite"
+
+                container.set_active_project_directory(proj_b)
+                assert db_core._tag_db_initialized is True
+                assert db_core.USER_TAG_DB_PATH == proj_b.resolve() / "user_tags.sqlite"
+                assert container.peek_tag_management_service() is tms_b
+                assert mock_init_db.call_count == 2
+                assert mock_init_db.call_args_list[-1].kwargs["user_db_dir"] == proj_b.resolve()
+        finally:
+            db_core.DB_DIR = old_db_dir
+            db_core._default_db_dir_materialized = old_default_mat
+            db_core.IMG_DB_PATH = old_img_path
+            db_core.DATABASE_URL = old_url
+            db_core._tag_db_initialized = old_tag_init
+            db_core.USER_TAG_DB_PATH = old_user_path
+            container._tag_management_service = old_tag_mgmt
+
 
 if __name__ == "__main__":
     pytest.main([__file__])

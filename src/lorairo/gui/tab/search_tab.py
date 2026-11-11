@@ -264,12 +264,18 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         service = self._service_container.peek_tag_management_service()
         if service is None:
             logger.debug("TagManagementService 未準備 - タグ DB 準備完了後に配線する")
+            if getattr(self._selected_image_details_widget, "_tag_management_service", None) is not None:
+                self._selected_image_details_widget.set_tag_management_service(None)
             return
         self._selected_image_details_widget.set_tag_management_service(service)
 
     def on_tag_db_ready(self) -> None:
         """背景で tag DB の準備が終わった後に、翻訳/補完/タグ管理/クロップ導線へ後付け注入する (#1438)。"""
-        merged_reader = self._service_container.db_manager.annotation_repo.peek_merged_reader()
+        merged_reader = (
+            self._db_manager.annotation_repo.peek_merged_reader()
+            if self._db_manager is not None
+            else self._service_container.db_manager.annotation_repo.peek_merged_reader()
+        )
         self._apply_merged_reader(merged_reader)
         self._wire_tag_management_service()
         self._filter_search_panel.refresh_tag_suggestion_reader()
@@ -964,6 +970,20 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
                     db_manager, self, getattr(self, "_dataset_state_manager", None)
                 )
 
+    def _rebind_tag_db_dependencies(self, db_manager: ImageDatabaseManager | None) -> None:
+        """プロジェクト切り替え時にタグDBリーダー・管理サービス・補完を更新する (#1547)。"""
+        merged_reader = (
+            db_manager.annotation_repo.peek_merged_reader()
+            if db_manager is not None and getattr(db_manager, "annotation_repo", None) is not None
+            else None
+        )
+        if callable(getattr(self, "_apply_merged_reader", None)):
+            self._apply_merged_reader(merged_reader)
+        if callable(getattr(self, "_wire_tag_management_service", None)):
+            self._wire_tag_management_service()
+        if hasattr(self, "_filter_search_panel") and self._filter_search_panel is not None:
+            self._filter_search_panel.refresh_tag_suggestion_reader()
+
     def rebind_project_dependencies(
         self,
         db_manager: ImageDatabaseManager | None,
@@ -986,6 +1006,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         if hasattr(self, "reload_annotation_review_service"):
             self.reload_annotation_review_service()
         self._rebind_crop_and_comparison_launchers(db_manager)
+        SearchTabWidget._rebind_tag_db_dependencies(self, db_manager)
         self._refinement_service = self._resolve_refinement_service()
         if getattr(self, "_selected_image_details_widget", None) is not None and hasattr(
             self._selected_image_details_widget, "set_refinement_service"
