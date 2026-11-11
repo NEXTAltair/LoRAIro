@@ -8,11 +8,15 @@ SearchCriteriaProcessor - 検索・フィルタリングビジネスロジック
 from __future__ import annotations
 
 import re
+import threading
+import weakref
+from collections import OrderedDict
 from collections.abc import Callable
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from loguru import logger
+from sqlalchemy.exc import SQLAlchemyError
 
 from ..database.db_manager import ImageDatabaseManager
 from .search_models import SearchConditions
@@ -20,56 +24,127 @@ from .search_models import SearchConditions
 if TYPE_CHECKING:
     from genai_tag_db_tools.db.repository import MergedTagReader
 
+# Issue #1541: 短語の部分一致展開で SQLite の式木上限 (1000) を超えないための上限と LRU キャッシュ設定
+MAX_EXPANDED_TAGS: int = 500
+TAG_EXPANSION_CACHE_MAX_SIZE: int = 256
+_TAG_CACHE_EPOCH: int = 0
+
+
+def _parse_tag_keyword(keyword: str) -> tuple[str, bool]:
+    """検索キーワードからクエリ文字列と partial (部分一致) フラグを抽出する。"""
+    stripped = keyword.strip()
+    if stripped.startswith('"') and stripped.endswith('"') and len(stripped) > 1:
+        return stripped[1:-1], False
+    return stripped, True
+
+
+def _resolve_effective_max_expanded_tags(max_expanded_tags: int | None) -> int:
+    """展開タグ上限の設定値を解決する。"""
+    if max_expanded_tags is not None:
+        return max_expanded_tags
+    if SearchCriteriaProcessor.MAX_EXPANDED_TAGS != 500:
+        return SearchCriteriaProcessor.MAX_EXPANDED_TAGS
+    return MAX_EXPANDED_TAGS
+
+
+def _expand_single_keyword(
+    merged_reader: MergedTagReader,
+    keyword: str,
+    effective_limit: int,
+    max_expanded_tags: int,
+) -> tuple[str, ...]:
+    """単一キーワードの正規タグ候補を LRU キャッシュ経由で取得する (#1541)。"""
+    query_text, is_partial = _parse_tag_keyword(keyword)
+    if not query_text:
+        return ()
+
+    cache_key = (query_text.lower(), is_partial, effective_limit, _TAG_CACHE_EPOCH)
+    cached_tags = SearchCriteriaProcessor._get_cached_expansion(cache_key)
+    if cached_tags is not None:
+        return cached_tags
+
+    from genai_tag_db_tools import search_tags
+    from genai_tag_db_tools.models import TagSearchRequest
+
+    try:
+        request = TagSearchRequest(
+            query=query_text,
+            partial=is_partial,
+            resolve_preferred=True,
+            include_aliases=True,
+            include_deprecated=False,
+            limit=effective_limit,
+        )
+        result = search_tags(merged_reader, request)
+    except Exception as e:
+        # tag DB 障害は検索全体を止めず縮退させる (元キーワードのみで検索継続)
+        logger.debug(f"タグ翻訳解決に失敗 (keyword='{keyword}'): {e}")
+        return ()
+
+    per_kw_tags: list[str] = []
+    per_kw_seen: set[str] = set()
+    for item in result.items:
+        canonical = item.tag
+        if canonical and canonical.lower() not in per_kw_seen:
+            per_kw_tags.append(canonical)
+            per_kw_seen.add(canonical.lower())
+            if len(per_kw_tags) >= max_expanded_tags:
+                break
+
+    cached_tags = tuple(per_kw_tags)
+    SearchCriteriaProcessor._put_cached_expansion(cache_key, cached_tags)
+    return cached_tags
+
 
 def resolve_tag_search_targets(
     merged_reader: MergedTagReader | None,
     keywords: list[str],
     *,
     limit_per_keyword: int = 20,
+    max_expanded_tags: int | None = None,
 ) -> list[str]:
-    """入力キーワードを翻訳解決し、元キーワード + 翻訳ヒットした正規タグ名を返す (#1094)。
+    """入力キーワードを翻訳解決し、元キーワード + 翻訳ヒットした正規タグ名を返す (#1094, #1541)。
 
     日本語などの入力キーワードを genai_tag_db_tools の ``search_tags()`` に通し、
     翻訳テーブル経由でヒットした正規タグ名を検索対象に追加する。英語直接マッチは
     元キーワードをそのまま残すことで維持する。``merged_reader`` が None (tag DB 不在)
     の場合は元キーワードのみを返してグレースフルデグラデーションする。
 
+    同一キーワードの展開結果は ``SearchCriteriaProcessor`` の有界 LRU キャッシュに保持し、
+    件数見積もりと検索本体の二重展開を防ぐ。また展開タグ数は ``max_expanded_tags``
+    (既定 ``MAX_EXPANDED_TAGS = 500``) で上限を設ける (#1541)。
+
     Args:
         merged_reader: genai-tag-db-tools の MergedTagReader。None 可。
         keywords: 検索入力キーワード。
         limit_per_keyword: 1 キーワードあたりの翻訳解決取得上限。
+        max_expanded_tags: 展開タグ数の上限。None なら ``MAX_EXPANDED_TAGS``。
 
     Returns:
         元キーワードと翻訳ヒット正規タグ名を重複排除して結合したリスト。
     """
     resolved: list[str] = list(keywords)
-    if merged_reader is None or not keywords:
+    effective_max = _resolve_effective_max_expanded_tags(max_expanded_tags)
+    if merged_reader is None or not keywords or effective_max <= 0:
         return resolved
 
-    from genai_tag_db_tools import search_tags
-    from genai_tag_db_tools.models import TagSearchRequest
+    SearchCriteriaProcessor._ensure_cache_reader(merged_reader)
+    effective_limit = min(limit_per_keyword, effective_max)
 
     seen = {kw.lower() for kw in resolved}
+    expanded_count = 0
     for keyword in keywords:
-        try:
-            request = TagSearchRequest(
-                query=keyword,
-                partial=True,
-                resolve_preferred=True,
-                include_aliases=True,
-                include_deprecated=False,
-                limit=limit_per_keyword,
-            )
-            result = search_tags(merged_reader, request)
-        except Exception as e:
-            # tag DB 障害は検索全体を止めず縮退させる (元キーワードのみで検索継続)
-            logger.debug(f"タグ翻訳解決に失敗 (keyword='{keyword}'): {e}")
-            continue
-        for item in result.items:
-            canonical = item.tag
-            if canonical and canonical.lower() not in seen:
-                resolved.append(canonical)
-                seen.add(canonical.lower())
+        if expanded_count >= effective_max:
+            break
+        _, is_partial = _parse_tag_keyword(keyword)
+        for canonical in _expand_single_keyword(merged_reader, keyword, effective_limit, effective_max):
+            if expanded_count >= effective_max:
+                break
+            formatted = canonical if is_partial else f'"{canonical}"'
+            if formatted.lower() not in seen:
+                resolved.append(formatted)
+                seen.add(formatted.lower())
+                expanded_count += 1
 
     if len(resolved) > len(keywords):
         logger.debug(f"タグ翻訳解決: {keywords} -> {resolved}")
@@ -121,6 +196,12 @@ class SearchCriteriaProcessor:
     - 検索パフォーマンスの最適化
     """
 
+    MAX_EXPANDED_TAGS: ClassVar[int] = MAX_EXPANDED_TAGS
+    TAG_EXPANSION_CACHE_MAX_SIZE: ClassVar[int] = TAG_EXPANSION_CACHE_MAX_SIZE
+    _tag_expansion_cache: ClassVar[OrderedDict[tuple[str, bool, int], tuple[str, ...]]] = OrderedDict()
+    _tag_expansion_cache_reader_ref: ClassVar[weakref.ReferenceType[Any] | None] = None
+    _TAG_SEARCH_CACHE_LOCK: ClassVar[threading.RLock] = threading.RLock()
+
     def __init__(self, db_manager: ImageDatabaseManager):
         """
         SearchCriteriaProcessorを初期化
@@ -129,7 +210,69 @@ class SearchCriteriaProcessor:
             db_manager: データベース操作用のImageDatabaseManager
         """
         self.db_manager = db_manager
+        self._tag_resolver: Callable[[list[str]], list[str]] | None = None
         logger.debug("SearchCriteriaProcessor initialized")
+
+    _tag_cache_epoch: ClassVar[int] = 0
+
+    @classmethod
+    def clear_cache(cls) -> None:
+        """タグ展開キャッシュをクリアする (#1541)。"""
+        with cls._TAG_SEARCH_CACHE_LOCK:
+            cls._tag_expansion_cache.clear()
+            cls._tag_expansion_cache_reader_ref = None
+
+    @classmethod
+    def invalidate_tag_search_cache(cls) -> None:
+        """タグ展開キャッシュを無効化する (#1541)。"""
+        global _TAG_CACHE_EPOCH
+        with cls._TAG_SEARCH_CACHE_LOCK:
+            _TAG_CACHE_EPOCH += 1
+            cls._tag_cache_epoch = _TAG_CACHE_EPOCH
+            cls.clear_cache()
+
+    @classmethod
+    def _ensure_cache_reader(cls, merged_reader: MergedTagReader) -> None:
+        """キャッシュ対象の MergedTagReader が切り替わった場合はキャッシュを無効化する。"""
+        with cls._TAG_SEARCH_CACHE_LOCK:
+            current_reader = (
+                cls._tag_expansion_cache_reader_ref()
+                if cls._tag_expansion_cache_reader_ref is not None
+                else None
+            )
+            if current_reader is not merged_reader:
+                cls._tag_expansion_cache.clear()
+                try:
+                    cls._tag_expansion_cache_reader_ref = weakref.ref(merged_reader)
+                except TypeError:
+                    cls._tag_expansion_cache_reader_ref = None
+
+    @classmethod
+    def _normalize_cache_key(cls, key: tuple[Any, ...]) -> tuple[Any, ...]:
+        if len(key) == 3:
+            return (*key, _TAG_CACHE_EPOCH)
+        return key
+
+    @classmethod
+    def _get_cached_expansion(cls, key: tuple[Any, ...]) -> tuple[str, ...] | None:
+        """LRU キャッシュからタグ展開結果を取得する。"""
+        with cls._TAG_SEARCH_CACHE_LOCK:
+            norm_key = cls._normalize_cache_key(key)
+            cached = cls._tag_expansion_cache.get(norm_key)
+            if cached is not None:
+                cls._tag_expansion_cache.move_to_end(norm_key)
+            return cached
+
+    @classmethod
+    def _put_cached_expansion(cls, key: tuple[Any, ...], value: tuple[str, ...]) -> None:
+        """LRU キャッシュへタグ展開結果を保存し、上限超過時は最古エントリを破棄する。"""
+        with cls._TAG_SEARCH_CACHE_LOCK:
+            norm_key = cls._normalize_cache_key(key)
+            cls._tag_expansion_cache[norm_key] = value
+            cls._tag_expansion_cache.move_to_end(norm_key)
+            max_size = cls.TAG_EXPANSION_CACHE_MAX_SIZE
+            while len(cls._tag_expansion_cache) > max_size:
+                cls._tag_expansion_cache.popitem(last=False)
 
     def execute_search_with_filters(self, conditions: SearchConditions) -> tuple[list[dict[str, Any]], int]:
         """
@@ -171,13 +314,19 @@ class SearchCriteriaProcessor:
             )
             return images, reported_count
 
+        except SQLAlchemyError as e:
+            # 下位層 (ImageRepository) で既にエラーログ出力済みのため重複 ERROR ログを避ける (#1541)
+            logger.debug(f"検索実行中にDBエラーが発生しました: {e}")
+            raise
         except Exception as e:
             logger.opt(exception=True).error(f"検索実行中にエラーが発生しました: {e}")
             raise
 
     def _build_tag_resolver(self) -> Callable[[list[str]], list[str]]:
         """db_manager の MergedTagReader を束縛したタグ翻訳解決コールバックを返す (#1094)。"""
-        return build_tag_resolver(self.db_manager)
+        if self._tag_resolver is None:
+            self._tag_resolver = build_tag_resolver(self.db_manager)
+        return self._tag_resolver
 
     def process_date_filter(self, conditions: SearchConditions) -> dict[str, Any]:
         """

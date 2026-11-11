@@ -50,6 +50,9 @@ class _CountEstimateTask(QRunnable):
         except Exception as e:
             self._emit_failed_safely(str(e))
             return
+        if not isinstance(estimated_count, int) or isinstance(estimated_count, bool) or estimated_count < 0:
+            self._emit_failed_safely("件数見積もりの取得に失敗しました")
+            return
         self._emit_finished_safely(estimated_count)
 
     def _emit_finished_safely(self, estimated_count: int) -> None:

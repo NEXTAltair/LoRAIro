@@ -455,18 +455,51 @@ class TestSearchFilterServiceGetEstimatedCount:
         assert criteria.keyword_groups[0].tag_terms == ["cat"]
         assert criteria.excluded_tags == ["dog"]
 
-    def test_get_estimated_count_returns_zero_on_error(self):
-        """DB エラー時は 0 を返す（例外を伝播しない）"""
-        from unittest.mock import Mock
+    def test_get_estimated_count_propagates_error_without_duplicate_error_log(self):
+        """DB エラー時は 0件に丸めず例外を送出し、ERROR 二重ログを出さない (#1541)"""
+        from unittest.mock import Mock, patch
+
+        from lorairo.gui.services import search_filter_service
 
         mock_db_manager = Mock()
         mock_db_manager.get_images_count_only.side_effect = RuntimeError("DB error")
         service = SearchFilterService(db_manager=mock_db_manager, model_selection_service=Mock())
         conditions = SearchConditions(search_type="tags", keywords=["tag"], tag_logic="and")
 
-        count = service.get_estimated_count(conditions)
+        with (
+            patch.object(search_filter_service.logger, "error") as mock_error,
+            pytest.raises(RuntimeError, match="DB error"),
+        ):
+            service.get_estimated_count(conditions)
 
-        assert count == 0
+        mock_error.assert_not_called()
+
+    def test_get_estimated_count_shares_tag_expansion_cache_with_search(self):
+        """件数見積もりと検索実行で同一キーワードのタグ展開キャッシュを共有する (#1541)"""
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+
+        from lorairo.services.search_criteria_processor import SearchCriteriaProcessor
+
+        SearchCriteriaProcessor.clear_cache()
+        reader = Mock()
+        mock_db_manager = Mock()
+        mock_db_manager.annotation_repo.get_merged_reader.return_value = reader
+        mock_db_manager.get_images_count_only.return_value = 5
+        mock_db_manager.get_images_by_filter.return_value = ([], 0)
+
+        service = SearchFilterService(db_manager=mock_db_manager, model_selection_service=Mock())
+        conditions = SearchConditions(search_type="tags", keywords=["犬"], tag_logic="and")
+        result = SimpleNamespace(items=[SimpleNamespace(tag="dog")])
+
+        with patch("genai_tag_db_tools.search_tags", return_value=result) as mock_search_tags:
+            count = service.get_estimated_count(conditions)
+            images, total = SearchCriteriaProcessor(mock_db_manager).execute_search_with_filters(conditions)
+
+        assert count == 5
+        assert (images, total) == ([], 0)
+        # 件数見積もりと検索本体の 2 経路を跨いでも search_tags は 1 回のみ呼ばれる
+        assert mock_search_tags.call_count == 1
 
 
 class TestSearchFilterServiceAnnotation:

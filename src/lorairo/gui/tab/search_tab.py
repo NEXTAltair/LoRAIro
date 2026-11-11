@@ -336,6 +336,8 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             self._invalidate_review_badges(image_ids)
             self._review_load_timer.start()
             if self._filter_search_panel.get_current_conditions().get("annotation_review_warnings_only"):
+                if self._worker_service is not None:
+                    self._worker_service.invalidate_search_generation()
                 self._review_search_timer.start()
 
     @Slot(list)
@@ -349,6 +351,8 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         if not cached_image_ids and self._filter_search_panel.get_current_conditions().get(
             "annotation_review_warnings_only"
         ):
+            if self._worker_service is not None:
+                self._worker_service.invalidate_search_generation()
             self._review_search_timer.start()
 
     @Slot(list)

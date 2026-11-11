@@ -303,6 +303,33 @@ class TestTagManagementService:
             mock_write.assert_called_once_with(service.repository, 42, "ja", "少女")
             mock_pref.assert_called_once_with(service.repository, 42, "ja", "少女")
 
+    def test_translation_mutations_invalidate_tag_search_cache(self, service: TagManagementService) -> None:
+        """add/delete/suppress_translation 成功時に SearchCriteriaProcessor のキャッシュが無効化される (#1541)。"""
+        from lorairo.services.search_criteria_processor import SearchCriteriaProcessor
+
+        with (
+            patch("lorairo.services.tag_management_service.write_user_translation"),
+            patch("lorairo.services.tag_management_service.set_preferred_translation"),
+            patch.object(SearchCriteriaProcessor, "invalidate_tag_search_cache") as mock_inval,
+        ):
+            service.add_translation(tag_id=42, language="ja", translation="少女")
+            mock_inval.assert_called_once()
+
+        with (
+            patch("lorairo.services.tag_management_service.delete_user_translation", return_value=True),
+            patch.object(SearchCriteriaProcessor, "invalidate_tag_search_cache") as mock_inval,
+        ):
+            deleted = service.delete_translation(tag_id=42, language="ja", translation="少女")
+            assert deleted is True
+            mock_inval.assert_called_once()
+
+        with (
+            patch("lorairo.services.tag_management_service.suppress_translation"),
+            patch.object(SearchCriteriaProcessor, "invalidate_tag_search_cache") as mock_inval,
+        ):
+            service.suppress_translation(tag_id=42, language="ja", translation="少女")
+            mock_inval.assert_called_once()
+
     def test_list_translation_candidates_returns_candidates_and_preferred(
         self, service: TagManagementService
     ) -> None:

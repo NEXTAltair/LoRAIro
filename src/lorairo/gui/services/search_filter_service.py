@@ -434,7 +434,12 @@ class SearchFilterService:
         return self.current_conditions
 
     def get_estimated_count(self, conditions: SearchConditions) -> int:
-        """現在の検索条件に対する概算件数を取得する。"""
+        """現在の検索条件に対する概算件数を取得する。
+
+        Raises:
+            Exception: DB 検索や件数集計でエラーが発生した場合。
+                呼び出し元 (CountEstimateWidget 等) が 0 件と取得失敗を区別できるよう再送出する (#1541)。
+        """
         try:
             if conditions.annotation_review_warnings_only:
                 if self._review_service is None or self._review_store is None:
@@ -450,8 +455,10 @@ class SearchFilterService:
             criteria = conditions.to_filter_criteria(tag_resolver=tag_resolver)
             return self.db_manager.get_images_count_only(criteria=criteria)
         except Exception as e:
-            logger.opt(exception=True).error(f"概算件数の取得中にエラーが発生しました: {e}")
-            return 0
+            # 下位層 (ImageRepository) で既にエラーログ出力済みのため重複 ERROR ログを避け、
+            # 0 件と取得失敗を区別できるよう呼び出し元へ再送出する (#1541)。
+            logger.debug(f"概算件数の取得中にエラーが発生しました: {e}")
+            raise
 
     def filter_models_by_criteria(
         self,
