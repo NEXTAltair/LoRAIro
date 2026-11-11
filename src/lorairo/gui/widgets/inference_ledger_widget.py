@@ -137,14 +137,14 @@ class InferenceLedgerWidget(DsCard):
         self._multi_note_label = QLabel(_MULTI_NOTE_TEXT, body)
         self._multi_note_label.setObjectName("ledgerMultiNote")
         self._multi_note_label.setStyleSheet(
-            f"color: {theme.INK_FAINT}; font-size: {theme.FONT_SIZE_META}px;"
+            f"color: {theme.INK_MUTED}; font-size: {theme.FONT_SIZE_META}px;"
         )
         body_layout.addWidget(self._multi_note_label)
 
         # プレースホルダ (モデル未選択時)
         self._placeholder_label = QLabel(_PLACEHOLDER_TEXT, body)
         self._placeholder_label.setObjectName("ledgerPlaceholderLabel")
-        self._placeholder_label.setStyleSheet(f"color: {theme.INK_FAINT};")
+        self._placeholder_label.setStyleSheet(f"color: {theme.INK_MUTED};")
         body_layout.addWidget(self._placeholder_label)
 
         body_layout.addStretch(1)

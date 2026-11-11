@@ -94,11 +94,11 @@ class DsSummaryStat(QFrame):
         )
         layout.addWidget(self._value_widget)
 
-        # --- sub: 任意サブテキスト (mono / INK_FAINT)、None なら非表示 ---
+        # --- sub: 任意サブテキスト (mono / INK_MUTED)、None なら非表示 ---
         self._sub_widget = QLabel(self)
         self._sub_widget.setObjectName("summaryStatSub")
         self._sub_widget.setStyleSheet(
-            f"color: {theme.INK_FAINT};"
+            f"color: {theme.INK_MUTED};"
             f" font-size: {theme.FONT_SIZE_SMALL}px;"
             f" font-family: {theme.FONT_MONO_CSS};"
         )

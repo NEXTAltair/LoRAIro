@@ -63,7 +63,7 @@ def _ai_rating_chip_qss(active: bool) -> str:
             f" font-size: {theme.FONT_SIZE_SMALL}px; font-weight: {theme.FONT_WEIGHT_SEMIBOLD}; }}"
         )
     return (
-        f"QLabel {{ background-color: transparent; color: {theme.INK_FAINT};"
+        f"QLabel {{ background-color: transparent; color: {theme.INK_MUTED};"
         f" border: {theme.BORDER_WIDTH}px solid transparent;"
         f" border-radius: {theme.RADIUS_BADGE}px; padding: 1px 8px;"
         f" font-size: {theme.FONT_SIZE_SMALL}px; }}"

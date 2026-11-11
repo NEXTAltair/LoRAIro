@@ -200,6 +200,7 @@ class _DrillChip(QWidget):
         layout.addWidget(name)
         close_btn = QPushButton("✕")
         close_btn.setFixedSize(16, 16)
+        close_btn.setToolTip(f"{self._tag} を除外から外す")
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.setStyleSheet(
             f"QPushButton{{border:none;background:transparent;color:{theme.ACCENT_HOVER};}}"

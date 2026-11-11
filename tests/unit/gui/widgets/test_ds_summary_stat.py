@@ -98,7 +98,7 @@ class TestDsSummaryStatSub:
 
     def test_sub_uses_ink_faint_color(self, make_stat):
         w = make_stat(sub="補助情報")
-        assert theme.INK_FAINT in w._sub_widget.styleSheet()
+        assert theme.INK_MUTED in w._sub_widget.styleSheet()
 
     def test_sub_uses_mono_font(self, make_stat):
         w = make_stat(sub="補助情報")

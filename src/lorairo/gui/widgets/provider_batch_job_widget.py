@@ -184,7 +184,7 @@ class ProviderBatchJobWidget(QWidget):
         self.labelMonitorOnlyHint.setObjectName("labelProviderBatchMonitorOnlyHint")
         self.labelMonitorOnlyHint.setWordWrap(True)
         self.labelMonitorOnlyHint.setStyleSheet(
-            f"QLabel {{ color: {theme.INK_FAINT}; font-size: 10px; font-family: {theme.FONT_MONO_CSS}; }}"
+            f"QLabel {{ color: {theme.INK_MUTED}; font-size: 10px; font-family: {theme.FONT_MONO_CSS}; }}"
         )
         layout.addWidget(self.labelMonitorOnlyHint)
         return band
@@ -207,7 +207,7 @@ class ProviderBatchJobWidget(QWidget):
 
         subtitle = QLabel("非同期バッチ — provider 側で進行中のジョブ (監視専用)")
         subtitle.setStyleSheet(
-            f"QLabel {{ color: {theme.INK_FAINT}; font-size: {theme.FONT_SIZE_SMALL}px; border: none; }}"
+            f"QLabel {{ color: {theme.INK_MUTED}; font-size: {theme.FONT_SIZE_SMALL}px; border: none; }}"
         )
         layout.addWidget(subtitle)
 
@@ -243,7 +243,7 @@ class ProviderBatchJobWidget(QWidget):
 
         src = QLabel("provider_batch_jobs · DB 永続 · 作成は Annotate から (ADR 0076)")
         src.setStyleSheet(
-            f"QLabel {{ color: {theme.INK_FAINT}; font-size: 10px;"
+            f"QLabel {{ color: {theme.INK_MUTED}; font-size: 10px;"
             f" font-family: {theme.FONT_MONO_CSS}; border: none; }}"
         )
         layout.addWidget(src)
@@ -266,7 +266,7 @@ class ProviderBatchJobWidget(QWidget):
         sub = QLabel("Annotate で「⇄ バッチAPIで送信」すると、ここに追跡カードが並びます")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(
-            f"QLabel {{ color: {theme.INK_FAINT}; font-size: {theme.FONT_SIZE_SMALL}px;"
+            f"QLabel {{ color: {theme.INK_MUTED}; font-size: {theme.FONT_SIZE_SMALL}px;"
             f" font-family: {theme.FONT_MONO_CSS}; border: none; }}"
         )
         layout.addWidget(title)

@@ -346,7 +346,7 @@ class TestLedgerBadgeStyleVisualParity:
 
         baseline = (
             f"QLabel {{ font-family: {theme.FONT_MONO_CSS}; background-color: {theme.PAPER_SHADE};"
-            f" color: {theme.INK_FAINT}; border: {theme.BORDER_WIDTH}px solid {theme.LINE};"
+            f" color: {theme.INK_MUTED}; border: {theme.BORDER_WIDTH}px solid {theme.LINE};"
             f" border-radius: {theme.RADIUS_BADGE}px; padding: 1px 6px;"
             f" font-size: {theme.FONT_SIZE_META}px; }}"
         )

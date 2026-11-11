@@ -466,3 +466,5 @@ def test_dialog_buttons_have_tooltips(qtbot: QtBot, repo: DatasetRepository) -> 
     assert dialog.copy_tags_button.toolTip() != ""
     assert dialog.export_button.toolTip() != ""
     assert dialog.close_button.toolTip() != ""
+    assert dialog.commit_working_button.toolTip() != ""
+    assert dialog.discard_working_button.toolTip() != ""

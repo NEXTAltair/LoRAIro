@@ -45,7 +45,8 @@ TERMINAL = "#23211d"  # コード / JSONL ダークペイン
 # --- ink ---
 INK = "#1a1a1a"  # 本文
 INK_SOFT = "#4a4a4a"  # 補助テキスト
-INK_FAINT = "#9a9a9a"  # placeholder・無効
+INK_MUTED = "#6b6b6b"  # 情報を伝える薄い文言 (CARD/PAPER/PAPER_SHADE 上で WCAG 4.5:1 以上, #1571)
+INK_FAINT = "#9a9a9a"  # 無効 (disabled) ・装飾専用。情報を伝える文言には使わない
 
 # --- line ---
 LINE = "#dcd8cc"  # 標準 border (1px)
@@ -167,7 +168,7 @@ _CHIP_PALETTE: dict[str, tuple[str, str, str]] = {
     "err": (ERR_SOFT, ERR, ERR_BORDER),  # failed
     "info": (INFO_SOFT, INFO, INFO_BORDER),  # 実行中
     "neutral": (PAPER_SHADE, INK_SOFT, LINE),  # 待機 / queued / ledger entry
-    "muted": (PAPER_SHADE, INK_FAINT, LINE),  # 無効 / discontinued / 中止 / route=local
+    "muted": (PAPER_SHADE, INK_MUTED, LINE),  # 無効 / discontinued / 中止 / route=local
     "accent": (ACCENT_SOFT, ACCENT_HOVER, ACCENT_BORDER),  # タグチップ / multi バッジ / route=api
     # #1105: pipeline_stage_table_widget の手書き chip 定数から色を移植 (新色は発明しない)。
     # 構造差 (mono / dashed / italic) は各利用側の helper が担い、色だけを SSoT 化する。
@@ -270,7 +271,7 @@ def tag_chip_untranslated_qss() -> str:
         paper-shade 地 + 点線 border + faint 文字の chip スタイル文字列。
     """
     return (
-        f"QLabel {{ background-color: {PAPER_SHADE}; color: {INK_FAINT};"
+        f"QLabel {{ background-color: {PAPER_SHADE}; color: {INK_MUTED};"
         f" border: 1px dashed {LINE}; border-radius: {RADIUS_CHIP}px; padding: 1px 9px;"
         f" font-size: {FONT_SIZE_SMALL}px; font-weight: 600; }}"
     )
@@ -358,9 +359,9 @@ _JOB_STATUS_COLORS: dict[str, str] = {
     "done": OK,
     "failed": ERR,
     "error": ERR,
-    "canceled": INK_FAINT,
-    "cancelled": INK_FAINT,
-    "expired": INK_FAINT,
+    "canceled": INK_MUTED,
+    "cancelled": INK_MUTED,
+    "expired": INK_MUTED,
 }
 
 
@@ -743,7 +744,7 @@ def _build_light_palette() -> QPalette:
         (QPalette.ColorRole.LinkVisited, ACCENT_HOVER),
         (QPalette.ColorRole.ToolTipBase, CARD),
         (QPalette.ColorRole.ToolTipText, INK),
-        (QPalette.ColorRole.PlaceholderText, INK_FAINT),
+        (QPalette.ColorRole.PlaceholderText, INK_MUTED),
         (QPalette.ColorRole.Mid, LINE),
         (QPalette.ColorRole.Midlight, PAPER_SHADE),
         (QPalette.ColorRole.Light, "#ffffff"),

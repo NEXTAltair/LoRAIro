@@ -285,7 +285,7 @@ class AnnotationSummaryDialog(QDialog):
 
         if total > _MAX_TABLE_ROWS:
             overflow_label = QLabel(f"他 {total - _MAX_TABLE_ROWS}件")
-            overflow_label.setStyleSheet(f"color: {theme.INK_FAINT}; font-style: italic;")
+            overflow_label.setStyleSheet(f"color: {theme.INK_MUTED}; font-style: italic;")
             layout.addWidget(overflow_label)
 
         return group
@@ -324,7 +324,7 @@ class AnnotationSummaryDialog(QDialog):
 
         if total_errors > _MAX_TABLE_ROWS:
             overflow_label = QLabel(f"他 {total_errors - _MAX_TABLE_ROWS}件のエラー")
-            overflow_label.setStyleSheet(f"color: {theme.INK_FAINT}; font-style: italic;")
+            overflow_label.setStyleSheet(f"color: {theme.INK_MUTED}; font-style: italic;")
             layout.addWidget(overflow_label)
 
         return group
@@ -358,7 +358,7 @@ class AnnotationSummaryDialog(QDialog):
 
         if total_errors > _MAX_TABLE_ROWS:
             overflow_label = QLabel(f"他 {total_errors - _MAX_TABLE_ROWS}件")
-            overflow_label.setStyleSheet(f"color: {theme.INK_FAINT}; font-style: italic;")
+            overflow_label.setStyleSheet(f"color: {theme.INK_MUTED}; font-style: italic;")
             layout.addWidget(overflow_label)
 
         return group
