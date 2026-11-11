@@ -629,3 +629,49 @@ class TestRerunSkipScope:
         unscoped = [c for c in calls if c["models"] == {"api-x"}]
         assert scoped and scoped[0]["allowed_image_ids"] == {2}
         assert unscoped and unscoped[0]["allowed_image_ids"] == {1, 2}
+
+    def test_cancel_retry_keeps_model_scope(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """中止時の部分結果の再保存でも、完了済みを外したモデルの保存範囲を保つ。"""
+        db = _db_manager()
+        worker = _worker(
+            RecordingRunner({}), ["local-a"], _registry(), _policy(ScriptedProbe([16.0]), FakeClock()), db
+        )
+        calls = self._spy_persist(worker, monkeypatch)
+
+        def run_then_cancel() -> tuple[dict[str, object], list[object]]:
+            worker._model_save_scopes = {"local-a": {2}}
+            worker._partial_results = {"phash-a": {"local-a": {"tags": ["x"], "error": None}}}
+            raise CancellationError("canceled")
+
+        monkeypatch.setattr(worker, "_run_annotation", run_then_cancel)
+
+        with pytest.raises(CancellationError):
+            worker.execute()
+
+        assert [c["allowed_image_ids"] for c in calls] == [{2}]
+
+    def test_memory_skip_error_uses_image_id_from_file_path(self) -> None:
+        """同じ pHash の別画像があっても、見送り記録は推論するはずだった画像の image_id に付ける。"""
+        db = _db_manager()
+        db.image_repo.get_phashes_by_filepaths.return_value = {
+            "/images/a.jpg": "phash-a",
+            "/images/b.jpg": "phash-a",
+        }
+        db.image_repo.find_image_ids_by_phashes.return_value = {"phash-a": 1}
+        db.image_repo.get_image_ids_by_filepaths.side_effect = lambda paths: {
+            path: {"/images/a.jpg": 1, "/images/b.jpg": 2}[path] for path in paths
+        }
+        db.image_repo.get_image_ids_with_model_annotations.return_value = {1}
+        worker = _worker(
+            RecordingRunner({"local-a": _ok("local-a")}),
+            ["local-a"],
+            _registry(_model_info("local-a", requires_api_key=False)),
+            _policy(ScriptedProbe([0.5]), FakeClock(), skip_completed_on_rerun=True),
+            db,
+        )
+
+        worker.execute()
+
+        assert [(r["file_path"], r["image_id"]) for r in _memory_error_records(db)] == [
+            ("/images/b.jpg", 2)
+        ]

@@ -840,6 +840,13 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         """
         logger.warning(f"モデルの実行を見送りました: model={litellm_model_id}, {message}")
         self._execution_notes.append(f"{litellm_model_id}: {message}")
+        # pHash 経由の対応は同じ pHash の別画像を区別できないため、パスから image_id を直接引く。
+        try:
+            resolved = self.db_manager.image_repo.get_image_ids_by_filepaths(target_paths)
+        except SQLAlchemyError as exc:
+            logger.warning(f"見送り記録の image_id 解決に失敗 (file_path で記録): {exc}")
+            resolved = {}
+        path_to_id = resolved if isinstance(resolved, dict) else {}
         for image_path in target_paths:
             model_errors.append(
                 ModelErrorDetail(
@@ -856,7 +863,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                     operation_type=self._OPERATION_TYPE,
                     error_type=MEMORY_SKIP_ERROR_TYPE,
                     error_message=message,
-                    image_id=self._path_to_image_id.get(image_path),
+                    image_id=image_id if isinstance(image_id := path_to_id.get(image_path), int) else None,
                     file_path=image_path,
                     model_name=litellm_model_id,
                 )
@@ -1224,7 +1231,9 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         except CancellationError:
             if self._partial_results and not self._dry_run:
                 try:
-                    self._persist_incremental_results(self._partial_results)
+                    self._persist_respecting_save_scopes(
+                        self._partial_results, self._resolve_batch_image_ids()
+                    )
                 except Exception as save_error:
                     logger.warning(f"キャンセル時の部分結果保存に失敗: {save_error}")
             if self._persisted_phashes:
@@ -1351,21 +1360,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         # (同一 pHash の未選択別版へ結果を書き込み汚染しないため)。
         unpersisted = self._filter_unpersisted_results(results)
         if unpersisted:
-            allowed_image_ids = self._resolve_batch_image_ids()
-            unscoped, scoped = self._split_by_save_scope(unpersisted)
-            if unscoped:
-                self._persist_incremental_results(
-                    unscoped,
-                    allowed_image_ids=allowed_image_ids,
-                    resolved_allowed_ids=True,
-                )
-            # ADR 0109: 完了済みを外したモデルは、再試行でも推論した画像だけに保存する。
-            for model_name, chunk in scoped.items():
-                self._persist_incremental_results(
-                    chunk,
-                    allowed_image_ids=self._model_save_scopes[model_name],
-                    resolved_allowed_ids=True,
-                )
+            self._persist_respecting_save_scopes(unpersisted, self._resolve_batch_image_ids())
         elif self._incremental_save_call_count == 0:
             allowed_image_ids = self._resolve_batch_image_ids()
             save_result = AnnotationSaveService(
@@ -1398,6 +1393,24 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         total_count = success_count + skip_count
         logger.info(f"DB保存完了: {success_count}/{total_count}件成功")
         return success_count, skip_count, image_summaries, phash_to_filename
+
+    def _persist_respecting_save_scopes(
+        self, results: PHashAnnotationResults, batch_image_ids: set[int] | None
+    ) -> None:
+        """保存の再試行 (最終保存・中止時) で、完了済みを外したモデルは推論した画像だけに保存する (ADR 0109)。"""
+        unscoped, scoped = self._split_by_save_scope(results)
+        if unscoped:
+            self._persist_incremental_results(
+                unscoped,
+                allowed_image_ids=batch_image_ids,
+                resolved_allowed_ids=True,
+            )
+        for model_name, chunk in scoped.items():
+            self._persist_incremental_results(
+                chunk,
+                allowed_image_ids=self._model_save_scopes[model_name],
+                resolved_allowed_ids=True,
+            )
 
     def _split_by_save_scope(
         self, results: PHashAnnotationResults
