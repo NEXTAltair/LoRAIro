@@ -5,7 +5,7 @@ from pathlib import Path
 from threading import Event
 
 from PySide6.QtCore import QObject, QRunnable, QSize, Qt, Signal
-from PySide6.QtGui import QImage
+from PySide6.QtGui import QImage, QImageReader
 
 from ...utils.log import logger
 
@@ -52,16 +52,35 @@ class ExplicitThumbnailWorker(QRunnable):
 
     @staticmethod
     def load_image(key: ThumbnailKey) -> QImage:
-        """Match ThumbnailWorker's QImage scaling, without database access."""
+        """Match ThumbnailWorker's QImageReader scaled decoding, without database access."""
         path, width, height = key
-        image = QImage(str(path))
+        target_size = QSize(width, height)
+        reader = QImageReader(str(path))
+        reader.setAutoTransform(True)
+        orig_size = reader.size()
+        target_scaled_size = (
+            orig_size.scaled(target_size, Qt.AspectRatioMode.KeepAspectRatio)
+            if orig_size.isValid() and not target_size.isEmpty()
+            else QSize()
+        )
+        if target_scaled_size.isValid():
+            reader.setScaledSize(target_scaled_size)
+        image = reader.read()
+        if image.isNull():
+            image = QImage(str(path))
         if image.isNull():
             return image
-        return image.scaled(
-            QSize(width, height),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
+        if not target_size.isEmpty() and (
+            image.width() > target_size.width()
+            or image.height() > target_size.height()
+            or (target_scaled_size.isValid() and image.size() != target_scaled_size)
+        ):
+            return image.scaled(
+                target_size,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        return image
 
     def run(self) -> None:
         batch: list[ExplicitThumbnailResult] = []
