@@ -3,8 +3,18 @@
 アノテーション完了サマリーダイアログの表示内容とレイアウトを検証する。
 """
 
+from unittest.mock import MagicMock
+
 import pytest
-from PySide6.QtWidgets import QGroupBox, QLabel, QTableWidget, QTextBrowser, QTextEdit
+from PySide6.QtWidgets import (
+    QGroupBox,
+    QLabel,
+    QPushButton,
+    QTableWidget,
+    QTextBrowser,
+    QTextEdit,
+    QWidget,
+)
 
 from lorairo.gui.widgets.annotation_summary_dialog import AnnotationSummaryDialog
 from lorairo.gui.workers.annotation_worker import (
@@ -438,3 +448,152 @@ class TestAnnotationSummaryDialogRatingsTab:
         labels = dialog.findChildren(QLabel)
         label_texts = [label.text() for label in labels]
         assert "レーティングデータがありません。" in label_texts
+
+
+class TestAnnotationSummaryDialogFooterActions:
+    """フッターアクションボタンと通知シグナルのテスト (#1557)。"""
+
+    def test_footer_buttons_and_signals_on_failure(self, qtbot, find_child_widget):
+        result = AnnotationExecutionResult(
+            results={"phash1": {}},
+            total_images=2,
+            models_used=["m1"],
+            db_save_success=1,
+            db_save_skip=0,
+            model_errors=[
+                ModelErrorDetail(
+                    model_name="m1",
+                    error_message="failed",
+                    image_path="/path/to/fail.jpg",
+                )
+            ],
+        )
+        dialog = AnnotationSummaryDialog(result)
+        qtbot.addWidget(dialog)
+
+        btn_results = find_child_widget(dialog, QPushButton, "buttonOpenResults")
+        btn_errors = find_child_widget(dialog, QPushButton, "buttonOpenErrors")
+        btn_restage = find_child_widget(dialog, QPushButton, "buttonRestageFailed")
+
+        assert btn_results is not None
+        assert btn_errors is not None
+        assert btn_restage is not None
+
+        with qtbot.waitSignal(dialog.open_results_requested, timeout=1000):
+            btn_results.click()
+
+        dialog2 = AnnotationSummaryDialog(result)
+        qtbot.addWidget(dialog2)
+        btn_errors2 = find_child_widget(dialog2, QPushButton, "buttonOpenErrors")
+        with qtbot.waitSignal(dialog2.open_errors_requested, timeout=1000):
+            btn_errors2.click()
+
+        dialog3 = AnnotationSummaryDialog(result)
+        qtbot.addWidget(dialog3)
+        btn_restage3 = find_child_widget(dialog3, QPushButton, "buttonRestageFailed")
+        captured_paths: list[list[str]] = []
+        dialog3.restage_failed_requested.connect(captured_paths.append)
+        btn_restage3.click()
+        assert captured_paths == [["/path/to/fail.jpg"]]
+
+    def test_action_buttons_navigate_parent_tabs_and_restage(self, qtbot, find_child_widget):
+        result = AnnotationExecutionResult(
+            results={},
+            total_images=2,
+            models_used=["m1"],
+            db_save_success=0,
+            db_save_skip=0,
+            model_errors=[
+                ModelErrorDetail(model_name="m1", image_path="/path/fail.jpg", error_message="err")
+            ],
+        )
+
+        parent = QWidget()
+        qtbot.addWidget(parent)
+        parent.tabWidgetMainMode = MagicMock()
+        parent.tabResults = QWidget()
+        parent.tabErrors = QWidget()
+        parent._restage_failed_annotation_paths = MagicMock()
+
+        dialog = AnnotationSummaryDialog(result, parent=parent)
+        qtbot.addWidget(dialog)
+        btn_results = find_child_widget(dialog, QPushButton, "buttonOpenResults")
+        btn_results.click()
+        parent.tabWidgetMainMode.setCurrentWidget.assert_called_with(parent.tabResults)
+
+        dialog2 = AnnotationSummaryDialog(result, parent=parent)
+        qtbot.addWidget(dialog2)
+        btn_errors = find_child_widget(dialog2, QPushButton, "buttonOpenErrors")
+        btn_errors.click()
+        parent.tabWidgetMainMode.setCurrentWidget.assert_called_with(parent.tabErrors)
+
+        dialog3 = AnnotationSummaryDialog(result, parent=parent)
+        qtbot.addWidget(dialog3)
+        btn_restage = find_child_widget(dialog3, QPushButton, "buttonRestageFailed")
+        btn_restage.click()
+        parent._restage_failed_annotation_paths.assert_called_once_with(["/path/fail.jpg"])
+
+    def test_dry_run_and_excluded_count_display(self, qtbot, find_child_widget):
+        result = AnnotationExecutionResult(
+            results={},
+            total_images=10,
+            models_used=["m1"],
+            db_save_success=0,
+            db_save_skip=0,
+            is_dry_run=True,
+            excluded_count=3,
+        )
+        dialog = AnnotationSummaryDialog(result)
+        qtbot.addWidget(dialog)
+
+        notice = find_child_widget(dialog, QLabel, "dryRunNoticeLabel")
+        assert notice is not None
+        assert not notice.isHidden()
+        assert "ドライラン" in notice.text()
+
+        excluded_label = find_child_widget(dialog, QLabel, "excludedCountLabel")
+        assert excluded_label is not None
+        assert excluded_label.text() == "3件"
+
+    def test_restage_prefers_raw_image_path_over_basename(self, qtbot, find_child_widget):
+        """サマリーダイアログの再ステージングは basename ではなく完全パス/ID を優先する (#1551, Codex P2 #4532613341)。"""
+        result = AnnotationExecutionResult(
+            results={},
+            total_images=1,
+            models_used=["m1"],
+            model_errors=[
+                ModelErrorDetail(
+                    model_name="m1",
+                    image_path="fail.jpg",
+                    error_message="err",
+                    raw_image_path="/custom/dir/fail.jpg",
+                )
+            ],
+        )
+        dialog = AnnotationSummaryDialog(result)
+        qtbot.addWidget(dialog)
+        btn_restage = find_child_widget(dialog, QPushButton, "buttonRestageFailed")
+        captured: list[list[str]] = []
+        dialog.restage_failed_requested.connect(captured.append)
+        btn_restage.click()
+        assert captured == [["/custom/dir/fail.jpg"]]
+
+    def test_restage_includes_db_save_failures_without_model_errors(self, qtbot, find_child_widget):
+        """推論成功後のDB保存失敗のみでも failed_save_paths を再ステージング対象に含める (#1557, Codex P2 #4533111309)。"""
+        result = AnnotationExecutionResult(
+            results={"phash1": {"m1": {"tags": ["tag1"]}}},
+            total_images=1,
+            models_used=["m1"],
+            db_save_success=0,
+            db_save_skip=0,
+            model_errors=[],
+            failed_save_paths=["/custom/dir/db_fail.jpg"],
+        )
+        dialog = AnnotationSummaryDialog(result)
+        qtbot.addWidget(dialog)
+        btn_restage = find_child_widget(dialog, QPushButton, "buttonRestageFailed")
+        assert btn_restage is not None
+        captured: list[list[str]] = []
+        dialog.restage_failed_requested.connect(captured.append)
+        btn_restage.click()
+        assert captured == [["/custom/dir/db_fail.jpg"]]

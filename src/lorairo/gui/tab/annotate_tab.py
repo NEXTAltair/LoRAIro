@@ -376,6 +376,10 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         # preset 配線 (Issue #847): preset chip 選択 / 保存要求をハンドラへ接続
         self._pipeline_stage_table.preset_selected.connect(self._on_pipeline_preset_selected)
         self._pipeline_stage_table.save_preset_requested.connect(self._on_pipeline_save_preset_requested)
+        # 送信前プリフライト配線 (#1558): 事前レーティング判定要求をハンドラへ接続
+        self._preflight_summary_widget.run_rating_preflight_requested.connect(
+            self._on_run_rating_preflight_requested
+        )
         # 保存済みカスタムプリセットを chip 行へ復元する (#1186)
         self._refresh_custom_preset_chips(self._load_custom_presets())
 
@@ -387,6 +391,8 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             self._model_selection_state_manager.selection_changed.connect(
                 self._on_state_model_selection_changed
             )
+
+        self._update_annotation_target_ui(self._pipeline_staged_count)
 
     def _build_pipeline_run_bar(self) -> QWidget:
         """パイプライン実行バーウィジェットを構築する (Issue #849, #1099)。
@@ -411,6 +417,14 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         scope_label.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;")
         self._run_bar_scope_label = scope_label
         bar_layout.addWidget(scope_label)
+
+        # ドライラン表示インジケーター (#1558)
+        self._dry_run_indicator = QLabel("ドライラン（DB未保存）", bar)
+        self._dry_run_indicator.setObjectName("dryRunIndicatorLabel")
+        self._dry_run_indicator.setStyleSheet(theme.badge_qss("warn"))
+        self._dry_run_indicator.setVisible(bool(self._pipeline_run_options.dry_run))
+        bar_layout.addWidget(self._dry_run_indicator)
+
         bar_layout.addStretch(1)
 
         # 詳細設定ボタン (btnPipelineRunSettings を run bar へ再配置)
@@ -797,6 +811,12 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         """実行詳細設定 (RunOptions) を返す。"""
         return self._pipeline_run_options
 
+    def set_run_options(self, options: RunOptions) -> None:
+        """実行詳細設定 (RunOptions) をセットし、UI表示を同期する (#1558)。"""
+        self._pipeline_run_options = options
+        if hasattr(self, "_dry_run_indicator"):
+            self._dry_run_indicator.setVisible(bool(options.dry_run))
+
     def staged_id_path_map(self) -> dict[int, str]:
         """ステージング画像の {image_id: 解決済みファイルパス} を返す (#896 PR4a)。
 
@@ -857,7 +877,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
     # -- 実行詳細設定 (Issue #789) --------------------------------------------
 
     def _open_run_settings(self) -> None:
-        """実行詳細設定モーダルを開き、確定値を保持する (Issue #789)。
+        """実行詳細設定モーダルを開き、確定値を保持する (Issue #789, #1558)。
 
         OK 時の :class:`RunOptions` を ``self._pipeline_run_options`` に格納する。
         """
@@ -865,16 +885,65 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             self._pipeline_staged_count, parent=self, current=self._pipeline_run_options
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            self._pipeline_run_options = dialog.run_options()
+            self.set_run_options(dialog.run_options())
             logger.info(f"実行詳細設定を更新: {self._pipeline_run_options}")
             # dispatch_mode 変更を INFERENCE LEDGER のレーン分割へ反映する (#884 Phase 4b)
             self._refresh_pipeline_panel()
 
     # -- パイプライン構成ビュー (Phase 6a/6b) ---------------------------------
 
+    def _find_rating_model_ids(self) -> list[str]:
+        """レーティング判定に対応する利用可能モデル ID 一覧を取得する (#1558)。"""
+        all_models = self._load_all_models_cached()
+        active_models = [m for m in all_models if getattr(m, "available", True)]
+        all_infos = self._build_stage_model_infos([m.litellm_model_id for m in active_models])
+        return [
+            info.litellm_model_id
+            for info in self._filter_available_stage_model_infos(all_infos)
+            if PipelineStage.RATING in info.fill_stages()
+        ]
+
+    def _on_run_rating_preflight_requested(self) -> None:
+        """事前レーティング判定を実行する (#1558)。
+
+        ステージング画像のレーティング未判定分を解消するため、RATING ステージ対応モデルを
+        選択して同期アノテーションを実行する。
+        """
+        if self._pipeline_staged_count == 0:
+            QMessageBox.information(self, "画像未選択", "ステージングに画像がありません。")
+            return
+
+        rating_ids = self._find_rating_model_ids()
+        if not rating_ids:
+            QMessageBox.warning(
+                self,
+                "モデル未検出",
+                "レーティング判定に対応したモデルが見つかりません。\n"
+                "モデル設定からレーティング対応モデルを有効化してください。",
+            )
+            return
+
+        checkbox_widgets = getattr(self._batch_model_selection, "model_checkbox_widgets", None)
+        if isinstance(checkbox_widgets, dict):
+            self._extra_selected_model_ids = [mid for mid in rating_ids if mid not in checkbox_widgets]
+        else:
+            self._extra_selected_model_ids = []
+        self._batch_model_selection.set_selected_models(rating_ids)
+        self._sync_widget_selection_to_state(rating_ids)
+
+        self._active_preset_id = None
+        self._last_preset_model_ids = set()
+        if hasattr(self._pipeline_stage_table, "set_active_preset"):
+            self._pipeline_stage_table.set_active_preset(None)
+
+        self._last_composed_selected_ids = None
+        self._refresh_pipeline_panel()
+        self._on_execute_clicked("sync")
+
     def _on_pipeline_models_changed(self, selected_litellm_model_ids: list[str]) -> None:
-        """モデル選択変化でパイプライン構成ビューを再計算する (Phase 6a)。"""
+        """モデル選択変化でパイプライン構成ビューを再計算する (Phase 6a, #1558)。"""
         self._refresh_pipeline_panel(list(selected_litellm_model_ids))
+        self._update_annotation_target_ui(self._pipeline_staged_count)
 
     def _on_pipeline_preset_selected(self, preset_id: str) -> None:
         """プリセット chip 選択に応じてモデル割当を切り替える (Issue #847, #1537)。
@@ -1648,3 +1717,25 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             self._btn_sync_execute.setText(self._run_bar_sync_execute_text(staging_count))
             self._btn_batch_api_execute.setEnabled(has_staging)
             self._btn_batch_api_execute.setText(self._run_bar_batch_execute_text(staging_count))
+
+        # ドライラン表示更新 (#1558)
+        if hasattr(self, "_dry_run_indicator"):
+            self._dry_run_indicator.setVisible(bool(self._pipeline_run_options.dry_run))
+
+        # ツールチップの更新 (#1558)
+        selected_models_count = len(self.selected_litellm_model_ids())
+        if staging_count == 0 and selected_models_count == 0:
+            tooltip = "ステージング画像とモデルを選択してください"
+        elif staging_count == 0:
+            tooltip = "ステージング画像がありません。画像を追加してください"
+        elif selected_models_count == 0:
+            tooltip = "モデルが選択されていません。モデルを選択してください"
+        else:
+            tooltip = ""
+
+        if hasattr(self, "_btn_sync_execute"):
+            self._btn_sync_execute.setToolTip(tooltip)
+        if hasattr(self, "_btn_batch_api_execute"):
+            self._btn_batch_api_execute.setToolTip(tooltip)
+        if hasattr(self, "btnAnnotationExecute"):
+            self.btnAnnotationExecute.setToolTip(tooltip)

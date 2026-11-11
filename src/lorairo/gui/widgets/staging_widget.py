@@ -19,16 +19,17 @@ from collections import OrderedDict
 from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QResizeEvent, QShowEvent
-from PySide6.QtWidgets import QFrame, QGraphicsView, QPushButton, QSplitter, QWidget
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QKeyEvent, QResizeEvent, QShowEvent
+from PySide6.QtWidgets import QFrame, QGraphicsView, QLabel, QPushButton, QSplitter, QWidget
 
+from ...gui import theme
 from ...gui.designer.StagingWidget_ui import Ui_StagingWidget
 from ...utils.log import logger
+from ..state.dataset_state import DatasetStateManager
 from ..state.staging_state import StagingStateManager
 
 if TYPE_CHECKING:
-    from ..state.dataset_state import DatasetStateManager
     from .thumbnail_selector_widget import ThumbnailSelectorWidget
 
 
@@ -61,9 +62,11 @@ class StagingWidget(QWidget):
     # シグナル (StagingStateManager のシグナルを再 emit し、既存の消費者契約を維持する)
     staged_images_changed = Signal(list)  # list[int] - ステージング画像IDリスト
     staging_cleared = Signal()  # ステージングリストクリア
+    cap_exceeded = Signal(int, int)  # (attempted_count, max_count) - 上限超過 (#1559)
     compare_requested = Signal(list)  # list[int] - ステージング画像の比較要求 (#1399)
 
     # 定数
+    MAX_STAGED_IMAGES = StagingStateManager.MAX_STAGED_IMAGES
     MAX_STAGING_IMAGES = StagingStateManager.MAX_STAGING_IMAGES
 
     def __init__(self, parent: QWidget | None = None):
@@ -84,6 +87,9 @@ class StagingWidget(QWidget):
         # ステージング集合の SSoT (既定は自前。共有時は set_staging_state_manager で差替)
         self._staging_state = StagingStateManager(self)
 
+        # ステージングサムネイル用ローカル DatasetStateManager (選択/削除管理用, #1551, Codex P2 #4532613328)
+        self._local_dataset_state = DatasetStateManager(self)
+
         # DatasetStateManager への参照（パス解決フォールバック用、view ローカル保持）
         self._dataset_state_manager: DatasetStateManager | None = None
 
@@ -103,6 +109,8 @@ class StagingWidget(QWidget):
         self._staging_thumbnail_widget: ThumbnailSelectorWidget | None = None
         self._setup_staging_thumbnail_widget()
         self._setup_compare_button()
+        self._setup_remove_selected_button()
+        self._setup_cap_notice()
 
         self._connect_state_signals()
 
@@ -115,16 +123,40 @@ class StagingWidget(QWidget):
         """現在の StagingStateManager のシグナルを view へ接続する。"""
         self._staging_state.staged_images_changed.connect(self._on_state_changed)
         self._staging_state.staging_cleared.connect(self._on_state_cleared)
+        self._staging_state.cap_exceeded.connect(self._on_cap_exceeded)
+
+    @Slot(int, int)
+    def _on_cap_exceeded(self, attempted: int, max_count: int) -> None:
+        """上限超過通知を表示する (#1559)。"""
+        skipped = max(0, attempted - max_count)
+        msg = (
+            f"上限（{max_count}枚）に達したため、{skipped}枚の追加をスキップしました"
+            if skipped > 0
+            else f"上限（{max_count}枚）に達しました"
+        )
+        if hasattr(self, "_cap_notice_label") and self._cap_notice_label is not None:
+            self._cap_notice_label.setText(msg)
+            self._cap_notice_label.setVisible(True)
+        self.cap_exceeded.emit(attempted, max_count)
 
     @Slot(list)
     def _on_state_changed(self, image_ids: list[int]) -> None:
         """SSoT の変更を表示へ反映し、ウィジェットシグナルとして再 emit する。"""
+        if (
+            hasattr(self, "_cap_notice_label")
+            and self._cap_notice_label is not None
+            and len(image_ids) < self.MAX_STAGING_IMAGES
+        ):
+            self._cap_notice_label.setVisible(False)
         self._refresh_staging_list_ui()
         self.staged_images_changed.emit(image_ids)
 
     @Slot()
     def _on_state_cleared(self) -> None:
         """SSoT のクリアを表示へ反映し、ウィジェットシグナルとして再 emit する。"""
+        if hasattr(self, "_cap_notice_label") and self._cap_notice_label is not None:
+            self._cap_notice_label.setVisible(False)
+        self._local_dataset_state.clear_dataset()
         self._refresh_staging_list_ui()
         self.staging_cleared.emit()
 
@@ -142,6 +174,7 @@ class StagingWidget(QWidget):
         try:
             self._staging_state.staged_images_changed.disconnect(self._on_state_changed)
             self._staging_state.staging_cleared.disconnect(self._on_state_cleared)
+            self._staging_state.cap_exceeded.disconnect(self._on_cap_exceeded)
         except (RuntimeError, TypeError):
             pass
         self._staging_state = manager
@@ -172,7 +205,10 @@ class StagingWidget(QWidget):
         layout = self.ui.verticalLayoutStaging
         list_widget = self.ui.listWidgetStaging
 
-        widget = ThumbnailSelectorWidget(parent=self.ui.groupBoxStagingList, dataset_state=None)
+        widget = ThumbnailSelectorWidget(
+            parent=self.ui.groupBoxStagingList,
+            dataset_state=self._local_dataset_state,
+        )
         widget.setObjectName("stagingThumbnailWidget")
         widget.thumbnail_size = QSize(96, 96)
         widget.sliderThumbnailSize.setValue(96)
@@ -195,6 +231,13 @@ class StagingWidget(QWidget):
         list_widget.setParent(self)
         list_widget.hide()
 
+        widget.installEventFilter(self)
+        if hasattr(widget, "graphics_view") and widget.graphics_view:
+            widget.graphics_view.installEventFilter(self)
+            viewport = widget.graphics_view.viewport()
+            if viewport is not None:
+                viewport.installEventFilter(self)
+
         self._staging_thumbnail_widget = widget
 
     def _setup_compare_button(self) -> None:
@@ -209,6 +252,70 @@ class StagingWidget(QWidget):
         self._compare_button.clicked.connect(self._on_compare_clicked)
         layout = self.ui.horizontalLayoutStagingButtons
         layout.insertWidget(layout.indexOf(self.ui.pushButtonClearStaging), self._compare_button)
+
+    def _setup_remove_selected_button(self) -> None:
+        """「選択を外す」ボタンをクリアボタンの左に配置する (#1559)。"""
+        self._btn_remove_selected = QPushButton("選択を外す", self)
+        self._btn_remove_selected.setObjectName("buttonRemoveSelectedFromStaging")
+        self._btn_remove_selected.setToolTip("選択中の画像をステージングから除外する")
+        self._btn_remove_selected.clicked.connect(self._on_remove_selected_clicked)
+        layout = self.ui.horizontalLayoutStagingButtons
+        layout.insertWidget(layout.indexOf(self.ui.pushButtonClearStaging), self._btn_remove_selected)
+
+    def _setup_cap_notice(self) -> None:
+        """上限超過通知ラベルを設定する (#1559)。"""
+        self._cap_notice_label = QLabel("", self.ui.groupBoxStagingList)
+        self._cap_notice_label.setObjectName("labelStagingCapNotice")
+        self._cap_notice_label.setStyleSheet(theme.badge_qss("warn"))
+        self._cap_notice_label.setWordWrap(True)
+        self._cap_notice_label.setVisible(False)
+        layout = self.ui.verticalLayoutStaging
+        layout.insertWidget(layout.indexOf(self.ui.horizontalLayoutStagingButtons), self._cap_notice_label)
+
+    def _get_selected_staging_image_ids(self) -> list[int]:
+        """ステージングサムネイルで選択されている画像 ID 一覧を返す (#1559)。"""
+        if self._staging_thumbnail_widget is None:
+            return []
+        ids: list[int] = []
+        if self._staging_thumbnail_widget.dataset_state is not None:
+            ids.extend(self._staging_thumbnail_widget.dataset_state.selected_image_ids)
+        if (
+            not ids
+            and hasattr(self._staging_thumbnail_widget, "scene")
+            and self._staging_thumbnail_widget.scene is not None
+        ):
+            for item in self._staging_thumbnail_widget.scene.selectedItems():
+                if hasattr(item, "image_id") and item.image_id is not None:
+                    ids.append(item.image_id)
+        return list(dict.fromkeys(ids))
+
+    @Slot()
+    def _on_remove_selected_clicked(self) -> None:
+        """選択中の画像をステージングから除外する (#1559)。"""
+        selected_ids = self._get_selected_staging_image_ids()
+        if selected_ids:
+            self.remove_image_ids(selected_ids)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """Delete / Backspace キーで選択中の画像をステージングから除外する (#1559)。"""
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            selected_ids = self._get_selected_staging_image_ids()
+            if selected_ids:
+                self.remove_image_ids(selected_ids)
+                event.accept()
+                return
+        super().keyPressEvent(event)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        """子ウィジェットからの Delete / Backspace キーを捕捉する (#1559)。"""
+        if event.type() == QEvent.Type.KeyPress:
+            key_event = cast(QKeyEvent, event)
+            if key_event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+                selected_ids = self._get_selected_staging_image_ids()
+                if selected_ids:
+                    self.remove_image_ids(selected_ids)
+                    return True
+        return super().eventFilter(watched, event)
 
     def _on_compare_clicked(self) -> None:
         """ステージング中の画像 ID を比較要求として上げる (#1399)。"""
@@ -292,6 +399,9 @@ class StagingWidget(QWidget):
             staging_paths.append((path, image_id))
 
         if self._staging_thumbnail_widget:
+            self._local_dataset_state.set_dataset_images(
+                [{"id": image_id, "stored_image_path": path} for path, image_id in staging_paths]
+            )
             self._staging_thumbnail_widget.load_thumbnails_from_paths(staging_paths)
 
         self._update_staging_count_label()

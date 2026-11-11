@@ -294,6 +294,29 @@ def test_refresh_degrade_skips_low_res_batch(qtbot) -> None:
     db.get_low_res_image_paths_batch.assert_not_called()
 
 
+def test_last_cohort_ids_retained_when_staging_cleared(qtbot):
+    """ステージングがクリアされても直前実行 cohort の画像が ResultsTab に残る (#1557)。"""
+    staging_mock = MagicMock()
+    staging_mock.get_staged_items.return_value = OrderedDict([(10, ("img10.png", "/path10.png"))])
+    db = MagicMock()
+    db.get_images_metadata_batch.return_value = []
+    db.get_image_annotations_batch.return_value = {}
+
+    widget = ResultsTabWidget(db_manager=db, staging_state_manager=staging_mock)
+    qtbot.addWidget(widget)
+
+    # 最初スコープ設定
+    widget._on_review_scope_changed([10])
+    assert widget._last_cohort_ids == [10]
+
+    # ステージングがクリアされた場合
+    staging_mock.get_staged_items.return_value = {}
+    widget._on_review_scope_changed([])
+    assert widget._last_cohort_ids == [10]
+    # set_image_ids に last cohort が渡されていること
+    assert list(widget._annotation_review_widget._image_ids) == [10]
+
+
 @pytest.mark.gui
 def test_accept_updates_in_place_without_requerying_db_or_resetting_scroll(qtbot) -> None:
     """単一 accept は DB 再クエリ・全行破棄・スクロール先頭戻し・CLEAN 再抽選を起こさない (#1545)。"""

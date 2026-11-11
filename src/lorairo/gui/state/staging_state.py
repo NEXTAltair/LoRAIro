@@ -30,12 +30,15 @@ class StagingStateManager(QObject):
     Signals:
         staged_images_changed: ステージング画像 ID リストが変化したとき (list[int])。
         staging_cleared: ステージングが全クリアされたとき。
+        cap_exceeded: ステージング上限到達時 (attempted_count, max_count)。
     """
 
     staged_images_changed = Signal(list)  # list[int] - ステージング画像IDリスト
     staging_cleared = Signal()  # ステージングリストクリア
+    cap_exceeded = Signal(int, int)  # (attempted_count, max_count) - 上限超過 (#1559)
 
-    MAX_STAGING_IMAGES = 500
+    MAX_STAGED_IMAGES = 500
+    MAX_STAGING_IMAGES = MAX_STAGED_IMAGES
 
     def __init__(self, parent: QObject | None = None) -> None:
         """ステージング状態マネージャを初期化する。
@@ -69,18 +72,24 @@ class StagingStateManager(QObject):
             return
 
         added_count = 0
-        for image_id in image_ids:
-            if len(self._staged_images) >= self.MAX_STAGING_IMAGES:
-                logger.warning(f"Staging limit reached ({self.MAX_STAGING_IMAGES}), cannot add more images")
+        cap_hit = False
+        new_unique_ids = [image_id for image_id in image_ids if image_id not in self._staged_images]
+        attempted_total = len(self._staged_images) + len(new_unique_ids)
+
+        for image_id in new_unique_ids:
+            if len(self._staged_images) >= self.MAX_STAGED_IMAGES:
+                logger.warning(f"Staging limit reached ({self.MAX_STAGED_IMAGES}), cannot add more images")
+                cap_hit = True
                 break
-            if image_id in self._staged_images:
-                continue
             image_metadata = self._dataset_state_manager.get_image_by_id(image_id)
             if image_metadata:
                 stored_path = image_metadata.get("stored_image_path", "") or ""
                 filename = Path(stored_path).name if stored_path else f"ID:{image_id}"
                 self._staged_images[image_id] = (filename, stored_path)
                 added_count += 1
+
+        if cap_hit:
+            self.cap_exceeded.emit(attempted_total, self.MAX_STAGED_IMAGES)
 
         if added_count == 0:
             return

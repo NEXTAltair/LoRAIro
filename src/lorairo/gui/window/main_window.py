@@ -1566,6 +1566,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # Phase 1: サマリーダイアログ表示
         dialog = AnnotationSummaryDialog(result, parent=self)
+        dialog.open_results_requested.connect(self._on_summary_open_results)
+        dialog.open_errors_requested.connect(self._on_summary_open_errors)
+        dialog.restage_failed_requested.connect(self._restage_failed_annotation_paths)
         dialog.exec()
 
         # exec() のネストしたイベントループ中に終了要求が届く場合がある。
@@ -1581,6 +1584,61 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     f"アノテーション保存後の画面更新開始失敗（保存結果とは別）: {e}"
                 )
 
+    def _on_summary_open_results(self) -> None:
+        """アノテーションサマリーダイアログから結果タブへの遷移要求ハンドラ (#1557)。"""
+        if hasattr(self, "tabWidgetMainMode") and hasattr(self, "tabResults"):
+            self.tabWidgetMainMode.setCurrentWidget(self.tabResults)
+
+    def _on_summary_open_errors(self) -> None:
+        """アノテーションサマリーダイアログからエラータブへの遷移要求ハンドラ (#1557)。"""
+        if hasattr(self, "tabWidgetMainMode") and hasattr(self, "tabErrors"):
+            self.tabWidgetMainMode.setCurrentWidget(self.tabErrors)
+
+    def _resolve_failed_image_id(self, path_str: str) -> int | None:
+        """失敗パスまたは文字列IDから画像IDを解決する。"""
+        if path_str.isdigit():
+            return int(path_str)
+        if self.db_manager is not None:
+            try:
+                return self.db_manager.get_image_id_by_filepath(path_str)
+            except Exception as e:
+                logger.debug(f"get_image_id_by_filepath failed for {path_str}: {e}")
+        return None
+
+    def _cache_failed_image_metadata(self, img_id: int) -> None:
+        """解決した画像IDのメタデータを dataset_state にキャッシュする。"""
+        if (
+            self.dataset_state_manager is not None
+            and self.dataset_state_manager.get_image_by_id(img_id) is None
+            and self.db_manager is not None
+        ):
+            try:
+                meta = self.db_manager.get_image_metadata(img_id)
+                if meta:
+                    if hasattr(self.dataset_state_manager, "cache_external_image_metadata"):
+                        self.dataset_state_manager.cache_external_image_metadata(meta)
+                    else:
+                        self.dataset_state_manager.add_image(meta)
+            except Exception as e:
+                logger.debug(f"Failed to resolve metadata for image {img_id}: {e}")
+
+    def _restage_failed_annotation_paths(self, failed_paths: list[str]) -> None:
+        """アノテーション失敗画像をステージングへ再登録する (#1557, Codex P2 #4532613341)。"""
+        if not failed_paths or self.staging_state_manager is None:
+            return
+        image_ids: list[int] = []
+        for path_str in failed_paths:
+            img_id = MainWindow._resolve_failed_image_id(self, path_str)
+            if isinstance(img_id, int):
+                MainWindow._cache_failed_image_metadata(self, img_id)
+                image_ids.append(img_id)
+
+        if image_ids:
+            self.staging_state_manager.add_image_ids(image_ids)
+            if hasattr(self, "tabWidgetMainMode") and hasattr(self, "tabBatchTag"):
+                self.tabWidgetMainMode.setCurrentWidget(self.tabBatchTag)
+            self.statusBar().showMessage(f"{len(image_ids)} 件の失敗画像を再ステージングしました", 3000)
+
     def _on_annotation_error(self, error_msg: str) -> None:
         # #1156: 同期アノテ失敗で実行ボタンを再有効化する
         self._reset_annotation_execute_buttons()
@@ -1594,6 +1652,23 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # #1156: 同期アノテ中断で実行ボタンを再有効化する
         self._reset_annotation_execute_buttons()
         self._delegate_to_progress_state("on_batch_annotation_canceled", worker_id)
+        from lorairo.gui.workers.annotation_worker import AnnotationWorker
+
+        persisted_phashes = AnnotationWorker.consume_canceled_persisted_phashes()
+        dsm = getattr(self, "dataset_state_manager", None)
+        db_mgr = getattr(self, "db_manager", None)
+        if (
+            persisted_phashes
+            and not getattr(self, "_closing", False)
+            and dsm is not None
+            and db_mgr is not None
+        ):
+            try:
+                dsm.refresh_annotations_after_execution(persisted_phashes)
+            except Exception as e:
+                logger.opt(exception=True).error(
+                    f"アノテーション中断後の画面更新開始失敗（保存結果とは別）: {e}"
+                )
 
     def _reset_annotation_execute_buttons(self) -> None:
         """同期アノテの終端でアノテ実行ボタンのロック解除を試みる (#1156)。

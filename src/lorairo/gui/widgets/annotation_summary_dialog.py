@@ -6,7 +6,7 @@
 
 from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QTextOption
 from PySide6.QtWidgets import (
     QDialog,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHeaderView,
     QLabel,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -44,6 +45,10 @@ class AnnotationSummaryDialog(QDialog):
         4. スコア: モデル別スコア詳細
         5. モデル詳細: モデル統計情報
     """
+
+    open_results_requested = Signal()
+    open_errors_requested = Signal()
+    restage_failed_requested = Signal(list)
 
     def __init__(self, result: AnnotationExecutionResult, parent: QWidget | None = None) -> None:
         """AnnotationSummaryDialog初期化
@@ -102,6 +107,8 @@ class AnnotationSummaryDialog(QDialog):
         layout = QVBoxLayout(widget)
 
         layout.addWidget(self._create_status_label())
+        if getattr(self._result, "is_dry_run", False):
+            layout.addWidget(self._create_dry_run_notice())
         layout.addWidget(self._create_summary_group())
 
         if self._result.image_summaries:
@@ -141,6 +148,14 @@ class AnnotationSummaryDialog(QDialog):
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         return label
 
+    def _create_dry_run_notice(self) -> QLabel:
+        """ドライラン時（DB未保存）のバッジ/通知ラベルを作成する (#1557)。"""
+        notice = QLabel("ドライラン（DB未保存）")
+        notice.setObjectName("dryRunNoticeLabel")
+        notice.setStyleSheet(theme.badge_qss("warn"))
+        notice.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        return notice
+
     def _create_summary_group(self) -> QGroupBox:
         """概要セクションを作成する。
 
@@ -150,7 +165,18 @@ class AnnotationSummaryDialog(QDialog):
         group = QGroupBox("概要")
         form = QFormLayout(group)
 
+        if getattr(self._result, "is_dry_run", False):
+            mode_label = QLabel("ドライラン（DB未保存）")
+            mode_label.setObjectName("dryRunSummaryValueLabel")
+            mode_label.setStyleSheet(f"color: {theme.WARN}; font-weight: bold;")
+            form.addRow("実行モード:", mode_label)
+
         form.addRow("対象画像:", QLabel(f"{self._result.total_images}件"))
+        excluded_count = int(getattr(self._result, "excluded_count", 0) or 0)
+        if excluded_count > 0:
+            excluded_label = QLabel(f"{excluded_count}件")
+            excluded_label.setObjectName("excludedCountLabel")
+            form.addRow("事前除外:", excluded_label)
         form.addRow("使用モデル:", self._create_models_used_view())
         form.addRow("DB保存成功:", QLabel(f"{self._result.db_save_success}件"))
 
@@ -617,12 +643,81 @@ class AnnotationSummaryDialog(QDialog):
 
         return widget
 
+    def _has_failures(self) -> bool:
+        """エラーまたは保存失敗が存在するかを判定する (#1557)。"""
+        db_save_fail = max(
+            0,
+            len(self._result.results) - self._result.db_save_success - self._result.db_save_skip,
+        )
+        return bool(self._result.model_errors) or db_save_fail > 0
+
+    def _on_open_results_clicked(self) -> None:
+        """「結果タブで確認」押下時に結果タブへ遷移してダイアログを閉じる (#1557)。"""
+        target = self.parentWidget() or self.window()
+        if target is not None:
+            if hasattr(target, "tabWidgetMainMode") and hasattr(target, "tabResults"):
+                target.tabWidgetMainMode.setCurrentWidget(target.tabResults)
+            elif hasattr(target, "_switch_top_nav"):
+                target._switch_top_nav("tabResults")
+        self.open_results_requested.emit()
+        self.accept()
+
+    def _on_open_errors_clicked(self) -> None:
+        """「エラータブを開く」押下時にエラータブへ遷移してダイアログを閉じる (#1557)。"""
+        target = self.parentWidget() or self.window()
+        if target is not None:
+            if hasattr(target, "tabWidgetMainMode") and hasattr(target, "tabErrors"):
+                target.tabWidgetMainMode.setCurrentWidget(target.tabErrors)
+            elif hasattr(target, "_switch_top_nav"):
+                target._switch_top_nav("tabErrors")
+        self.open_errors_requested.emit()
+        self.accept()
+
+    def _on_restage_failed_clicked(self) -> None:
+        """「失敗分を再ステージング」押下時に失敗画像リストを通知する (#1557, Codex P2 #4532613341, #4533111309)。"""
+        candidates: list[str] = [
+            err.raw_image_path or (str(err.image_id) if err.image_id is not None else err.image_path)
+            for err in self._result.model_errors
+            if err.raw_image_path or err.image_id is not None or err.image_path
+        ]
+        for save_failed_path in getattr(self._result, "failed_save_paths", []) or []:
+            if save_failed_path:
+                candidates.append(str(save_failed_path))
+        if not candidates and self._has_failures():
+            candidates.extend(
+                summary.file_name for summary in self._result.image_summaries if summary.file_name
+            )
+            if not candidates and self._result.phash_to_filename:
+                candidates.extend(name for name in self._result.phash_to_filename.values() if name)
+        failed_paths = list(dict.fromkeys(candidates))
+        self.restage_failed_requested.emit(failed_paths)
+        parent = self.parentWidget() or self.window()
+        if parent is not None and hasattr(parent, "_restage_failed_annotation_paths"):
+            parent._restage_failed_annotation_paths(failed_paths)
+
     def _create_button_box(self) -> QDialogButtonBox:
-        """OKボタンを作成する。
+        """フッターのアクションボタン群とOKボタンを作成する (#1557)。
 
         Returns:
-            ダイアログ閉じるボタン。
+            ダイアログボタンボックス。
         """
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
         button_box.accepted.connect(self.accept)
+
+        self._btn_open_results = QPushButton("結果タブで確認", self)
+        self._btn_open_results.setObjectName("buttonOpenResults")
+        self._btn_open_results.clicked.connect(self._on_open_results_clicked)
+        button_box.addButton(self._btn_open_results, QDialogButtonBox.ButtonRole.ActionRole)
+
+        if self._has_failures():
+            self._btn_open_errors = QPushButton("エラータブを開く", self)
+            self._btn_open_errors.setObjectName("buttonOpenErrors")
+            self._btn_open_errors.clicked.connect(self._on_open_errors_clicked)
+            button_box.addButton(self._btn_open_errors, QDialogButtonBox.ButtonRole.ActionRole)
+
+            self._btn_restage_failed = QPushButton("失敗分を再ステージング", self)
+            self._btn_restage_failed.setObjectName("buttonRestageFailed")
+            self._btn_restage_failed.clicked.connect(self._on_restage_failed_clicked)
+            button_box.addButton(self._btn_restage_failed, QDialogButtonBox.ButtonRole.ActionRole)
+
         return button_box

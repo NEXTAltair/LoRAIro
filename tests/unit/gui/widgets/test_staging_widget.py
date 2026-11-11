@@ -17,6 +17,9 @@ Target: 80%+ coverage
 """
 
 import pytest
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeyEvent
+from PySide6.QtWidgets import QPushButton
 
 from lorairo.gui.state.dataset_state import DatasetStateManager
 from lorairo.gui.widgets.staging_widget import StagingWidget
@@ -440,3 +443,73 @@ class TestCountLabel:
         widget.clear()
 
         assert widget.ui.labelStagingCount.text() == f"0 / {widget.MAX_STAGING_IMAGES} 枚"
+
+
+class TestStagingRemovalAndCapNotice:
+    """選択解除ボタン・Deleteキー・上限通知ラベルのテスト (#1559)。"""
+
+    @pytest.fixture
+    def widget_with_images(self, qtbot):
+        widget = StagingWidget()
+        qtbot.addWidget(widget)
+
+        state_manager = DatasetStateManager()
+        state_manager._all_images = [
+            {"id": 1, "stored_image_path": "/path/1.jpg"},
+            {"id": 2, "stored_image_path": "/path/2.jpg"},
+        ]
+        widget.set_dataset_state_manager(state_manager)
+        widget.add_image_ids([1, 2])
+        return widget
+
+    @pytest.mark.gui
+    def test_remove_selected_button_removes_from_staging(self, qtbot, widget_with_images, monkeypatch):
+        widget = widget_with_images
+        monkeypatch.setattr(widget, "_get_selected_staging_image_ids", lambda: [1])
+
+        btn = widget.findChild(QPushButton, "buttonRemoveSelectedFromStaging")
+        assert btn is not None
+        assert btn.text() == "選択を外す"
+
+        btn.click()
+        assert widget.get_image_ids() == [2]
+
+    @pytest.mark.gui
+    def test_delete_key_removes_from_staging(self, qtbot, widget_with_images, monkeypatch):
+        widget = widget_with_images
+        monkeypatch.setattr(widget, "_get_selected_staging_image_ids", lambda: [2])
+
+        event = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Delete, Qt.KeyboardModifier.NoModifier)
+        widget.keyPressEvent(event)
+        assert widget.get_image_ids() == [1]
+
+    @pytest.mark.gui
+    def test_cap_notice_label_display_and_clear(self, qtbot, widget_with_images):
+        widget = widget_with_images
+        widget._on_cap_exceeded(520, 500)
+
+        assert not widget._cap_notice_label.isHidden()
+        assert "500" in widget._cap_notice_label.text()
+        assert "20" in widget._cap_notice_label.text()
+
+        widget.clear()
+        assert widget._cap_notice_label.isHidden()
+
+    @pytest.mark.gui
+    def test_local_dataset_state_tracks_selection_and_removal(self, qtbot, widget_with_images):
+        """_staging_thumbnail_widget が自前の DatasetStateManager を持ち選択と除外が連動する (#1551, Codex P2 #4532613328)。"""
+        widget = widget_with_images
+        thumb_widget = widget._staging_thumbnail_widget
+        assert thumb_widget is not None
+        assert thumb_widget.dataset_state is widget._local_dataset_state
+        assert widget._local_dataset_state is not widget._dataset_state_manager
+
+        # サムネイル選択状態をセット
+        widget._local_dataset_state.set_selected_images([1])
+        assert widget._get_selected_staging_image_ids() == [1]
+
+        # 選択解除ボタンを押下すると id 1 が除外される
+        btn = widget.findChild(QPushButton, "buttonRemoveSelectedFromStaging")
+        assert btn is not None
+        btn.click()
+        assert widget.get_image_ids() == [2]
