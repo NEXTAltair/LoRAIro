@@ -106,15 +106,6 @@ class JobsTabWidget(QWidget):
             repository=self._service_container.db_manager.provider_batch_repo,
         )
 
-    def rebind_project_dependencies(self, db_manager: ImageDatabaseManager | None) -> None:
-        """プロジェクト切り替えに伴い DB 関連の依存を再設定する (#1547)。"""
-        self._db_manager = db_manager
-        if db_manager is not None:
-            self._provider_batch_job_widget.set_dependencies(
-                workflow_service=self._service_container.provider_batch_workflow_service,
-                repository=db_manager.provider_batch_repo,
-            )
-
     def _connect_worker_signals(self) -> None:
         """WorkerService の同期ジョブ台帳 / Batch インポートシグナルを接続する。
 

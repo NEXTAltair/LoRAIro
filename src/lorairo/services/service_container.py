@@ -466,9 +466,18 @@ class ServiceContainer:
         return self._provider_batch_workflow_service
 
     def set_active_project_directory(self, project_dir: Path | str) -> None:
-        """アクティブプロジェクトのディレクトリを指定して DB 接続と依存サービスを切り替える (#1547, Codex P1 #4531611132)。"""
-        from pathlib import Path
+        """アクティブプロジェクトのディレクトリを指定して DB 接続と依存サービスを切り替える (#1547)。
 
+        DB を開けない場合はモジュールグローバルとキャッシュ済みサービスを切替前へ戻して
+        例外を再送出する。呼び出し元 (GUI) は切替を中断して現在のプロジェクトを使い続けられる。
+
+        Args:
+            project_dir: 切替先プロジェクトディレクトリ。
+
+        Raises:
+            OSError: プロジェクトディレクトリを作成できない場合。
+            SQLAlchemyError: プロジェクトの画像 DB を開けない場合。
+        """
         from ..database import db_core
         from ..database.access_policy import is_read_only
         from ..database.db_core import create_project_session_factory
@@ -494,12 +503,6 @@ class ServiceContainer:
         old_provider_batch = self._provider_batch_workflow_service
         old_refinement = self._refinement_service
         old_tag_management = self._tag_management_service
-        old_merged_reader_ready = (
-            old_db_manager is not None
-            and getattr(old_db_manager, "annotation_repo", None) is not None
-            and old_db_manager.annotation_repo.peek_merged_reader() is not None
-        )
-
         try:
             # 既存プロジェクトや直前呼び出しの SQLAlchemy Engine を先に破棄して
             # WAL/SHM ロックや接続プールを GC ファイナライザへ漏らさない (#1498)
@@ -535,17 +538,9 @@ class ServiceContainer:
             self._refinement_service = None
             self._tag_management_service = None
 
-            if old_tag_db_initialized or old_tag_management is not None or old_merged_reader_ready:
-                try:
-                    ensure_tag_db_initialized()
-                    if old_tag_db_initialized or old_merged_reader_ready:
-                        self.db_manager.annotation_repo.get_merged_reader()
-                    if old_tag_db_initialized or old_tag_management is not None:
-                        _ = self.tag_management_service
-                except Exception as e:
-                    logger.warning(
-                        f"プロジェクト切替時のタグDB再初期化に失敗 (遅延初期化へフォールバック): {e}"
-                    )
+            # タグDB (プロジェクトローカルの user DB) は再初期化フラグだけ戻し、次回の
+            # ensure_tag_db_initialized() (GUI は新ウィンドウのタグDB warmup、CLI は初回タグ参照)
+            # で切替先プロジェクトの user DB を初期化する。GUI スレッドで HF Hub 確認を走らせない。
 
             logger.info(f"アクティブプロジェクトディレクトリ切替: {project_path} -> {db_path}")
         except Exception:

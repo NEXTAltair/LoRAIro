@@ -46,8 +46,8 @@ def get_project_dir(
     Args:
         base_dir_name: ベースディレクトリ名 (例: "lorairo_data")
         project_name: プロジェクト名 (例: "main_dataset", "猫画像")
-        reuse_existing: True の場合、既存ディレクトリまたは QSettings の
-            active_project_dir を再利用する (#1547)。
+        reuse_existing: True の場合、同名の既存プロジェクトディレクトリがあれば
+            最新のものを再利用する (#1547)。
 
     Returns:
         Path: 生成または再利用されたプロジェクトディレクトリパス
@@ -58,20 +58,6 @@ def get_project_dir(
     base_dir.mkdir(exist_ok=True)
 
     if reuse_existing:
-        try:
-            from PySide6.QtCore import QSettings
-
-            active = QSettings().value("project/active_project_dir")
-            if active:
-                active_path = Path(str(active)).resolve()
-                if active_path.is_dir():
-                    logger.info(
-                        f"QSettings のアクティブプロジェクトディレクトリを再利用します: {active_path}"
-                    )
-                    return active_path
-        except Exception:
-            pass
-
         existing_dir = find_latest_existing_project_dir(base_dir, project_name)
         if existing_dir is not None:
             logger.info(f"既存のプロジェクトディレクトリを再利用します: {existing_dir}")
@@ -392,14 +378,16 @@ def ensure_tag_db_initialized() -> None:
 
 def _dispose_previous_tag_user_engine() -> None:
     """タグDB再初期化前に既存の user engine があれば破棄する。"""
-    try:
-        from genai_tag_db_tools.db import runtime as tag_db_runtime
+    from genai_tag_db_tools.db import runtime as tag_db_runtime
 
-        old_user_engine = getattr(tag_db_runtime, "_user_engine", None)
-        if old_user_engine is not None and callable(getattr(old_user_engine, "dispose", None)):
-            old_user_engine.dispose()
-    except Exception:
-        pass
+    old_user_engine = getattr(tag_db_runtime, "_user_engine", None)
+    if not isinstance(old_user_engine, Engine):
+        return
+    try:
+        old_user_engine.dispose()
+    except SQLAlchemyError as e:
+        # 破棄失敗は再初期化を妨げないので記録のみ (初期化本体は新しい engine を作る)
+        logger.warning(f"既存のユーザータグDB engine の破棄に失敗: {e}")
 
 
 def _resolve_tag_db_target_directory(

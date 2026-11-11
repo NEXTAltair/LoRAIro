@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, cast
 from PySide6.QtCore import (
     QSettings,
     Qt,
+    QThread,
     QUrl,
     Signal,
     Slot,
@@ -26,6 +27,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from ...database.db_core import (
     IMG_DB_PATH,
@@ -63,6 +65,7 @@ from ..tab.search_tab import SearchTabWidget
 from ..watchdog import MainThreadWatchdog
 from ..widgets.dataset_select_dialog import DatasetSelectDialog, DatasetSelection
 from ..widgets.error_notification_widget import ErrorNotificationWidget
+from ..widgets.model_selection_widget import ModelSelectionWidget
 from ..widgets.registration_summary_widget import RegistrationSummaryWidget
 from ..widgets.tag_management_dialog import TagManagementDialog
 from ..workers.manager import WorkerManager
@@ -70,6 +73,11 @@ from ..workers.tag_db_warmup_worker import TagDbWarmupResult, TagDbWarmupWorker
 
 if TYPE_CHECKING:
     from ..workers.annotation_worker import AnnotationExecutionResult
+
+# プロジェクト切替で生成した MainWindow の参照を保持する (#1547)。
+# main() のローカル変数が持つのは起動時のウィンドウだけなので、ここで保持しないと
+# 切替後のウィンドウが GC で破棄される。
+_PROJECT_SWITCH_WINDOWS: list["MainWindow"] = []
 
 
 class MainWindow(QMainWindow, Ui_MainWindow):
@@ -1311,183 +1319,92 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     f"画像DB: {(target_dir / 'image_database.db').resolve()}",
                 )
 
-    def _rebind_simple_tabs(self, db_mgr: Any) -> None:
-        """主要タブの db_manager を更新する。"""
-        if db_mgr is None:
-            return
-        tabs = [
-            getattr(self, "annotate_tab", None),
-            getattr(self, "errors_tab", None),
-            getattr(self, "export_tab", None),
-            getattr(self, "jobs_tab", None),
-            getattr(self, "results_tab", None),
-            getattr(self, "map_tab", None),
-        ]
-        for tab in tabs:
-            if tab is not None:
-                tab.db_manager = db_mgr
-                if hasattr(tab, "_db_manager"):
-                    tab._db_manager = db_mgr
-                rebind_fn = getattr(tab, "rebind_project_dependencies", None)
-                if callable(rebind_fn):
-                    try:
-                        rebind_fn(db_mgr)
-                    except Exception as e:
-                        logger.warning(f"Tab rebind failed for {tab}: {e}")
+    def _project_switch_block_reason(self) -> str | None:
+        """プロジェクト切替を拒否すべき理由を返す (#1547)。
 
-    def _reset_tag_management_dialog_and_notify_tabs(self) -> None:
-        """タグ管理ダイアログを破棄し、各タブのタグDB参照を更新する (#1547)。"""
-        tag_dialog = getattr(self, "tag_management_dialog", None)
-        if tag_dialog is not None:
-            for method_name in ("close", "deleteLater"):
-                fn = getattr(tag_dialog, method_name, None)
-                if callable(fn):
-                    try:
-                        fn()
-                    except Exception:
-                        pass
-            self.tag_management_dialog = None
-        for tab in (
-            getattr(self, "search_tab", None),
-            getattr(self, "annotate_tab", None),
-            getattr(self, "results_tab", None),
-            getattr(self, "export_tab", None),
-        ):
-            on_ready = getattr(tab, "on_tag_db_ready", None)
-            if callable(on_ready):
-                try:
-                    on_ready()
-                except Exception:
-                    pass
+        切替はウィンドウを作り直すため、旧ウィンドウ配下で動いている処理があると
+        旧プロジェクトへの書き込みが継続したり、実行中 QThread を持つ widget が
+        破棄されたりする。稼働中の処理がある間は待機・強制停止せず切替を拒否する。
 
-    def _rebind_project_tabs(self, target_dir: Path) -> None:
-        """各タブウィジェットの db_manager と project path を再設定する (#1547)。"""
-        db_mgr = getattr(self, "db_manager", None)
-        worker_svc = getattr(self, "worker_service", None)
-        MainWindow._rebind_simple_tabs(self, db_mgr)
+        Returns:
+            拒否理由 (ユーザー向け文言)。切替可能なら None。
+        """
+        running_count = MainWindow._get_running_job_count(self)
+        running_count += MainWindow._count_active_cancel_runners(getattr(self, "jobs_tab", None))
+        annotate_tab = getattr(self, "annotate_tab", None)
+        if annotate_tab is not None and annotate_tab.has_pending_batch_tag_writes():
+            running_count += 1
+        if running_count > 0:
+            return f"実行中のジョブが {running_count} 件あります。"
+        # ウィンドウ配下の widget が所有する QThread (モデル一覧更新・タググラフ計算・クロップ等)
+        if any(thread.isRunning() for thread in self.findChildren(QThread)):
+            return "バックグラウンド処理 (モデル一覧更新・タググラフ計算など) が実行中です。"
+        return None
 
-        search_tab = getattr(self, "search_tab", None)
-        if search_tab is not None and db_mgr is not None:
-            search_tab.db_manager = db_mgr
-            if hasattr(search_tab, "_db_manager"):
-                search_tab._db_manager = db_mgr
-            rebind_fn = getattr(search_tab, "rebind_project_dependencies", None)
-            if callable(rebind_fn):
-                try:
-                    rebind_fn(db_mgr, worker_svc)
-                except Exception as e:
-                    logger.warning(f"SearchTab rebind failed: {e}")
-
-        MainWindow._reset_tag_management_dialog_and_notify_tabs(self)
-
-        if callable(getattr(self, "_reload_results_annotation_review_service", None)):
-            try:
-                self._reload_results_annotation_review_service()
-            except Exception:
-                pass
-
-        if (errors_tab := getattr(self, "errors_tab", None)) is not None and callable(
-            getattr(errors_tab, "refresh", None)
-        ):
-            try:
-                errors_tab.refresh()
-            except Exception:
-                pass
-
-    def _switch_service_container_project(self, resolved_path: Path) -> bool:
-        """ServiceContainer のプロジェクト切り替えを行う。"""
-        service_container = getattr(self, "service_container", None)
-        if service_container is None:
-            try:
-                from ...services.service_container import get_service_container
-
-                service_container = get_service_container()
-            except Exception:
-                service_container = None
-
-        if service_container is not None and callable(
-            getattr(service_container, "set_active_project_directory", None)
-        ):
-            try:
-                service_container.set_active_project_directory(resolved_path)
-                self.db_manager = service_container.db_manager
-                self.file_system_manager = service_container.file_system_manager
-                return True
-            except Exception as e:
-                logger.error(f"Failed to switch project directory on ServiceContainer: {e}")
-                return False
+    def _confirm_project_switch_allowed(self) -> bool:
+        """プロジェクト切替が可能か判定し、不可なら理由をダイアログで提示する (#1547)。"""
+        reason = MainWindow._project_switch_block_reason(self)
+        if reason is None:
+            return True
+        logger.warning(f"プロジェクト切替を拒否: {reason}")
+        show_warning(
+            self,
+            "プロジェクトを切り替えられません",
+            f"{reason}\n完了またはキャンセルしてから再度お試しください。",
+        )
         return False
 
-    def _rebind_workers_and_controllers(self) -> None:
-        """WorkerService と Controllers の依存関係を再設定する。"""
-        worker_svc = getattr(self, "worker_service", None)
-        db_mgr = getattr(self, "db_manager", None)
-        fs_mgr = getattr(self, "file_system_manager", None)
-        if worker_svc is not None and db_mgr is not None:
-            worker_svc.db_manager = db_mgr
-            if hasattr(worker_svc, "_db_manager"):
-                worker_svc._db_manager = db_mgr
-            if fs_mgr is not None:
-                worker_svc.file_system_manager = fs_mgr
+    def _activate_project_directory(
+        self, target_dir: Path, *, project_name: str | None = None
+    ) -> "MainWindow | None":
+        """アクティブプロジェクトを切り替え、新しい MainWindow で作り直す (#1547)。
 
-        if (dataset_ctrl := getattr(self, "dataset_controller", None)) is not None and db_mgr is not None:
-            dataset_ctrl.db_manager = db_mgr
-            if fs_mgr is not None:
-                dataset_ctrl.file_system_manager = fs_mgr
-            if worker_svc is not None:
-                dataset_ctrl.worker_service = worker_svc
+        稼働中ウィンドウの依存 (db_manager / FileSystemManager / 各タブのサービス・
+        ランチャー・worker) を 1 つずつ差し替える方式は、プロジェクト依存オブジェクトを
+        保持する部品が多く差し替え漏れが収束しなかった。そのため ServiceContainer を
+        切り替えた後に MainWindow を新規生成し、全タブ・controller・worker を新プロジェクトの
+        依存で構築し直す。旧ウィンドウは通常の終了処理 (closeEvent) で閉じる。
 
-        if (
-            selection_svc := getattr(self, "selection_state_service", None)
-        ) is not None and db_mgr is not None:
-            selection_svc.db_repository = db_mgr.image_repo
+        Args:
+            target_dir: 切替先プロジェクトディレクトリ。
+            project_name: 新規作成時のプロジェクト名 (設定へ保存する)。既存を開く場合は None。
 
-        if callable(getattr(self, "_configure_async_dispatch_controller", None)):
-            self._configure_async_dispatch_controller()
-        elif (
-            annot_ctrl := getattr(self, "annotation_workflow_controller", None)
-        ) is not None and db_mgr is not None:
-            annot_ctrl._db_manager = db_mgr
-
-    def _clear_project_states(self) -> None:
-        """DatasetStateManager と StagingStateManager を初期化する。"""
-        db_mgr = getattr(self, "db_manager", None)
-        if (dataset_state := getattr(self, "dataset_state_manager", None)) is not None:
-            if callable(getattr(dataset_state, "clear", None)):
-                dataset_state.clear()
-            if db_mgr is not None and callable(getattr(dataset_state, "set_db_manager", None)):
-                dataset_state.set_db_manager(db_mgr)
-
-        if (staging_state := getattr(self, "staging_state_manager", None)) is not None:
-            if callable(getattr(staging_state, "clear", None)):
-                staging_state.clear()
-
-    def _activate_project_directory(self, target_dir: Path) -> bool:
-        """アクティブプロジェクトを切り替え、DB接続と依存サービスを再バインドする (#1547, Codex P1 #4531611132)。"""
+        Returns:
+            新しく生成した MainWindow。DB を開けず切替を中断した場合は None。
+        """
         resolved_path = Path(target_dir).resolve()
-        if not MainWindow._switch_service_container_project(self, resolved_path):
-            return False
-        MainWindow._rebind_workers_and_controllers(self)
-        MainWindow._clear_project_states(self)
-        MainWindow._rebind_project_tabs(self, resolved_path)
+        try:
+            self.service_container.set_active_project_directory(resolved_path)
+        except (OSError, SQLAlchemyError, RuntimeError, ValueError) as e:
+            # ServiceContainer は失敗時に切替前の状態へ巻き戻すので、現ウィンドウはそのまま使える
+            logger.opt(exception=True).error(f"プロジェクトの DB を開けませんでした: {resolved_path}: {e}")
+            show_warning(
+                self,
+                "プロジェクトを開けません",
+                f"プロジェクトのデータベースを開けませんでした: {resolved_path.name}",
+            )
+            return None
+        # 新ウィンドウの ConfigurationService が切替先を読むよう、生成前に永続化する
+        MainWindow._persist_active_project_dir(self, resolved_path, project_name=project_name)
+        return MainWindow._replace_with_project_window(self)
 
-        db_mgr = getattr(self, "db_manager", None)
-        if (
-            (error_widget := getattr(self, "error_notification_widget", None)) is not None
-            and db_mgr is not None
-            and callable(getattr(error_widget, "set_db_manager", None))
-        ):
-            try:
-                error_widget.set_db_manager(db_mgr)
-            except Exception:
-                pass
-
-        if callable(getattr(self, "load_images_from_db", None)):
-            try:
-                self.load_images_from_db()
-            except Exception:
-                pass
-        return True
+    def _replace_with_project_window(self) -> "MainWindow":
+        """切替済みのプロジェクトで新しい MainWindow を生成し、このウィンドウを閉じる (#1547)。"""
+        # 新ウィンドウが同じジオメトリ・タブ・選択モデルを復元できるよう先に保存する
+        self._save_window_state()
+        # 切替先プロジェクトの DB でも起動時と同じくモデル一覧を同期させる
+        ModelSelectionWidget.reset_initial_model_registry_refresh()
+        new_window = type(self)()
+        _PROJECT_SWITCH_WINDOWS.append(new_window)
+        new_window.show()
+        new_window.start_tag_db_warmup()
+        # 旧ウィンドウは閉じた時点で破棄し、旧プロジェクトの接続・キャッシュを保持し続けない
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        if self in _PROJECT_SWITCH_WINDOWS:
+            _PROJECT_SWITCH_WINDOWS.remove(self)
+        self.close()
+        logger.info(f"プロジェクト切替に伴い MainWindow を再生成しました: {get_current_project_root()}")
+        return new_window
 
     def _select_open_project_dir(self, project_dir: Path | str | bool | None) -> Path | None:
         """開くプロジェクトのパスを解決またはダイアログ選択する。"""
@@ -1500,37 +1417,32 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         selected = QFileDialog.getExistingDirectory(self, "プロジェクトを開く", start_dir)
         return Path(selected).resolve() if selected else None
 
-    def _persist_active_project_dir(self, target_dir: Path) -> None:
-        """アクティブプロジェクトのパスを設定へ永続化する。"""
-        settings = QSettings()
-        settings.setValue("project/active_project_dir", str(target_dir))
+    def _persist_active_project_dir(self, target_dir: Path, *, project_name: str | None = None) -> None:
+        """アクティブプロジェクトのパスを設定へ永続化する (#1547)。
+
+        Args:
+            target_dir: アクティブにしたプロジェクトディレクトリ。
+            project_name: 新規作成時のプロジェクト名。None なら名前設定は変更しない。
+        """
+        QSettings().setValue("project/active_project_dir", str(target_dir))
         config_service = getattr(self, "config_service", None)
-        if config_service is not None:
-            update_fn = getattr(config_service, "update_setting", None)
-            save_fn = getattr(config_service, "save_settings", None)
-            if callable(update_fn):
-                update_fn("directories", "database_dir", str(target_dir))
-            if callable(save_fn):
-                save_fn()
+        if config_service is None:
+            return
+        if project_name is not None:
+            config_service.update_setting("directories", "database_project_name", project_name)
+        config_service.update_setting("directories", "database_dir", str(target_dir))
+        config_service.save_settings()
 
     def _open_project(self, project_dir: Path | str | bool | None = None) -> Path | None:
-        """既存プロジェクトディレクトリを選択して保存・表示更新する (#1547)。"""
+        """既存プロジェクトディレクトリを選択し、そのプロジェクトでウィンドウを作り直す (#1547)。"""
+        if not MainWindow._confirm_project_switch_allowed(self):
+            return None
         target_dir = MainWindow._select_open_project_dir(self, project_dir)
         if target_dir is None:
             return None
 
-        if not MainWindow._activate_project_directory(self, target_dir):
-            logger.error(f"プロジェクトのアクティベーションに失敗しました: {target_dir}")
-            status_bar_fn = getattr(self, "statusBar", None)
-            if callable(status_bar_fn) and (bar := status_bar_fn()) is not None:
-                bar.showMessage(f"プロジェクトを開けませんでした: {target_dir.name}", 5000)
+        if MainWindow._activate_project_directory(self, target_dir) is None:
             return None
-
-        MainWindow._persist_active_project_dir(self, target_dir)
-        MainWindow._update_project_indicator(self, target_dir)
-        status_bar_fn = getattr(self, "statusBar", None)
-        if callable(status_bar_fn) and (bar := status_bar_fn()) is not None:
-            bar.showMessage(f"プロジェクトを選択しました: {target_dir.name}", 5000)
         return target_dir
 
     def _resolve_new_project_defaults(self) -> tuple[str, str]:
@@ -1550,7 +1462,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         return base_dir, default_name
 
     def _create_new_project(self, project_name: str | bool | None = None) -> Path | None:
-        """新規プロジェクトディレクトリを作成して表示を更新する (#1547)。"""
+        """新規プロジェクトディレクトリを作成し、そのプロジェクトでウィンドウを作り直す (#1547)。"""
+        # 切替不可ならディレクトリを作る前に止め、空のプロジェクトを残さない
+        if not MainWindow._confirm_project_switch_allowed(self):
+            return None
         base_dir, default_name = MainWindow._resolve_new_project_defaults(self)
         if project_name is None or isinstance(project_name, bool):
             entered, ok = QInputDialog.getText(
@@ -1563,26 +1478,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             name = project_name.strip() or default_name
 
         new_dir = get_project_dir(base_dir, name).resolve()
-        if not MainWindow._activate_project_directory(self, new_dir):
-            logger.error(f"新規プロジェクトの初期化に失敗しました: {new_dir}")
-            status_bar_fn = getattr(self, "statusBar", None)
-            if callable(status_bar_fn) and (bar := status_bar_fn()) is not None:
-                bar.showMessage(f"プロジェクトを作成できませんでした: {new_dir.name}", 5000)
+        if MainWindow._activate_project_directory(self, new_dir, project_name=name) is None:
             return None
-
-        QSettings().setValue("project/active_project_dir", str(new_dir))
-        config_service = getattr(self, "config_service", None)
-        if config_service is not None:
-            if callable(getattr(config_service, "update_setting", None)):
-                config_service.update_setting("directories", "database_project_name", name)
-                config_service.update_setting("directories", "database_dir", str(new_dir))
-            if callable(getattr(config_service, "save_settings", None)):
-                config_service.save_settings()
-
-        MainWindow._update_project_indicator(self, new_dir)
-        status_bar_fn = getattr(self, "statusBar", None)
-        if callable(status_bar_fn) and (bar := status_bar_fn()) is not None:
-            bar.showMessage(f"新規プロジェクトを作成しました: {new_dir.name}", 5000)
         return new_dir
 
     def _open_log_folder(self) -> None:
@@ -2531,6 +2428,24 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             return 0
         count = 0
         for runner in collect_runners.values():
+            thread = runner[0] if isinstance(runner, tuple) and runner else runner
+            is_running = getattr(thread, "isRunning", None)
+            if callable(is_running) and is_running() is False:
+                continue
+            count += 1
+        return count
+
+    @staticmethod
+    def _count_active_cancel_runners(jobs_tab: Any) -> int:
+        """Provider Batch キャンセル (_cancel_runners) の実行中スレッド数を返す (#1547)。"""
+        if jobs_tab is None:
+            return 0
+        widget = getattr(jobs_tab, "provider_batch_job_widget", None)
+        cancel_runners = getattr(widget, "_cancel_runners", None)
+        if not isinstance(cancel_runners, dict):
+            return 0
+        count = 0
+        for runner in cancel_runners.values():
             thread = runner[0] if isinstance(runner, tuple) and runner else runner
             is_running = getattr(thread, "isRunning", None)
             if callable(is_running) and is_running() is False:

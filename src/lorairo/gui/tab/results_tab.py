@@ -167,18 +167,6 @@ class ResultsTabWidget(QWidget):
     def shutdown(self) -> None:
         self._annotation_review_widget.shutdown()
 
-    def rebind_project_dependencies(self, db_manager: ImageDatabaseManager | None) -> None:
-        """プロジェクト切り替えに伴い DB 関連の依存を再設定する (#1547)。"""
-        self._db_manager = db_manager
-        self._last_cohort_ids = []
-        self._last_cohort_names = {}
-        self._annotation_review_widget.set_image_names({})
-        self._annotation_review_widget.set_image_ids([])
-        on_ready = getattr(self, "on_tag_db_ready", None)
-        if callable(on_ready):
-            on_ready()
-        self.refresh()
-
     def closeEvent(self, event: QCloseEvent) -> None:
         self.shutdown()
         super().closeEvent(event)

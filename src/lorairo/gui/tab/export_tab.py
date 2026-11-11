@@ -258,57 +258,21 @@ class ExportTabWidget(QWidget):
 
         self._connect_panel_signals()
 
-    def rebind_project_dependencies(self, db_manager: ImageDatabaseManager | None) -> None:
-        """プロジェクト切り替えに伴い DB 関連の依存を再設定する (#1547)。"""
-        self._db_manager = db_manager
-        if self._dataset_state_manager is not None and db_manager is not None:
-            self._dataset_state_manager.set_db_manager(db_manager)
-        self._aggregation_service = (
-            StagingTagAggregationService(db_manager) if db_manager is not None else None
-        )
-        if hasattr(self, "_staging_tag_panel") and self._staging_tag_panel is not None:
-            self._staging_tag_panel.set_service(self._aggregation_service)
-        if (
-            hasattr(self, "_selected_image_details_widget")
-            and self._selected_image_details_widget is not None
-            and db_manager is not None
-        ):
-            self._selected_image_details_widget.set_db_manager(db_manager)
-        if hasattr(self, "_kohya_export_button") and self._kohya_export_button is not None:
-            self._kohya_export_button.setEnabled(db_manager is not None)
-        self._refinement_service = self._resolve_refinement_service()
-        if (
-            hasattr(self, "_selected_image_details_widget")
-            and self._selected_image_details_widget is not None
-            and hasattr(self._selected_image_details_widget, "set_refinement_service")
-        ):
-            try:
-                self._selected_image_details_widget.set_refinement_service(self._refinement_service)
-            except Exception as e:
-                logger.warning(f"RefinementService 再設定失敗: {e}")
-        on_ready = getattr(self, "on_tag_db_ready", None)
-        if callable(on_ready):
-            on_ready()
-        self.refresh()
-
     def _wire_tag_management_service(self) -> None:
         """構築済みの TagManagementService があれば詳細ペインへ注入する (初期化は起動しない, #1438)。"""
         service = self._service_container.peek_tag_management_service()
         if service is None:
             logger.debug("TagManagementService 未準備 - タグ DB 準備完了後に配線する")
-            if getattr(self._selected_image_details_widget, "_tag_management_service", None) is not None:
-                self._selected_image_details_widget.set_tag_management_service(None)
             return
         self._selected_image_details_widget.set_tag_management_service(service)
 
     def on_tag_db_ready(self) -> None:
         """背景で tag DB の準備が終わった後に、翻訳/補完/overlay convert/タグ管理を後付け注入する (#1438)。"""
         merged_reader = self._resolve_merged_reader()
-        self._selected_image_details_widget.set_merged_reader(merged_reader)
-        self._staging_tag_panel.set_tag_suggestion_service(
-            TagSuggestionService(merged_reader) if merged_reader is not None else None
-        )
-        self._overlay_bar.set_reader(merged_reader)
+        if merged_reader is not None:
+            self._selected_image_details_widget.set_merged_reader(merged_reader)
+            self._staging_tag_panel.set_tag_suggestion_service(TagSuggestionService(merged_reader))
+            self._overlay_bar.set_reader(merged_reader)
         self._wire_tag_management_service()
 
     def _resolve_refinement_service(self) -> RefinementService:
@@ -365,10 +329,7 @@ class ExportTabWidget(QWidget):
         tag DB の初期化 (HF Hub 確認) は GUI スレッドで起動しない (#1438)。
         """
         try:
-            db_mgr = (
-                self._db_manager if self._db_manager is not None else self._service_container.db_manager
-            )
-            return db_mgr.annotation_repo.peek_merged_reader() if db_mgr is not None else None
+            return self._service_container.db_manager.annotation_repo.peek_merged_reader()
         except (AttributeError, RuntimeError) as e:
             logger.warning(f"MergedTagReader 取得に失敗 (convert なしで継続): {e}")
             return None

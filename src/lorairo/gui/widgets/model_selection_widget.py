@@ -235,6 +235,15 @@ if not __name__ == "__main__":
             logger.debug("初回 ModelSelectionWidget 表示に伴うモデル一覧自動更新を予約します")
             QTimer.singleShot(0, self._refresh_model_registry_automatically)
 
+        @classmethod
+        def reset_initial_model_registry_refresh(cls) -> None:
+            """初回自動モデル同期の実施済みフラグを戻す (#1547)。
+
+            プロジェクト切替で MainWindow を作り直す際に呼び、切替先プロジェクトの DB でも
+            起動時と同じく最初の container-backed widget 生成時にモデル同期を行わせる。
+            """
+            cls._auto_refresh_started = False
+
         @Slot()
         def _refresh_model_registry_automatically(self) -> None:
             """起動時 reconcile 用の非モーダル自動更新を開始する。"""
@@ -300,11 +309,6 @@ if not __name__ == "__main__":
                 self.placeholderLabel.setText(
                     "モデル一覧の読み込みに失敗しました。再読み込みしてください。"
                 )
-
-        def set_model_selection_service(self, service: ModelSelectionService) -> None:
-            """ModelSelectionService を差し替えてモデル一覧を再読み込みする (#1547)。"""
-            self.model_selection_service = service
-            self.load_models()
 
         @Slot()
         def refresh_model_registry(self, automatic: bool = False) -> None:

@@ -482,7 +482,6 @@ class SelectedImageDetailsWidget(QWidget):
             reader: タグ翻訳取得用のMergedTagReader。Noneの場合は翻訳機能無効。
         """
         self._merged_reader = reader
-        self._user_db_signature = None
         self._available_languages = reader.get_tag_languages() if reader is not None else []
         self.annotation_display.initialize_language_selector(self._available_languages)
         # 手動タグ追加入力の補完候補も同じ reader から引く (Issue #1439)。
@@ -503,19 +502,17 @@ class SelectedImageDetailsWidget(QWidget):
         """
         self._db_manager = db_manager
         self.annotation_display.set_tag_edit_enabled(True)
-        if not getattr(self, "_db_edit_signals_connected", False):
-            self.annotation_display.tag_disable_requested.connect(self._on_tag_disable)
-            self.annotation_display.tag_exclude_requested.connect(self._on_tag_exclude)
-            self.annotation_display.tag_restore_requested.connect(self._on_tag_restore)
-            self.annotation_display.tag_add_requested.connect(self._on_tag_add)
-            self.annotation_display.tags_exclude_requested.connect(self._on_tags_exclude)
-            self.annotation_display.tags_toggle_requested.connect(self._on_tags_toggle)
-            self.annotation_display.tag_replace_requested.connect(self._on_tag_replace)
-            self.annotation_display.tag_move_to_caption_requested.connect(self._on_tag_move_to_caption)
-            self.annotation_display.caption_edit_requested.connect(self._edit_caption)
-            self._db_edit_signals_connected = True
+        self.annotation_display.tag_disable_requested.connect(self._on_tag_disable)
+        self.annotation_display.tag_exclude_requested.connect(self._on_tag_exclude)
+        self.annotation_display.tag_restore_requested.connect(self._on_tag_restore)
+        self.annotation_display.tag_add_requested.connect(self._on_tag_add)
+        self.annotation_display.tags_exclude_requested.connect(self._on_tags_exclude)
+        self.annotation_display.tags_toggle_requested.connect(self._on_tags_toggle)
+        self.annotation_display.tag_replace_requested.connect(self._on_tag_replace)
+        self.annotation_display.tag_move_to_caption_requested.connect(self._on_tag_move_to_caption)
         self._image_db_write_service = ImageDBWriteService(db_manager)
         self.annotation_display.caption_review_panel.set_editable(True)
+        self.annotation_display.caption_edit_requested.connect(self._edit_caption)
         logger.debug("SelectedImageDetailsWidget: soft-reject 編集モードを有効化")
 
     def set_crop_relation_service(self, service: CropRelationService) -> None:
@@ -625,9 +622,7 @@ class SelectedImageDetailsWidget(QWidget):
             self._connect_worker_terminal_handlers(worker_manager)
         else:
             self._ensure_worker_manager()
-        if not getattr(self, "_refinement_signals_connected", False):
-            self.annotation_display.refinement_ignored.connect(self._on_refinement_ignored)
-            self._refinement_signals_connected = True
+        self.annotation_display.refinement_ignored.connect(self._on_refinement_ignored)
         logger.debug("SelectedImageDetailsWidget: refinement サービスを配線")
 
     def _ensure_worker_manager(self) -> "WorkerManager":
@@ -650,7 +645,7 @@ class SelectedImageDetailsWidget(QWidget):
         manager.worker_terminal.connect(self._on_tag_metadata_terminal)
         manager.worker_terminal.connect(self._on_translation_candidates_terminal)
 
-    def set_tag_management_service(self, service: "TagManagementService | None") -> None:
+    def set_tag_management_service(self, service: "TagManagementService") -> None:
         """tagdb userdb 系書き込みサービスを配線する (#989 / #1237)。
 
         翻訳追加 (`translation_add_requested`)、翻訳削除 (`translation_delete_requested`)、
@@ -662,19 +657,11 @@ class SelectedImageDetailsWidget(QWidget):
             service: canonical 解決 + user DB 書き込みを担う TagManagementService。
         """
         self._tag_management_service = service
-        self._user_db_signature = None
-        if service is None:
-            self.annotation_display.set_translation_candidates_provider(None)
-            self.annotation_display.set_translation_candidates_async_provider(None)
-            self.annotation_display.set_type_choices_provider(None)
-            return
-        if not getattr(self, "_tag_management_signals_connected", False):
-            self.annotation_display.translation_add_requested.connect(self._on_translation_add)
-            self.annotation_display.translation_preferred_requested.connect(self._on_translation_preferred)
-            self.annotation_display.translation_delete_requested.connect(self._on_translation_delete)
-            self.annotation_display.translation_suppress_requested.connect(self._on_translation_suppress)
-            self.annotation_display.tag_metadata_edit_requested.connect(self._on_tag_metadata_edit)
-            self._tag_management_signals_connected = True
+        self.annotation_display.translation_add_requested.connect(self._on_translation_add)
+        self.annotation_display.translation_preferred_requested.connect(self._on_translation_preferred)
+        self.annotation_display.translation_delete_requested.connect(self._on_translation_delete)
+        self.annotation_display.translation_suppress_requested.connect(self._on_translation_suppress)
+        self.annotation_display.tag_metadata_edit_requested.connect(self._on_tag_metadata_edit)
         # 翻訳管理ダイアログの候補訳 provider を注入する (#1084)。canonical+language で
         # 候補訳と現在の主訳を返す。ダイアログは DB 非依存のまま候補を表示できる。
         self.annotation_display.set_translation_candidates_provider(service.list_translation_candidates)
