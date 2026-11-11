@@ -1042,3 +1042,42 @@ def test_current_jobs_snapshot_paginates_older_jobs(qtbot) -> None:
     snapshot = widget._current_jobs_snapshot()
     assert len(snapshot) == 101
     assert snapshot[-1].id == 101
+
+
+@pytest.mark.gui
+def test_uncollected_badge_counts_across_paginated_snapshot(qtbot) -> None:
+    widget = ProviderBatchJobWidget()
+    qtbot.addWidget(widget)
+    repo = MagicMock()
+    page1 = [SimpleNamespace(id=i, status="imported", imported_at=None) for i in range(1, 101)]
+    page2 = [SimpleNamespace(id=101, status="completed", imported_at=None)]
+
+    def fake_list(*, limit: int = 100, offset: int = 0):
+        if offset == 0:
+            return page1
+        if offset == 100:
+            return page2
+        return []
+
+    repo.list_provider_batch_jobs.side_effect = fake_list
+    widget._repository = repo
+    widget._update_uncollected_badge(page1)
+    assert widget.labelUncollectedBadge.text() == "未取込の完了ジョブ: 1件"
+
+
+@pytest.mark.gui
+def test_on_collect_succeeded_refreshes_results_tab(widget, dependencies, qtbot) -> None:
+    workflow, repository = dependencies
+    workflow.refresh.return_value = _job(status="completed", provider_status="completed")
+    widget.set_dependencies(workflow, repository)
+    fake_results = MagicMock()
+    fake_window = SimpleNamespace(
+        tabWidgetMainMode=MagicMock(),
+        tabResults=fake_results,
+        results_tab=fake_results,
+    )
+    widget.window = lambda: fake_window  # type: ignore[method-assign]
+
+    _wait_collect(widget, qtbot, job_id=42)
+
+    fake_results.refresh.assert_called_once_with()

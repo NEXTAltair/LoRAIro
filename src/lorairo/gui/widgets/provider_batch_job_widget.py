@@ -387,7 +387,8 @@ class ProviderBatchJobWidget(QWidget):
 
     def _update_uncollected_badge(self, jobs: list[Any]) -> None:
         """未取込の完了ジョブ件数バッジを更新する (#1560)。"""
-        uncollected_count = sum(1 for job in jobs if self._is_uncollected_completed_job(job))
+        target_jobs = self._current_jobs_snapshot() or jobs
+        uncollected_count = sum(1 for job in target_jobs if self._is_uncollected_completed_job(job))
         if uncollected_count > 0:
             self.labelUncollectedBadge.setText(f"未取込の完了ジョブ: {uncollected_count}件")
             self.labelUncollectedBadge.setVisible(True)
@@ -695,6 +696,10 @@ class ProviderBatchJobWidget(QWidget):
                 tab_widget.setCurrentWidget(tab_results)
             elif hasattr(window, "_switch_top_nav"):
                 window._switch_top_nav("tabResults")
+            results_tab = getattr(window, "results_tab", None) or tab_results
+            refresh_fn = getattr(results_tab, "refresh", None)
+            if callable(refresh_fn):
+                refresh_fn()
 
     @Slot(int, object)
     def _on_collect_failed(self, job_id: int, error: Exception) -> None:
