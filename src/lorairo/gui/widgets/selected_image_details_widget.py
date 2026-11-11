@@ -17,6 +17,7 @@ DatasetStateManager.current_image_data_changedを正規経路としてUI更新�
 """
 
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -107,6 +108,7 @@ class SelectedImageDetailsWidget(QWidget):
     # 関連画像 (クロップ親子) の行クリックによる遷移要求 (#1346)。引数は遷移先 image_id。
     related_image_activated = Signal(int)
     annotations_changed = Signal(int)
+    save_failed = Signal(str)
 
     def __init__(
         self,
@@ -140,6 +142,7 @@ class SelectedImageDetailsWidget(QWidget):
         self.current_details: ImageDetails | None = None
         self.current_image_id: int | None = None
         self._summary_layout: QVBoxLayout | None = None
+        self._target_scope_label: QLabel | None = None
         self._image_info_toggle: QToolButton | None = None
         self._copy_details_button: QToolButton | None = None
         self._reload_from_db_button: QToolButton | None = None
@@ -259,6 +262,10 @@ class SelectedImageDetailsWidget(QWidget):
         layout = QVBoxLayout(container)
         layout.setContentsMargins(10, 6, 10, 8)
         layout.setSpacing(4)
+
+        self._target_scope_label = QLabel("対象: 未選択", container)
+        self._target_scope_label.setObjectName("labelDetailsTargetScope")
+        layout.addWidget(self._target_scope_label)
 
         self._image_info_toggle = QToolButton(container)
         self._image_info_toggle.setText("画像情報")
@@ -1150,37 +1157,69 @@ class SelectedImageDetailsWidget(QWidget):
         if metadata:
             self._on_image_data_received(metadata)
 
+    def _execute_tag_write(self, fn: Callable[[], Any], error_prefix: str) -> bool:
+        """タグ書き込みを実行し、False 返却または例外時に save_failed を発行する (#1553)。"""
+        try:
+            result = fn()
+        except Exception as e:
+            msg = f"{error_prefix}: {e}"
+            logger.opt(exception=True).error(msg)
+            self.save_failed.emit(msg)
+            return False
+        if result is False:
+            msg = f"{error_prefix}に失敗しました"
+            logger.error(msg)
+            self.save_failed.emit(msg)
+            return False
+        return True
+
     @Slot(str)
     def _on_tag_disable(self, tag: str) -> None:
         """タグ無効化 (not_needed) 要求を Manager に委譲し再描画する (Issue #1003)。"""
         if self.current_image_id is None:
             return
-        self._db_manager.soft_reject_tag(self.current_image_id, tag, reason=REJECT_REASON_NOT_NEEDED)
-        self._reload_current_image()
+        image_id = self.current_image_id
+        if self._execute_tag_write(
+            lambda: self._db_manager.soft_reject_tag(image_id, tag, reason=REJECT_REASON_NOT_NEEDED),
+            f"タグ無効化 ({tag})",
+        ):
+            self._reload_current_image()
 
     @Slot(str)
     def _on_tag_exclude(self, tag: str) -> None:
         """タグ除外 (incorrect) 要求を Manager に委譲し再描画する (Issue #1003)。"""
         if self.current_image_id is None:
             return
-        self._db_manager.soft_reject_tag(self.current_image_id, tag, reason=REJECT_REASON_INCORRECT)
-        self._reload_current_image()
+        image_id = self.current_image_id
+        if self._execute_tag_write(
+            lambda: self._db_manager.soft_reject_tag(image_id, tag, reason=REJECT_REASON_INCORRECT),
+            f"タグ除外 ({tag})",
+        ):
+            self._reload_current_image()
 
     @Slot(str)
     def _on_tag_restore(self, tag: str) -> None:
         """タグ復活要求を Manager に委譲し再描画する。"""
         if self.current_image_id is None:
             return
-        self._db_manager.restore_tag(self.current_image_id, tag)
-        self._reload_current_image()
+        image_id = self.current_image_id
+        if self._execute_tag_write(
+            lambda: self._db_manager.restore_tag(image_id, tag),
+            f"タグ復活 ({tag})",
+        ):
+            self._reload_current_image()
 
     @Slot(str)
     def _on_tag_add(self, tag: str) -> None:
         """手動タグ追加要求を Manager に委譲し再描画する。"""
         if self.current_image_id is None:
             return
-        self._db_manager.add_manual_tag(self.current_image_id, tag)
-        self._reload_current_image()
+        image_id = self.current_image_id
+        if self._execute_tag_write(
+            lambda: self._db_manager.add_manual_tag(image_id, tag),
+            f"タグ追加 ({tag})",
+        ):
+            self._reload_current_image()
 
     @Slot(list)
     def _on_tags_exclude(self, canonicals: list[str]) -> None:
@@ -1191,9 +1230,21 @@ class SelectedImageDetailsWidget(QWidget):
         """
         if self.current_image_id is None:
             return
+        image_id = self.current_image_id
+        any_succeeded = False
         for tag in canonicals:
-            self._db_manager.soft_reject_tag(self.current_image_id, tag, reason=REJECT_REASON_INCORRECT)
-        self._reload_current_image()
+            if self._execute_tag_write(
+                partial(
+                    self._db_manager.soft_reject_tag,
+                    image_id,
+                    tag,
+                    reason=REJECT_REASON_INCORRECT,
+                ),
+                f"タグ除外 ({tag})",
+            ):
+                any_succeeded = True
+        if any_succeeded:
+            self._reload_current_image()
 
     @Slot(list, list)
     def _on_tags_toggle(self, to_disable: list[str], to_restore: list[str]) -> None:
@@ -1206,11 +1257,27 @@ class SelectedImageDetailsWidget(QWidget):
         """
         if self.current_image_id is None:
             return
+        image_id = self.current_image_id
+        any_succeeded = False
         for tag in to_disable:
-            self._db_manager.soft_reject_tag(self.current_image_id, tag, reason=REJECT_REASON_NOT_NEEDED)
+            if self._execute_tag_write(
+                partial(
+                    self._db_manager.soft_reject_tag,
+                    image_id,
+                    tag,
+                    reason=REJECT_REASON_NOT_NEEDED,
+                ),
+                f"タグ無効化 ({tag})",
+            ):
+                any_succeeded = True
         for tag in to_restore:
-            self._db_manager.restore_tag(self.current_image_id, tag)
-        self._reload_current_image()
+            if self._execute_tag_write(
+                partial(self._db_manager.restore_tag, image_id, tag),
+                f"タグ復活 ({tag})",
+            ):
+                any_succeeded = True
+        if any_succeeded:
+            self._reload_current_image()
 
     @Slot(str, str)
     def _on_tag_replace(self, from_tag: str, to_tag: str) -> None:
@@ -1222,8 +1289,12 @@ class SelectedImageDetailsWidget(QWidget):
         """
         if self.current_image_id is None:
             return
-        self._db_manager.replace_tag(self.current_image_id, from_tag, to_tag)
-        self._reload_current_image()
+        image_id = self.current_image_id
+        if self._execute_tag_write(
+            lambda: self._db_manager.replace_tag(image_id, from_tag, to_tag),
+            f"タグ置換 ({from_tag} -> {to_tag})",
+        ):
+            self._reload_current_image()
 
     @Slot(str)
     def _on_tag_move_to_caption(self, tag: str) -> None:
@@ -1808,6 +1879,21 @@ class SelectedImageDetailsWidget(QWidget):
 
         return None
 
+    def update_target_scope(self, count: int, image_id: int | None = None) -> None:
+        """詳細ペインの対象範囲ラベルを更新する (#1553)。"""
+        if self._target_scope_label is None:
+            return
+        if count <= 0:
+            self._target_scope_label.setText("対象: 未選択")
+        elif count == 1:
+            target_id = image_id if image_id is not None else self.current_image_id
+            if target_id is not None:
+                self._target_scope_label.setText(f"対象: 画像 #{target_id} (1枚)")
+            else:
+                self._target_scope_label.setText("対象: 未選択")
+        else:
+            self._target_scope_label.setText(f"対象: 選択中 {count}枚")
+
     def _update_details_display(self, details: ImageDetails) -> None:
         """
         ImageDetails構造体に基づいてUI表示を更新
@@ -1826,6 +1912,7 @@ class SelectedImageDetailsWidget(QWidget):
         """
         self.current_details = details
         self.current_image_id = details.image_id
+        self.update_target_scope(1 if details.image_id is not None else 0, details.image_id)
 
         # ファイル名
         file_name = details.file_name if details.file_name else "-"
@@ -1929,6 +2016,7 @@ class SelectedImageDetailsWidget(QWidget):
         """
         self.current_details = None
         self.current_image_id = None
+        self.update_target_scope(0)
         self._current_tags_list = []
         self._current_tag_types = {}
         self._current_tag_canonicals = []

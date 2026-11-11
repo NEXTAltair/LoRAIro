@@ -228,3 +228,124 @@ class TestFacetsAreAsync:
 
         assert panel._tag_suggestion.tag_suggestion_service._merged_reader is reader
         panel.shutdown()
+
+
+class TestFilterSearchPanelWave5_2:
+    """Issue #1548 / #1549: FilterSearchPanel 拡張機能テスト。"""
+
+    def test_search_input_placeholder_and_tooltip_mentions_tag_exclusion(self, qtbot) -> None:
+        panel = FilterSearchPanel()
+        qtbot.addWidget(panel)
+        assert "-tag で除外" in panel.ui.lineEditSearch.placeholderText()
+        assert "-tag で除外" in panel.ui.lineEditSearch.toolTip()
+        panel.shutdown()
+
+    def test_set_search_in_progress_toggles_button_text(self, qtbot) -> None:
+        panel = FilterSearchPanel()
+        qtbot.addWidget(panel)
+        assert panel.ui.buttonApply.text() == "検索実行"
+
+        panel.set_search_in_progress(True)
+        assert panel.ui.buttonApply.text() == "中止"
+
+        panel.set_search_in_progress(False)
+        assert panel.ui.buttonApply.text() == "検索実行"
+        panel.shutdown()
+
+    def test_apply_clicked_when_in_progress_emits_cancel(self, qtbot) -> None:
+        panel = FilterSearchPanel()
+        qtbot.addWidget(panel)
+        panel.set_search_in_progress(True)
+
+        cancel_emitted = False
+
+        def on_cancel():
+            nonlocal cancel_emitted
+            cancel_emitted = True
+
+        panel.search_cancel_requested.connect(on_cancel)
+        panel.ui.buttonApply.click()
+        assert cancel_emitted is True
+        panel.shutdown()
+
+    def test_clear_all_filters_triggers_search_refresh(self, qtbot) -> None:
+        service = MagicMock()
+        service.create_search_conditions.return_value = MagicMock()
+        service.parse_search_input.return_value = ([], [])
+        service.get_recently_used_model_ids.return_value = []
+        service.get_created_at_histogram.return_value = []
+        service.db_manager = MagicMock()
+        service.db_manager.annotation_repo.peek_merged_reader.return_value = None
+        service.db_manager.repository.merged_reader = None
+
+        panel = FilterSearchPanel()
+        qtbot.addWidget(panel)
+        panel.set_search_filter_service(service)
+
+        cleared_emitted = False
+        panel.filter_cleared.connect(lambda: nonlocal_set())
+
+        def nonlocal_set():
+            nonlocal cleared_emitted
+            cleared_emitted = True
+
+        panel.clear_all_filters()
+        assert cleared_emitted is True
+        assert service.create_search_conditions.called
+        panel.shutdown()
+
+    def test_set_error_state_shows_message_in_pipeline(self, qtbot) -> None:
+        from lorairo.gui.widgets.pipeline_state import PipelineState
+
+        panel = FilterSearchPanel()
+        qtbot.addWidget(panel)
+        panel.set_error_state("timeout error")
+        assert panel.get_current_pipeline_state() == PipelineState.ERROR
+        assert "timeout error" in panel._pipeline.current_message
+        panel.shutdown()
+
+    def test_hide_progress_resets_search_in_progress_and_transitions_displaying(self, qtbot) -> None:
+        from lorairo.gui.widgets.pipeline_state import PipelineState
+
+        panel = FilterSearchPanel()
+        qtbot.addWidget(panel)
+        panel._pipeline.transition_to(PipelineState.LOADING_THUMBNAILS)
+        assert panel._search_in_progress is True
+        assert panel.ui.buttonApply.text() == "中止"
+
+        panel.hide_progress_after_completion()
+        assert panel._search_in_progress is False
+        assert panel.ui.buttonApply.text() == "検索実行"
+        assert panel.get_current_pipeline_state() == PipelineState.DISPLAYING
+        panel.shutdown()
+
+    def test_cancel_during_thumbnail_loading_cancels_all_search_and_thumbnail_workers(self, qtbot) -> None:
+        from lorairo.gui.widgets.pipeline_state import PipelineState
+
+        panel = FilterSearchPanel()
+        qtbot.addWidget(panel)
+        worker_svc = MagicMock()
+        panel.set_worker_service(worker_svc)
+        panel._pipeline.transition_to(PipelineState.LOADING_THUMBNAILS)
+        panel.ui.buttonApply.click()
+
+        worker_svc.cancel_all_search_and_thumbnail_workers.assert_called_once()
+        assert panel._search_in_progress is False
+        assert panel.get_current_pipeline_state() == PipelineState.CANCELED
+        panel.shutdown()
+
+    def test_stale_thumbnail_completion_does_not_reset_active_search(self, qtbot) -> None:
+        from lorairo.gui.widgets.pipeline_state import PipelineState
+
+        panel = FilterSearchPanel()
+        qtbot.addWidget(panel)
+        panel._pipeline.transition_to(PipelineState.SEARCHING)
+        panel._current_search_worker_id = "search_new_123"
+
+        panel.notify_thumbnail_loading_completed(10)
+        panel.hide_progress_after_completion()
+
+        assert panel.get_current_pipeline_state() == PipelineState.SEARCHING
+        assert panel._search_in_progress is True
+        assert panel.ui.buttonApply.text() == "中止"
+        panel.shutdown()

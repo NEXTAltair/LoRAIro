@@ -977,6 +977,7 @@ class TestSelectionToDetails:
 
         tab._handle_selection_changed_for_rating([5])
 
+        widget.update_target_scope.assert_called_once_with(1, 5)
         tab._dataset_state_manager.get_image_by_id.assert_called_once_with(5)
         widget._rating_score_widget.populate_from_image_data.assert_called_once_with(image_data)
 
@@ -1202,3 +1203,42 @@ def test_search_tab_opens_image_comparison_from_thumbnail_menu(tab, monkeypatch)
     monkeypatch.setattr(tab._image_comparison_launcher, "open", lambda ids: opened.append(ids) or True)
     tab._thumbnail_selector.compare_requested.emit([3, 4])
     assert opened == [[3, 4]]
+
+
+@pytest.mark.gui
+def test_search_rubber_band_selection_syncs_rating_score_batch_mode(
+    tab: SearchTabWidget, dataset_state_manager, monkeypatch
+) -> None:
+    """ラバーバンド選択 (selection_synced) で Rating/Score カードがバッチモードに遷移する (#1535)。"""
+    populate_mock = Mock()
+    monkeypatch.setattr(
+        tab.selected_image_details_widget._rating_score_widget,
+        "populate_from_selection",
+        populate_mock,
+    )
+    dataset_state_manager.set_dataset_images(
+        [{"id": image_id, "stored_image_path": f"{image_id}.png"} for image_id in (1, 2, 3)]
+    )
+    thumbnail = tab.thumbnail_selector
+    thumbnail.graphics_view._drag_modifiers = Qt.KeyboardModifier.NoModifier
+    dragged_items = [Mock(spec=ThumbnailItem, image_id=image_id) for image_id in (1, 2)]
+    monkeypatch.setattr(thumbnail.scene, "selectedItems", lambda: dragged_items)
+
+    thumbnail.scene.selectionChanged.emit()
+
+    populate_mock.assert_called_once_with([1, 2], tab._db_manager)
+
+
+@pytest.mark.gui
+def test_rating_score_error_surfaced_on_label_status(tab: SearchTabWidget, monkeypatch) -> None:
+    """Issue #1553: Rating/Score 更新エラーが labelStatus に反映される。"""
+    monkeypatch.setattr("lorairo.gui.tab.search_tab.show_warning", lambda *a, **kw: None)
+    tab._notify_rating_score_error("スコアの更新に失敗しました")
+    assert tab.labelStatus.text() == "スコアの更新に失敗しました"
+
+
+@pytest.mark.gui
+def test_details_save_failed_surfaced_on_label_status(tab: SearchTabWidget) -> None:
+    """Issue #1553: 詳細パネルのタグ保存失敗が labelStatus に反映される。"""
+    tab._on_details_save_failed("タグ保存に失敗しました")
+    assert tab.labelStatus.text() == "タグ保存に失敗しました"

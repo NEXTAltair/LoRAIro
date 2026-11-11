@@ -203,6 +203,7 @@ class RatingScoreEditWidget(QWidget):
         self._current_image_id: int | None = None
         self._selected_image_ids: list[int] = []  # 複数選択時のIDリスト
         self._is_batch_mode: bool = False  # バッチモードフラグ
+        self._is_dirty: bool = False  # 未保存の変更があるか (#1553)
         # AI 推論値 (read-only セクション用)。manual との差分計算に使う
         self._ai_rating: str | None = None
         self._ai_score_ui: int | None = None
@@ -213,6 +214,7 @@ class RatingScoreEditWidget(QWidget):
         # UI設定
         self.ui = Ui_RatingScoreEditWidget()
         self.ui.setupUi(self)
+        self.ui.pushButtonApply = self.ui.pushButtonSave  # type: ignore[attr-defined]
         install_no_scroll_wheel_guard(self.ui.sliderScore)
         install_no_scroll_wheel_guard(self.ui.comboBoxRating)
         self._initialize_rating_items()
@@ -221,12 +223,49 @@ class RatingScoreEditWidget(QWidget):
         # スライダーと値ラベルの連動 (セクション構築後に接続)
         self.ui.sliderScore.valueChanged.connect(self._on_slider_value_changed)
         self._rating_segmented.rating_selected.connect(self._on_segment_rating_selected)
+        self.ui.comboBoxRating.currentTextChanged.connect(self._on_rating_combo_changed)
 
         # 初期表示は空 (AI 値なし)
         self._render_ai_section(None, None)
         self._update_manual_edit_state()
 
         logger.info("RatingScoreEditWidget initialized")
+
+    @property
+    def is_dirty(self) -> bool:
+        """未保存の変更があるかどうか (#1553)。"""
+        return self._is_dirty
+
+    def set_batch_mode(self, enabled: bool, count: int = 0) -> None:
+        """バッチモードを設定し、保存ボタンのラベルを更新する (#1553)。"""
+        self._is_batch_mode = bool(enabled)
+        if self._is_batch_mode and count > 0:
+            self.ui.pushButtonSave.setText(f"{count}枚に保存")
+        else:
+            self.ui.pushButtonSave.setText("保存")
+
+    def clear_selection(self) -> None:
+        """選択状態をクリアし、未保存フラグとボタン表示をリセットする (#1553)。"""
+        self._current_image_id = None
+        self._selected_image_ids = []
+        self.set_batch_mode(False)
+        self.ui.comboBoxRating.blockSignals(True)
+        self.ui.sliderScore.blockSignals(True)
+        self._set_rating_text(None)
+        self._manual_score_set = False
+        self.ui.sliderScore.setValue(500)
+        self.ui.labelScoreValue.setText("--")
+        self.ui.comboBoxRating.blockSignals(False)
+        self.ui.sliderScore.blockSignals(False)
+        self._render_ai_section(None, None)
+        self._update_manual_edit_state()
+        self._is_dirty = False
+
+    @Slot(str)
+    def _on_rating_combo_changed(self, rating: str) -> None:
+        """comboBoxRating 変更時に未保存フラグを立てる。"""
+        del rating
+        self._is_dirty = True
 
     @Slot(int)
     def _on_slider_value_changed(self, value: int) -> None:
@@ -240,12 +279,14 @@ class RatingScoreEditWidget(QWidget):
         """
         # ユーザーがスライダーを動かした = 手動スコアが設定された (Issue #825)
         self._manual_score_set = True
+        self._is_dirty = True
         self.ui.labelScoreValue.setText(f"{value / 100.0:.2f}")
         self._update_manual_edit_state()
 
     @Slot(str)
     def _on_segment_rating_selected(self, rating: str) -> None:
         """人間レーティングのセグメント選択を SSoT (comboBoxRating) へ反映する。"""
+        self._is_dirty = True
         index = self.ui.comboBoxRating.findText(rating)
         if index >= 0:
             self.ui.comboBoxRating.setCurrentIndex(index)
@@ -636,8 +677,9 @@ class RatingScoreEditWidget(QWidget):
         self._update_manual_edit_state()
 
         # バッチモードを解除
-        self._is_batch_mode = False
+        self.set_batch_mode(False)
         self._selected_image_ids = []
+        self._is_dirty = False
 
         logger.trace(
             f"Form populated for image_id={self._current_image_id}: "
@@ -667,7 +709,7 @@ class RatingScoreEditWidget(QWidget):
             logger.warning("Empty image_ids for populate_from_selection")
             return
 
-        self._is_batch_mode = True
+        self.set_batch_mode(True, len(image_ids))
         self._selected_image_ids = image_ids.copy()
         self._current_image_id = None  # バッチモードでは単一IDなし
 
@@ -713,12 +755,18 @@ class RatingScoreEditWidget(QWidget):
         # バッチでは AI 推論値は単一に定まらないため AI セクションを空表示にする
         self._render_ai_section(None, None)
         self._update_manual_edit_state()
+        self._is_dirty = False
 
         logger.info(
             f"Batch mode activated: {len(image_ids)} images, "
             f"common_rating={'Yes' if common_rating is not None else 'No'}, "
             f"common_score={'Yes' if common_score_db is not None else 'No'}"
         )
+
+    @Slot()
+    def _on_apply_clicked(self) -> None:
+        """適用/保存ボタンクリックハンドラの別名 (#1553)。"""
+        self._on_save_clicked()
 
     @Slot()
     def _on_save_clicked(self) -> None:
@@ -736,6 +784,7 @@ class RatingScoreEditWidget(QWidget):
         Score が未設定 (`--`, `_manual_score_set=False`) の場合も同様に
         score シグナルを発行せず、5.00 (500) による意図しない上書きを防ぐ (#1533)。
         """
+        self._is_dirty = False
         rating = self.ui.comboBoxRating.currentText()
         score = self.ui.sliderScore.value()
         # プレースホルダ選択時は Rating 変更なし扱い
