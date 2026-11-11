@@ -1253,9 +1253,7 @@ class TestSameImageUpdateOptimization:
         monkeypatch.setattr(widget, "_trigger_refinement_evaluation", lambda: refinement_calls.append(1))
 
         tags = [{"tag": "1girl", "tag_id": 1}]
-        widget._on_image_data_received(
-            {"id": 42, "file_path": "/a.png", "tags": tags}
-        )
+        widget._on_image_data_received({"id": 42, "file_path": "/a.png", "tags": tags})
         assert len(tag_meta_calls) == 1
         assert len(refinement_calls) == 1
         assert widget._force_tag_metadata_refresh is False
@@ -1265,9 +1263,7 @@ class TestSameImageUpdateOptimization:
         assert widget._force_tag_metadata_refresh is True
 
         # 同一画像・タグ不変の更新でも force_tag_metadata_refresh によりスキップされず再取得が走る
-        widget._on_image_data_received(
-            {"id": 42, "file_path": "/a.png", "tags": list(tags)}
-        )
+        widget._on_image_data_received({"id": 42, "file_path": "/a.png", "tags": list(tags)})
         assert len(tag_meta_calls) == 2
         assert len(refinement_calls) == 2
         assert widget._force_tag_metadata_refresh is False

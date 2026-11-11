@@ -76,6 +76,7 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
         self._panning: bool = False
         self._pan_start_pos: QPoint = QPoint()
         self._full_res_enabled: bool = False
+        self._decoded_full_res: bool = False
 
         self._setup_crop_action_bar()
 
@@ -98,6 +99,7 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
             self._current_image_path == image_path
             and self._current_pixmap is not None
             and not self._current_pixmap.isNull()
+            and self._decoded_full_res == bool(self._full_res_enabled)
         )
 
     @Slot(Path)
@@ -125,6 +127,7 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
             self.pixmap_item = self.graphics_scene.addPixmap(pixmap)
             self._current_image_path = image_path
             self._current_pixmap = pixmap
+            self._decoded_full_res = bool(self._full_res_enabled)
 
             # シーンの矩形を画像のサイズに設定
             self.graphics_scene.setSceneRect(pixmap.rect())
@@ -613,6 +616,7 @@ class ImagePreviewWidget(QWidget, Ui_ImagePreviewWidget):
             self.pixmap_item = None
             self._current_image_path = None
             self._current_pixmap = None
+            self._decoded_full_res = False
             self._last_load_error = None
 
             logger.debug("Preview cleared and memory optimized")

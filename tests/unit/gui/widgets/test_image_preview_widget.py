@@ -774,3 +774,27 @@ class TestImagePreviewZoomPanAndFullRes:
         mock_load.assert_not_called()
         assert widget.current_image_id() == 77
         assert widget._crop_button.isEnabled() is True
+
+    def test_on_full_res_toggled_redecodes_current_image(self, widget, tmp_path):
+        """原寸トグル切り替え時は同一画像パスであっても再デコードが実行される (#1543 Codex P2)。"""
+        from PIL import Image
+
+        source = tmp_path / "full_res_test.png"
+        Image.new("RGB", (64, 64), color=(10, 20, 30)).save(source)
+
+        widget.load_image(source)
+        assert widget._decoded_full_res is False
+
+        with patch.object(
+            widget, "_decode_preview_pixmap", wraps=widget._decode_preview_pixmap
+        ) as mock_decode:
+            widget._on_full_res_toggled(True)
+            mock_decode.assert_called_once_with(source, full_res=True)
+            assert widget._decoded_full_res is True
+
+        with patch.object(
+            widget, "_decode_preview_pixmap", wraps=widget._decode_preview_pixmap
+        ) as mock_decode:
+            widget._on_full_res_toggled(False)
+            mock_decode.assert_called_once_with(source, full_res=False)
+            assert widget._decoded_full_res is False
