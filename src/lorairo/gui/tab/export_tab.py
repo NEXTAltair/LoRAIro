@@ -114,6 +114,9 @@ class ExportTabWidget(QWidget):
             staging_state_manager.get_image_ids() if staging_state_manager is not None else []
         )
         self._staging_refresh_pending = False
+        # ステージング集合のメタデータ・低解像度パスキャッシュ (タグ絞り込み時の N+1 再クエリ防止, #1546)。
+        self._staged_metadata_by_id: dict[int, dict[str, Any]] = {}
+        self._staged_low_res_paths: dict[int, str] = {}
 
         # 左ペインのタグ絞り込み状態 (#949)。None = 絞り込みなし (全 staged 表示)。
         self._active_filter_tag: str | None = None
@@ -216,6 +219,8 @@ class ExportTabWidget(QWidget):
         if not self._image_ids:
             return
         active = self._active_filter_tag
+        self._invalidate_staged_metadata_cache()
+        self._ensure_staged_metadata_cached(self._image_ids)
         if self._aggregation_service is not None:
             self._staging_tag_panel.load_tags(self._image_ids)
         if self._dataset_state_manager is not None:
@@ -333,12 +338,62 @@ class ExportTabWidget(QWidget):
     # ステージング集合 → サムネ / 集計 供給
     # ------------------------------------------------------------------
 
+    def _invalidate_staged_metadata_cache(self) -> None:
+        """ステージング集合のメタデータ・低解像度パスキャッシュを無効化する (#1546)。"""
+        self._staged_metadata_by_id.clear()
+        self._staged_low_res_paths.clear()
+
+    def _fetch_staged_metadata(self, missing_ids: list[int]) -> dict[int, dict[str, Any]]:
+        """指定 ID 群のメタデータを一括取得または単件フォールバックで返す (#1546)。"""
+        if self._db_manager is None:
+            return {}
+        batch_fn = getattr(self._db_manager, "get_images_metadata_batch", None)
+        if callable(batch_fn):
+            batch_result = batch_fn(missing_ids)
+            if isinstance(batch_result, list) and all(isinstance(item, dict) for item in batch_result):
+                return {item["id"]: item for item in batch_result if isinstance(item.get("id"), int)}
+        fetched: dict[int, dict[str, Any]] = {}
+        for iid in missing_ids:
+            metadata = self._db_manager.get_image_metadata(iid)
+            if isinstance(metadata, dict):
+                fetched[iid] = metadata
+        return fetched
+
+    def _fetch_staged_low_res_paths(self, missing_ids: list[int]) -> dict[int, str]:
+        """指定 ID 群の低解像度画像パスを一括取得して返す (#1546)。"""
+        if self._db_manager is None:
+            return {}
+        low_res_fn = getattr(self._db_manager, "get_low_res_image_paths_batch", None)
+        if not callable(low_res_fn):
+            return {}
+        low_res_result = low_res_fn(missing_ids)
+        if not isinstance(low_res_result, dict):
+            return {}
+        return {
+            raw_id: low_res_path
+            for raw_id, low_res_path in low_res_result.items()
+            if isinstance(raw_id, int) and isinstance(low_res_path, str) and low_res_path
+        }
+
+    def _ensure_staged_metadata_cached(self, image_ids: list[int]) -> None:
+        """未キャッシュの image_ids についてメタデータと低解像度パスを一括取得する (#1546)。"""
+        if self._db_manager is None:
+            return
+        missing_ids = [iid for iid in image_ids if iid not in self._staged_metadata_by_id]
+        if not missing_ids:
+            return
+        self._staged_metadata_by_id.update(self._fetch_staged_metadata(missing_ids))
+        self._staged_low_res_paths.update(self._fetch_staged_low_res_paths(missing_ids))
+
     def _populate(self, image_ids: list[int]) -> None:
         """ステージング集合をタグ集計・サムネグリッド・選択 SSoT へ反映する。
 
         ステージング集合が変わるたびにタグ絞り込みはリセットし (全 staged 表示)、
         中央サムネと scope counts を全件で再構築する。
         """
+        self._invalidate_staged_metadata_cache()
+        self._ensure_staged_metadata_cached(image_ids)
+
         # 左ペイン: タグ集計
         if self._aggregation_service is not None:
             self._staging_tag_panel.load_tags(image_ids)
@@ -370,6 +425,7 @@ class ExportTabWidget(QWidget):
         ``_populate`` (全 staged) とタグ絞り込み (部分集合) の両方から呼ばれる。
         絞り込みで現在選択画像が表示集合から外れた場合は current image をクリアし、
         右ペイン/プレビューが非表示画像を表示し続けるのを防ぐ (#961 P2)。
+        ステージング済みメタデータはキャッシュから引き、タグ絞り込みごとの N+1 クエリを防ぐ (#1546)。
         """
         current_id = self._dataset_state_manager.current_image_id
         if current_id is not None and current_id not in set(image_ids):
@@ -377,14 +433,15 @@ class ExportTabWidget(QWidget):
 
         if self._db_manager is None:
             return
+        self._ensure_staged_metadata_cached(image_ids)
         metadata_list: list[dict[str, Any]] = []
         path_items: list[tuple[str, int]] = []
         for image_id in image_ids:
-            metadata = self._db_manager.get_image_metadata(image_id)
+            metadata = self._staged_metadata_by_id.get(image_id)
             if metadata is None:
                 continue
             metadata_list.append(metadata)
-            stored_path = metadata.get("stored_image_path")
+            stored_path = self._staged_low_res_paths.get(image_id) or metadata.get("stored_image_path")
             if stored_path:
                 # stored_image_path はプロジェクトルート相対のことがあるため解決する (#961 P2)。
                 resolved = resolve_stored_path(str(stored_path))
@@ -420,12 +477,30 @@ class ExportTabWidget(QWidget):
 
         タブ表示時にシグナル取りこぼしがあっても、SSoT である
         ``StagingStateManager`` を読み直して対象件数の整合を取る (#896)。
+        他タブや詳細ペインでのタグ/メタデータ編集を反映するため、ID集合が不変であっても
+        メタデータキャッシュを無効化して最新データを再取得・更新する (#1546 Codex P2)。
         """
+        self._invalidate_staged_metadata_cache()
         if self._staging_state_manager is not None:
             image_ids = self._staging_state_manager.get_image_ids()
             if self.isVisible() and not self._staging_refresh_pending and image_ids == self._image_ids:
+                prev_filter = self._active_filter_tag
+                self._ensure_staged_metadata_cached(image_ids)
+                if self._aggregation_service is not None:
+                    self._staging_tag_panel.load_tags(image_ids)
+                if prev_filter is not None:
+                    self._on_filter_tag_changed(prev_filter)
+                else:
+                    self._render_thumbnails(image_ids)
+                    self._overlay_bar.set_scope_counts(len(self._image_ids), len(self._image_ids))
                 return
             self.set_image_ids(image_ids)
+        elif self.isVisible():
+            self._ensure_staged_metadata_cached(self._image_ids)
+            target_ids = self._filtered_ids if self._active_filter_tag is not None else self._image_ids
+            self._render_thumbnails(target_ids)
+        else:
+            self._staging_refresh_pending = True
 
     def current_export_ids(self) -> list[int]:
         """現在のエクスポート対象 ID を返す (テスト・検証用)。"""
@@ -485,6 +560,8 @@ class ExportTabWidget(QWidget):
         # load_tags() は内部で絞り込みをリセットし filter_tag_changed(None) を同期 emit して
         # _active_filter_tag を None に上書きするため、再適用前にアクティブタグを退避する (Codex P2)。
         active = self._active_filter_tag
+        self._invalidate_staged_metadata_cache()
+        self._ensure_staged_metadata_cached(self._image_ids)
         # 集計とサムネキャッシュを最新化し、退避した絞り込みを維持して再描画する。
         if self._aggregation_service is not None:
             self._staging_tag_panel.load_tags(self._image_ids)
@@ -535,6 +612,9 @@ class ExportTabWidget(QWidget):
         退避したアクティブタグを再適用してサムネ/counts を整合させる。
         """
         active = self._active_filter_tag
+        if self._last_preview_image_id is not None:
+            self._staged_metadata_by_id.pop(self._last_preview_image_id, None)
+            self._ensure_staged_metadata_cached([self._last_preview_image_id])
         if self._aggregation_service is not None:
             self._staging_tag_panel.load_tags(self._image_ids)
         self._on_filter_tag_changed(active)
