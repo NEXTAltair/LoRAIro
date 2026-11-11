@@ -32,7 +32,7 @@ from lorairo.services.provider_batch_service import ProviderBatchError
 from lorairo.services.selection_state_service import SelectionStateService
 from lorairo.services.service_container import get_service_container
 
-from ..message_box import show_critical, show_warning
+from ..message_box import show_critical, show_information, show_warning
 
 if TYPE_CHECKING:
     from lorairo.database.db_manager import ImageDatabaseManager
@@ -242,7 +242,7 @@ def _start_sync_workflow(
         return False
     staged_paths = controller._annotate_tab.staged_image_paths()
     if not staged_paths:
-        QMessageBox.information(
+        show_information(
             controller._parent_widget,
             "ステージング画像なし",
             "ステージング画像のパスを解決できませんでした。\n"
@@ -548,7 +548,7 @@ class AnnotationWorkflowController(QObject):
         if self._is_annotate_tab_active():
             override_image_paths = annotate_tab.staged_image_paths() if annotate_tab is not None else []
             if not override_image_paths:
-                QMessageBox.information(
+                show_information(
                     self._parent_widget,
                     "ステージング画像なし",
                     "ステージングリストに画像がありません。\n"
@@ -713,7 +713,8 @@ class AnnotationWorkflowController(QObject):
                 show_warning(
                     self._parent_widget,
                     "サービス未初期化",
-                    "WorkerServiceが初期化されていないため、アノテーション処理を実行できません。",
+                    "アノテーション処理を実行できません。アプリを再起動してください。",
+                    detail="WorkerService is not initialized",
                 )
             return False
 
@@ -742,7 +743,7 @@ class AnnotationWorkflowController(QObject):
             if not image_paths:
                 logger.warning("画像パスリストが空です")
                 if self._parent_widget:
-                    QMessageBox.information(
+                    show_information(
                         self._parent_widget,
                         "画像データ取得エラー",
                         "選択された画像のパスを取得できませんでした。\n"
@@ -756,7 +757,7 @@ class AnnotationWorkflowController(QObject):
             # SelectionStateService.get_selected_image_paths()からのエラー
             logger.info(f"画像選択エラー: {e}")
             if self._parent_widget:
-                QMessageBox.information(
+                show_information(
                     self._parent_widget,
                     "画像未選択",
                     str(e),
@@ -974,7 +975,7 @@ class AnnotationWorkflowController(QObject):
         run_options = self._annotate_tab.run_options()
         image_ids = list(self._annotate_tab.get_staged_items().keys())
         if not image_ids:
-            QMessageBox.information(
+            show_information(
                 self._parent_widget,
                 "ステージング画像なし",
                 "ステージングリストに画像がありません。\n"
@@ -984,7 +985,7 @@ class AnnotationWorkflowController(QObject):
 
         # dry-run: 実送信せず件数プレビューのみ (RunSettings の dry-run 契約)
         if run_options.dry_run:
-            QMessageBox.information(
+            show_information(
                 self._parent_widget,
                 "Batch API 送信 (dry-run)",
                 f"dry-run: {len(image_ids)} 枚を Batch API へ送信予定です。\n実際の送信・推論は行いません。",

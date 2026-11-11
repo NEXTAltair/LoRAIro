@@ -8,9 +8,9 @@ from typing import Any
 
 from loguru import logger
 from PySide6.QtCore import SignalInstance
-from PySide6.QtWidgets import QMessageBox, QWidget
+from PySide6.QtWidgets import QWidget
 
-from ..message_box import show_critical, show_warning
+from ..message_box import show_critical, show_information, show_warning
 
 
 class ResultHandlerService:
@@ -126,7 +126,7 @@ class ResultHandlerService:
             if self.parent:
                 if failed == 0:
                     # 全て成功
-                    QMessageBox.information(
+                    show_information(
                         self.parent,
                         "アノテーション完了",
                         f"アノテーション処理が正常に完了しました。\n\n"

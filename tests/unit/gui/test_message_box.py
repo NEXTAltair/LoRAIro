@@ -6,9 +6,9 @@
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QMessageBox
+from PySide6.QtWidgets import QLabel, QMainWindow, QMessageBox, QWidget
 
-from lorairo.gui.message_box import build_message_box
+from lorairo.gui.message_box import build_message_box, show_status_message
 
 pytestmark = pytest.mark.gui
 
@@ -42,3 +42,22 @@ def test_build_message_box_applies_icon(qapp):
     """指定アイコンが反映される (#1160)。"""
     box = build_message_box(QMessageBox.Icon.Warning, None, "警告", "本文")
     assert box.icon() == QMessageBox.Icon.Warning
+
+
+def test_show_status_message_uses_window_status_bar(qtbot):
+    """所属ウィンドウのステータスバーへ表示できる (#1569)。"""
+    window = QMainWindow()
+    qtbot.addWidget(window)
+    child = QWidget(window)
+
+    assert show_status_message(child, "保存しました", 5000) is True
+    assert window.statusBar().currentMessage() == "保存しました"
+
+
+def test_show_status_message_without_status_bar_returns_false(qtbot):
+    """ステータスバーを持たないウィンドウでは何もせず False を返す (#1569)。"""
+    widget = QWidget()
+    qtbot.addWidget(widget)
+
+    assert show_status_message(widget, "x") is False
+    assert show_status_message(None, "x") is False

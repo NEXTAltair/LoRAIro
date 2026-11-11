@@ -362,7 +362,7 @@ class TestBatchTagWidgetIntegration:
         # #868: ステージング導線は AnnotateTabWidget へ委譲される
         monkeypatch.setattr(main_window_with_tabs.annotate_tab, "add_image_ids_to_staging", add_to_staging)
         information = Mock()
-        monkeypatch.setattr("lorairo.gui.window.main_window.QMessageBox.information", information)
+        monkeypatch.setattr("lorairo.gui.window.main_window.show_information", information)
 
         # #869: ステージング導線ボタンは SearchTabWidget が所有する
         main_window_with_tabs.search_tab.pushButtonStageToBatchTag.click()

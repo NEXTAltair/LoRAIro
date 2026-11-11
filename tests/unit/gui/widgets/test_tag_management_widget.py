@@ -5,6 +5,7 @@ from unittest.mock import Mock
 import pytest
 from genai_tag_db_tools.models import TagRecordPublic
 from PySide6.QtWidgets import QCheckBox, QComboBox
+from sqlalchemy.exc import SQLAlchemyError
 
 from lorairo.gui.widgets.tag_management_widget import TagManagementWidget
 from lorairo.services.refinement_service import RefinementService
@@ -131,9 +132,7 @@ class TestTagManagementWidget:
         """update_completed Signal 発火確認"""
         # QMessageBoxをmockしてモーダルブロックを回避
         mock_msgbox = Mock(return_value=None)
-        monkeypatch.setattr(
-            "lorairo.gui.widgets.tag_management_widget.QMessageBox.information", mock_msgbox
-        )
+        monkeypatch.setattr("lorairo.gui.widgets.tag_management_widget.show_information", mock_msgbox)
 
         # waitSignalでシグナル発火を待機（timeout付き）
         with qtbot.waitSignal(widget.update_completed, timeout=2000):
@@ -494,3 +493,26 @@ class TestIgnoreManagementSection:
 
         service.unignore.assert_called_once_with("heart", "alias_tag", 7)
         assert widget.tableIgnoredEntries.rowCount() == 0
+
+    def test_unignore_failure_notifies_user(self, qtbot, monkeypatch):
+        """解除が DB エラーで失敗したら警告を出し、例外文字列は detail へ回す (#1569)。"""
+        widget, service = self._make_widget(
+            qtbot,
+            [{"tag": "heart", "reason_code": "alias_tag", "image_id": 7, "created_at": None}],
+        )
+        service.unignore.side_effect = SQLAlchemyError("db locked")
+        shown: list[tuple[tuple, dict]] = []
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.tag_management_widget.show_warning",
+            lambda *a, **kw: shown.append((a, kw)),
+        )
+
+        widget._on_unignore("heart", "alias_tag", 7)
+
+        assert len(shown) == 1
+        args, kwargs = shown[0]
+        assert "heart" in args[2]
+        assert "db locked" not in args[2]
+        assert "db locked" in kwargs["detail"]
+        # 失敗時は一覧を再描画せず、設定は残ったまま
+        assert widget.tableIgnoredEntries.rowCount() == 1

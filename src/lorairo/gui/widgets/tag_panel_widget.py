@@ -67,6 +67,7 @@ from ...utils.language_keys import (
 )
 from ...utils.log import logger
 from .. import theme
+from ..message_box import show_information
 from .ds_no_scroll_combo_box import DsNoScrollComboBox
 from .tag_cloud_widget import FlowLayout
 from .tag_suggestion import TagSuggestionWidget
@@ -2547,7 +2548,7 @@ class TagPanelWidget(QWidget):
             if self._tag_metadata_pending:
                 # 読み込み中/取得失敗を「翻訳なし」と誤認すると追加ダイアログへ落ち、
                 # legacy 言語キーの誤訳を上書きできない (PR #1086 Codex P2)
-                QMessageBox.information(
+                show_information(
                     self,
                     "翻訳を修正",
                     "翻訳情報を読み込み中です。数秒待ってからもう一度お試しください。",

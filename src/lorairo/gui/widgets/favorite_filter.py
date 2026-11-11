@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 
 from ...gui import theme
 from ...utils.log import logger
-from ..message_box import show_critical, show_warning
+from ..message_box import show_critical, show_status_message, show_warning
 from .ds_removable_chip import RemovableChip
 
 ConditionsGetter = Callable[[], dict[str, Any]]
@@ -153,6 +153,11 @@ class FavoriteFilterPanel(QGroupBox):
             logger.debug("Refreshed favorite filters list: {} items", len(filter_names))
         except Exception as e:
             logger.opt(exception=True).error("Failed to refresh favorite filters list: {}", e)
+            show_status_message(
+                self,
+                "お気に入りフィルター一覧を更新できませんでした。再度お試しください",
+                8000,
+            )
 
     def _render_chips(self, filter_names: list[str], conditions_map: dict[str, Any]) -> None:
         """保存クエリを DS chip で再描画する (#815)。
@@ -246,7 +251,7 @@ class FavoriteFilterPanel(QGroupBox):
         try:
             success = self.favorite_filters_service.save_filter(filter_name, conditions)
             if success:
-                QMessageBox.information(self, "保存完了", f"フィルター '{filter_name}' を保存しました。")
+                show_status_message(self, f"フィルター '{filter_name}' を保存しました")
                 self._refresh_list()
             else:
                 show_warning(self, "保存失敗", "フィルターの保存に失敗しました。")
@@ -268,6 +273,7 @@ class FavoriteFilterPanel(QGroupBox):
             if conditions:
                 self._conditions_applier(conditions)
                 logger.info("Loaded and applied favorite filter: {}", filter_name)
+                show_status_message(self, f"フィルター '{filter_name}' を読み込みました")
             else:
                 show_warning(
                     self,
@@ -310,7 +316,7 @@ class FavoriteFilterPanel(QGroupBox):
         try:
             success = self.favorite_filters_service.delete_filter(filter_name)
             if success:
-                QMessageBox.information(self, "削除完了", f"フィルター '{filter_name}' を削除しました。")
+                show_status_message(self, f"フィルター '{filter_name}' を削除しました")
                 self._refresh_list()
             else:
                 show_warning(self, "削除失敗", "フィルターの削除に失敗しました。")

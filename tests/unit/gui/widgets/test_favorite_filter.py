@@ -9,7 +9,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from PySide6.QtWidgets import QInputDialog, QMessageBox
+from PySide6.QtWidgets import QInputDialog, QMainWindow, QMessageBox
 
 from lorairo.gui.widgets.favorite_filter import FavoriteFilterPanel
 
@@ -416,3 +416,67 @@ class TestErrorDetailForwarding:
 
         applier.assert_called_once_with({"some": "conditions"})
         assert len(info_called) == 0
+
+
+@pytest.fixture()
+def windowed_panel(qtbot) -> tuple[QMainWindow, FavoriteFilterPanel]:
+    """ステータスバーを持つ QMainWindow 配下の FavoriteFilterPanel。"""
+    window = QMainWindow()
+    qtbot.addWidget(window)
+    p = FavoriteFilterPanel(window)
+    return window, p
+
+
+class TestStatusBarNotifications:
+    """完了通知はモーダルでなくステータスバーへ出す (#1569)。"""
+
+    @pytest.fixture(autouse=True)
+    def forbid_information_dialog(self, monkeypatch) -> list:
+        called: list = []
+        monkeypatch.setattr(QMessageBox, "information", lambda *a, **kw: called.append(a))
+        monkeypatch.setattr("lorairo.gui.message_box.show_information", lambda *a, **kw: called.append(a))
+        self.information_calls = called
+        return called
+
+    def test_save_completion_goes_to_status_bar(self, windowed_panel, mock_service, monkeypatch) -> None:
+        window, panel = windowed_panel
+        panel.set_favorite_filters_service(mock_service)
+        panel.set_conditions_getter(lambda: {"keywords": ["1girl"]})
+        monkeypatch.setattr(QInputDialog, "getText", lambda *a, **kw: ("my_filter", True))
+
+        panel._on_save_clicked()
+
+        assert "my_filter" in window.statusBar().currentMessage()
+        assert "保存" in window.statusBar().currentMessage()
+        assert self.information_calls == []
+
+    def test_delete_completion_goes_to_status_bar(self, windowed_panel, mock_service) -> None:
+        window, panel = windowed_panel
+        mock_service.list_filters.return_value = ["my_filter"]
+        panel.set_favorite_filters_service(mock_service)
+        panel.favorite_filters_list.setCurrentRow(0)
+
+        panel._on_delete_clicked()
+
+        mock_service.delete_filter.assert_called_once_with("my_filter")
+        assert "削除" in window.statusBar().currentMessage()
+        assert self.information_calls == []
+
+    def test_load_completion_goes_to_status_bar(self, windowed_panel, mock_service) -> None:
+        window, panel = windowed_panel
+        panel.set_favorite_filters_service(mock_service)
+        panel.set_conditions_applier(MagicMock())
+
+        panel._load_by_name("my_filter")
+
+        assert "読み込み" in window.statusBar().currentMessage()
+        assert self.information_calls == []
+
+    def test_refresh_failure_goes_to_status_bar(self, windowed_panel) -> None:
+        window, panel = windowed_panel
+        service = MagicMock()
+        service.list_filters.side_effect = RuntimeError("DB error")
+
+        panel.set_favorite_filters_service(service)
+
+        assert "更新できませんでした" in window.statusBar().currentMessage()

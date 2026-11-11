@@ -2185,7 +2185,7 @@ def test_translation_fix_pending_metadata_blocks_add_fallback(panel, sample_tags
     panel.set_tags(sample_tags, image_id=1)
     panel.set_tag_metadata_pending(True)
     infos: list = []
-    monkeypatch.setattr(tpw.QMessageBox, "information", lambda *a, **k: infos.append(a))
+    monkeypatch.setattr(tpw, "show_information", lambda *a, **k: infos.append(a))
     opened: list = []
     monkeypatch.setattr(panel, "_open_translation_dialog", lambda c: opened.append(c))
 

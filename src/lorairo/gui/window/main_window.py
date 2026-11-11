@@ -46,7 +46,7 @@ from ...utils.log import logger
 from ..controllers.annotation_workflow_controller import AnnotationWorkflowController
 from ..controllers.dataset_controller import DatasetController
 from ..controllers.settings_controller import SettingsController
-from ..message_box import show_critical, show_warning
+from ..message_box import show_critical, show_information, show_warning
 from ..services.pipeline_control_service import PipelineControlService
 from ..services.progress_state_service import ProgressStateService
 from ..services.result_handler_service import ResultHandlerService
@@ -212,6 +212,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self._initialization_failed = True
             self._initialization_error = f"初期化エラー: {e}"
             logger.opt(exception=True).error(f"MainWindow初期化失敗: {e}")
+            # 失敗を無言にしない: ステータスバーへ出し、ダイアログは main.py が起動直後に 1 回出す (#1569)
+            try:
+                self.statusBar().showMessage("起動時の初期化に失敗しました。ログを確認してください", 8000)
+            except (AttributeError, RuntimeError):
+                logger.warning("初期化失敗のステータスバー表示に失敗しました")
 
     def _initialize_services(self) -> None:
         """サービスを段階的に初期化し、致命的コンポーネントは強制終了"""
@@ -297,6 +302,45 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except OSError as e:
             logger.opt(exception=True).error(f"FileSystemManager のプロジェクト初期化に失敗: {e}")
         return fsm
+
+    def show_startup_notice(self) -> bool:
+        """起動時の初期化失敗・部分縮退を、ログの場所つきで 1 回だけダイアログ通知する (#1569)。
+
+        ステータスバーの 8 秒表示は見逃されやすいため、イベントループ開始後に
+        呼び出し側 (main.py) が ``QTimer.singleShot(0, ...)`` で 1 度だけ呼ぶ。
+        2 回目以降の呼び出しは何もしない。
+
+        Returns:
+            ダイアログを表示した場合 True。通知対象が無い、または表示済みなら False。
+        """
+        if getattr(self, "_startup_notice_shown", False):
+            return False
+        warnings = list(getattr(self, "_startup_warnings", None) or [])
+        failed = bool(getattr(self, "_initialization_failed", False))
+        if not warnings and not failed:
+            return False
+        self._startup_notice_shown = True
+
+        from ...utils.config import DEFAULT_LOG_PATH
+
+        if failed:
+            text = (
+                "起動時の初期化に失敗したため、一部の機能が正しく動作しない可能性があります。\n"
+                "アプリを再起動しても改善しない場合は、ログを添えて報告してください。"
+            )
+        else:
+            text = (
+                "一部の機能の初期化をスキップして起動しました。該当する機能は動作しない場合があります。\n"
+                "アプリを再起動しても改善しない場合は、ログを添えて報告してください。"
+            )
+        lines = [f"ログの場所: {DEFAULT_LOG_PATH}"]
+        if warnings:
+            lines.append("スキップした項目: " + "、".join(warnings))
+        error = getattr(self, "_initialization_error", None)
+        if failed and error:
+            lines.append(str(error))
+        show_warning(self, "起動時の警告", text, detail="\n".join(lines))
+        return True
 
     def _record_startup_warning(self, component_name: str) -> None:
         """起動時の非致命的なコンポーネント初期化失敗・スキップを記録する (#1569)。"""
@@ -2195,7 +2239,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             logger.error("SettingsControllerが初期化されていません")
             show_warning(
-                self, "設定エラー", "SettingsControllerが初期化されていないため、設定を開けません。"
+                self,
+                "設定エラー",
+                "設定を開けません。アプリを再起動してください。",
+                detail="SettingsController is not initialized",
             )
 
     def export_data(self) -> None:
@@ -2241,7 +2288,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 f"dataset_selected={dataset_selected_count}, "
                 f"thumbnail_selector_available={thumbnail_selector_available}"
             )
-            QMessageBox.information(self, "選択なし", "バッチタグに追加する画像が選択されていません。")
+            show_information(self, "選択なし", "バッチタグに追加する画像が選択されていません。")
             return
 
         # ステージングへ追加する導線はタブへ委譲 (#868)。add_image_ids は上限

@@ -238,6 +238,9 @@ def test_start_batch_import_no_worker_service_warns(qtbot, service_container: Mo
     monkeypatch.setattr("lorairo.gui.tab.jobs_tab.show_warning", warn_mock)
     widget.start_batch_import()
     warn_mock.assert_called_once()
+    args, kwargs = warn_mock.call_args
+    assert "WorkerService" not in args[2]
+    assert "WorkerService" in kwargs["detail"]
 
 
 @pytest.mark.gui

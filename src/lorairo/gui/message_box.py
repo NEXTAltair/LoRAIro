@@ -70,3 +70,30 @@ def show_critical(parent: QWidget | None, title: str, text: str, detail: str | N
 def show_information(parent: QWidget | None, title: str, text: str, detail: str | None = None) -> None:
     """本文コピー可能な情報ダイアログを表示する (Issue #1160)。"""
     build_message_box(QMessageBox.Icon.Information, parent, title, text, detail).exec()
+
+
+def show_status_message(widget: QWidget | None, message: str, timeout_ms: int = 5000) -> bool:
+    """ウィジェットが属するウィンドウのステータスバーへ通知する (Issue #1569)。
+
+    完了通知や、ダイアログを出すほどではない失敗の通知に使う。ステータスバーを持つ
+    ウィンドウ (``QMainWindow``) に属していない場合は何もせず ``False`` を返す。
+
+    Args:
+        widget: 通知元のウィジェット。``window()`` からステータスバーを辿る。
+        message: 表示する文言。
+        timeout_ms: 表示時間 (ミリ秒)。
+
+    Returns:
+        ステータスバーへ表示できた場合 True。
+    """
+    if widget is None:
+        return False
+    window = widget.window()
+    status_bar_fn = getattr(window, "statusBar", None)
+    if not callable(status_bar_fn):
+        return False
+    bar = status_bar_fn()
+    if bar is None:
+        return False
+    bar.showMessage(message, timeout_ms)
+    return True

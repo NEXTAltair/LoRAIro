@@ -12,7 +12,6 @@ from typing import Any
 
 import pytest
 from PIL import Image
-from PySide6.QtWidgets import QMessageBox
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -267,17 +266,18 @@ def test_missing_source_image_reports_error_and_returns_none(
     qtbot, launcher: CropDialogLauncher, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """親画像が存在しなければエラー表示のみでダイアログを開かない。"""
-    shown: list[str] = []
+    shown: list[tuple[str, str | None]] = []
     monkeypatch.setattr(
-        QMessageBox,
-        "critical",
-        lambda *args, **kwargs: shown.append(str(args[2]) if len(args) > 2 else ""),
+        "lorairo.gui.services.crop_dialog_launcher.show_critical",
+        lambda parent, title, text, detail=None: shown.append((text, detail)),
     )
 
     dialog = launcher.open_for_image(999999)
 
     assert dialog is None
-    assert shown and "クロップを開始できません" in shown[0]
+    assert shown and "クロップを開始できません" in shown[0][0]
+    # 例外文字列は本文ではなく detail へ回る (#1569)
+    assert shown[0][1]
 
 
 def test_open_initializes_uninitialized_fsm_from_project_root(

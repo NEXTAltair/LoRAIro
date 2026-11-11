@@ -72,7 +72,7 @@ from ...services.tag_suggestion_service import TagSuggestionService
 from ...utils.log import logger
 from .. import theme
 from ..designer.AnnotateTab_ui import Ui_AnnotateTab
-from ..message_box import show_critical, show_warning
+from ..message_box import show_critical, show_information, show_warning
 from ..services.image_db_write_service import ImageDBWriteService
 from ..state.dataset_state import DatasetStateManager
 from ..state.model_selection_state import ModelSelectionStateManager
@@ -914,12 +914,12 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         選択して同期アノテーションを実行する。
         """
         if self._pipeline_staged_count == 0:
-            QMessageBox.information(self, "画像未選択", "ステージングに画像がありません。")
+            show_information(self, "画像未選択", "ステージングに画像がありません。")
             return
 
         rating_ids = self._find_rating_model_ids()
         if not rating_ids:
-            QMessageBox.warning(
+            show_warning(
                 self,
                 "モデル未検出",
                 "レーティング判定に対応したモデルが見つかりません。\n"

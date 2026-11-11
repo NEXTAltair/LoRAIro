@@ -41,7 +41,7 @@ from ...database.repository.dataset import DatasetRepository
 from ...services.export_overlay import ExportOverlayPlan, ExportTagOverlay, ScopedOverlayRule
 from ...services.staging_tag_aggregation import StagingTagAggregationService
 from ...services.tag_suggestion_service import TagSuggestionService
-from ..message_box import show_critical, show_warning
+from ..message_box import show_critical, show_information, show_warning
 from ..state.dataset_state import DatasetStateManager
 from ..state.staging_state import StagingStateManager
 from ..widgets.dataset_export_worker import DatasetExportWorker
@@ -667,7 +667,7 @@ class ExportTabWidget(QWidget):
                 "changed-since 条件に一致するエクスポート対象がありません。",
             )
             return
-        QMessageBox.information(self, "エクスポート検証", f"エクスポート対象: {count} 枚")
+        show_information(self, "エクスポート検証", f"エクスポート対象: {count} 枚")
 
     def _overlay_rule(self, overlay: ExportTagOverlay) -> ScopedOverlayRule:
         """scope に応じた overlay 適用ルールを返す (#949, Codex P1)。
@@ -692,7 +692,7 @@ class ExportTabWidget(QWidget):
             show_warning(self, "エクスポート", "エクスポート対象がありません。")
             return
         if self._export_thread is not None and self._export_thread.isRunning():
-            QMessageBox.information(self, "エクスポート", "エクスポート処理が実行中です。")
+            show_information(self, "エクスポート", "エクスポート処理が実行中です。")
             return
 
         effective_ids = self._effective_export_ids()
@@ -847,7 +847,7 @@ class ExportTabWidget(QWidget):
         """エクスポートキャンセル完了: スレッドを後始末しキャンセルを通知する (#1561)。"""
         self._teardown_export_thread()
         self._overlay_bar.set_exporting(False, "エクスポートをキャンセルしました")
-        QMessageBox.information(self, "エクスポートキャンセル", "エクスポートをキャンセルしました。")
+        show_information(self, "エクスポートキャンセル", "エクスポートをキャンセルしました。")
 
     @Slot(str)
     def _on_export_finished(self, export_path: str) -> None:
@@ -875,7 +875,7 @@ class ExportTabWidget(QWidget):
                 )
                 return
             self._overlay_bar.set_exporting(False, f"エクスポート完了 ({exported} 件)")
-            QMessageBox.information(
+            show_information(
                 self,
                 "エクスポート完了",
                 f"エクスポートが完了しました:\n{export_path}\n\n{counts_line}",
@@ -883,7 +883,7 @@ class ExportTabWidget(QWidget):
             return
 
         self._overlay_bar.set_exporting(False, "エクスポート完了")
-        QMessageBox.information(self, "エクスポート完了", f"エクスポートが完了しました:\n{export_path}")
+        show_information(self, "エクスポート完了", f"エクスポートが完了しました:\n{export_path}")
 
     @Slot(str)
     def _on_export_error(self, message: str) -> None:
