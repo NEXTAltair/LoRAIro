@@ -60,6 +60,11 @@ class PipelineStateMachine:
         """現在の状態を取得する。"""
         return self._current_state
 
+    @property
+    def current_message(self) -> str:
+        """現在の状態に対応する表示メッセージを取得する。"""
+        return self.state_messages.get(self._current_state, "")
+
     def register_listener(self, listener: StateChangeListener) -> None:
         """状態遷移時に呼び出されるコールバックを登録する。
 
@@ -81,12 +86,35 @@ class PipelineStateMachine:
             return False
 
         old_state = self._current_state
+        if old_state == PipelineState.ERROR and new_state != PipelineState.ERROR:
+            self.state_messages[PipelineState.ERROR] = DEFAULT_STATE_MESSAGES[PipelineState.ERROR]
         self._current_state = new_state
         logger.info(f"Pipeline state transition: {old_state.value} → {new_state.value}")
 
         for listener in self._listeners:
             listener(old_state, new_state)
         return True
+
+    def set_error_state(self, message: str = "") -> bool:
+        """エラー状態へ遷移し、エラー理由メッセージを設定する。
+
+        Args:
+            message: エラー理由メッセージ。空文字の場合は既定メッセージを使用する。
+
+        Returns:
+            遷移が実行された場合は True。
+        """
+        cleaned = message.strip()
+        base_msg = DEFAULT_STATE_MESSAGES[PipelineState.ERROR]
+        if cleaned:
+            self.state_messages[PipelineState.ERROR] = f"{base_msg}: {cleaned}"
+        else:
+            self.state_messages[PipelineState.ERROR] = base_msg
+        transitioned = self.transition_to(PipelineState.ERROR)
+        if not transitioned:
+            for listener in self._listeners:
+                listener(PipelineState.ERROR, PipelineState.ERROR)
+        return transitioned
 
     def is_active(self) -> bool:
         """検索処理が進行中かどうか (SEARCHING or LOADING_THUMBNAILS)。"""
@@ -132,3 +160,6 @@ class PipelineStateMachine:
         if self._current_state == PipelineState.ERROR:
             return self.transition_to(PipelineState.IDLE)
         return self.transition_to(PipelineState.CANCELED)
+
+
+PipelineStateWidget = PipelineStateMachine

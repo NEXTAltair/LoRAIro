@@ -144,11 +144,15 @@ class PipelineControlService:
             else:
                 logger.warning("ThumbnailSelectorWidget result handler method not found")
 
-            # パイプライン完了後にプログレスバーを非表示
-            if self.filter_search_panel and hasattr(
-                self.filter_search_panel, "hide_progress_after_completion"
-            ):
-                self.filter_search_panel.hide_progress_after_completion()
+            # サムネイル完了通知およびプログレスバー非表示
+            if self.filter_search_panel:
+                if hasattr(self.filter_search_panel, "notify_thumbnail_loading_completed"):
+                    count = (
+                        len(thumbnail_result) if isinstance(thumbnail_result, (list, tuple, dict)) else 0
+                    )
+                    self.filter_search_panel.notify_thumbnail_loading_completed(count)
+                if hasattr(self.filter_search_panel, "hide_progress_after_completion"):
+                    self.filter_search_panel.hide_progress_after_completion()
 
         except Exception as e:
             logger.opt(exception=True).error(f"Failed to update ThumbnailSelectorWidget: {e}")
@@ -168,6 +172,8 @@ class PipelineControlService:
         logger.error(f"Pipeline search error: {error_message}")
 
         # FilterSearchPanelへのエラー通知
+        if self.filter_search_panel and hasattr(self.filter_search_panel, "set_error_state"):
+            self.filter_search_panel.set_error_state(error_message)
         if self.filter_search_panel and hasattr(self.filter_search_panel, "handle_pipeline_error"):
             self.filter_search_panel.handle_pipeline_error("search", {"message": error_message})
 
@@ -186,6 +192,8 @@ class PipelineControlService:
         logger.error(f"Pipeline thumbnail error: {error_message}")
 
         # FilterSearchPanelへのエラー通知
+        if self.filter_search_panel and hasattr(self.filter_search_panel, "set_error_state"):
+            self.filter_search_panel.set_error_state(error_message)
         if self.filter_search_panel and hasattr(self.filter_search_panel, "handle_pipeline_error"):
             self.filter_search_panel.handle_pipeline_error("thumbnail", {"message": error_message})
 
@@ -224,7 +232,11 @@ class PipelineControlService:
         ):
             self.filter_search_panel.clear_pipeline_results()
 
-        if self.filter_search_panel and hasattr(self.filter_search_panel, "hide_progress_after_completion"):
+        if (
+            should_clear_results
+            and self.filter_search_panel
+            and hasattr(self.filter_search_panel, "hide_progress_after_completion")
+        ):
             self.filter_search_panel.hide_progress_after_completion()
 
     def on_thumbnail_canceled(self, terminal: str | WorkerTerminalEvent) -> None:
@@ -235,7 +247,15 @@ class PipelineControlService:
         cancel_current_pipeline() 側で行う。
         """
         worker_id = terminal.worker_id if isinstance(terminal, WorkerTerminalEvent) else terminal
+        reason = terminal.cancel_reason if isinstance(terminal, WorkerTerminalEvent) else None
         logger.info(f"Pipeline thumbnail canceled: {worker_id}")
+
+        if reason in {
+            CancelReason.SEARCH_REPLACED,
+            CancelReason.THUMBNAIL_REPLACED,
+            CancelReason.PREFETCH_REPLACED,
+        }:
+            return
 
         if self.filter_search_panel and hasattr(self.filter_search_panel, "hide_progress_after_completion"):
             self.filter_search_panel.hide_progress_after_completion()
@@ -335,6 +355,9 @@ class PipelineControlService:
                     reason=CancelReason.PIPELINE_CANCEL,
                 )
                 logger.info("Thumbnail worker cancelled in pipeline")
+
+            if hasattr(self.worker_service, "cancel_all_search_and_thumbnail_workers"):
+                self.worker_service.cancel_all_search_and_thumbnail_workers()
 
             # キャンセル時の結果破棄（要求仕様通り）
             if self.thumbnail_selector and hasattr(self.thumbnail_selector, "clear_thumbnails"):

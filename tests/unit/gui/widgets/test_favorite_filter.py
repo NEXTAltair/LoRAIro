@@ -396,3 +396,23 @@ class TestErrorDetailForwarding:
         args, kwargs = captured[0]
         assert args[1:] == ("エラー", "フィルターの削除中にエラーが発生しました。")
         assert kwargs == {"detail": "delete boom"}
+
+    def test_load_does_not_show_modal_information(
+        self,
+        panel: FavoriteFilterPanel,
+        mock_service: MagicMock,
+        monkeypatch,
+    ) -> None:
+        """Issue #1549: フィルター読み込み時にモーダルな情報ダイアログを表示しない。"""
+        applier = MagicMock()
+        mock_service.list_filters.return_value = ["my_filter"]
+        panel.set_favorite_filters_service(mock_service)
+        panel.set_conditions_applier(applier)
+
+        info_called = []
+        monkeypatch.setattr(QMessageBox, "information", lambda *a, **kw: info_called.append((a, kw)))
+
+        panel._load_by_name("my_filter")
+
+        applier.assert_called_once_with({"some": "conditions"})
+        assert len(info_called) == 0

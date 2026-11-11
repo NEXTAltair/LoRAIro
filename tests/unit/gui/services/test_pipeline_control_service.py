@@ -220,7 +220,7 @@ class TestPipelineFlow:
 
         mock_thumbnail_selector.clear_thumbnails.assert_not_called()
         mock_filter_panel.clear_pipeline_results.assert_not_called()
-        mock_filter_panel.hide_progress_after_completion.assert_called_once()
+        mock_filter_panel.hide_progress_after_completion.assert_not_called()
 
     def test_on_thumbnail_canceled_keeps_pipeline_results_without_error(
         self, service, mock_thumbnail_selector, mock_filter_panel

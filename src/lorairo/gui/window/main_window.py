@@ -1728,6 +1728,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 thumbnail_selector=self.search_tab.thumbnail_selector if self.search_tab else None,
                 filter_search_panel=self.search_tab.filter_search_panel if self.search_tab else None,
             )
+            if self.search_tab and self.search_tab.filter_search_panel:
+                if hasattr(self.search_tab.filter_search_panel, "search_cancel_requested"):
+                    self.search_tab.filter_search_panel.search_cancel_requested.connect(
+                        self.cancel_current_pipeline
+                    )
             logger.info("  ✅ PipelineControlService初期化成功")
 
             # ProgressStateService初期化

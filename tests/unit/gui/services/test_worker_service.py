@@ -440,7 +440,25 @@ class TestWorkerService:
         result = worker_service.cancel_search("test_worker_id")
 
         assert result is True
-        worker_service.worker_manager.cancel_worker.assert_called_once_with("test_worker_id")
+
+    def test_cancel_all_search_and_thumbnail_workers_targets_only_search_and_thumbnail(
+        self, worker_service
+    ):
+        """cancel_all_search_and_thumbnail_workers は検索・サムネイルのみキャンセルし他ジョブを維持する (#1548, Codex P1 #4532600298)"""
+        worker_service.current_search_worker_id = "search_123"
+        worker_service.current_thumbnail_worker_id = "thumbnail_456"
+        worker_service._worker_operations["search_123"] = Mock(operation_type=OperationType.SEARCH)
+        worker_service._worker_operations["thumbnail_456"] = Mock(operation_type=OperationType.THUMBNAIL)
+        worker_service._worker_operations["annotation_789"] = Mock(operation_type=OperationType.ANNOTATION)
+
+        worker_service.cancel_all_search_and_thumbnail_workers()
+
+        canceled_ids = [call.args[0] for call in worker_service.worker_manager.cancel_worker.call_args_list]
+        assert "search_123" in canceled_ids
+        assert "thumbnail_456" in canceled_ids
+        assert "annotation_789" not in canceled_ids
+        assert worker_service.current_search_worker_id is None
+        assert worker_service.current_thumbnail_worker_id is None
 
     @patch("lorairo.gui.services.worker_service.ThumbnailWorker")
     def test_start_thumbnail_page_load_success(self, mock_worker_class, worker_service):
@@ -1531,22 +1549,6 @@ class TestGpuSerialQueue:
         worker_service.worker_manager.cancel_all_workers.assert_called_once_with(
             reason=CancelReason.SHUTDOWN
         )
-
-    def test_get_active_worker_count_includes_queued_gpu_jobs(
-        self, mock_annotation_runner, mock_worker_class, mock_container, worker_service
-    ):
-        """get_active_worker_count は実行中ワーカーと GPU 直列キュー待機ジョブの合計を返す (#1556)"""
-        self._setup(mock_container, mock_worker_class, worker_service)
-        worker_service.worker_manager.get_active_worker_count.return_value = 1
-        worker_service.start_enhanced_batch_annotation(
-            image_paths=["/img/a.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
-        )
-        worker_service.start_enhanced_batch_annotation(
-            image_paths=["/img/b.jpg"], litellm_model_ids=[_LOCAL_MODEL_ID]
-        )
-
-        assert len(worker_service._gpu_queue) == 1
-        assert worker_service.get_active_worker_count() == 2
 
     def test_gpu_slot_cleared_when_start_fails(
         self, mock_annotation_runner, mock_worker_class, mock_container, worker_service

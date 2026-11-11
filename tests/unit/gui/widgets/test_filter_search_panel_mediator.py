@@ -378,10 +378,10 @@ class TestRatingFilterOptions:
         assert kwargs["rating_filter"] == ["PG", "PG-13"]
 
     def test_all_default_still_blocked(self, panel_with_service):
-        """chip 未選択 (他条件・キーワード無し) は従来どおり検索をブロックする。"""
+        """chip 未選択 (他条件・キーワード無し) でも全件ブラウジングとして検索条件を返す (#1548)。"""
         panel = panel_with_service
-        assert panel._build_search_conditions_from_ui() is None
-        panel.search_filter_service.create_search_conditions.assert_not_called()
+        assert panel._build_search_conditions_from_ui() is panel._sentinel
+        panel.search_filter_service.create_search_conditions.assert_called_once()
 
     def test_exclude_duplicates_only_is_valid_search(self, panel_with_service):
         """重複除外チェックのみでも単独フィルタとして検索が成立する (Issue #1106 Codex P2)。"""
@@ -400,6 +400,17 @@ class TestRatingFilterOptions:
         assert panel._get_rating_filter_value() == []
         assert panel._get_ai_rating_filter_value() == []
         assert panel._rating_combine_toggle.value() == "and"
+
+    def test_exclusion_only_rejected_when_tags_disabled(self, panel_with_service):
+        """タグ検索無効かつキャプション検索のみ有効のとき、除外キーワード単独入力は拒否する (#1549 Codex P2)。"""
+        panel = panel_with_service
+        panel.ui.checkboxTags.setChecked(False)
+        panel.ui.checkboxCaption.setChecked(True)
+        panel.ui.lineEditSearch.setText("-cat")
+        panel.search_filter_service.parse_search_input.return_value = ([], ["cat"])
+
+        assert panel.validate_inputs() is False
+        assert panel._build_search_conditions_from_ui(show_status=False) is None
 
 
 class TestPublicAPICompat:
