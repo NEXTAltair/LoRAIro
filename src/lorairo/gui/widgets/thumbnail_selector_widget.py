@@ -630,6 +630,12 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
 
     def _apply_debounced_size_pagination(self, value: int) -> None:
         """ページネーションモードにおけるサイズ変更処理 (#1542)。"""
+        if not self._active_search_result or not self._worker_service:
+            if self.page_cache.has_page(self._current_display_page):
+                self._display_page(self._current_display_page)
+            else:
+                self.update_thumbnail_layout()
+            return
         target_page = (
             self.pagination_state.current_page or self._current_display_page
             if self.pagination_state
