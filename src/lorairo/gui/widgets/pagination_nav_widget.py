@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Signal, Slot
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
+from PySide6.QtCore import QSignalBlocker, Signal, Slot
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSpinBox, QWidget
 
 from .. import theme
 
@@ -26,10 +26,19 @@ class PaginationNavWidget(QWidget):
         self._page_size: int | None = None
 
         self._btn_first = QPushButton("|<", self)
+        self._btn_first.setToolTip("最初のページへ")
         self._btn_prev = QPushButton("<", self)
+        self._btn_prev.setToolTip("前のページへ")
         self._label_page = QLabel("Page 1 / 1", self)
+        self._spin_page = QSpinBox(self)
+        self._spin_page.setObjectName("paginationPageSpinBox")
+        self._spin_page.setRange(1, 1)
+        self._spin_page.setKeyboardTracking(False)
+        self._spin_page.setToolTip("移動先ページ番号（Enterで移動）")
         self._btn_next = QPushButton(">", self)
+        self._btn_next.setToolTip("次のページへ")
         self._btn_last = QPushButton(">|", self)
+        self._btn_last.setToolTip("最後のページへ")
         self._label_range = QLabel("", self)
         self._label_loading = QLabel("", self)
 
@@ -45,6 +54,7 @@ class PaginationNavWidget(QWidget):
         layout.addWidget(self._btn_first)
         layout.addWidget(self._btn_prev)
         layout.addWidget(self._label_page)
+        layout.addWidget(self._spin_page)
         layout.addWidget(self._btn_next)
         layout.addWidget(self._btn_last)
         layout.addWidget(self._label_range)
@@ -55,6 +65,7 @@ class PaginationNavWidget(QWidget):
         self._btn_prev.clicked.connect(self._go_prev)
         self._btn_next.clicked.connect(self._go_next)
         self._btn_last.clicked.connect(self._go_last)
+        self._spin_page.valueChanged.connect(self._on_spin_page_changed)
 
         self.update_state(current=1, total=1, is_loading=False)
 
@@ -102,6 +113,11 @@ class PaginationNavWidget(QWidget):
     def _go_last(self) -> None:
         self.page_requested.emit(self._total_pages)
 
+    @Slot(int)
+    def _on_spin_page_changed(self, page: int) -> None:
+        if 1 <= page <= self._total_pages and page != self._current_page and not self._is_loading:
+            self.page_requested.emit(page)
+
     def update_state(
         self,
         current: int,
@@ -124,10 +140,18 @@ class PaginationNavWidget(QWidget):
         self._is_loading = is_loading
         self._total_items = total_items
         self._page_size = page_size
+        self._update_display()
 
+    def _update_display(self) -> None:
+        """現在の状態に応じて表示とボタン・スピンボックス活性を更新する。"""
         self._label_page.setText(f"Page {self._current_page} / {self._total_pages}")
         self._label_range.setText(self._format_range())
         self._label_loading.setText("Loading..." if self._is_loading else "")
+
+        with QSignalBlocker(self._spin_page):
+            self._spin_page.setRange(1, max(1, self._total_pages))
+            self._spin_page.setValue(self._current_page)
+        self._spin_page.setEnabled(not self._is_loading and self._total_pages > 1)
 
         can_go_prev = self._current_page > 1 and not self._is_loading
         can_go_next = self._current_page < self._total_pages and not self._is_loading
