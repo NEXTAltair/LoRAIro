@@ -945,6 +945,41 @@ class ImageRepository(BaseRepository):
                 logger.opt(exception=True).error(f"レビュー状態の設定に失敗しました (ID: {image_id}): {e}")
                 raise
 
+    def set_images_reviewed_batch(self, image_ids: list[int], *, reviewed: bool = True) -> int:
+        """複数画像のレビュー完了状態 (reviewed_at) を単一トランザクションで一括設定/解除する (#1545)。
+
+        Args:
+            image_ids: 対象画像 ID リスト。
+            reviewed: True なら accept (reviewed_at=now)、False なら undo (NULL)。
+
+        Returns:
+            実際に更新できた画像の件数。
+
+        Raises:
+            SQLAlchemyError: DB 操作に失敗した場合はロールバック後に呼び出し元に伝播させる。
+        """
+        if not image_ids:
+            return 0
+
+        now = datetime.datetime.now(datetime.UTC) if reviewed else None
+        updated_count = 0
+        with self.session_factory() as session:
+            try:
+                for i in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
+                    chunk = image_ids[i : i + self.BATCH_CHUNK_SIZE]
+                    images = session.execute(select(Image).where(Image.id.in_(chunk))).scalars().all()
+                    for image in images:
+                        image.reviewed_at = now
+                        updated_count += 1
+                session.commit()
+                return updated_count
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.opt(exception=True).error(
+                    f"レビュー状態の一括設定に失敗しました (count={len(image_ids)}): {e}"
+                )
+                raise
+
     def get_images_metadata_batch(
         self, image_ids: list[int], *, include_annotations: bool = True
     ) -> list[dict[str, Any]]:

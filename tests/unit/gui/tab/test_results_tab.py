@@ -7,6 +7,8 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QLabel, QScrollArea
 
 from lorairo.gui.state.staging_state import StagingStateManager
 from lorairo.gui.tab.results_tab import ResultsTabWidget
@@ -130,6 +132,22 @@ def test_accept_marks_image_reviewed(qtbot, staging: StagingStateManager) -> Non
 @pytest.mark.gui
 def test_accept_clean_marks_all(qtbot, staging: StagingStateManager) -> None:
     db = MagicMock()
+    db.mark_images_reviewed_batch.return_value = 3
+    widget = ResultsTabWidget(db_manager=db, staging_state_manager=staging)
+    qtbot.addWidget(widget)
+
+    widget.results_widget.accept_clean_requested.emit([1, 2, 3])
+
+    db.mark_images_reviewed_batch.assert_called_once_with([1, 2, 3], reviewed=True)
+    db.mark_image_reviewed.assert_not_called()
+
+
+@pytest.mark.gui
+def test_accept_clean_falls_back_to_per_item_when_batch_unavailable(
+    qtbot, staging: StagingStateManager
+) -> None:
+    db = MagicMock()
+    db.mark_images_reviewed_batch = None
     db.mark_image_reviewed.return_value = True
     widget = ResultsTabWidget(db_manager=db, staging_state_manager=staging)
     qtbot.addWidget(widget)
@@ -274,3 +292,184 @@ def test_refresh_degrade_skips_low_res_batch(qtbot) -> None:
 
     # degrade 域では低解像度パスの一括クエリを走らせない (行を描かないため無駄)。
     db.get_low_res_image_paths_batch.assert_not_called()
+
+
+@pytest.mark.gui
+def test_accept_updates_in_place_without_requerying_db_or_resetting_scroll(qtbot) -> None:
+    """単一 accept は DB 再クエリ・全行破棄・スクロール先頭戻し・CLEAN 再抽選を起こさない (#1545)。"""
+    ids = list(range(1, 31))
+    staging_mock = MagicMock()
+    staging_mock.get_staged_items.return_value = OrderedDict(
+        (i, (f"img_{i:02d}.png", f"/p/img_{i:02d}.png")) for i in ids
+    )
+    db = MagicMock()
+    db.get_images_metadata_batch.return_value = [
+        {
+            "id": i,
+            "uuid": f"uuid{i:04d}",
+            "width": 512,
+            "height": 512,
+            "reviewed_at": None,
+            "filename": f"img_{i:02d}.png",
+            "stored_image_path": f"/p/img_{i:02d}.png",
+        }
+        for i in ids
+    ]
+    # #1 は issue あり (タグ無し)、#2..#30 は clean (タグ・スコアあり)
+    db.get_image_annotations_batch.return_value = {
+        i: {
+            "tags": []
+            if i == 1
+            else [{"tag": "cat", "confidence_score": 0.9, "model_id": 1, "rejected_at": None}],
+            "captions": [],
+            "scores": [{"score": 0.8}],
+            "score_labels": [],
+            "ratings": [],
+            "quality_summary": {},
+        }
+        for i in ids
+    }
+    db.get_low_res_image_paths_batch.return_value = {}
+    widget = ResultsTabWidget(db_manager=db, staging_state_manager=staging_mock)
+    qtbot.addWidget(widget)
+    widget.resize(600, 300)
+    widget.show()
+
+    widget.refresh()
+    qtbot.waitUntil(lambda: widget.results_widget.findChild(object, "resultsRow_15") is not None)
+
+    row_1_before = widget.results_widget.findChild(object, "resultsRow_1")
+    row_2_before = widget.results_widget.findChild(object, "resultsRow_2")
+    sample_before = list(widget.results_widget._clean_plan.sample_image_ids)
+    scroll = widget.results_widget.findChild(QScrollArea)
+    assert scroll is not None
+    scroll.verticalScrollBar().setMaximum(500)
+    scroll.verticalScrollBar().setValue(180)
+
+    db.get_images_metadata_batch.reset_mock()
+    db.get_image_annotations_batch.reset_mock()
+
+    widget.results_widget.accept_requested.emit(1)
+
+    db.mark_image_reviewed.assert_called_once_with(1, reviewed=True)
+    # 1 件 accept で全件の metadata / annotations を再取得しない
+    db.get_images_metadata_batch.assert_not_called()
+    db.get_image_annotations_batch.assert_not_called()
+    # 行ウィジェットは破棄されず同一インスタンスのままボタンと状態だけ更新される
+    assert widget.results_widget.findChild(object, "resultsRow_1") is row_1_before
+    assert widget.results_widget.findChild(object, "resultsRow_2") is row_2_before
+    assert widget.results_widget.findChild(object, "resultsUnacceptButton_1") is not None
+    assert widget.results_widget.findChild(object, "resultsAcceptButton_1") is None
+    # スクロール位置と CLEAN 監査の抽出サンプルが維持される
+    assert scroll.verticalScrollBar().value() == 180
+    assert list(widget.results_widget._clean_plan.sample_image_ids) == sample_before
+
+
+@pytest.mark.gui
+def test_refresh_displays_filename_and_supports_keyboard_accept(qtbot) -> None:
+    """行ヘッダにファイル名を表示し、上下キー + Enter で選択行を accept できる (#1545)。"""
+    ids = [10, 20]
+    staging_mock = MagicMock()
+    staging_mock.get_staged_items.return_value = OrderedDict(
+        [(10, ("hero.png", "/imgs/hero.png")), (20, ("villain.png", "/imgs/villain.png"))]
+    )
+    db = MagicMock()
+    db.get_images_metadata_batch.return_value = [
+        {
+            "id": 10,
+            "uuid": "aaaa1111",
+            "width": 640,
+            "height": 480,
+            "reviewed_at": None,
+            "filename": "hero.png",
+            "stored_image_path": "/imgs/hero.png",
+        },
+        {
+            "id": 20,
+            "uuid": "bbbb2222",
+            "width": 800,
+            "height": 600,
+            "reviewed_at": None,
+            "filename": "villain.png",
+            "stored_image_path": "/imgs/villain.png",
+        },
+    ]
+    db.get_image_annotations_batch.return_value = {
+        i: {
+            "tags": [],
+            "captions": [],
+            "scores": [],
+            "score_labels": [],
+            "ratings": [],
+            "quality_summary": {},
+        }
+        for i in ids
+    }
+    db.get_low_res_image_paths_batch.return_value = {}
+    widget = ResultsTabWidget(db_manager=db, staging_state_manager=staging_mock)
+    qtbot.addWidget(widget)
+
+    widget.refresh()
+
+    ident_10 = widget.results_widget.findChild(QLabel, "resultsRowIdent_10")
+    ident_20 = widget.results_widget.findChild(QLabel, "resultsRowIdent_20")
+    assert ident_10 is not None and "hero.png" in ident_10.text()
+    assert ident_20 is not None and "villain.png" in ident_20.text()
+
+    # 初期フォーカスは先頭行 (#10)、Down キーで 2 行目 (#20) へ移動し Enter で accept
+    assert widget.results_widget.focused_image_id == 10
+    qtbot.keyClick(widget, Qt.Key.Key_Down)
+    assert widget.results_widget.focused_image_id == 20
+    qtbot.keyClick(widget, Qt.Key.Key_Return)
+    db.mark_image_reviewed.assert_called_once_with(20, reviewed=True)
+    assert widget.results_widget.findChild(object, "resultsUnacceptButton_20") is not None
+
+
+def test_keyboard_navigation_does_not_forward_when_focus_in_review_batch_widget(qtbot):
+    """フォーカスが _review_batch_widget 内にある時はキー入力を ResultsWidget へ転送しない (#1545 Codex P2)。"""
+    ids = [10, 20]
+    staging_mock = MagicMock()
+    staging_mock.get_staged_items.return_value = OrderedDict(
+        [(10, ("hero.png", "/imgs/hero.png")), (20, ("villain.png", "/imgs/villain.png"))]
+    )
+    staging_mock.get_all_staged_ids.return_value = ids
+    db = MagicMock()
+    db.get_images_metadata_batch.return_value = [
+        {
+            "id": 10,
+            "uuid": "u10",
+            "width": 800,
+            "height": 600,
+            "reviewed_at": None,
+            "stored_image_path": "/imgs/hero.png",
+        },
+        {
+            "id": 20,
+            "uuid": "u20",
+            "width": 800,
+            "height": 600,
+            "reviewed_at": None,
+            "stored_image_path": "/imgs/villain.png",
+        },
+    ]
+    db.get_image_annotations_batch.return_value = {
+        i: {
+            "tags": [],
+            "captions": [],
+            "scores": [],
+            "score_labels": [],
+            "ratings": [],
+            "quality_summary": {},
+        }
+        for i in ids
+    }
+    db.get_low_res_image_paths_batch.return_value = {}
+    widget = ResultsTabWidget(db_manager=db, staging_state_manager=staging_mock)
+    qtbot.addWidget(widget)
+    widget.refresh()
+
+    widget._annotation_review_widget.setFocus()
+    assert widget.results_widget.focused_image_id == 10
+    qtbot.keyClick(widget, Qt.Key.Key_Down)
+    # フォーカス行は 10 のまま変わらない
+    assert widget.results_widget.focused_image_id == 10
