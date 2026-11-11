@@ -1101,3 +1101,93 @@ class TestThumbnailSelectorWidgetDebounceAndUpscaleReload:
 
         assert not widget.page_cache.has_page(1)
         assert not widget.page_cache.has_page(2)
+
+
+class TestThumbnailSelectorKeyboardNavigation:
+    """#1552: CustomGraphicsView / ThumbnailSelectorWidget のキーボードナビゲーション。"""
+
+    @pytest.fixture
+    def widget_with_items(self, qtbot):
+        state = DatasetStateManager()
+        widget = ThumbnailSelectorWidget(dataset_state=state)
+        qtbot.addWidget(widget)
+        widget.graphics_view.ensureVisible = Mock()
+        items = []
+        for i in range(1, 7):
+            mock_item = Mock(spec=ThumbnailItem)
+            mock_item.image_id = i
+            items.append(mock_item)
+        widget.thumbnail_items = items
+        return widget, state, items
+
+    def test_custom_graphics_view_emits_key_navigation_signal(self, widget_with_items):
+        from PySide6.QtGui import QKeyEvent
+
+        widget, _state, _items = widget_with_items
+        received = []
+        widget.graphics_view.keyNavigationRequested.connect(lambda key, mods: received.append((key, mods)))
+        event = QKeyEvent(
+            QKeyEvent.Type.KeyPress,
+            Qt.Key.Key_Right,
+            Qt.KeyboardModifier.ShiftModifier,
+        )
+        widget.graphics_view.keyPressEvent(event)
+        assert event.isAccepted()
+        assert received == [(Qt.Key.Key_Right, Qt.KeyboardModifier.ShiftModifier)]
+
+    def test_first_key_navigation_selects_index_zero_when_unselected(self, widget_with_items):
+        widget, state, items = widget_with_items
+        widget._on_key_navigation(Qt.Key.Key_Right, Qt.KeyboardModifier.NoModifier)
+        assert state.selected_image_ids == [1]
+        assert widget.last_selected_item is items[0]
+        widget.graphics_view.ensureVisible.assert_called_with(items[0])
+
+    def test_arrow_home_end_and_space_navigation(self, widget_with_items, monkeypatch):
+        widget, state, items = widget_with_items
+        monkeypatch.setattr(widget, "_current_column_count", lambda: 3)
+
+        widget.handle_item_selection(items[0], Qt.KeyboardModifier.NoModifier)
+        widget._on_key_navigation(Qt.Key.Key_Right, Qt.KeyboardModifier.NoModifier)
+        assert state.selected_image_ids == [2]
+
+        widget._on_key_navigation(Qt.Key.Key_Down, Qt.KeyboardModifier.NoModifier)
+        assert state.selected_image_ids == [5]
+
+        widget._on_key_navigation(Qt.Key.Key_Up, Qt.KeyboardModifier.NoModifier)
+        assert state.selected_image_ids == [2]
+
+        widget._on_key_navigation(Qt.Key.Key_End, Qt.KeyboardModifier.NoModifier)
+        assert state.selected_image_ids == [6]
+
+        widget._on_key_navigation(Qt.Key.Key_Home, Qt.KeyboardModifier.NoModifier)
+        assert state.selected_image_ids == [1]
+
+        # Space toggles current item selection
+        widget._on_key_navigation(Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier)
+        assert state.selected_image_ids == []
+        widget._on_key_navigation(Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier)
+        assert state.selected_image_ids == [1]
+
+    def test_shift_right_twice_extends_range_from_anchor(self, widget_with_items, monkeypatch):
+        widget, state, items = widget_with_items
+        monkeypatch.setattr(widget, "_current_column_count", lambda: 3)
+
+        widget.handle_item_selection(items[0], Qt.KeyboardModifier.NoModifier)
+        assert state.selected_image_ids == [1]
+
+        widget._on_key_navigation(Qt.Key.Key_Right, Qt.KeyboardModifier.ShiftModifier)
+        assert state.selected_image_ids == [1, 2]
+        assert widget.last_selected_item is items[0]
+        assert widget._keyboard_cursor_item is items[1]
+
+        widget._on_key_navigation(Qt.Key.Key_Right, Qt.KeyboardModifier.ShiftModifier)
+        assert state.selected_image_ids == [1, 2, 3]
+        assert widget.last_selected_item is items[0]
+        assert widget._keyboard_cursor_item is items[2]
+
+    def test_end_key_selects_last_item_when_unselected(self, widget_with_items):
+        widget, state, items = widget_with_items
+        widget._on_key_navigation(Qt.Key.Key_End, Qt.KeyboardModifier.NoModifier)
+        assert state.selected_image_ids == [6]
+        assert widget.last_selected_item is items[-1]
+        widget.graphics_view.ensureVisible.assert_called_with(items[-1])

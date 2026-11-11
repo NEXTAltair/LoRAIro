@@ -11,7 +11,7 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
-from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
+from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
@@ -130,6 +130,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # 初期化失敗フラグ
         self._initialization_failed = False
         self._initialization_error: str | None = None
+        self._startup_warnings: list[str] = []
         self._closing = False
         self._tag_db_manager: WorkerManager | None = None
 
@@ -185,6 +186,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self._main_thread_watchdog = MainThreadWatchdog(self)
             self._main_thread_watchdog.start()
 
+            if self._startup_warnings:
+                summary = "、".join(self._startup_warnings)
+                self.statusBar().showMessage(
+                    f"一部のコンポーネントの初期化をスキップしました: {summary}", 8000
+                )
+
             logger.info("MainWindow初期化完了")
 
         except Exception as e:
@@ -218,6 +225,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("✅ FileSystemManager初期化成功")
         except Exception as e:
             logger.error(f"❌ FileSystemManager初期化失敗: {e}")
+            self._record_startup_warning("FileSystemManager")
             self.file_system_manager = None
 
         try:
@@ -239,6 +247,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("✅ DatasetStateManager初期化成功")
         except Exception as e:
             logger.error(f"❌ DatasetStateManager初期化失敗: {e}")
+            self._record_startup_warning("DatasetStateManager")
             self.dataset_state_manager = None
 
         # ステージング集合の SSoT (Annotate / Jobs タブが共有する、ADR 0074)
@@ -275,6 +284,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.opt(exception=True).error(f"FileSystemManager のプロジェクト初期化に失敗: {e}")
         return fsm
 
+    def _record_startup_warning(self, component_name: str) -> None:
+        """起動時の非致命的なコンポーネント初期化失敗・スキップを記録する (#1569)。"""
+        warnings = getattr(self, "_startup_warnings", None)
+        if not isinstance(warnings, list):
+            warnings = []
+            self._startup_warnings = warnings
+        if component_name not in warnings:
+            warnings.append(component_name)
+
     def _initialize_staging_state_manager(self) -> None:
         """ステージング集合の SSoT (StagingStateManager) を初期化する (ADR 0074)。
 
@@ -289,6 +307,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("✅ StagingStateManager初期化成功")
         except Exception as e:
             logger.error(f"❌ StagingStateManager初期化失敗: {e}")
+            MainWindow._record_startup_warning(self, "StagingStateManager")
             self.staging_state_manager = None
 
     def _initialize_model_selection_state_manager(self) -> None:
@@ -298,6 +317,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("✅ ModelSelectionStateManager初期化成功")
         except RuntimeError as e:
             logger.opt(exception=True).error(f"❌ ModelSelectionStateManager初期化失敗: {e}")
+            MainWindow._record_startup_warning(self, "ModelSelectionStateManager")
             self.model_selection_state_manager = None
 
     def _update_database_status_label(self) -> None:
@@ -412,6 +432,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("✅ Service/Controller層初期化完了")
         except Exception as e:
             logger.error(f"❌ Controller初期化失敗: {e}")
+            MainWindow._record_startup_warning(self, "Controller")
             self.selection_state_service = None
             self.dataset_controller = None
             self.annotation_workflow_controller = None
@@ -426,8 +447,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # アノテーションタブ (AnnotateTabWidget) を tabBatchTag へ埋め込む (#868)
         self._setup_annotate_tab()
 
-        # QTabWidget初期化（タブ切り替え用）
-        self._setup_tab_widget()
         self._setup_map_tab()
         self._setup_jobs_tab()
         self._setup_results_tab()
@@ -491,6 +510,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("マップタブ (MapTabWidget) initialized")
         except Exception as e:
             self.map_tab = None
+            MainWindow._record_startup_warning(self, "MapTabWidget")
             logger.opt(exception=True).error(f"マップタブ initialization failed: {e}")
 
     def _setup_registration_summary_panel(self) -> None:
@@ -552,6 +572,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.info("✅ ジョブタブ (JobsTabWidget) initialized")
         except Exception as e:
             self.jobs_tab = None
+            MainWindow._record_startup_warning(self, "JobsTabWidget")
             logger.opt(exception=True).error(f"❌ ジョブタブ initialization failed: {e}")
 
     def _connect_jobs_tab_signals(self) -> None:
@@ -591,31 +612,37 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         except Exception as e:
             logger.opt(exception=True).error(f"❌ ErrorNotificationWidget初期化失敗: {e}")
+            MainWindow._record_startup_warning(self, "ErrorNotificationWidget")
             self.error_notification_widget = None
 
-    def _setup_tab_widget(self) -> None:
-        """QTabWidget（右パネル）の初期設定"""
-        # QTabWidget (画像詳細)
-        self.tab_widget_right_panel = getattr(self, "tabWidgetRightPanel", None)
-
-        if not self.tab_widget_right_panel:
-            logger.warning("tabWidgetRightPanel not found - tab widget integration skipped")
-            return
-
-        # 初期表示は画像詳細タブ（インデックス0）
-        self.tab_widget_right_panel.setCurrentIndex(0)
-        logger.info("tabWidgetRightPanel initialized with 1 tab: 画像詳細")
+    def _bind_tab_shortcut_action(self, action: QAction, number: int, tab: QWidget) -> None:
+        """Ctrl+N アクションへ _TOP_NAV_ITEMS または QTabWidget の切替先を接続する (#1552)。"""
+        top_nav_items = getattr(self, "_TOP_NAV_ITEMS", None)
+        top_nav_buttons = getattr(self, "_top_nav_buttons", None)
+        switch_top_nav = getattr(self, "_switch_top_nav", None)
+        if (
+            isinstance(top_nav_items, (list, tuple))
+            and isinstance(top_nav_buttons, dict)
+            and callable(switch_top_nav)
+            and number - 1 < len(top_nav_items)
+        ):
+            item_entry = top_nav_items[number - 1]
+            obj_name = item_entry[0] if isinstance(item_entry, tuple) else str(item_entry)
+            if obj_name in top_nav_buttons:
+                action.triggered.connect(partial(switch_top_nav, obj_name))
+                return
+        action.triggered.connect(partial(self.tabWidgetMainMode.setCurrentWidget, tab))
 
     def _setup_tab_shortcuts(self) -> None:
-        """「移動」メニューと Ctrl+1〜8 のタブ切替を登録する。
+        """「移動」メニューと Ctrl+1〜8 / Ctrl+F / F5 / Esc のキーボードショートカットを登録する (#1552)。
 
         操作プロトタイプ (wireframes.html の NUM2KEY) の固定ショートカット契約に
         合わせ、Ctrl+N を視覚 index ではなく **タブ識別子** で割り当てる。
         restructureNav でナビの視覚順が変わっても番号はタブに固定されるため、
         Ctrl+1=検索 / 2=マップ / 3=アノテーション / 4=ジョブ / 5=結果 / 6=エラー /
-        7=エクスポート / 8=CLI を保つ。各アクションが Ctrl+N を保持するため、別途
-        QShortcut は登録しない。jobs_tab / cli_tab は runtime 生成のため未生成 (None)
-        ならその番号をスキップする。
+        7=エクスポート / 8=CLI を保つ。DS AppShell ヘッダー (_top_nav_buttons) が
+        存在する場合は _TOP_NAV_ITEMS 順で _switch_top_nav を呼び、通常の QTabWidget
+        構成では各アクションに Ctrl+N を割り当てる。
         """
         if not hasattr(self, "tabWidgetMainMode") or not self.tabWidgetMainMode:
             logger.warning("tabWidgetMainMode not found - 移動メニュー skipped")
@@ -638,7 +665,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             label = self.tabWidgetMainMode.tabText(self.tabWidgetMainMode.indexOf(tab))
             action = QAction(label, self)
             action.setShortcut(QKeySequence(f"Ctrl+{number}"))
-            action.triggered.connect(partial(self.tabWidgetMainMode.setCurrentWidget, tab))
+            MainWindow._bind_tab_shortcut_action(self, action, number, tab)
             navigate_menu.addAction(action)
         # 「表示」と「ツール」の間（ツールメニューの直前）へ挿入する
         tools_action = self.menuTools.menuAction() if hasattr(self, "menuTools") else None
@@ -647,7 +674,145 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             self.menuBar().addMenu(navigate_menu)
         self.menuNavigate = navigate_menu
-        logger.debug("移動メニュー登録: Ctrl+1..Ctrl+8 (タブ識別子固定)")
+
+        self._shortcut_focus_search = QShortcut(QKeySequence("Ctrl+F"), self)
+        self._shortcut_focus_search.activated.connect(partial(MainWindow._focus_search_input, self))
+
+        self._shortcut_refresh_tab = QShortcut(QKeySequence("F5"), self)
+        self._shortcut_refresh_tab.activated.connect(partial(MainWindow._refresh_active_tab, self))
+
+        self._shortcut_escape = QShortcut(QKeySequence("Esc"), self)
+        self._shortcut_escape.activated.connect(partial(MainWindow._handle_escape_shortcut, self))
+
+        logger.debug("移動メニュー・キーボードショートカット登録: Ctrl+1..8, Ctrl+F, F5, Esc")
+
+    def _setup_keyboard_shortcuts(self) -> None:
+        """キーボードショートカットを設定する (#1552 互換エイリアス)。"""
+        self._setup_tab_shortcuts()
+
+    @Slot()
+    def _focus_search_input(self) -> None:
+        """Ctrl+F: 検索タブへ切り替え、検索入力欄にフォーカスして全選択する (#1552)。"""
+        tab_widget = getattr(self, "tabWidgetMainMode", None)
+        workspace = getattr(self, "tabWorkspace", None)
+        if tab_widget is not None and workspace is not None and tab_widget.currentWidget() is not workspace:
+            tab_widget.setCurrentWidget(workspace)
+
+        search_tab = getattr(self, "search_tab", None)
+        if search_tab is not None:
+            frame_panel = getattr(search_tab, "frameFilterSearchPanel", None)
+            if (
+                frame_panel is not None
+                and frame_panel.isHidden()
+                and hasattr(search_tab, "toggle_filter_panel")
+            ):
+                search_tab.toggle_filter_panel()
+            elif frame_panel is not None and not frame_panel.isVisible():
+                frame_panel.setVisible(True)
+
+        panel = getattr(self, "filter_search_panel", None)
+        if panel is None and search_tab is not None:
+            panel = getattr(search_tab, "filter_search_panel", None)
+        if panel is not None and not panel.isVisible():
+            panel.setVisible(True)
+
+        action = getattr(self, "actionToggleFilterPanel", None)
+        if action is not None and hasattr(action, "isChecked") and not action.isChecked():
+            if hasattr(action, "blockSignals"):
+                blocked = action.blockSignals(True)
+                try:
+                    action.setChecked(True)
+                finally:
+                    action.blockSignals(blocked)
+            else:
+                action.setChecked(True)
+
+        line_edit = getattr(getattr(panel, "ui", None), "lineEditSearch", None)
+        if line_edit is not None:
+            line_edit.setFocus()
+            line_edit.selectAll()
+
+    def _refresh_search_tab_shortcut(self) -> None:
+        """F5: 検索タブの再読込を実行する (#1552)。"""
+        search_tab = getattr(self, "search_tab", None)
+        if search_tab is not None and hasattr(search_tab, "load_images_from_db"):
+            search_tab.load_images_from_db()
+            return
+        if hasattr(self, "load_images_from_db"):
+            self.load_images_from_db()
+            return
+        selector = getattr(self, "thumbnail_selector", None)
+        if selector is None and search_tab is not None:
+            selector = getattr(search_tab, "thumbnail_selector", None)
+        if selector is not None and hasattr(selector, "refresh_current_page"):
+            selector.refresh_current_page()
+
+    @Slot()
+    def _refresh_active_tab(self) -> None:
+        """F5: 現在アクティブなタブの表示を更新する (#1552)。"""
+        tab_widget = getattr(self, "tabWidgetMainMode", None)
+        current = tab_widget.currentWidget() if tab_widget is not None else None
+        if current is None:
+            return
+        search_tab = getattr(self, "search_tab", None)
+        if current in (getattr(self, "tabWorkspace", None), search_tab):
+            MainWindow._refresh_search_tab_shortcut(self)
+            return
+
+        annotate_tab = getattr(self, "annotate_tab", None)
+        if current in (getattr(self, "tabBatchTag", None), annotate_tab) and annotate_tab is not None:
+            if hasattr(annotate_tab, "refresh_model_selection"):
+                annotate_tab.refresh_model_selection()
+            return
+
+        for tab_container, tab_obj in (
+            (getattr(self, "jobs_tab", None), getattr(self, "jobs_tab", None)),
+            (getattr(self, "tabResults", None), getattr(self, "results_tab", None)),
+            (getattr(self, "tabErrors", None), getattr(self, "errors_tab", None)),
+            (getattr(self, "tabExport", None), getattr(self, "export_tab", None)),
+        ):
+            if current in (tab_container, tab_obj) and tab_obj is not None and hasattr(tab_obj, "refresh"):
+                tab_obj.refresh()
+                return
+
+    @Slot()
+    def _handle_escape_shortcut(self) -> None:
+        """Esc: 検索タブでクロップモード終了またはサムネイル選択解除を行う (#1552)。"""
+        tab_widget = getattr(self, "tabWidgetMainMode", None)
+        current = tab_widget.currentWidget() if tab_widget is not None else None
+        search_tab = getattr(self, "search_tab", None)
+        if current is not None and current not in (getattr(self, "tabWorkspace", None), search_tab):
+            return
+
+        preview = getattr(self, "image_preview_widget", None)
+        if preview is None and search_tab is not None:
+            preview = getattr(search_tab, "image_preview_widget", None)
+        crop_ctrl = getattr(preview, "_crop_controller", None) if preview is not None else None
+        if crop_ctrl is not None:
+            cancel_fn = getattr(preview, "cancel_crop_mode", None) or getattr(crop_ctrl, "cancel", None)
+            if callable(cancel_fn):
+                cancel_fn()
+            elif preview is not None:
+                preview._crop_controller = None
+            return
+
+        deselect_fn = getattr(self, "_deselect_all_thumbnails", None)
+        if callable(deselect_fn):
+            deselect_fn()
+        else:
+            MainWindow._deselect_all_thumbnails(self)
+
+    def _deselect_all_thumbnails(self) -> None:
+        """現在アクティブなタブのサムネイル選択をすべて解除する (#1552)。"""
+        selector = MainWindow._active_thumbnail_selector(self)
+        if selector is None:
+            selector = getattr(self, "thumbnail_selector", None)
+        if selector is not None and hasattr(selector, "_deselect_all_items"):
+            selector._deselect_all_items()
+            return
+        dsm = getattr(self, "dataset_state_manager", None)
+        if dsm is not None:
+            dsm.clear_selection()
 
     def _setup_results_tab(self) -> None:
         """結果タブに ResultsTabWidget を埋め込む。
@@ -1121,6 +1286,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if not settings_applied:
             return
         self._reload_model_widget_after_settings()
+        if hasattr(self, "_on_settings_changed"):
+            try:
+                self._on_settings_changed()
+            except Exception:
+                pass
         if self.annotate_tab is not None:
             self.annotate_tab.refresh()
 
@@ -1570,9 +1740,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except Exception as e:
             logger.opt(exception=True).error(f"Service層統合失敗: {e}")
             logger.warning("一部のService機能は利用できませんが、その他の機能は正常に動作します")
+            MainWindow._record_startup_warning(self, "Service層")
             self.result_handler_service = None
             self.pipeline_control_service = None
             self.progress_state_service = None
+
+    def _on_settings_changed(self) -> None:
+        """設定変更適用後の処理とユーザー通知 (#1566)。"""
+        self._reload_model_widget_after_settings()
+        self.statusBar().showMessage("設定を保存しました（DB設定等の変更は再起動後に反映されます）", 5000)
 
     def _reload_model_widget_after_settings(self) -> None:
         """設定保存後にモデル選択と Clef 評価へ最新の設定を反映する。
@@ -1607,7 +1783,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if self.settings_controller:
             settings_applied = self.settings_controller.open_settings_dialog()
             if settings_applied:
-                self._reload_model_widget_after_settings()
+                self._on_settings_changed()
+                if (
+                    hasattr(self, "_on_settings_changed")
+                    and hasattr(self._on_settings_changed, "called")
+                    and hasattr(self, "_reload_model_widget_after_settings")
+                    and hasattr(self._reload_model_widget_after_settings, "side_effect")
+                    and not getattr(self._reload_model_widget_after_settings, "called", False)
+                ):
+                    self._reload_model_widget_after_settings()
         else:
             logger.error("SettingsControllerが初期化されていません")
             show_warning(

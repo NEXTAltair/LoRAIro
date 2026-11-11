@@ -27,6 +27,16 @@ class TestPaginationNavWidgetInit:
         assert not widget._btn_prev.isEnabled()
         assert not widget._btn_next.isEnabled()
         assert not widget._btn_last.isEnabled()
+        assert not widget._spin_page.isEnabled()
+        assert widget._spin_page.objectName() == "paginationPageSpinBox"
+        assert widget._spin_page.keyboardTracking() is False
+
+    def test_tooltips_set(self, widget):
+        assert widget._btn_first.toolTip() == "最初のページへ"
+        assert widget._btn_prev.toolTip() == "前のページへ"
+        assert widget._btn_next.toolTip() == "次のページへ"
+        assert widget._btn_last.toolTip() == "最後のページへ"
+        assert widget._spin_page.toolTip() == "移動先ページ番号（Enterで移動）"
 
 
 class TestPaginationNavWidgetUpdateState:
@@ -116,3 +126,24 @@ class TestPaginationNavWidgetSignals:
         with qtbot.waitSignal(widget.page_requested, timeout=1000) as blocker:
             widget._btn_last.click()
         assert blocker.args == [5]
+
+    def test_spin_page_emits_page_requested(self, widget, qtbot):
+        widget.update_state(current=1, total=5, is_loading=False)
+        assert widget._spin_page.isEnabled()
+        assert widget._spin_page.minimum() == 1
+        assert widget._spin_page.maximum() == 5
+        with qtbot.waitSignal(widget.page_requested, timeout=1000) as blocker:
+            widget._spin_page.setValue(4)
+        assert blocker.args == [4]
+
+    def test_spin_page_same_page_or_loading_does_not_emit(self, widget):
+        emitted = []
+        widget.page_requested.connect(emitted.append)
+        widget.update_state(current=2, total=5, is_loading=False)
+        widget._on_spin_page_changed(2)
+        assert emitted == []
+
+        widget.update_state(current=2, total=5, is_loading=True)
+        assert not widget._spin_page.isEnabled()
+        widget._on_spin_page_changed(3)
+        assert emitted == []

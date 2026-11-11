@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, overload
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtGui import QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
 
 from .thumbnail_item import ThumbnailItem
@@ -29,6 +29,7 @@ class CustomGraphicsView(QGraphicsView):
     itemClicked = Signal(ThumbnailItem, Qt.KeyboardModifier)
     emptySpaceClicked = Signal()
     rubberBandSelectionFinished = Signal()
+    keyNavigationRequested = Signal(int, object)
 
     @overload
     def __init__(self, parent: QWidget | None = None) -> None: ...
@@ -100,3 +101,21 @@ class CustomGraphicsView(QGraphicsView):
         if was_dragging:
             self.rubberBandSelectionFinished.emit()
         self._drag_modifiers = Qt.KeyboardModifier.NoModifier
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """キーボードナビゲーションキーをシグナルとして通知する (#1552)。"""
+        if event.key() in {
+            Qt.Key.Key_Left,
+            Qt.Key.Key_Right,
+            Qt.Key.Key_Up,
+            Qt.Key.Key_Down,
+            Qt.Key.Key_Home,
+            Qt.Key.Key_End,
+            Qt.Key.Key_PageUp,
+            Qt.Key.Key_PageDown,
+            Qt.Key.Key_Space,
+        }:
+            self.keyNavigationRequested.emit(event.key(), event.modifiers())
+            event.accept()
+            return
+        super().keyPressEvent(event)

@@ -116,6 +116,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self.graphics_view.itemClicked.connect(self.handle_item_selection)
         self.graphics_view.emptySpaceClicked.connect(self._on_empty_space_clicked)
         self.graphics_view.rubberBandSelectionFinished.connect(self._on_rubberband_selection_finished)
+        self.graphics_view.keyNavigationRequested.connect(self._on_key_navigation)
         self.graphics_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.graphics_view.customContextMenuRequested.connect(self._on_context_menu_requested)
 
@@ -156,6 +157,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self._explicit_shutdown = Event()
         self.destroyed.connect(self._explicit_shutdown.set)
         self.last_selected_item: ThumbnailItem | None = None
+        self._keyboard_cursor_item: ThumbnailItem | None = None
 
         # コンテンツ準拠の推奨高さ (staging 用途のオプトイン、#1097)。
         # 既定は無効で、検索タブ等の Expanding 挙動は変えない。
@@ -544,6 +546,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self._explicit_items_by_id.clear()
         self._explicit_path_mode = False
         self.last_selected_item = None
+        self._keyboard_cursor_item = None
         self.scene.clear()
         self.thumbnail_items.clear()
         self._explicit_path_items.clear()
@@ -938,6 +941,8 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             self._explicit_pending.pop(image_id, None)
             if self.last_selected_item is item:
                 self.last_selected_item = None
+            if self._keyboard_cursor_item is item:
+                self._keyboard_cursor_item = None
             self.scene.removeItem(item)
             item.deleteLater()
 
@@ -1306,6 +1311,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self._explicit_items_by_id.clear()
         self._explicit_path_mode = False
         self.last_selected_item = None
+        self._keyboard_cursor_item = None
         self.thumbnail_items.clear()
         self._explicit_path_items.clear()
         self._current_display_page = 1
@@ -1343,6 +1349,93 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
         self._clear_scene_selection_silently()
         if self.dataset_state:
             self.dataset_state.clear_selection()
+
+    def _resolve_current_navigation_index(self) -> int | None:
+        """キーボード移動の起点となる現在カーソル位置のインデックスを返す (#1552)。"""
+        for cursor in (self._keyboard_cursor_item, self.last_selected_item):
+            if cursor is not None:
+                try:
+                    return self.thumbnail_items.index(cursor)
+                except ValueError:
+                    pass
+        if self.dataset_state is None or self.dataset_state.current_image_id is None:
+            return None
+        current_id = self.dataset_state.current_image_id
+        item_by_id = getattr(self, "_item_by_image_id", None)
+        if isinstance(item_by_id, dict) and current_id in item_by_id:
+            try:
+                return self.thumbnail_items.index(item_by_id[current_id])
+            except ValueError:
+                pass
+        for idx, item in enumerate(self.thumbnail_items):
+            if item.image_id == current_id:
+                return idx
+        return None
+
+    def _compute_navigation_target_index(
+        self, key: int, current_idx: int, cols: int, page_rows: int
+    ) -> int | None:
+        """キー入力に対応する移動先インデックスを算出する (#1552)。"""
+        offsets = {
+            Qt.Key.Key_Left: current_idx - 1,
+            Qt.Key.Key_Right: current_idx + 1,
+            Qt.Key.Key_Up: current_idx - cols,
+            Qt.Key.Key_Down: current_idx + cols,
+            Qt.Key.Key_Home: 0,
+            Qt.Key.Key_End: len(self.thumbnail_items) - 1,
+            Qt.Key.Key_PageUp: current_idx - cols * page_rows,
+            Qt.Key.Key_PageDown: current_idx + cols * page_rows,
+        }
+        return offsets.get(Qt.Key(key))
+
+    @Slot(int, object)
+    def _on_key_navigation(self, key: int, modifiers: Qt.KeyboardModifier) -> None:
+        """キーボードによるグリッド選択移動・トグル選択を処理する (#1552)。"""
+        if not self.thumbnail_items:
+            return
+
+        current_idx = self._resolve_current_navigation_index()
+        if current_idx is None:
+            initial_item = (
+                self.thumbnail_items[-1] if Qt.Key(key) == Qt.Key.Key_End else self.thumbnail_items[0]
+            )
+            mod = Qt.KeyboardModifier.ControlModifier if key == Qt.Key.Key_Space else modifiers
+            self.handle_item_selection(initial_item, mod)
+            self.last_selected_item = initial_item
+            self._keyboard_cursor_item = initial_item
+            self.graphics_view.ensureVisible(initial_item)
+            return
+
+        if key == Qt.Key.Key_Space:
+            item = self.thumbnail_items[current_idx]
+            self.handle_item_selection(item, Qt.KeyboardModifier.ControlModifier)
+            self.last_selected_item = item
+            self._keyboard_cursor_item = item
+            self.graphics_view.ensureVisible(item)
+            return
+
+        cols = max(1, self._current_column_count())
+        page_rows = max(1, self.graphics_view.viewport().height() // max(1, self.thumbnail_size.height()))
+        target_idx = self._compute_navigation_target_index(key, current_idx, cols, page_rows)
+        if target_idx is None:
+            return
+
+        clamped_idx = max(0, min(len(self.thumbnail_items) - 1, target_idx))
+        target_item = self.thumbnail_items[clamped_idx]
+        has_shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+        anchor_item = (
+            self.last_selected_item
+            if self.last_selected_item is not None
+            else self.thumbnail_items[current_idx]
+        )
+        if has_shift:
+            self.last_selected_item = anchor_item
+        self.handle_item_selection(target_item, modifiers)
+        if has_shift:
+            # Shift+矢印等の連続範囲選択では起点アンカーを維持し、カーソル位置だけを進める
+            self.last_selected_item = anchor_item
+        self._keyboard_cursor_item = target_item
+        self.graphics_view.ensureVisible(target_item)
 
     def handle_item_selection(self, item: ThumbnailItem, modifiers: Qt.KeyboardModifier) -> None:
         """
@@ -1390,6 +1483,7 @@ class ThumbnailSelectorWidget(QWidget, Ui_ThumbnailSelectorWidget):
             self.dataset_state.set_current_image(item.image_id)
 
         self.last_selected_item = item
+        self._keyboard_cursor_item = item
 
     def select_range(
         self,

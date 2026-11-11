@@ -414,8 +414,20 @@ class TestOpenDialogs:
 
         mock_window = Mock()
         mock_window.settings_controller = Mock()
+        mock_window.settings_controller.open_settings_dialog.return_value = True
         MainWindow.open_settings(mock_window)
         mock_window.settings_controller.open_settings_dialog.assert_called_once()
+        mock_window._on_settings_changed.assert_called_once()
+
+    def test_on_settings_changed_shows_status_bar_message(self):
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        MainWindow._on_settings_changed(mock_window)
+        mock_window._reload_model_widget_after_settings.assert_called_once()
+        mock_window.statusBar.return_value.showMessage.assert_called_once_with(
+            "設定を保存しました（DB設定等の変更は再起動後に反映されます）", 5000
+        )
 
     def test_open_settings_without_controller_shows_warning(self):
         from lorairo.gui.window.main_window import MainWindow
@@ -1077,6 +1089,89 @@ class TestNavigateToJobsTab:
         MainWindow._navigate_to_jobs_tab(mock_window)
 
         mock_window.tabWidgetMainMode.setCurrentWidget.assert_not_called()
+
+
+class TestKeyboardNavigationAndStartupWarnings:
+    """#1552 / #1569 / #1572 の MainWindow 統合テスト。"""
+
+    def test_setup_tab_widget_removed(self) -> None:
+        from lorairo.gui.window.main_window import MainWindow
+
+        assert not hasattr(MainWindow, "_setup_tab_widget")
+
+    def test_focus_search_input_switches_tab_and_focuses_line_edit(self) -> None:
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.tabWorkspace = Mock()
+        mock_window.tabWidgetMainMode.currentWidget.return_value = Mock()
+        mock_window.filter_search_panel = None
+        mock_window.actionToggleFilterPanel.isChecked.return_value = False
+        mock_window.search_tab.frameFilterSearchPanel.isHidden.return_value = True
+        line_edit = Mock()
+        mock_window.search_tab.filter_search_panel.ui.lineEditSearch = line_edit
+
+        MainWindow._focus_search_input(mock_window)
+
+        mock_window.tabWidgetMainMode.setCurrentWidget.assert_called_once_with(mock_window.tabWorkspace)
+        mock_window.search_tab.toggle_filter_panel.assert_called_once_with()
+        mock_window.actionToggleFilterPanel.setChecked.assert_called_once_with(True)
+        line_edit.setFocus.assert_called_once_with()
+        line_edit.selectAll.assert_called_once_with()
+
+    def test_refresh_active_tab_dispatches_by_current_tab(self) -> None:
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.thumbnail_selector = None
+        mock_window.tabWidgetMainMode.currentWidget.return_value = mock_window.tabWorkspace
+        MainWindow._refresh_active_tab(mock_window)
+        mock_window.search_tab.load_images_from_db.assert_called_once_with()
+
+        # load_images_from_db がない場合は thumbnail_selector.refresh_current_page にフォールバック
+        mock_fallback = Mock()
+        del mock_fallback.load_images_from_db
+        del mock_fallback.search_tab.load_images_from_db
+        mock_fallback.thumbnail_selector = None
+        mock_fallback.tabWidgetMainMode.currentWidget.return_value = mock_fallback.tabWorkspace
+        MainWindow._refresh_active_tab(mock_fallback)
+        mock_fallback.search_tab.thumbnail_selector.refresh_current_page.assert_called_once_with()
+
+        mock_window.tabWidgetMainMode.currentWidget.return_value = mock_window.tabBatchTag
+        MainWindow._refresh_active_tab(mock_window)
+        mock_window.annotate_tab.refresh_model_selection.assert_called_once_with()
+
+        mock_window.tabWidgetMainMode.currentWidget.return_value = mock_window.jobs_tab
+        MainWindow._refresh_active_tab(mock_window)
+        mock_window.jobs_tab.refresh.assert_called_once_with()
+
+    def test_handle_escape_shortcut_cancels_crop_or_deselects(self) -> None:
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window.tabWidgetMainMode.currentWidget.return_value = mock_window.tabWorkspace
+        mock_window.image_preview_widget = None
+        crop_ctrl = Mock()
+        mock_window.search_tab.image_preview_widget._crop_controller = crop_ctrl
+        mock_window.search_tab.image_preview_widget.cancel_crop_mode = None
+
+        MainWindow._handle_escape_shortcut(mock_window)
+        crop_ctrl.cancel.assert_called_once_with()
+        mock_window._deselect_all_thumbnails.assert_not_called()
+
+        mock_window.search_tab.image_preview_widget._crop_controller = None
+        MainWindow._handle_escape_shortcut(mock_window)
+        mock_window._deselect_all_thumbnails.assert_called_once_with()
+
+    def test_record_startup_warning_tracks_unique_components(self) -> None:
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        mock_window._startup_warnings = []
+        MainWindow._record_startup_warning(mock_window, "JobsTabWidget")
+        MainWindow._record_startup_warning(mock_window, "JobsTabWidget")
+        MainWindow._record_startup_warning(mock_window, "MapTabWidget")
+        assert mock_window._startup_warnings == ["JobsTabWidget", "MapTabWidget"]
 
 
 if __name__ == "__main__":
