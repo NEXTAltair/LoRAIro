@@ -178,12 +178,16 @@ class SelectedImageDetailsWidget(QWidget):
         # アプリ内モーダルダイアログの close でも誤発火し 1 タグ編集ごとに全タグ再評価を
         # 誘発したため撤去した (#1257 原因B)。外部 CLI 編集の反映は poll (案3) に委ねる。
         self._current_tags_list: list[dict[str, Any]] = []
+        self._current_tag_types: dict[str, str] = {}
         self._refresh_rate_limiter = QElapsedTimer()  # 連続トリガーの合流 (1 秒未満は無視)
         self._user_db_signature: tuple[int, int] | None = None  # (mtime_ns, size) (#1205 案3)
         self._user_db_poll_timer = QTimer(self)
         self._user_db_poll_timer.setInterval(2000)
         self._user_db_poll_timer.timeout.connect(self._poll_user_db_change)
         self._user_db_poll_timer.start()
+
+        # _reload_current_image() 経由での強制メタデータ再取得フラグ (#1543 Codex P2)
+        self._force_tag_metadata_refresh: bool = False
 
         # UI設定
         self.ui = Ui_SelectedImageDetailsWidget()
@@ -855,6 +859,7 @@ class SelectedImageDetailsWidget(QWidget):
             return  # 後続の解決が既に始まっている → 古い結果は破棄
         if result.image_id != self.current_image_id:
             return  # 画像が既に切り替わった → 破棄 (レース対策)
+        self._current_tag_types = dict(result.tag_types)
         self.annotation_display.apply_tag_metadata(
             result.translations, result.usage_counts, result.tag_types
         )
@@ -1130,6 +1135,7 @@ class SelectedImageDetailsWidget(QWidget):
         """
         if self.current_image_id is None:
             return
+        self._force_tag_metadata_refresh = True
         self.annotations_changed.emit(self.current_image_id)
         dsm = self._dataset_state_manager
         if dsm is not None:
@@ -1485,26 +1491,41 @@ class SelectedImageDetailsWidget(QWidget):
             self._clear_display()
             return
 
+        prev_image_id = self.current_image_id
+        prev_tags_list = list(self._current_tags_list)
         image_id = image_data.get("id")
+        same_image = image_id is not None and image_id == prev_image_id
+        if not same_image:
+            self._current_tag_types = {}
         self.current_image_id = image_id
         self.annotation_review_widget.set_image(image_id)
         logger.debug(
             f"SelectedImageDetailsWidget(instance={id(self)}): current_image_data_changed シグナル受信 - image_id: {image_id}"
         )
 
+        force_tag_refresh = self._force_tag_metadata_refresh
+        self._force_tag_metadata_refresh = False
+        new_tags_list = list(image_data.get("tags", []))
+        tags_unchanged = same_image and new_tags_list == prev_tags_list and not force_tag_refresh
         details = self._build_image_details_from_metadata(image_data)
+        if tags_unchanged and details.annotation_data is not None and self._current_tag_types:
+            details.annotation_data.tag_types = dict(self._current_tag_types)
         self._update_details_display(details)
         self._populate_rejected_tags()
-        self.refresh_related_images()
-        self._update_generation_metadata(image_id, image_data)
+        if not same_image:
+            self.refresh_related_images()
+            self._update_generation_metadata(image_id, image_data)
         # 翻訳/使用頻度/type を background で解決し、完了時に反映する (#1046)
-        self._current_tags_list = list(image_data.get("tags", []))
-        self._trigger_tag_metadata_fetch(self._current_tags_list)
+        self._current_tags_list = new_tags_list
         # refinement 評価 (#931): 表示中タグの canonical を集めて非同期評価する。
         self._current_tag_canonicals = [
-            t["tag"] for t in image_data.get("tags", []) if isinstance(t, dict) and t.get("tag")
+            t["tag"] for t in new_tags_list if isinstance(t, dict) and t.get("tag")
         ]
-        self._trigger_refinement_evaluation()
+        # 同一画像の rating/score 編集などタグが不変の更新では、重い tag DB / refinement
+        # worker の再起動をスキップする (#1543)。
+        if not tags_unchanged:
+            self._trigger_tag_metadata_fetch(self._current_tags_list)
+            self._trigger_refinement_evaluation()
 
     def set_generation_metadata(self, metadata: Any, sources: Any = None) -> None:
         """生成メタデータを詳細ウィジェットに直接設定する (Issue #1483)。"""
@@ -1774,7 +1795,9 @@ class SelectedImageDetailsWidget(QWidget):
 
             resolved_path = resolve_stored_path(str(stored_path))
             if resolved_path.exists():
-                return resolved_path.stat().st_size
+                size = resolved_path.stat().st_size
+                metadata["file_size"] = size
+                return size
             logger.debug(
                 f"file_size 補完不可: ファイルが存在しません: image_id={image_id}, path={resolved_path}"
             )
@@ -1906,6 +1929,9 @@ class SelectedImageDetailsWidget(QWidget):
         """
         self.current_details = None
         self.current_image_id = None
+        self._current_tags_list = []
+        self._current_tag_types = {}
+        self._current_tag_canonicals = []
         self.annotation_review_widget.set_image(None)
 
         self.ui.labelFileNameValue.setText("-")

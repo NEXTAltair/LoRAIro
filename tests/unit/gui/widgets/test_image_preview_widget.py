@@ -731,3 +731,70 @@ class TestImagePreviewZoomPanAndFullRes:
         self._load_sample(widget, tmp_path, "second.png")
         assert widget._zoom_factor == 1.0
         assert widget._is_1to1 is False
+
+    def test_load_image_skips_redecode_when_same_path_already_loaded(self, widget, tmp_path):
+        """同一パスの有効な pixmap が既に表示中なら再デコードとクリアをスキップする (#1543)。"""
+        from PIL import Image
+
+        source = tmp_path / "already_loaded.png"
+        Image.new("RGB", (64, 64), color=(10, 20, 30)).save(source)
+
+        widget.load_image(source)
+        initial_pixmap = widget._current_pixmap
+        initial_item = widget.pixmap_item
+        assert initial_pixmap is not None and not initial_pixmap.isNull()
+
+        with (
+            patch.object(widget, "_clear_preview") as mock_clear,
+            patch.object(widget, "_decode_preview_pixmap") as mock_decode,
+        ):
+            widget.load_image(source)
+
+        mock_clear.assert_not_called()
+        mock_decode.assert_not_called()
+        assert widget._current_pixmap is initial_pixmap
+        assert widget.pixmap_item is initial_item
+
+    def test_on_image_data_received_skips_reload_when_same_path_already_loaded(self, widget, tmp_path):
+        """_on_image_data_received でも同一パスが既に表示中なら load_image を呼ばず ID のみ維持する (#1543)。"""
+        from PIL import Image
+
+        source = tmp_path / "same_data.png"
+        Image.new("RGB", (64, 64), color=(40, 50, 60)).save(source)
+
+        widget.load_image(source)
+        assert widget._current_image_path == source
+
+        with (
+            patch("lorairo.database.db_core.resolve_stored_path", return_value=source),
+            patch.object(widget, "load_image") as mock_load,
+        ):
+            widget._on_image_data_received({"id": 77, "stored_image_path": str(source)})
+
+        mock_load.assert_not_called()
+        assert widget.current_image_id() == 77
+        assert widget._crop_button.isEnabled() is True
+
+    def test_on_full_res_toggled_redecodes_current_image(self, widget, tmp_path):
+        """原寸トグル切り替え時は同一画像パスであっても再デコードが実行される (#1543 Codex P2)。"""
+        from PIL import Image
+
+        source = tmp_path / "full_res_test.png"
+        Image.new("RGB", (64, 64), color=(10, 20, 30)).save(source)
+
+        widget.load_image(source)
+        assert widget._decoded_full_res is False
+
+        with patch.object(
+            widget, "_decode_preview_pixmap", wraps=widget._decode_preview_pixmap
+        ) as mock_decode:
+            widget._on_full_res_toggled(True)
+            mock_decode.assert_called_once_with(source, full_res=True)
+            assert widget._decoded_full_res is True
+
+        with patch.object(
+            widget, "_decode_preview_pixmap", wraps=widget._decode_preview_pixmap
+        ) as mock_decode:
+            widget._on_full_res_toggled(False)
+            mock_decode.assert_called_once_with(source, full_res=False)
+            assert widget._decoded_full_res is False

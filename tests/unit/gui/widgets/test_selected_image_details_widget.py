@@ -1123,3 +1123,147 @@ class TestTranslationRefreshButtonRelocation:
         assert not panel._translation_refresh_button.isEnabled()
         widget.annotation_display.set_translation_refresh_enabled(True)
         assert panel._translation_refresh_button.isEnabled()
+
+
+class TestSameImageUpdateOptimization:
+    """#1543: 同一画像の再描画時に不変な DB/FS/worker 再実行を省くテスト。"""
+
+    @pytest.fixture
+    def widget(self, qtbot):
+        widget = SelectedImageDetailsWidget()
+        qtbot.addWidget(widget)
+        return widget
+
+    def test_get_file_size_bytes_caches_stat_result_in_metadata(self, widget, tmp_path, monkeypatch):
+        """stored_image_path の stat で得た file_size を metadata 辞書へキャッシュする (#1543)。"""
+        image_path = tmp_path / "cached_stat.jpg"
+        image_path.write_bytes(b"a" * 2048)
+        metadata: dict = {
+            "id": 10,
+            "stored_image_path": str(image_path),
+            "tags": [],
+        }
+
+        size1 = widget._get_file_size_bytes(metadata, 10)
+        assert size1 == 2048
+        assert metadata["file_size"] == 2048
+
+        # 2 回目は metadata["file_size"] を返し、resolve_stored_path / stat を呼ばない
+        monkeypatch.setattr(
+            "lorairo.database.db_core.resolve_stored_path",
+            lambda _p: (_ for _ in ()).throw(AssertionError("should not stat again")),
+        )
+        size2 = widget._get_file_size_bytes(metadata, 10)
+        assert size2 == 2048
+
+    def test_same_image_unchanged_tags_skips_related_gen_and_tag_workers(self, widget, monkeypatch):
+        """同一 image_id かつ tags 不変 (rating/score 編集等) なら関連画像・生成メタ・タグ worker を再起動しない (#1543)。"""
+        related_calls: list[int] = []
+        gen_calls: list[int | None] = []
+        tag_meta_calls: list[list] = []
+        refinement_calls: list[int] = []
+
+        monkeypatch.setattr(widget, "refresh_related_images", lambda: related_calls.append(1))
+        monkeypatch.setattr(
+            widget, "_update_generation_metadata", lambda img_id, _data=None: gen_calls.append(img_id)
+        )
+        monkeypatch.setattr(
+            widget, "_trigger_tag_metadata_fetch", lambda tags: tag_meta_calls.append(list(tags))
+        )
+        monkeypatch.setattr(widget, "_trigger_refinement_evaluation", lambda: refinement_calls.append(1))
+
+        tags = [{"tag": "1girl", "tag_id": 1}]
+        widget._on_image_data_received(
+            {"id": 42, "file_path": "/a.png", "tags": tags, "manual_rating_value": "PG"}
+        )
+        assert len(related_calls) == 1
+        assert gen_calls == [42]
+        assert len(tag_meta_calls) == 1
+        assert len(refinement_calls) == 1
+
+        # 同一画像で rating のみ変更 (tags は同一)
+        widget._on_image_data_received(
+            {"id": 42, "file_path": "/a.png", "tags": list(tags), "manual_rating_value": "R"}
+        )
+        assert len(related_calls) == 1
+        assert gen_calls == [42]
+        assert len(tag_meta_calls) == 1
+        assert len(refinement_calls) == 1
+        assert widget.current_details is not None
+        assert widget.current_details.manual_rating_value == "R"
+
+        # 同一画像で tags が変化した場合は tag_metadata / refinement のみ再起動し、関連画像・生成メタはスキップ
+        new_tags = [{"tag": "1girl", "tag_id": 1}, {"tag": "solo", "tag_id": 2}]
+        widget._on_image_data_received(
+            {"id": 42, "file_path": "/a.png", "tags": new_tags, "manual_rating_value": "R"}
+        )
+        assert len(related_calls) == 1
+        assert gen_calls == [42]
+        assert len(tag_meta_calls) == 2
+        assert len(refinement_calls) == 2
+
+    def test_same_image_unchanged_tags_preserves_resolved_tag_types(self, widget, monkeypatch):
+        """タグメタデータ解決完了後に rating/score が更新されても解決済み tag_types を失わない (#1543 Codex P2)。"""
+        from lorairo.gui.workers.tag_metadata_worker import TagMetadataResult
+
+        monkeypatch.setattr(widget, "refresh_related_images", lambda: None)
+        monkeypatch.setattr(widget, "_update_generation_metadata", lambda *_a, **_k: None)
+        monkeypatch.setattr(widget, "_trigger_tag_metadata_fetch", lambda _tags: None)
+        monkeypatch.setattr(widget, "_trigger_refinement_evaluation", lambda: None)
+
+        tags = [{"tag": "hatsune_miku", "tag_id": 10}, {"tag": "1girl", "tag_id": 1}]
+        widget._on_image_data_received(
+            {"id": 42, "file_path": "/a.png", "tags": tags, "manual_rating_value": "PG"}
+        )
+
+        widget._tag_metadata_generation = 1
+        widget._on_tag_metadata_finished(
+            TagMetadataResult(
+                image_id=42,
+                generation=1,
+                translations={},
+                usage_counts={},
+                tag_types={"hatsune_miku": "character", "1girl": "general"},
+            )
+        )
+        assert widget.annotation_display._tag_panel._tag_types == {
+            "hatsune_miku": "character",
+            "1girl": "general",
+        }
+
+        # rating 編集で同一画像かつ同一 tags の更新が来ても _tag_types が空に上書きされない
+        widget._on_image_data_received(
+            {"id": 42, "file_path": "/a.png", "tags": list(tags), "manual_rating_value": "R"}
+        )
+        assert widget.annotation_display._tag_panel._tag_types == {
+            "hatsune_miku": "character",
+            "1girl": "general",
+        }
+
+    def test_reload_current_image_forces_tag_metadata_refresh(self, widget, monkeypatch):
+        """_reload_current_image() 経由の更新ではタグが不変でも tag_metadata/refinement を強制再取得する (#1543 Codex P2)。"""
+        tag_meta_calls: list[list] = []
+        refinement_calls: list[int] = []
+
+        monkeypatch.setattr(widget, "refresh_related_images", lambda: None)
+        monkeypatch.setattr(widget, "_update_generation_metadata", lambda *_a, **_k: None)
+        monkeypatch.setattr(
+            widget, "_trigger_tag_metadata_fetch", lambda tags: tag_meta_calls.append(list(tags))
+        )
+        monkeypatch.setattr(widget, "_trigger_refinement_evaluation", lambda: refinement_calls.append(1))
+
+        tags = [{"tag": "1girl", "tag_id": 1}]
+        widget._on_image_data_received({"id": 42, "file_path": "/a.png", "tags": tags})
+        assert len(tag_meta_calls) == 1
+        assert len(refinement_calls) == 1
+        assert widget._force_tag_metadata_refresh is False
+
+        # _reload_current_image を呼ぶと _force_tag_metadata_refresh が True になる
+        widget._reload_current_image()
+        assert widget._force_tag_metadata_refresh is True
+
+        # 同一画像・タグ不変の更新でも force_tag_metadata_refresh によりスキップされず再取得が走る
+        widget._on_image_data_received({"id": 42, "file_path": "/a.png", "tags": list(tags)})
+        assert len(tag_meta_calls) == 2
+        assert len(refinement_calls) == 2
+        assert widget._force_tag_metadata_refresh is False

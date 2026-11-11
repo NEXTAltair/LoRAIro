@@ -1028,14 +1028,29 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             self._image_db_write_service.update_score(image_id, score)
         logger.debug(f"保存完了: image_id={image_id}, rating={rating}, score={score}")
 
+    def _refresh_single_image_annotations(self, image_id: int) -> None:
+        """単一画像のアノテーションキャッシュのみを更新する (#1543)。
+
+        DatasetStateManager が refresh_image_annotations を持てばそれを優先し、
+        パス/基本メタの再取得を省く (テスト用 Mock 等で refresh_image_annotations が
+        無い場合は refresh_image へフォールバックする)。
+        """
+        dsm = self._dataset_state_manager
+        if dsm is None:
+            return
+        refresh_annotations = getattr(dsm, "refresh_image_annotations", None)
+        if callable(refresh_annotations):
+            refresh_annotations(image_id)
+        else:
+            dsm.refresh_image(image_id)
+
     def _handle_rating_changed(self, image_id: int, rating: str) -> None:
         """単一 Rating 変更を書き込み、成功時にキャッシュを更新する。"""
         if self._image_db_write_service is None:
             logger.warning("ImageDBWriteService未初期化")
             return
         if self._image_db_write_service.update_rating(image_id, rating):
-            if self._dataset_state_manager is not None:
-                self._dataset_state_manager.refresh_image(image_id)
+            self._refresh_single_image_annotations(image_id)
             logger.debug(f"Rating更新成功: image_id={image_id}, rating={rating}")
         else:
             logger.error(f"Rating更新失敗: image_id={image_id}, rating={rating}")
@@ -1046,8 +1061,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             logger.warning("ImageDBWriteService未初期化")
             return
         if self._image_db_write_service.update_score(image_id, score):
-            if self._dataset_state_manager is not None:
-                self._dataset_state_manager.refresh_image(image_id)
+            self._refresh_single_image_annotations(image_id)
             logger.debug(f"Score更新成功: image_id={image_id}, score={score}")
         else:
             logger.error(f"Score更新失敗: image_id={image_id}, score={score}")
@@ -1126,12 +1140,40 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             widget._clear_display()
             logger.debug("選択なし・表示画像なし - 詳細表示をクリア")
         elif len(image_ids) == 1:
-            if self._dataset_state_manager is not None:
-                image_data = self._dataset_state_manager.get_image_by_id(image_ids[0])
-                if image_data:
-                    rating_widget.populate_from_image_data(image_data)
-                    logger.debug(f"単一選択: rating widget更新 image_id={image_ids[0]}")
+            self._populate_single_selection_rating(image_ids[0], widget, rating_widget)
         else:
             if self._db_manager is not None:
                 rating_widget.populate_from_selection(image_ids, self._db_manager)
                 logger.debug(f"バッチモード: {len(image_ids)}件")
+
+    def _populate_single_selection_rating(
+        self, selected_id: int, widget: SelectedImageDetailsWidget, rating_widget: Any
+    ) -> None:
+        """単一画像選択時の rating/score 表示更新を行う (#1543)。"""
+        dsm = self._dataset_state_manager
+        if dsm is None:
+            return
+        if (
+            dsm.current_image_id == selected_id
+            and widget.current_image_id == selected_id
+            and not getattr(rating_widget, "_is_batch_mode", False)
+        ):
+            logger.debug(
+                f"単一選択: 詳細パネルで同一画像を単一モード表示中のため再populateをスキップ image_id={selected_id}"
+            )
+            return
+        image_data = dsm.get_image_by_id(selected_id)
+        if not image_data:
+            return
+        invalidated_ids = getattr(dsm, "_annotation_invalidated_ids", None)
+        is_invalidated = (
+            isinstance(invalidated_ids, set | frozenset | list | tuple) and selected_id in invalidated_ids
+        )
+        if not is_invalidated and not any(
+            k in image_data for k in ("tags", "rating", "manual_rating_value", "ai_rating_value")
+        ):
+            ensure_loaded = getattr(dsm, "_ensure_annotations_loaded", None)
+            if callable(ensure_loaded):
+                ensure_loaded(image_data)
+        rating_widget.populate_from_image_data(image_data)
+        logger.debug(f"単一選択: rating widget更新 image_id={selected_id}")
