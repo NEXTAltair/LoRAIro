@@ -242,8 +242,14 @@ def test_statusbar_progress_survives_short_messages_and_tab_switch(qtbot, progre
     qtbot.addWidget(statusbar)
     service = ProgressStateService(statusbar)
     service.on_worker_progress_updated("annotation_1", WorkerProgress(0, "", annotation_progress=progress))
-    statusbar.showMessage("別の操作", 1)
+    # 進捗は常設部品だけに出し、一時メッセージ (通知) 欄は使わない (ADR 0108)
+    assert statusbar.currentMessage() == ""
+    statusbar.showMessage("別の操作", 5000)
     widget = service._annotation_widget
+    assert not widget.isHidden()
+    assert statusbar.currentMessage() == "別の操作"
+    service.on_worker_progress_updated("annotation_1", WorkerProgress(0, "", annotation_progress=progress))
+    assert statusbar.currentMessage() == "別の操作"
     assert "対象 500枚 / 12モデル" in widget.context_label.text()
     assert widget._progress.started_at == progress.started_at
     assert widget.progress_bar.maximum() == 0
@@ -295,10 +301,13 @@ def test_global_progress_ignores_older_job_terminals(qtbot, progress):
     assert service._annotation_widget._progress == newer
     assert service._annotation_widget._elapsed_timer.isActive()
     own_terminal = replace(newer, phase=AnnotationPhase.FAILED, stopped_at=monotonic())
+    assert not service._annotation_widget.isHidden()
     service.on_worker_progress_updated(
         "annotation_b", WorkerProgress(0, "", annotation_progress=own_terminal)
     )
     assert not service._annotation_widget._elapsed_timer.isActive()
+    # 進行中のアノテーションが無くなったら部品を隠す
+    assert service._annotation_widget.isHidden()
 
 
 @pytest.mark.parametrize(
@@ -326,12 +335,14 @@ def test_global_progress_returns_to_older_active_job(qtbot, progress, terminal):
         "annotation_b", WorkerProgress(0, "", annotation_progress=b_terminal)
     )
     assert widget._progress == progress
+    assert not widget.isHidden()
     a_terminal = replace(progress, phase=terminal, stopped_at=monotonic())
     service.on_worker_progress_updated(
         "annotation_a", WorkerProgress(0, "", annotation_progress=a_terminal)
     )
     assert widget._progress == a_terminal
     assert not widget._elapsed_timer.isActive()
+    assert widget.isHidden()
     assert not service._active_annotation_progress
 
 

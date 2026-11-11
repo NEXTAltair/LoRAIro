@@ -71,7 +71,8 @@ class TestHandleBatchRegistrationFinished:
         )
 
         # Assert
-        mock_status_bar.clearMessage.assert_called_once()
+        # 進捗は常設部品が担うため、結果通知を消す clearMessage は呼ばない (ADR 0108)
+        mock_status_bar.clearMessage.assert_not_called()
         mock_status_bar.showMessage.assert_called_once()
         assert "登録=100" in mock_status_bar.showMessage.call_args[0][0]
         assert "別版=0" in mock_status_bar.showMessage.call_args[0][0]

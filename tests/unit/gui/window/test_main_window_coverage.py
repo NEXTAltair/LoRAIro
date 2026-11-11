@@ -233,6 +233,38 @@ class TestWorkerProgressHandlers:
             "on_worker_batch_progress", "w1", 3, 10, "image.jpg"
         )
 
+    def test_on_worker_terminal_clear_progress_delegates_worker_id(self):
+        from lorairo.gui.window.main_window import MainWindow
+
+        mock_window = Mock()
+        event = Mock(worker_id="batch_reg_1")
+        MainWindow._on_worker_terminal_clear_progress(mock_window, event)
+        mock_window._delegate_to_progress_state.assert_called_once_with("on_worker_terminal", "batch_reg_1")
+
+    def test_on_worker_terminal_clear_progress_hides_real_progress_widget(self, qtbot):
+        """実 ProgressStateService + 実 QStatusBar で終端イベントが進捗部品を隠す (ADR 0108)。"""
+        from PySide6.QtWidgets import QStatusBar
+
+        from lorairo.gui.services.progress_state_service import ProgressStateService
+        from lorairo.gui.window.main_window import MainWindow
+        from lorairo.gui.workers.terminal import WorkerOutcome, WorkerTerminalEvent
+
+        bar = QStatusBar()
+        qtbot.addWidget(bar)
+        service = ProgressStateService(status_bar=bar)
+        mock_window = Mock()
+        mock_window.progress_state_service = service
+        mock_window._delegate_to_progress_state = lambda name, *args: (
+            MainWindow._delegate_to_progress_state(mock_window, name, *args)
+        )
+        service.on_worker_batch_progress("batch_reg_1", 1, 3, "a.jpg")
+        assert service.progress_widget is not None
+        assert not service.progress_widget.isHidden()
+        MainWindow._on_worker_terminal_clear_progress(
+            mock_window, WorkerTerminalEvent("batch_reg_1", "registration", WorkerOutcome.SUCCEEDED)
+        )
+        assert service.progress_widget.isHidden()
+
     def test_on_batch_annotation_started_delegates(self):
         from lorairo.gui.window.main_window import MainWindow
 

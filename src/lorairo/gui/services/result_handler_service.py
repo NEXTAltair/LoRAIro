@@ -49,12 +49,8 @@ class ResultHandlerService:
         """
         logger.info(f"バッチ登録完了: result={type(result)}")
 
-        # Clear statusbar processing message
-        try:
-            if status_bar:
-                status_bar.clearMessage()
-        except Exception as e:
-            logger.debug(f"Status bar clear failed: {e}")
+        # 進捗は常設の進捗部品側で worker 終端時に消える (ADR 0108)。
+        # ここで clearMessage すると同時に出ている結果通知まで消すため呼ばない。
 
         try:
             # Extract results from DatabaseRegistrationResult
