@@ -9,7 +9,7 @@ run bar・トップレベル Signal) を、実 ``AnnotateTabWidget`` インス�
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from PySide6.QtWidgets import QDialog
@@ -64,13 +64,23 @@ def _make_stub_dialog(
     captured: dict[str, object] = {}
 
     class _StubPickerDialog:
-        def __init__(self, stage, candidates, available_providers=None, parent=None):
+        def __init__(
+            self,
+            stage,
+            candidates,
+            available_providers=None,
+            staged_count: int = 0,
+            parent=None,
+        ):
             captured["stage"] = stage
             captured["candidates"] = candidates
             captured["available_providers"] = available_providers
+            captured["staged_count"] = staged_count
             captured["parent"] = parent
             # Issue #755: タブが connect する設定導線シグナルの差し替え
             self.configure_key_requested = Mock()
+            # Issue #1570: モデル一覧更新シグナルの差し替え
+            self.refresh_models_requested = Mock()
 
         def exec(self) -> QDialog.DialogCode:
             return exec_result
@@ -457,6 +467,63 @@ class TestPipelineAddModelHandler:
         tab._on_pipeline_add_model_requested("tags")
 
         assert captured["available_providers"] == {"openai"}
+
+    def test_picker_receives_staged_count(self, tab, monkeypatch):
+        """Issue #1570: StageModelPickerDialog へ _pipeline_staged_count が渡される。"""
+        from lorairo.gui.tab import annotate_tab as annotate_tab_module
+
+        _wire_model_selection(tab, {}, [], [GPT4O_INFO])
+        tab._pipeline_staged_count = 12
+        stub_cls, captured = _make_stub_dialog(QDialog.DialogCode.Rejected, [])
+        monkeypatch.setattr(annotate_tab_module, "StageModelPickerDialog", stub_cls)
+
+        tab._on_pipeline_add_model_requested("tags")
+
+        assert captured["staged_count"] == 12
+
+    def test_picker_refresh_models_requested_reloads_candidates(self, tab, qtbot):
+        """Issue #1570: refresh_models_requested でモデルレジストリ更新と候補再構築が走る。"""
+        from lorairo.gui.widgets.stage_model_picker_dialog import StageModelPickerDialog
+
+        _wire_model_selection(tab, {}, [], [WD_TAGGER_INFO])
+        tab._batch_model_selection._refresh_thread = None
+        tab._available_api_providers = lambda: {"openai"}
+
+        dialog = StageModelPickerDialog(
+            PipelineStage.TAGS,
+            [WD_TAGGER_INFO],
+            available_providers=set(),
+        )
+        qtbot.addWidget(dialog)
+
+        # リフレッシュ後に GPT4O_INFO も候補に加わる想定
+        tab._build_picker_candidates = Mock(return_value=[GPT4O_INFO, WD_TAGGER_INFO])
+
+        tab._on_stage_picker_refresh_models(dialog, PipelineStage.TAGS)
+
+        tab._batch_model_selection.refresh_model_registry.assert_called_once_with(automatic=False)
+        assert [r.info.litellm_model_id for r in dialog._rows] == [
+            "openai/gpt-4o",
+            "wd-v1-4-tagger",
+        ]
+
+    def test_reload_stage_picker_candidates_invalidates_model_caches(self, tab, qtbot):
+        """ピッカー再読込時にタブのモデルキャッシュが破棄され最新の load_models が反映される (#1570 Codex P2)。"""
+        from lorairo.gui.widgets.stage_model_picker_dialog import StageModelPickerDialog
+
+        dialog = StageModelPickerDialog(
+            PipelineStage.TAGS,
+            [],
+            available_providers=set(),
+        )
+        qtbot.addWidget(dialog)
+
+        old_cached = [Mock(available=True, litellm_model_id="stale_model")]
+        tab._cached_loaded_models = old_cached
+        with patch.object(tab, "_invalidate_model_caches", wraps=tab._invalidate_model_caches) as spy_inv:
+            tab._reload_stage_picker_candidates(dialog, PipelineStage.TAGS)
+            spy_inv.assert_called_once()
+            assert tab._cached_loaded_models is not old_cached
 
 
 # == 4. モデル選択 SSoT: 削除ハンドラ =========================================

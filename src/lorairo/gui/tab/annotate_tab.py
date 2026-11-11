@@ -1443,6 +1443,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
 
         Issue #755: キー未設定 WebAPI モデルも候補に含め ``○ needs key`` で可視化。
         Issue #1538: 経路重複排除後の候補を渡し、チェックボックス未描画モデルでも確実に選択集合へ追加する。
+        Issue #1570: ステージング枚数 (staged_count) とモデル一覧更新シグナルを配線する。
 
         Args:
             stage_value: 追加先ステージの PipelineStage value。
@@ -1454,6 +1455,7 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             stage,
             candidates,
             available_providers=self._available_api_providers(),
+            staged_count=self._pipeline_staged_count,
             parent=self,
         )
         dialog.configure_key_requested.connect(
@@ -1461,6 +1463,10 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
                 provider, dialog, stage=stage
             )
         )
+        if hasattr(dialog, "refresh_models_requested"):
+            dialog.refresh_models_requested.connect(
+                lambda dialog=dialog, stage=stage: self._on_stage_picker_refresh_models(dialog, stage)
+            )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
@@ -1548,8 +1554,49 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         available_providers = self._available_api_providers()
         dialog.refresh_key_status(available_providers)
         target_stage = stage if stage is not None else getattr(dialog, "_stage", None)
-        if isinstance(target_stage, PipelineStage) and hasattr(dialog, "replace_candidates"):
-            dialog.replace_candidates(self._build_picker_candidates(target_stage))
+        if isinstance(target_stage, PipelineStage):
+            new_candidates = self._build_picker_candidates(target_stage)
+            if hasattr(dialog, "set_candidates"):
+                dialog.set_candidates(new_candidates)
+            elif hasattr(dialog, "replace_candidates"):
+                dialog.replace_candidates(new_candidates)
+        self._last_composed_selected_ids = None
+        self._refresh_pipeline_panel()
+
+    def _on_stage_picker_refresh_models(
+        self,
+        dialog: StageModelPickerDialog,
+        stage: PipelineStage,
+    ) -> None:
+        """ピッカーからのモデル一覧更新要求を処理し、候補リストを再読込する (#1570)。"""
+        if hasattr(self._batch_model_selection, "refresh_model_registry"):
+            self._batch_model_selection.refresh_model_registry(automatic=False)
+        refresh_thread = getattr(self._batch_model_selection, "_refresh_thread", None)
+        if (
+            refresh_thread is not None
+            and hasattr(refresh_thread, "finished")
+            and hasattr(refresh_thread.finished, "connect")
+        ):
+            refresh_thread.finished.connect(
+                lambda dialog=dialog, stage=stage: self._reload_stage_picker_candidates(dialog, stage)
+            )
+        self._reload_stage_picker_candidates(dialog, stage)
+
+    def _reload_stage_picker_candidates(
+        self,
+        dialog: StageModelPickerDialog,
+        stage: PipelineStage,
+    ) -> None:
+        """開いているピッカーダイアログのキー状況と候補リストを更新する (#1570)。"""
+        self._invalidate_model_caches()
+        available_providers = self._available_api_providers()
+        if hasattr(dialog, "refresh_key_status"):
+            dialog.refresh_key_status(available_providers)
+        candidates = self._build_picker_candidates(stage)
+        if hasattr(dialog, "set_candidates"):
+            dialog.set_candidates(candidates)
+        elif hasattr(dialog, "replace_candidates"):
+            dialog.replace_candidates(candidates)
         self._last_composed_selected_ids = None
         self._refresh_pipeline_panel()
 

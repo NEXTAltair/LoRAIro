@@ -746,6 +746,10 @@ def test_card_expansion_loads_detail_and_items(widget, dependencies, qtbot):
     flags = provider_id_label.textInteractionFlags()
     assert flags & Qt.TextInteractionFlag.TextSelectableByMouse
     assert flags & Qt.TextInteractionFlag.TextSelectableByKeyboard
+    for expected_heading in ("ジョブ識別情報", "リクエスト内訳", "タイムライン", "明細"):
+        assert any(expected_heading in text for text in labels)
+    headers = [card.items_table.horizontalHeaderItem(i).text() for i in range(5)]
+    assert headers == ["リクエストID", "画像ID", "状態", "エラー種別", "エラー内容"]
 
 
 @pytest.mark.unit

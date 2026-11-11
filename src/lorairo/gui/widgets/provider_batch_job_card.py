@@ -401,7 +401,7 @@ class ProviderBatchJobCard(QFrame):
             "node": "wait",
             "value": "— 自動",
             "chip": None,
-            "sub": "→ Results",
+            "sub": "→ DB反映",
             "line_in": "dash",
         }
         unreached = {"value": "—", "sub": "到達せず"}
@@ -447,7 +447,7 @@ class ProviderBatchJobCard(QFrame):
                 "node": "done",
                 "value": "✓ 自動",
                 "chip": None,
-                "sub": "artifact 保存済",
+                "sub": "結果ファイル保存済",
                 "line_in": "solid",
             }
             import_spec = {
@@ -558,7 +558,7 @@ class ProviderBatchJobCard(QFrame):
             return "provider が受理後に拒否 — 再送は Annotate から", True
         if self._view_state == "canceled":
             return "provider 側も取消済み — 回収する結果はありません", False
-        return "24h window 超過で provider が打ち切り — 再送は Annotate から", False
+        return "24時間超過でプロバイダーが打ち切り — 再送は Annotate から", False
 
     # -- 展開 (progressive disclosure) -----------------------------------------
 
@@ -579,7 +579,7 @@ class ProviderBatchJobCard(QFrame):
         layout.setContentsMargins(14, 10, 14, 10)
         layout.setSpacing(4)
 
-        layout.addWidget(self._kv_heading("identity"))
+        layout.addWidget(self._kv_heading("ジョブ識別情報"))
         layout.addWidget(
             self._kv_grid(
                 [
@@ -592,7 +592,7 @@ class ProviderBatchJobCard(QFrame):
                 ]
             )
         )
-        layout.addWidget(self._kv_heading("requests"))
+        layout.addWidget(self._kv_heading("リクエスト内訳"))
         layout.addWidget(
             self._kv_grid(
                 [
@@ -608,7 +608,7 @@ class ProviderBatchJobCard(QFrame):
                 ]
             )
         )
-        layout.addWidget(self._kv_heading("timeline"))
+        layout.addWidget(self._kv_heading("タイムライン"))
         layout.addWidget(
             self._kv_grid(
                 [
@@ -622,11 +622,11 @@ class ProviderBatchJobCard(QFrame):
             )
         )
 
-        layout.addWidget(self._kv_heading("items"))
+        layout.addWidget(self._kv_heading("明細"))
         self.items_table = QTableWidget()
         self.items_table.setColumnCount(5)
         self.items_table.setHorizontalHeaderLabels(
-            ["Custom ID", "Image ID", "Status", "Error Type", "Error Message"]
+            ["リクエストID", "画像ID", "状態", "エラー種別", "エラー内容"]
         )
         self.items_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.items_table.verticalHeader().setVisible(False)

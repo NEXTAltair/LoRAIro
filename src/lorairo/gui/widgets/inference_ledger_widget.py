@@ -21,10 +21,13 @@ from lorairo.services.pipeline_composition import InferenceLedger, LedgerEntry
 
 _TITLE_TEXT = "INFERENCE LEDGER"
 _PLACEHOLDER_TEXT = "モデル未選択"
-_MULTI_NOTE_TEXT = "multimodal: 複数ステージに出力しても 1 推論として課金"
+_MULTI_NOTE_TEXT = (
+    "マルチモーダルモデルは 1 回の推論で複数ステージ（タグ / キャプション / スコア）を"
+    "同時に出力するため、実行ジョブ数はユニークモデル数 × 枚数になります"
+)
 # #884 Phase 4b: SYNC / PROVIDER BATCH 2バンド (ADR 0038 / wireframes v12)
-_SYNC_BAND_TITLE = "SYNC"
-_BATCH_BAND_TITLE = "PROVIDER BATCH (非同期)"
+_SYNC_BAND_TITLE = "即時実行（同期）"
+_BATCH_BAND_TITLE = "非同期バッチ（24時間以内 · 約50%割引）"
 _BATCH_ROUTE_BADGE_TEXT = "batch·api"
 
 # DS v12 AnnotateScreen ledger (Issue #787): エントリ = TypeBadge 文法 (paper-shade 地 +
@@ -164,6 +167,7 @@ class InferenceLedgerWidget(DsCard):
         band_layout.setSpacing(theme.SPACE_1)
 
         header = QLabel(title, band)
+        header.setObjectName("ledgerBandTitle")
         header.setStyleSheet(_BAND_HEADER_STYLE)
         band_layout.addWidget(header)
 

@@ -36,6 +36,7 @@ from .ds_segmented_control import DsSegmentedControl
 
 _UNIMPLEMENTED_TOOLTIP = "バックエンド未実装 — 後続 issue で worker に配線予定"
 _DEDUPE_TOOLTIP = "multimodal は常時 dedupe (同一推論を 1 回に集約)。常に ON。"
+_BATCH_OPTIONS_HEADER_TEXT = "バッチAPI送信オプション（同期実行時は無視されます）"
 
 
 @dataclass(frozen=True)
@@ -102,7 +103,10 @@ class RunSettingsDialog(QDialog):
         header.setStyleSheet(f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;")
         layout.addWidget(header)
 
-        # 並列実行数 (未実装 → disabled)
+        self._unimplemented_rows: list[QWidget] = []
+        self._prompt_metadata_rows: list[QWidget] = []
+
+        # 並列実行数 (未実装 → disabled & 非表示 #1570)
         self._concurrency = self._add_segment_row(
             layout,
             "並列実行数 concurrency",
@@ -110,8 +114,9 @@ class RunSettingsDialog(QDialog):
             [("1", "1"), ("2", "2"), ("4", "4"), ("8", "8")],
             "4",
             enabled=False,
+            rows_sink=self._unimplemented_rows,
         )
-        # リトライ回数 (未実装 → disabled)
+        # リトライ回数 (未実装 → disabled & 非表示 #1570)
         self._retries = self._add_segment_row(
             layout,
             "リトライ回数 retries",
@@ -119,8 +124,9 @@ class RunSettingsDialog(QDialog):
             [("0", "0"), ("1", "1"), ("2", "2"), ("3", "3")],
             "2",
             enabled=False,
+            rows_sink=self._unimplemented_rows,
         )
-        # 失敗時の挙動 (未実装 → disabled)
+        # 失敗時の挙動 (未実装 → disabled & 非表示 #1570)
         self._on_fail = self._add_segment_row(
             layout,
             "失敗時の挙動 on failure",
@@ -128,6 +134,7 @@ class RunSettingsDialog(QDialog):
             [("skip", "スキップ"), ("stop", "停止")],
             "skip",
             enabled=False,
+            rows_sink=self._unimplemented_rows,
         )
         # rating ゲート (実装済 → 操作可)
         self._rating_gate = self._add_segment_row(
@@ -138,7 +145,7 @@ class RunSettingsDialog(QDialog):
             "on",
             enabled=True,
         )
-        # 既存値の上書き (未実装 → disabled)
+        # 既存値の上書き (未実装 → disabled & 非表示 #1570)
         self._overwrite = self._add_segment_row(
             layout,
             "既存値の上書き overwrite",
@@ -146,8 +153,9 @@ class RunSettingsDialog(QDialog):
             [("off", "OFF"), ("on", "ON")],
             "off",
             enabled=False,
+            rows_sink=self._unimplemented_rows,
         )
-        # dedupe (常時 ON → disabled)
+        # dedupe (常時 ON → disabled & 非表示 #1570)
         self._dedupe = self._add_segment_row(
             layout,
             "マルチモーダル dedupe",
@@ -156,11 +164,25 @@ class RunSettingsDialog(QDialog):
             "on",
             enabled=False,
             tooltip=_DEDUPE_TOOLTIP,
+            rows_sink=self._unimplemented_rows,
         )
+
+        for row in self._unimplemented_rows:
+            row.setVisible(False)
 
         # 送信方式 dispatch mode は run bar の「同期実行 / Batch API 実行」ボタンが
         # 所有する (#1099)。ダイアログでは選択せず、現在値を保持して run_options で返す。
         self._dispatch_mode_value = "sync"
+
+        # Batch API 送信前に事前設定できるよう常時表示し、適用範囲を明示する (#1570)
+        self._batch_options_hint = QLabel(_BATCH_OPTIONS_HEADER_TEXT, self)
+        self._batch_options_hint.setObjectName("runSettingsBatchOptionsHint")
+        self._batch_options_hint.setWordWrap(True)
+        self._batch_options_hint.setStyleSheet(
+            f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;"
+            f" font-weight: {theme.FONT_WEIGHT_SEMIBOLD};"
+        )
+        layout.addWidget(self._batch_options_hint)
 
         # Batch API job metadata (prompt profile / description, #902 ADR 0076 §1)
         self._prompt_profile = self._add_text_row(
@@ -168,12 +190,14 @@ class RunSettingsDialog(QDialog):
             "prompt profile",
             "Batch API job に付与する prompt profile (空欄なら default)。",
             placeholder="default",
+            rows_sink=self._prompt_metadata_rows,
         )
         self._description = self._add_text_row(
             layout,
             "description",
             "Batch API job の監査用メモ (任意)。",
             placeholder="(任意)",
+            rows_sink=self._prompt_metadata_rows,
         )
 
         # dry-run (実装済 → 操作可)
@@ -224,6 +248,7 @@ class RunSettingsDialog(QDialog):
         *,
         enabled: bool,
         tooltip: str | None = None,
+        rows_sink: list[QWidget] | None = None,
     ) -> DsSegmentedControl:
         """1 行 (タイトル + 補足 + DsSegmentedControl) を追加し control を返す。"""
         row = QWidget(self)
@@ -251,6 +276,8 @@ class RunSettingsDialog(QDialog):
         row_layout.addWidget(control)
 
         layout.addWidget(row)
+        if rows_sink is not None:
+            rows_sink.append(row)
         return control
 
     def _add_text_row(
@@ -260,6 +287,7 @@ class RunSettingsDialog(QDialog):
         sub: str,
         *,
         placeholder: str = "",
+        rows_sink: list[QWidget] | None = None,
     ) -> QLineEdit:
         """1 行 (タイトル + 補足 + QLineEdit) を追加し入力欄を返す。"""
         row = QWidget(self)
@@ -283,6 +311,8 @@ class RunSettingsDialog(QDialog):
         row_layout.addWidget(field, 1)
 
         layout.addWidget(row)
+        if rows_sink is not None:
+            rows_sink.append(row)
         return field
 
     def run_options(self) -> RunOptions:
