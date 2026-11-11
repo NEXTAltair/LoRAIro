@@ -137,7 +137,10 @@ class TestDatasetController:
         mock_msgbox.assert_called_once()
         call_args = mock_msgbox.call_args
         assert call_args[0][0] == mock_parent
-        assert "WorkerService" in call_args[0][2]
+        # 内部クラス名は本文に出さず、技術情報は detail へ回す (#1569)
+        assert "WorkerService" not in call_args[0][2]
+        assert "再起動" in call_args[0][2]
+        assert "WorkerService" in call_args.kwargs["detail"]
 
     @patch("lorairo.gui.controllers.dataset_controller.show_warning")
     def test_select_and_register_images_no_filesystem_manager(self, mock_msgbox, mock_parent):
@@ -159,7 +162,29 @@ class TestDatasetController:
         mock_msgbox.assert_called_once()
         call_args = mock_msgbox.call_args
         assert call_args[0][0] == mock_parent
-        assert "FileSystemManager" in call_args[0][2]
+        assert "FileSystemManager" not in call_args[0][2]
+        assert "再起動" in call_args[0][2]
+        assert "FileSystemManager" in call_args.kwargs["detail"]
+
+    def test_get_parent_versions_failure_notifies_status_bar(self, mock_parent):
+        """親の版一覧の取得に失敗したら、空の候補を返しつつステータスバーへ通知する (#1569)。"""
+        db_manager = Mock()
+        db_manager.image_repo.session_factory = Mock(side_effect=RuntimeError("boom"))
+        controller = DatasetController(
+            db_manager=db_manager,
+            file_system_manager=Mock(),
+            worker_service=Mock(),
+            parent=mock_parent,
+        )
+        with patch(
+            "lorairo.gui.controllers.dataset_controller.DatasetRepository",
+            side_effect=RuntimeError("boom"),
+        ):
+            result = controller.get_parent_versions_by_dataset()
+
+        assert result == {}
+        mock_parent.statusBar.return_value.showMessage.assert_called_once()
+        assert "親の版一覧" in mock_parent.statusBar.return_value.showMessage.call_args[0][0]
 
     def test_select_and_register_images_worker_submission(
         self,

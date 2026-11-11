@@ -170,7 +170,12 @@ class JobsTabWidget(QWidget):
     def start_batch_import(self) -> None:
         """Batch APIインポートダイアログを開いてワーカーを起動する。"""
         if self._worker_service is None:
-            show_warning(self, "エラー", "WorkerServiceが初期化されていません")
+            show_warning(
+                self,
+                "処理を開始できません",
+                "処理を開始できません。アプリを再起動してください。",
+                detail="WorkerService is not initialized",
+            )
             return
 
         # JSONLファイル選択（複数可）

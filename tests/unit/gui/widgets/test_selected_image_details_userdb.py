@@ -8,7 +8,6 @@ dispatch することを fake サービスで検証する。userdb 書き込み�
 from __future__ import annotations
 
 import pytest
-from PySide6.QtWidgets import QMessageBox
 
 from lorairo.gui.widgets.selected_image_details_widget import SelectedImageDetailsWidget
 
@@ -276,7 +275,10 @@ def test_translation_delete_false_shows_information_and_skips_reload(qtbot, monk
     refinement = _FakeRefinementService()
     widget._refinement_service = refinement  # type: ignore[assignment]
     infos: list[tuple] = []
-    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: infos.append(a))
+    monkeypatch.setattr(
+        "lorairo.gui.widgets.selected_image_details_widget.show_information",
+        lambda *a, **k: infos.append(a),
+    )
 
     widget._on_translation_delete("1girl", "ja", "误訳")
 

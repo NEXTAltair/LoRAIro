@@ -18,11 +18,11 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QCloseEvent
-from PySide6.QtWidgets import QLabel, QMessageBox, QProgressBar, QPushButton, QWidget
+from PySide6.QtWidgets import QLabel, QProgressBar, QPushButton, QWidget
 
 from lorairo.gui import theme
 
-from ..message_box import show_warning
+from ..message_box import show_information, show_warning
 
 # DS v12 AnnotateScreen ModelPicker (Issue #788): プロバイダーグループ見出しは
 # emoji を使わず (DS no-emoji)、ink-soft + letter-caps + bold の DS group ヘッダ文法。
@@ -157,6 +157,8 @@ if not __name__ == "__main__":
             self._refresh_thread: QThread | None = None
             self._refresh_worker: _ModelRefreshWorker | None = None
             self._refresh_is_automatic = False
+            # 自動更新の失敗をステータス表示へ出すための保留フラグ (#1569)
+            self._auto_refresh_failed = False
             self._auto_refresh_enabled = model_selection_service is None
 
             # フィルタ状態
@@ -352,7 +354,7 @@ if not __name__ == "__main__":
                 return
             self.model_selection_service.refresh_models()
             self.load_models()
-            QMessageBox.information(
+            show_information(
                 self,
                 "モデル一覧更新",
                 f"モデル一覧を更新しました。\n取得モデル数: {model_count}\n{summary}",
@@ -363,6 +365,8 @@ if not __name__ == "__main__":
             """モデル一覧更新失敗時の処理。"""
             logger.warning(f"モデル一覧更新失敗: {error_message}")
             if self._refresh_is_automatic:
+                # 自動更新はダイアログを出さず、完了時にステータス表示へ反映する (#1569)
+                self._auto_refresh_failed = True
                 return
             show_warning(
                 self,
@@ -390,6 +394,9 @@ if not __name__ == "__main__":
             del worker
             self._refresh_is_automatic = False
             self._update_selection_count()
+            if self._auto_refresh_failed:
+                self._auto_refresh_failed = False
+                self.statusLabel.setText("モデル一覧の自動更新に失敗しました (表示は更新前の内容です)")
 
         def apply_filters(
             self,

@@ -607,9 +607,9 @@ class TestSendSelectedToBatchTag:
         mock_window.dataset_state_manager.selected_image_ids = []
         mock_window.annotate_tab = Mock()
         # #869: サムネイルセレクタは search_tab.thumbnail_selector 経由 (直接参照は無い)
-        with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
+        with patch("lorairo.gui.window.main_window.show_information") as mock_info:
             MainWindow.send_selected_to_batch_tag(mock_window, None)
-            mock_qmb.information.assert_called_once()
+            mock_info.assert_called_once()
 
     def test_send_selected_treats_qt_clicked_bool_as_button_invocation(self):
         from lorairo.gui.window.main_window import MainWindow
@@ -635,11 +635,11 @@ class TestSendSelectedToBatchTag:
         mock_window.dataset_state_manager.selected_image_ids = [1]
         mock_window.annotate_tab = Mock()
 
-        with patch("lorairo.gui.window.main_window.QMessageBox") as mock_qmb:
+        with patch("lorairo.gui.window.main_window.show_information") as mock_info:
             MainWindow.send_selected_to_batch_tag(mock_window, [])
 
         mock_window.annotate_tab.add_image_ids_to_staging.assert_not_called()
-        mock_qmb.information.assert_called_once()
+        mock_info.assert_called_once()
 
     def test_send_selected_with_ids_adds_to_staging(self):
         from lorairo.gui.window.main_window import MainWindow
@@ -1172,6 +1172,50 @@ class TestKeyboardNavigationAndStartupWarnings:
         MainWindow._record_startup_warning(mock_window, "JobsTabWidget")
         MainWindow._record_startup_warning(mock_window, "MapTabWidget")
         assert mock_window._startup_warnings == ["JobsTabWidget", "MapTabWidget"]
+
+
+class TestStartupNotice:
+    """起動時の初期化失敗・部分縮退の通知 (#1569)。"""
+
+    @staticmethod
+    def _fake_window(**attrs):
+        from types import SimpleNamespace
+
+        base = {"_startup_warnings": [], "_initialization_failed": False, "_initialization_error": None}
+        base.update(attrs)
+        return SimpleNamespace(**base)
+
+    def test_no_dialog_when_everything_initialized(self, monkeypatch) -> None:
+        from lorairo.gui.window.main_window import MainWindow
+
+        shown: list = []
+        monkeypatch.setattr(
+            "lorairo.gui.window.main_window.show_warning", lambda *a, **kw: shown.append((a, kw))
+        )
+        window = self._fake_window()
+
+        assert MainWindow.show_startup_notice(window) is False
+        assert shown == []
+
+    def test_degraded_start_shows_dialog_once_with_log_path(self, monkeypatch) -> None:
+        from lorairo.gui.window.main_window import MainWindow
+        from lorairo.utils.config import DEFAULT_LOG_PATH
+
+        shown: list = []
+        monkeypatch.setattr(
+            "lorairo.gui.window.main_window.show_warning", lambda *a, **kw: shown.append((a, kw))
+        )
+        window = self._fake_window(_startup_warnings=["JobsTabWidget", "MapTabWidget"])
+
+        assert MainWindow.show_startup_notice(window) is True
+        # 2 回目以降は出さない
+        assert MainWindow.show_startup_notice(window) is False
+
+        assert len(shown) == 1
+        args, kwargs = shown[0]
+        assert str(DEFAULT_LOG_PATH) in kwargs["detail"]
+        assert "JobsTabWidget" in kwargs["detail"]
+        assert "JobsTabWidget" not in args[2]
 
 
 if __name__ == "__main__":

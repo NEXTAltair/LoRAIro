@@ -104,6 +104,7 @@ class DatasetController:
             versions = repository.list_versions()
         except Exception:
             logger.opt(exception=True).warning("親の版一覧の取得に失敗しました")
+            self._show_status_message("親の版一覧を取得できませんでした。候補が空のまま表示されます", 8000)
             return {}
         by_dataset: dict[str, list[tuple[int, str]]] = {}
         for version in versions:
@@ -188,6 +189,14 @@ class DatasetController:
             ),
         )
 
+    def _show_status_message(self, message: str, timeout_ms: int = 8000) -> None:
+        """親ウィンドウのステータスバーへメッセージを表示する (#1569)。"""
+        status_bar_fn = getattr(self.parent, "statusBar", None) if self.parent else None
+        if callable(status_bar_fn):
+            bar = status_bar_fn()
+            if bar is not None:
+                bar.showMessage(message, timeout_ms)
+
     def _on_batch_registration_finished(self, _result: object = None) -> None:
         """バッチ登録完了時にステータスバーへ次ステップの案内を表示する (#1550)。"""
         if not self.parent:
@@ -222,7 +231,8 @@ class DatasetController:
                 show_warning(
                     self.parent,
                     "サービス未初期化",
-                    "WorkerServiceが初期化されていないため、バッチ登録を開始できません。",
+                    "バッチ登録を開始できません。アプリを再起動してください。",
+                    detail="WorkerService is not initialized",
                 )
             return False
 
@@ -232,7 +242,8 @@ class DatasetController:
                 show_warning(
                     self.parent,
                     "サービス未初期化",
-                    "FileSystemManagerが初期化されていないため、バッチ登録処理を実行できません。",
+                    "バッチ登録を実行できません。アプリを再起動してください。",
+                    detail="FileSystemManager is not initialized",
                 )
             return False
 

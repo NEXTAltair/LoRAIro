@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 import shiboken6
 from PySide6.QtCore import QObject, Signal, Slot
-from PySide6.QtWidgets import QMessageBox, QWidget
+from PySide6.QtWidgets import QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
 from ...database.db_core import get_current_project_root
@@ -26,6 +26,7 @@ from ...filesystem import FileSystemManager
 from ...services.crop_service import CropSourceInfo, create_crop_image, get_crop_source_info
 from ...utils.language_keys import dedupe_languages_by_family
 from ...utils.log import logger
+from ..message_box import show_critical
 from ..widgets.crop_dialog import CropDialog
 from ..workers.manager import WorkerManager
 from ..workers.tag_metadata_worker import TagMetadataResult, TagMetadataWorker
@@ -124,7 +125,12 @@ class CropDialogLauncher(QObject):
             source = get_crop_source_info(image_id, db_manager=self._db_manager)
         except (ValueError, OSError, SQLAlchemyError) as exc:
             logger.opt(exception=True).error(f"クロップ元画像の取得に失敗しました: image_id={image_id}")
-            QMessageBox.critical(parent, _OPEN_ERROR_TITLE, f"クロップを開始できません: {exc}")
+            show_critical(
+                parent,
+                _OPEN_ERROR_TITLE,
+                "クロップを開始できません。画像が存在するか確認してから再度お試しください。",
+                detail=str(exc),
+            )
             return None
 
         dialog = CropDialog(

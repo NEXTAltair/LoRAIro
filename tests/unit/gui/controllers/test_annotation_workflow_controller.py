@@ -679,9 +679,9 @@ class TestDispatchAsyncBatch:
         )
         ctrl._annotate_tab.get_staged_items.return_value = {}
 
-        with patch("lorairo.gui.controllers.annotation_workflow_controller.QMessageBox") as mock_qmb:
+        with patch("lorairo.gui.controllers.annotation_workflow_controller.show_information") as mock_info:
             AnnotationWorkflowController.dispatch_async_batch(ctrl)
-            mock_qmb.information.assert_called_once()
+            mock_info.assert_called_once()
 
         ctrl._start_async_dispatch_worker.assert_not_called()
 
@@ -714,9 +714,9 @@ class TestDispatchAsyncBatch:
         )
         ctrl._annotate_tab.run_options.return_value = RunOptions(dispatch_mode="batch_api", dry_run=True)
 
-        with patch("lorairo.gui.controllers.annotation_workflow_controller.QMessageBox") as mock_qmb:
+        with patch("lorairo.gui.controllers.annotation_workflow_controller.show_information") as mock_info:
             AnnotationWorkflowController.dispatch_async_batch(ctrl)
-            mock_qmb.information.assert_called_once()
+            mock_info.assert_called_once()
 
         ctrl._start_async_dispatch_worker.assert_not_called()
 
@@ -1008,9 +1008,9 @@ class TestDispatchAsyncBatch:
         ctrl._service_container.provider_batch_workflow_service = None  # 同期経路へ
         ctrl._annotate_tab.staged_image_paths.return_value = []  # パス全滅
 
-        with patch("lorairo.gui.controllers.annotation_workflow_controller.QMessageBox") as mock_qmb:
+        with patch("lorairo.gui.controllers.annotation_workflow_controller.show_information") as mock_info:
             started = AnnotationWorkflowController.dispatch_async_batch(ctrl)
-            mock_qmb.information.assert_called()
+            mock_info.assert_called()
 
         # 空パスでは同期を起動しない (SelectionStateService への誤フォールバック防止)
         ctrl.start_annotation_workflow.assert_not_called()
@@ -1372,9 +1372,9 @@ class TestStartAnnotationEntry:
         ctrl._is_annotate_tab_active.return_value = True
         ctrl._annotate_tab.staged_image_paths.return_value = []  # ステージング空
 
-        with patch("lorairo.gui.controllers.annotation_workflow_controller.QMessageBox") as mock_qmb:
+        with patch("lorairo.gui.controllers.annotation_workflow_controller.show_information") as mock_info:
             AnnotationWorkflowController.start_annotation(ctrl)
-            mock_qmb.information.assert_called_once()
+            mock_info.assert_called_once()
 
         ctrl.start_annotation_workflow.assert_not_called()
 

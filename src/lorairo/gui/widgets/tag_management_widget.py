@@ -14,7 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ...services.tag_management_service import TagManagementService
 from ..designer.TagManagementWidget_ui import Ui_TagManagementWidget
-from ..message_box import show_critical, show_warning
+from ..message_box import show_critical, show_information, show_warning
 
 if TYPE_CHECKING:
     from ...services.refinement_service import RefinementService
@@ -147,6 +147,12 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
             service.unignore(tag, reason_code, image_id if isinstance(image_id, int) else None)
         except SQLAlchemyError as e:
             logger.opt(exception=True).error(f"無視設定の解除に失敗: {e}")
+            show_warning(
+                self,
+                "無視設定を解除できません",
+                f"タグ '{tag}' の無視設定を解除できませんでした。もう一度お試しください。",
+                detail=str(e),
+            )
             return
         self.refresh_ignored_entries()
 
@@ -350,7 +356,7 @@ class TagManagementWidget(QWidget, Ui_TagManagementWidget):
         # tagdb 更新で stale になった refinement 評価キャッシュを無効化 (#977)
         self._clear_refinement_cache()
 
-        QMessageBox.information(
+        show_information(
             self,
             "完了",
             "タグのtype更新が完了しました。",

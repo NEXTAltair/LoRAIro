@@ -333,7 +333,7 @@ class TestModelSelectionWidgetRefreshThread:
             self.finished.emit()
 
         monkeypatch.setattr(msw_module._ModelRefreshWorker, "run", _blocking_run)
-        monkeypatch.setattr(msw_module.QMessageBox, "information", Mock())
+        monkeypatch.setattr(msw_module, "show_information", Mock())
 
         destroyed_thread_ids: list[int] = []
         try:
@@ -681,8 +681,8 @@ class TestModelSelectionWidgetRefreshRegistry:
         """成功時に情報ダイアログと load_models が呼ばれる（line 253-262）"""
         info_called = []
         monkeypatch.setattr(
-            "lorairo.gui.widgets.model_selection_widget.QMessageBox.information",
-            lambda *a: info_called.append(True),
+            "lorairo.gui.widgets.model_selection_widget.show_information",
+            lambda *a, **kw: info_called.append(True),
         )
 
         widget._on_model_refresh_succeeded(5, "summary text")
@@ -697,8 +697,8 @@ class TestModelSelectionWidgetRefreshRegistry:
         """自動 refresh 成功時は再読込だけ行い、情報ダイアログは出さない。"""
         info_called = []
         monkeypatch.setattr(
-            "lorairo.gui.widgets.model_selection_widget.QMessageBox.information",
-            lambda *a: info_called.append(True),
+            "lorairo.gui.widgets.model_selection_widget.show_information",
+            lambda *a, **kw: info_called.append(True),
         )
         widget._refresh_is_automatic = True
 
@@ -736,6 +736,28 @@ class TestModelSelectionWidgetRefreshRegistry:
         widget._on_model_refresh_failed("connection error")
 
         assert warning_called == []
+
+    def test_automatic_refresh_failure_is_shown_in_status_label(self, widget, monkeypatch) -> None:
+        """自動 refresh 失敗はダイアログを出さず、完了後のステータス表示に残る (#1569)。"""
+        warning_called = []
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.model_selection_widget.show_warning",
+            lambda *a, **kw: warning_called.append(True),
+        )
+        widget._refresh_is_automatic = True
+        widget._refresh_thread = Mock()
+        widget._refresh_worker = Mock()
+
+        widget._on_model_refresh_failed("connection error")
+        widget._on_model_refresh_finished()
+
+        assert warning_called == []
+        assert "自動更新に失敗" in widget.statusLabel.text()
+        # 次回の完了では失敗表示を持ち越さない
+        widget._refresh_thread = Mock()
+        widget._refresh_worker = Mock()
+        widget._on_model_refresh_finished()
+        assert "自動更新に失敗" not in widget.statusLabel.text()
 
     def test_on_model_refresh_finished_restores_ui(self, widget) -> None:
         """完了時に UI が復帰する（line 275-281）"""

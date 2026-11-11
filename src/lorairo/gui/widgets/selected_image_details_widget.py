@@ -30,7 +30,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
-    QMessageBox,
     QScrollArea,
     QSizePolicy,
     QTextEdit,
@@ -46,6 +45,7 @@ from ...services.date_formatter import format_datetime_for_display
 from ...services.tag_suggestion_service import TagSuggestionService
 from ...utils.language_keys import language_alias_keys
 from ...utils.log import logger
+from ..message_box import show_information, show_warning
 from ..services.crop_relation_service import CropRelationService
 from ..services.image_db_write_service import ImageDBWriteService
 from .annotation_data_display_widget import (
@@ -598,7 +598,7 @@ class SelectedImageDetailsWidget(QWidget):
         ):
             self._reload_current_image()
         else:
-            QMessageBox.warning(
+            show_warning(
                 self,
                 "保存できません",
                 "キャプションが変更されたか、空の文章です。再読み込みして編集してください。",
@@ -1410,7 +1410,7 @@ class SelectedImageDetailsWidget(QWidget):
         に対して `False` を返し何も変更しない。base DB 由来の訳はこの経路では削除
         できないため、確認済みで実行しても無言で何も起きないと「削除したのに戻る」ように
         見える (code-reviewer 指摘)。`False` のときは書き込み系の後処理 (再ベースライン/
-        キャッシュ無効化/reload) を一切行わず、`QMessageBox.information` で代替手段
+        キャッシュ無効化/reload) を一切行わず、`show_information` で代替手段
         (`translation_suppress_requested`) を案内する。
         """
         service = self._tag_management_service
@@ -1427,7 +1427,7 @@ class SelectedImageDetailsWidget(QWidget):
                 canonical,
                 language,
             )
-            QMessageBox.information(
+            show_information(
                 self,
                 "この翻訳は削除できません",
                 f"'{canonical}' ({language}) の翻訳 '{translation}' は元データベース由来のため"

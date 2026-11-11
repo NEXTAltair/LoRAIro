@@ -6,12 +6,14 @@ import warnings
 from pathlib import Path
 from typing import Any
 
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
 
 from .gui import theme
+from .gui.message_box import show_critical
 from .gui.window.main_window import MainWindow
-from .utils.config import get_config
+from .utils.config import DEFAULT_LOG_PATH, get_config
 from .utils.log import build_gui_log_config, initialize_logging, logger
 
 
@@ -280,6 +282,10 @@ def main() -> int:
             logger.warning(f"ウィンドウ初期化に問題がありました: {window._initialization_error}")
             logger.warning("基本的なウィンドウ表示は継続します")
 
+        # 初期化失敗・部分縮退があれば、イベントループ開始後に 1 回だけログの場所つきで通知する (#1569)
+        if getattr(window, "_initialization_failed", False) or getattr(window, "_startup_warnings", None):
+            QTimer.singleShot(0, window.show_startup_notice)
+
         if window.isVisible():
             logger.info("✅ ウィンドウ表示成功")
         else:
@@ -307,6 +313,13 @@ def main() -> int:
 
     except Exception as e:
         logger.opt(exception=True).error(f"アプリケーション起動エラー: {e}")
+        # QApplication 生成済みのため、無言で終了せず原因の手がかりを利用者へ見せる (#1569)
+        show_critical(
+            None,
+            "起動エラー",
+            "LoRAIro を起動できませんでした。ログを確認し、再起動しても改善しない場合は報告してください。",
+            detail=f"ログの場所: {DEFAULT_LOG_PATH}\n{e}",
+        )
         return 1
 
 
