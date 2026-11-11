@@ -49,6 +49,14 @@ from ..message_box import show_critical, show_warning
 
 _COMPLETED_STATUS = "completed"
 _IMPORTED_STATUS = "imported"
+_ACTIVE_BATCH_STATUSES = {
+    "SUBMITTED",
+    "VALIDATING",
+    "IN_PROGRESS",
+    "FINALIZING",
+    "RUNNING",
+    "CANCELING",
+}
 
 # 実行中の結果回収 (QThread, worker) を GC から守る module-level 保持 (#1158)。
 # 受け手 (本 widget = QObject) は worker (専用 QThread) と別スレッドなので queued 接続で
@@ -94,6 +102,7 @@ class ProviderBatchJobWidget(QWidget):
     """Provider Batch job 監視台帳 widget (ADR 0076 §3 — 監視専用)."""
 
     sync_job_cancel_requested = Signal(str)  # ADR 0066 §4: 同期ジョブ行のキャンセル (job_id)
+    open_results_requested = Signal()  # #1560: 取込完了後に Results タブへ遷移要求
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -101,6 +110,7 @@ class ProviderBatchJobWidget(QWidget):
 
         self._workflow_service: Any = None
         self._repository: Any = None
+        self._jobs: list[Any] = []
         self._cards: dict[int, ProviderBatchJobCard] = {}
         self._expanded_job_ids: set[int] = set()
         # 結果回収 (refresh→fetch→import) を実行中のジョブ (#1158)。
@@ -207,7 +217,29 @@ class ProviderBatchJobWidget(QWidget):
             f" font-family: {theme.FONT_MONO_CSS}; border: none; }}"
         )
         layout.addWidget(self.labelJobCount)
+
+        self.labelUncollectedBadge = QLabel("")
+        self.labelUncollectedBadge.setObjectName("labelUncollectedBatchBadge")
+        self.labelUncollectedBadge.setStyleSheet(theme.chip_qss("accent"))
+        self.labelUncollectedBadge.setVisible(False)
+        self.labelSummary = self.labelUncollectedBadge
+        layout.addWidget(self.labelUncollectedBadge)
+
         layout.addStretch(1)
+
+        self.pushButtonRefreshAllStatuses = QPushButton("すべて状態確認")
+        self.pushButtonRefreshAllStatuses.setObjectName("pushButtonRefreshAllStatuses")
+        self.pushButtonRefreshAllStatuses.setToolTip("進行中ジョブの状態を一括でプロバイダーへ照会します")
+        self.pushButtonRefreshAllStatuses.clicked.connect(self.refresh_all_active_jobs)
+        layout.addWidget(self.pushButtonRefreshAllStatuses)
+
+        self.pushButtonImportAllCompleted = QPushButton("完了分を一括取込")
+        self.pushButtonImportAllCompleted.setObjectName("pushButtonImportAllCompleted")
+        self.pushButtonImportAllCompleted.setToolTip(
+            "プロバイダー側で完了済みの未反映ジョブを一括でDBへ取り込みます"
+        )
+        self.pushButtonImportAllCompleted.clicked.connect(self.import_all_completed_jobs)
+        layout.addWidget(self.pushButtonImportAllCompleted)
 
         src = QLabel("provider_batch_jobs · DB 永続 · 作成は Annotate から (ADR 0076)")
         src.setStyleSheet(
@@ -332,6 +364,7 @@ class ProviderBatchJobWidget(QWidget):
             self.labelStatus.setText(f"バッチAPIジョブ {len(jobs)} 件を読み込みました")
 
     def _rebuild_cards(self, jobs: list[Any]) -> None:
+        self._jobs = list(jobs)
         for card in self._cards.values():
             self._card_layout.removeWidget(card)
             card.deleteLater()
@@ -350,6 +383,18 @@ class ProviderBatchJobWidget(QWidget):
                 self._load_card_items(int(job.id))
 
         self.emptyStateWidget.setVisible(not self._cards)
+        self._update_uncollected_badge(jobs)
+
+    def _update_uncollected_badge(self, jobs: list[Any]) -> None:
+        """未取込の完了ジョブ件数バッジを更新する (#1560)。"""
+        target_jobs = self._current_jobs_snapshot() or jobs
+        uncollected_count = sum(1 for job in target_jobs if self._is_uncollected_completed_job(job))
+        if uncollected_count > 0:
+            self.labelUncollectedBadge.setText(f"未取込の完了ジョブ: {uncollected_count}件")
+            self.labelUncollectedBadge.setVisible(True)
+        else:
+            self.labelUncollectedBadge.setText("")
+            self.labelUncollectedBadge.setVisible(False)
 
     def select_job(self, job_id: int) -> None:
         """指定ジョブのカードを可視位置へスクロールする。"""
@@ -397,9 +442,59 @@ class ProviderBatchJobWidget(QWidget):
 
     @staticmethod
     def _job_imported(job: Any) -> bool:
-        return ProviderBatchJobWidget._job_status(job) == _IMPORTED_STATUS or (
+        return ProviderBatchJobWidget._job_status(job).lower() == _IMPORTED_STATUS or (
             getattr(job, "imported_at", None) is not None
         )
+
+    @classmethod
+    def _is_active_job(cls, job: Any) -> bool:
+        if cls._job_imported(job):
+            return False
+        status = cls._job_status(job).upper()
+        provider_status = str(getattr(job, "provider_status", "") or "").upper()
+        return status in _ACTIVE_BATCH_STATUSES or (
+            not status and provider_status in _ACTIVE_BATCH_STATUSES
+        )
+
+    @classmethod
+    def _is_uncollected_completed_job(cls, job: Any) -> bool:
+        if cls._job_imported(job):
+            return False
+        return cls._job_status(job).lower() == _COMPLETED_STATUS
+
+    @staticmethod
+    def _append_unique_jobs(page: list[Any], all_jobs: list[Any], seen_ids: set[int]) -> int:
+        added = 0
+        for job in page:
+            job_id = getattr(job, "id", None)
+            if isinstance(job_id, int):
+                if job_id in seen_ids:
+                    continue
+                seen_ids.add(job_id)
+            all_jobs.append(job)
+            added += 1
+        return added
+
+    def _current_jobs_snapshot(self) -> list[Any]:
+        if self._repository is not None:
+            all_jobs: list[Any] = []
+            seen_ids: set[int] = set()
+            offset = 0
+            page_size = 100
+            try:
+                while offset <= 10000:
+                    page = self._repository.list_provider_batch_jobs(limit=page_size, offset=offset)
+                    if not isinstance(page, (list, tuple)) or not page:
+                        break
+                    added = self._append_unique_jobs(list(page), all_jobs, seen_ids)
+                    if len(page) < page_size or added == 0:
+                        break
+                    offset += page_size
+            except Exception:
+                pass
+            if all_jobs:
+                return all_jobs
+        return list(self._jobs) if self._jobs else []
 
     def _status_message_for_job(self, job_id: int, job: Any) -> str:
         status = self._job_status(job)
@@ -461,6 +556,38 @@ class ProviderBatchJobWidget(QWidget):
             self.labelStatus.setText(f"バッチAPIジョブ {job_id} は保存済みです")
             return
         self._start_collect_worker(job_id)
+
+    @Slot(int)
+    def refresh_job_status(self, job_id: int) -> None:
+        """単一ジョブの状態確認を実行する (#1560)。"""
+        self.check_job_status(job_id)
+
+    @Slot(int)
+    def import_job_results(self, job_id: int) -> None:
+        """完了ジョブの結果取込を実行する (#1560)。"""
+        self.check_job_status(job_id)
+
+    @Slot()
+    def refresh_all_active_jobs(self) -> None:
+        """進行中ジョブの状態を一括でプロバイダーへ照会する (#1560)。"""
+        active_job_ids = [int(job.id) for job in self._current_jobs_snapshot() if self._is_active_job(job)]
+        if not active_job_ids:
+            self.labelStatus.setText("進行中のジョブはありません")
+            return
+        for job_id in active_job_ids:
+            self.refresh_job_status(job_id)
+
+    @Slot()
+    def import_all_completed_jobs(self) -> None:
+        """完了済み・未取込ジョブの結果を一括でDBへ取り込む (#1560)。"""
+        completed_job_ids = [
+            int(job.id) for job in self._current_jobs_snapshot() if self._is_uncollected_completed_job(job)
+        ]
+        if not completed_job_ids:
+            self.labelStatus.setText("未取込の完了ジョブはありません")
+            return
+        for job_id in completed_job_ids:
+            self.import_job_results(job_id)
 
     def _start_collect_worker(self, job_id: int) -> None:
         """結果回収 (refresh→fetch→import) を専用 QThread で実行する (#1158, ADR 0044)。
@@ -550,7 +677,7 @@ class ProviderBatchJobWidget(QWidget):
 
     @Slot(int, object)
     def _on_collect_succeeded(self, job_id: int, outcome: ProviderBatchCollectOutcome) -> None:
-        """結果回収成功: 台帳を再描画しステータス文言を表示する (#1158)。"""
+        """結果回収成功: 台帳を再描画しステータス文言を表示する (#1158, #1560)。"""
         if outcome.kind == "imported":
             message = f"バッチAPIジョブ {job_id} は保存済みです"
         elif outcome.kind == "collected":
@@ -560,6 +687,19 @@ class ProviderBatchJobWidget(QWidget):
         self.refresh_jobs(update_label=False)
         self.select_job(job_id)
         self.labelStatus.setText(message)
+        if outcome.kind == "collected":
+            self.open_results_requested.emit()
+            window = self.window()
+            tab_widget = getattr(window, "tabWidgetMainMode", None)
+            tab_results = getattr(window, "tabResults", None)
+            if tab_widget is not None and tab_results is not None:
+                tab_widget.setCurrentWidget(tab_results)
+            elif hasattr(window, "_switch_top_nav"):
+                window._switch_top_nav("tabResults")
+            results_tab = getattr(window, "results_tab", None) or tab_results
+            refresh_fn = getattr(results_tab, "refresh", None)
+            if callable(refresh_fn):
+                refresh_fn()
 
     @Slot(int, object)
     def _on_collect_failed(self, job_id: int, error: Exception) -> None:

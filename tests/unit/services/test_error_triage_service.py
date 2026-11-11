@@ -277,3 +277,33 @@ def test_group_returns_error_group_instances() -> None:
     service = ErrorTriageService()
     groups = service.group_errors([_row(1)])
     assert all(isinstance(g, ErrorGroup) for g in groups)
+
+
+def test_error_row_optional_fields_default_to_none() -> None:
+    """ErrorRow の file_path / stack_trace / created_at は省略時に None となる (#1563)。"""
+    row = ErrorRow(
+        error_id=1,
+        image_id=2,
+        operation_type="annotation",
+        error_type="RuntimeError",
+        error_message="boom",
+        model_name="gpt-4o",
+        resolved=False,
+    )
+    assert row.created_at is None
+    assert row.file_path is None
+    assert row.stack_trace is None
+
+    detailed = ErrorRow(
+        error_id=2,
+        image_id=3,
+        operation_type="annotation",
+        error_type="RuntimeError",
+        error_message="boom",
+        model_name="gpt-4o",
+        resolved=False,
+        file_path="/tmp/a.png",
+        stack_trace="Traceback",
+    )
+    assert detailed.file_path == "/tmp/a.png"
+    assert detailed.stack_trace == "Traceback"

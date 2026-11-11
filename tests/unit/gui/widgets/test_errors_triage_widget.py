@@ -7,8 +7,11 @@ View の描画・シグナル発火・フィルタ状態のみを検証する。
 QT_QPA_PLATFORM=offscreen ヘッドレス。signal 検証は qtbot.waitSignal。
 """
 
+from datetime import datetime
+
 import pytest
-from PySide6.QtWidgets import QPushButton
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QLabel, QMessageBox, QPushButton
 
 from lorairo.gui.widgets.errors_triage_widget import ErrorsTriageWidget
 from lorairo.services.error_triage_service import (
@@ -160,7 +163,16 @@ class TestRowDisplay:
 
 
 class TestBulkResolve:
-    def test_bulk_resolve_aggregates_all_unresolved_ids(self, widget, qtbot, summary, groups, rows):
+    def test_bulk_resolve_aggregates_all_unresolved_ids(
+        self, widget, qtbot, monkeypatch, summary, groups, rows
+    ):
+        captured_defaults: list[QMessageBox.StandardButton] = []
+
+        def _confirm(_parent, _title, _text, _buttons, default_button=QMessageBox.StandardButton.No):
+            captured_defaults.append(default_button)
+            return QMessageBox.StandardButton.Yes
+
+        monkeypatch.setattr(QMessageBox, "question", _confirm)
         widget.display(summary, groups, rows)
 
         bulk = next(
@@ -169,6 +181,105 @@ class TestBulkResolve:
         with qtbot.waitSignal(widget.resolve_group_requested, timeout=1000) as blocker:
             bulk.click()
         assert blocker.args == [[1, 2, 3]]
+        assert captured_defaults == [QMessageBox.StandardButton.No]
+
+    def test_bulk_resolve_canceled_does_not_emit(self, widget, monkeypatch, summary, groups, rows):
+        monkeypatch.setattr(
+            QMessageBox,
+            "question",
+            lambda *_args, **_kwargs: QMessageBox.StandardButton.No,
+        )
+        widget.display(summary, groups, rows)
+        emitted: list[list[int]] = []
+        widget.resolve_group_requested.connect(emitted.append)
+
+        widget._bulk_button.click()
+
+        assert emitted == []
+
+
+class TestRestageAndDetails:
+    def test_restage_button_emits_unresolved_affected_image_ids(self, widget, qtbot, summary, groups, rows):
+        widget.display(summary, groups, rows)
+
+        restage = next(
+            btn for btn in widget.findChildren(QPushButton) if btn.objectName() == "errorsRestageButton"
+        )
+        with qtbot.waitSignal(widget.restage_images_requested, timeout=1000) as blocker:
+            restage.click()
+        assert blocker.args == [[10, 12]]
+
+    def test_restage_does_not_stage_resolved_image_when_unresolved_has_no_image(self, widget):
+        resolved_row = ErrorRow(
+            error_id=1,
+            operation_type="annotation",
+            error_type="NetError",
+            model_name="m1",
+            error_message="msg",
+            created_at=datetime.now(),
+            resolved=True,
+            image_id=10,
+        )
+        unresolved_row = ErrorRow(
+            error_id=2,
+            operation_type="annotation",
+            error_type="NetError",
+            model_name="m1",
+            error_message="msg",
+            created_at=datetime.now(),
+            resolved=False,
+            image_id=None,
+        )
+        group = ErrorGroup(
+            operation_type="annotation",
+            error_type="NetError",
+            model_name="m1",
+            count=2,
+            unresolved_count=1,
+            sample_message="msg",
+            image_ids=[10],
+            unresolved_image_ids=[],
+        )
+        # rows supplied (authoritative even if unresolved image list is empty)
+        assert widget._collect_visible_unresolved_image_ids([group], [resolved_row, unresolved_row]) == []
+        # only groups supplied
+        assert widget._collect_visible_unresolved_image_ids([group], []) == []
+
+    def test_error_messages_are_selectable_by_mouse(self, widget, summary, groups, rows):
+        widget.display(summary, groups, rows)
+        sample_labels = [
+            lbl for lbl in widget.findChildren(QLabel) if lbl.objectName() == "errorGroupSample"
+        ]
+        assert sample_labels
+        for lbl in sample_labels:
+            assert lbl.textInteractionFlags() & Qt.TextInteractionFlag.TextSelectableByMouse
+
+    def test_row_renders_file_path_and_stack_trace_details(self, widget, summary, groups):
+        detailed_row = ErrorRow(
+            error_id=99,
+            image_id=42,
+            operation_type="annotation",
+            error_type="RuntimeError",
+            error_message="worker crashed",
+            model_name="gpt-4o",
+            resolved=False,
+            file_path="/data/images/sample.png",
+            stack_trace="Traceback (most recent call last):\n  RuntimeError: boom",
+        )
+        widget.toggle_grouped(False)
+        widget.display(summary, groups, [detailed_row])
+
+        detail = widget.findChild(QLabel, "errorRowDetail_99")
+        assert detail is not None
+        assert "/data/images/sample.png" in detail.text()
+        assert "RuntimeError: boom" in detail.text()
+        assert detail.textInteractionFlags() & Qt.TextInteractionFlag.TextSelectableByMouse
+
+    def test_truncation_notice_displayed_when_is_truncated(self, widget, summary, groups, rows):
+        widget.display(summary, groups, rows, is_truncated=True)
+
+        assert "最新500件を表示中" in widget._summary_label.text()
+        assert not widget._truncation_label.isHidden()
 
 
 class TestFilterChanged:

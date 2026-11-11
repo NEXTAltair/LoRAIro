@@ -78,6 +78,7 @@ class DatasetStateManager(QObject):
         self._thumbnail_size: int = 150
         self._layout_mode: str = "grid"  # "grid" | "list"
         self._ui_state: dict[str, Any] = {}
+        self._auxiliary_image_metadata: dict[int, dict[str, Any]] = {}
 
         # === DB Manager 参照（バッチ操作後のリフレッシュに使用） ===
         self._db_manager: Any = None
@@ -197,6 +198,7 @@ class DatasetStateManager(QObject):
         self._dataset_path = None
         self._all_images = []
         self._filter_conditions = {}
+        self._auxiliary_image_metadata.clear()
         self._invalidate_image_index()
 
         self.clear_selection()
@@ -492,6 +494,10 @@ class DatasetStateManager(QObject):
         if img is not None:
             return img
 
+        aux = self._auxiliary_image_metadata.get(image_id)
+        if aux is not None:
+            return aux
+
         # デバッグ情報の詳細ログ
         logger.debug(
             f"画像ID {image_id} が見つかりません。"
@@ -532,6 +538,8 @@ class DatasetStateManager(QObject):
         if found_in_all:
             # 要素を差し替えたためインデックスの該当エントリが stale になる
             self._invalidate_image_index()
+        elif image_id in self._auxiliary_image_metadata:
+            self._auxiliary_image_metadata[image_id] = new_metadata
         else:
             logger.warning(f"画像ID {image_id} が_all_imagesに見つかりません")
 
@@ -539,6 +547,21 @@ class DatasetStateManager(QObject):
         if self._current_image_id == image_id:
             self.current_image_data_changed.emit(new_metadata)
             logger.debug(f"キャッシュ更新とシグナル発行完了: {image_id}")
+
+    def cache_external_image_metadata(self, metadata: dict[str, Any]) -> None:
+        """検索結果集合 (_all_images) を変更せずに画像メタデータのみ補助キャッシュへ登録する (#1563, Codex P2)。
+
+        エラー復旧やステージング等、検索結果外の画像を一覧の検索・ページネーション状態に
+        影響を与えずに解決・参照可能にするために使用する。
+        """
+        img_id = metadata.get("id")
+        if isinstance(img_id, int):
+            self._auxiliary_image_metadata[img_id] = metadata
+
+    def cache_external_images_metadata(self, items: list[dict[str, Any]]) -> None:
+        """複数の外部画像メタデータを補助キャッシュへ登録する。"""
+        for item in items:
+            self.cache_external_image_metadata(item)
 
     def refresh_image(self, image_id: int) -> None:
         """
