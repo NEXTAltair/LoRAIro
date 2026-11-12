@@ -289,6 +289,55 @@ def test_missing_model_filter_excludes_any_annotation_type_for_model(
 
 
 @pytest.mark.integration
+def test_get_image_ids_with_model_annotations_uses_missing_model_rules(
+    rating_repository: ImageRepository,
+    seeded_ids: dict[str, int],
+    db_session_factory,
+) -> None:
+    """ADR 0109: 再実行時の完了済み判定は --missing-model と同じ種別・reject 規則を使う。"""
+    from datetime import UTC, datetime
+
+    with db_session_factory() as session:
+        images: list[Image] = []
+        for index in range(4):
+            image = Image(
+                uuid=f"completed-model-uuid-{index}",
+                phash=f"phash_completed_model_{index:03d}",
+                original_image_path=f"/tmp/completed_model_{index}.png",
+                stored_image_path=f"/tmp/completed_model_{index}.png",
+                width=256,
+                height=256,
+                format="PNG",
+                extension=".png",
+            )
+            session.add(image)
+            images.append(image)
+        other_model = Model(name="other", provider="local", litellm_model_id="other-model")
+        session.add(other_model)
+        session.flush()
+        model_id = seeded_ids["model_id"]
+        session.add_all(
+            [
+                Tag(image_id=images[0].id, model_id=model_id, tag="tagged"),
+                Score(image_id=images[1].id, model_id=model_id, score=0.5),
+                # reject 済みタグだけの画像は未完了扱い
+                Tag(
+                    image_id=images[2].id, model_id=model_id, tag="rejected", rejected_at=datetime.now(UTC)
+                ),
+                # 別モデルの結果は数えない
+                Tag(image_id=images[3].id, model_id=other_model.id, tag="other"),
+            ]
+        )
+        session.commit()
+        ids = [image.id for image in images]
+
+    found = rating_repository.get_image_ids_with_model_annotations(ids, _LITELLM_ID)
+
+    assert found == {ids[0], ids[1]}
+    assert rating_repository.get_image_ids_with_model_annotations([], _LITELLM_ID) == set()
+
+
+@pytest.mark.integration
 def test_missing_model_filter_combines_with_only_unrated(
     rating_repository: ImageRepository,
     seeded_ids: dict[str, int],

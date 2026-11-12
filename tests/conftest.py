@@ -87,6 +87,8 @@ _ial_mock.discover_available_vision_models = unittest.mock.MagicMock(
     return_value={"models": [], "metadata": {}}
 )
 _ial_mock.list_all_models = unittest.mock.MagicMock(return_value=[])
+# lib ADR 0013 / LoRAIro ADR 0109: 推論の実行先記録 (TensorFlow 系以外は None)
+_ial_mock.get_inference_runtime_info = unittest.mock.MagicMock(return_value=None)
 _ial_mock.is_model_deprecated = unittest.mock.MagicMock(return_value=False)
 
 # サブモジュールも登録（from image_annotator_lib.xxx import yyy 対策）
@@ -204,6 +206,25 @@ def mock_genai_tag_db_tools():
     # テストセッション終了時にすべてのパッチを停止
     for patch in _runtime_patches:
         patch.stop()
+
+
+@pytest.fixture(autouse=True)
+def plentiful_annotation_memory(monkeypatch: pytest.MonkeyPatch) -> None:
+    """アノテーション受付判定の空きメモリ取得を「十分な空き」の fake に差し替える (ADR 0109)。
+
+    実機の空きメモリに依存すると、CI runner の状態次第で AnnotationWorker が待機タイムアウト
+    まで止まる非決定的なテストになる。低メモリを検証するテストは policy に fake probe を
+    注入するか、このパッチを上書きする。
+    """
+    from lorairo.services import annotation_execution_policy
+
+    monkeypatch.setattr(
+        annotation_execution_policy,
+        "probe_system_memory",
+        lambda: annotation_execution_policy.MemorySnapshot(
+            available_ram_bytes=1024 * 1024**3, available_vram_bytes=None
+        ),
+    )
 
 
 @pytest.fixture(scope="session")

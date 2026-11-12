@@ -313,10 +313,15 @@ class AnnotationSaveService:
     # ADR 0023 Phase 1.5 amendment (Issue #599): iam-lib は refusal / empty annotation
     # を library error ではなく structured outcome として返す。LoRAIro ではこれらを
     # annotation 対象から除外すべき outcome として error_records に記録する。
+    # ADR 0109: lib ADR 0013 のメモリ不足 (OUT_OF_MEMORY / INSUFFICIENT_MEMORY) も記録してエラータブで
+    # 確認できるようにする。メモリ不足は画像の性質ではないため、送信前 filter 用の
+    # REFUSAL_ERROR_TYPES には含めない (再実行で同じ画像を再び推論できるようにする)。
     _ANNOTATION_OUTCOME_RECORD_ERROR_CODES: tuple[str, ...] = (
         "SAFETY_REFUSAL",
         "CONTENT_POLICY_REFUSAL",
         "EMPTY_ANNOTATION",
+        "OUT_OF_MEMORY",
+        "INSUFFICIENT_MEMORY",
     )
 
     # legacy migration 行の fallback sentinel: __legacy_<id>__.

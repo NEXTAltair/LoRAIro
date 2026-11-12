@@ -36,6 +36,20 @@ def mock_annotation_runner():
     return logic
 
 
+def _per_model_side_effect(behaviors: dict[str, object]):
+    """モデル単位呼び出し (ADR 0109) 用: モデルごとの結果または例外を返す side_effect。"""
+
+    def execute_annotation(*_args: object, **kwargs: object) -> object:
+        model_ids = list(kwargs["litellm_model_ids"])
+        assert len(model_ids) == 1, f"モデルは 1 つずつ渡される: {model_ids}"
+        behavior = behaviors[model_ids[0]]
+        if isinstance(behavior, Exception):
+            raise behavior
+        return behavior
+
+    return execute_annotation
+
+
 @pytest.fixture
 def mock_model_registry():
     """ModelRegistryServiceProtocol のモック (Issue #225)"""
@@ -141,20 +155,22 @@ class TestAnnotationWorkerExecute:
         }
         mock_db_manager.annotation_repo.save_annotations = Mock()
 
-        mock_annotation_runner.execute_annotation.return_value = {
-            "phash1": {
+        mock_annotation_runner.execute_annotation.side_effect = _per_model_side_effect(
+            {
                 "gpt-4o-mini": {
-                    "tags": ["cat"],
-                    "formatted_output": {},
-                    "error": None,
+                    "phash1": {"gpt-4o-mini": {"tags": ["cat"], "formatted_output": {}, "error": None}}
                 },
                 "claude-3-haiku-20240307": {
-                    "tags": ["feline"],
-                    "formatted_output": {},
-                    "error": None,
+                    "phash1": {
+                        "claude-3-haiku-20240307": {
+                            "tags": ["feline"],
+                            "formatted_output": {},
+                            "error": None,
+                        }
+                    }
                 },
             }
-        }
+        )
 
         worker = AnnotationWorker(
             annotation_runner=mock_annotation_runner,
@@ -166,11 +182,11 @@ class TestAnnotationWorkerExecute:
 
         result = worker.execute()
 
-        mock_annotation_runner.execute_annotation.assert_called_once_with(
-            image_paths=image_paths,
-            litellm_model_ids=models,
-            phash_list=None,
-        )
+        # ADR 0109: 選択順にモデルを 1 つずつ、全画像で呼ぶ
+        assert [c.kwargs for c in mock_annotation_runner.execute_annotation.call_args_list] == [
+            {"image_paths": image_paths, "litellm_model_ids": [model], "phash_list": None}
+            for model in models
+        ]
 
         assert isinstance(result, AnnotationExecutionResult)
         assert "phash1" in result.results
@@ -179,10 +195,8 @@ class TestAnnotationWorkerExecute:
         assert result.total_images == 1
         assert result.models_used == ["gpt-4o-mini", "claude-3-haiku-20240307"]
 
-    def test_execute_bulk_model_iteration_checks_cancellation_between_models(
-        self, mock_annotation_runner, mock_model_registry
-    ):
-        """一括実行でも lib 内部のモデル間 iteration でキャンセルを検知する。"""
+    def test_execute_checks_cancellation_between_models(self, mock_annotation_runner, mock_model_registry):
+        """モデル単位実行 (ADR 0109) ではモデルの境目でキャンセルを検知し、次のモデルを呼ばない。"""
         image_paths = ["/path/to/image.jpg"]
         models = ["model-a", "model-b"]
 
@@ -202,7 +216,7 @@ class TestAnnotationWorkerExecute:
         def execute_annotation(*_args: object, **kwargs: object) -> object:
             for model in kwargs["litellm_model_ids"]:
                 processed_models.append(model)
-                worker.cancel()
+            worker.cancel()
             return {}
 
         mock_annotation_runner.execute_annotation.side_effect = execute_annotation
@@ -236,10 +250,11 @@ class TestAnnotationWorkerExecute:
         )
         result = worker.execute()
 
-        mock_annotation_runner.execute_annotation.assert_called_once()
         assert result.models_used == models
-        call_kwargs = mock_annotation_runner.execute_annotation.call_args.kwargs
-        assert call_kwargs["litellm_model_ids"] == models
+        called_models = [
+            c.kwargs["litellm_model_ids"] for c in mock_annotation_runner.execute_annotation.call_args_list
+        ]
+        assert called_models == [[model] for model in models]
 
     def test_execute_model_error_partial_success(self, mock_annotation_runner, mock_model_registry):
         """モデルエラー時の部分的成功"""
@@ -256,16 +271,23 @@ class TestAnnotationWorkerExecute:
         mock_db_manager.annotation_repo.save_annotations = Mock()
         mock_db_manager.get_image_id_by_filepath.return_value = 1
 
-        mock_annotation_runner.execute_annotation.side_effect = [
-            RuntimeError("bulk call failed"),
-            {"phash1": {"gpt-4o-mini": {"tags": ["cat"], "formatted_output": {}, "error": None}}},
-            RuntimeError("API Error"),
+        mock_annotation_runner.execute_annotation.side_effect = _per_model_side_effect(
             {
-                "phash1": {
-                    "gemini-1.5-flash-latest": {"tags": ["animal"], "formatted_output": {}, "error": None}
-                }
-            },
-        ]
+                "gpt-4o-mini": {
+                    "phash1": {"gpt-4o-mini": {"tags": ["cat"], "formatted_output": {}, "error": None}}
+                },
+                "claude-3-haiku-20240307": RuntimeError("API Error"),
+                "gemini-1.5-flash-latest": {
+                    "phash1": {
+                        "gemini-1.5-flash-latest": {
+                            "tags": ["animal"],
+                            "formatted_output": {},
+                            "error": None,
+                        }
+                    }
+                },
+            }
+        )
 
         worker = AnnotationWorker(
             annotation_runner=mock_annotation_runner,
@@ -277,9 +299,8 @@ class TestAnnotationWorkerExecute:
 
         result = worker.execute()
 
-        assert mock_annotation_runner.execute_annotation.call_count == 4
-        bulk_call_kwargs = mock_annotation_runner.execute_annotation.call_args_list[0].kwargs
-        assert bulk_call_kwargs["litellm_model_ids"] == models
+        # 失敗モデルの後も次のモデルへ進む (1 モデル 1 回)
+        assert mock_annotation_runner.execute_annotation.call_count == 3
 
         assert isinstance(result, AnnotationExecutionResult)
         assert "phash1" in result.results
@@ -305,12 +326,14 @@ class TestAnnotationWorkerExecute:
         mock_db_manager.annotation_repo.save_annotations = Mock()
         mock_db_manager.image_repo.get_phashes_by_filepaths.return_value = {}
 
-        mock_annotation_runner.execute_annotation.return_value = {
-            "phash1": {
-                "model-a": {"tags": [], "error": "rate_limited"},
-                "model-b": {"tags": ["cat"], "formatted_output": {}, "error": None},
+        mock_annotation_runner.execute_annotation.side_effect = _per_model_side_effect(
+            {
+                "model-a": {"phash1": {"model-a": {"tags": [], "error": "rate_limited"}}},
+                "model-b": {
+                    "phash1": {"model-b": {"tags": ["cat"], "formatted_output": {}, "error": None}}
+                },
             }
-        }
+        )
 
         worker = AnnotationWorker(
             annotation_runner=mock_annotation_runner,
@@ -408,11 +431,12 @@ class TestAnnotationWorkerExecute:
         mock_db_manager.annotation_repo.save_annotations = Mock()
         mock_db_manager.get_image_id_by_filepath.return_value = 1
 
-        mock_annotation_runner.execute_annotation.side_effect = [
-            RuntimeError("bulk call failed"),
-            RuntimeError("API Error 1"),
-            RuntimeError("API Error 2"),
-        ]
+        mock_annotation_runner.execute_annotation.side_effect = _per_model_side_effect(
+            {
+                "gpt-4o-mini": RuntimeError("API Error 1"),
+                "claude-3-haiku-20240307": RuntimeError("API Error 2"),
+            }
+        )
 
         worker = AnnotationWorker(
             annotation_runner=mock_annotation_runner,
@@ -1261,8 +1285,8 @@ class TestAnnotationWorkerStageProgress:
         last_stages = captured[-1]
         assert all(s.tone == "ok" and s.percentage == 100 for s in last_stages)
 
-    def test_bulk_l1_result_error_marks_stage_failed(self, mock_annotation_runner):
-        """bulk で result.error を持つモデルはステージ完了通知で失敗扱いにする (Codex P2)。"""
+    def test_l1_result_error_marks_stage_failed(self, mock_annotation_runner):
+        """result.error を持つモデルはステージ完了通知で失敗扱いにする (Codex P2)。"""
         registry = Mock()
         registry.get_available_models.return_value = [
             self._model_info("model-a", ["tags"]),
@@ -1273,12 +1297,12 @@ class TestAnnotationWorkerStageProgress:
         mock_db_manager.image_repo.find_image_ids_by_phashes_multi.return_value = {}
         mock_db_manager.image_repo.get_image_ids_by_filepaths.return_value = {}
         # model-a は正常、model-b は result.error 付き (例外は投げない L1 エラー)
-        mock_annotation_runner.execute_annotation.return_value = {
-            "phash1": {
-                "model-a": {"tags": ["cat"], "error": None},
-                "model-b": {"tags": [], "error": "rate_limited"},
+        mock_annotation_runner.execute_annotation.side_effect = _per_model_side_effect(
+            {
+                "model-a": {"phash1": {"model-a": {"tags": ["cat"], "error": None}}},
+                "model-b": {"phash1": {"model-b": {"tags": [], "error": "rate_limited"}}},
             }
-        }
+        )
 
         worker = AnnotationWorker(
             annotation_runner=mock_annotation_runner,
@@ -1299,8 +1323,8 @@ class TestAnnotationWorkerStageProgress:
         # result.error を持つ model-b は成功表示にしない
         assert last["model-b"].tone == "err"
 
-    def test_bulk_persistence_failure_does_not_trigger_model_fallback(self, mock_annotation_runner):
-        """DB保存失敗時に推論フォールバックを再実行せずエラー記録する (#1551, Codex P2 #4532613334)。"""
+    def test_persistence_failure_does_not_rerun_inference(self, mock_annotation_runner):
+        """DB保存失敗時に推論を再実行せずエラー記録する (#1551, Codex P2 #4532613334)。"""
         registry = Mock()
         registry.get_available_models.return_value = [
             self._model_info("model-a", ["tags"]),
@@ -1322,17 +1346,16 @@ class TestAnnotationWorkerStageProgress:
             model_registry=registry,
         )
         worker._persist_incremental_results = Mock(side_effect=RuntimeError("disk I/O error"))
-        fallback_mock = Mock()
-        worker._run_annotation_per_model_fallback = fallback_mock
 
         _merged, errors = worker._run_annotation()
 
-        fallback_mock.assert_not_called()
+        # 保存失敗後に同じモデルの推論をやり直さない
+        mock_annotation_runner.execute_annotation.assert_called_once()
         assert any(e.stage == "db_persistence" and "disk I/O error" in e.error_message for e in errors)
         assert any(e.raw_image_path == "/img.jpg" for e in errors)
 
-    def test_fallback_does_not_mark_unstarted_models_complete(self, mock_annotation_runner):
-        """per-model fallback で未起動モデルを false 100% にしない (Codex P2)。"""
+    def test_per_model_run_does_not_mark_unstarted_models_complete(self, mock_annotation_runner):
+        """モデル単位実行で未起動モデルを false 100% にしない (Codex P2)。"""
         registry = Mock()
         registry.get_available_models.return_value = [
             self._model_info("model-a", ["tags"]),
@@ -1345,9 +1368,7 @@ class TestAnnotationWorkerStageProgress:
 
         def execute_annotation(*_args, **kwargs):
             model_ids = list(kwargs["litellm_model_ids"])
-            if len(model_ids) > 1:
-                # bulk 呼び出しを失敗させて per-model fallback を強制
-                raise RuntimeError("bulk failed")
+            assert len(model_ids) == 1
             mid = model_ids[0]
             return {"phash1": {mid: {"tags": ["cat"], "error": None}}}
 

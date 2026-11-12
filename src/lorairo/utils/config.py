@@ -94,6 +94,16 @@ DEFAULT_CONFIG = {
         "suggestion_threshold": 0.8,
         "timeout": 300.0,
     },
+    # ADR 0109: アノテーション実行の受付判定 (ローカル ML モデルごとの空きメモリ確認・待機)。
+    # 既定値は実測前の暫定値。実機計測 (#1467) の結果が出たら見直す。
+    "annotation_execution": {
+        "admission_check_enabled": True,  # False で受付判定・待機を行わない
+        "ram_safety_margin_gb": 4.0,  # 実行前に残しておく空き RAM (GB)
+        "vram_safety_margin_gb": 1.0,  # 空き VRAM が取得できる場合に残す量 (GB)
+        "wait_poll_interval_sec": 5.0,  # 空きが足りないときの再確認間隔 (秒)
+        "wait_timeout_sec": 120.0,  # 回復を待つ上限 (秒)。超えたらそのモデルを見送る
+        "skip_completed_on_rerun": False,  # True で同じモデルの結果がある画像を推論から外す
+    },
     "text_extensions": [".txt", ".caption"],
     "preferred_resolutions": [
         # 512 Base

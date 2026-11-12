@@ -272,6 +272,23 @@ class AnnotatorLibraryAdapter:
             logger.opt(exception=True).error(error_msg)
             raise
 
+    def get_execution_device(self, model_name: str) -> str | None:
+        """モデルの直近の推論の実際の実行先を lib から取得する (lib ADR 0013)。
+
+        lib が記録するのは TensorFlow 系だけで、他のモデルや未実行のモデルは None。
+
+        Args:
+            model_name: ``annotate`` に渡したモデル名 (litellm_model_id)。
+
+        Returns:
+            ``"cpu"`` / ``"cuda"`` / ``"cuda:N"``。記録が無ければ None。
+        """
+        from image_annotator_lib import get_inference_runtime_info
+
+        info = get_inference_runtime_info(model_name)
+        device = getattr(info, "execution_device", None) if info is not None else None
+        return device if isinstance(device, str) and device else None
+
     def submit_batch(self, request: BatchSubmitRequest) -> ProviderBatchSubmission:
         """Provider Batch API job を image-annotator-lib の公開 API へ委譲する。"""
         return to_provider_batch_submission(

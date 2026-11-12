@@ -94,6 +94,17 @@ class AnnotationRunner:
             logger.opt(exception=True).error(error_msg)
             raise
 
+    def get_execution_device(self, litellm_model_id: str) -> str | None:
+        """モデルの直近の推論の実際の実行先を返す (取得できなければ None)。
+
+        Args:
+            litellm_model_id: 実行したモデルの ``litellm_model_id``。
+
+        Returns:
+            ``"cpu"`` / ``"cuda"`` / ``"cuda:N"``、または None。
+        """
+        return self.annotator_adapter.get_execution_device(litellm_model_id)
+
     def _load_images(self, image_paths: list[str]) -> list[Image.Image]:
         """画像パスリストからPIL.Imageリストを作成
 

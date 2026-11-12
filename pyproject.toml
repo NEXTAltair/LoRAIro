@@ -38,6 +38,8 @@ dependencies = [
     "toml>=0.10.2",
     "loguru>=0.7.2",
     "platformdirs>=4.3.0",
+    # アノテーション受付判定の空き RAM 取得 (ADR 0109)。従来は accelerate 経由の間接依存
+    "psutil>=5.9",
     "sqlalchemy>=2.0.40",
     "alembic>=1.15.2",
     "huggingface_hub[hf_xet]",

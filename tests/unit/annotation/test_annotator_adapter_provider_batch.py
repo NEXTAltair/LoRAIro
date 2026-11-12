@@ -184,3 +184,32 @@ class TestAnnotatorAdapterProviderBatch:
 
         with pytest.raises(ProviderBatchError, match="submit_batch"):
             adapter.submit_batch(request)
+
+
+@pytest.mark.unit
+class TestAnnotatorAdapterExecutionDevice:
+    """ADR 0109: lib の InferenceRuntimeInfo から実行先だけを読む。"""
+
+    def test_returns_execution_device_from_runtime_info(
+        self, adapter: AnnotatorLibraryAdapter, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        requested: list[str] = []
+
+        def get_info(model_name: str) -> object:
+            requested.append(model_name)
+            return Mock(execution_device="cpu")
+
+        monkeypatch.setattr(image_annotator_lib, "get_inference_runtime_info", get_info, raising=False)
+
+        assert adapter.get_execution_device("deepdanbooru") == "cpu"
+        assert requested == ["deepdanbooru"]
+
+    @pytest.mark.parametrize("info", [None, Mock(execution_device=""), Mock(execution_device=None)])
+    def test_returns_none_without_runtime_record(
+        self, adapter: AnnotatorLibraryAdapter, monkeypatch: pytest.MonkeyPatch, info: object
+    ) -> None:
+        monkeypatch.setattr(
+            image_annotator_lib, "get_inference_runtime_info", lambda _name: info, raising=False
+        )
+
+        assert adapter.get_execution_device("wd-tagger") is None

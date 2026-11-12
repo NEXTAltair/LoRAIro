@@ -5,7 +5,6 @@ GUI Layer: 非同期処理とQt進捗管理のみ担当
 """
 
 import traceback
-from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import monotonic
@@ -13,13 +12,21 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from image_annotator_lib import PHashAnnotationResults
 from PySide6.QtCore import Signal
+from sqlalchemy.exc import SQLAlchemyError
 
 from lorairo.annotation.annotation_runner import AnnotationRunner
+from lorairo.services.annotation_execution_policy import (
+    AdmissionDecision,
+    AnnotationExecutionPolicy,
+    AnnotationExecutionSettings,
+    is_memory_error_code,
+)
 from lorairo.services.annotation_progress import AnnotationPhase, AnnotationProgress
 from lorairo.services.annotation_save_service import (
     AnnotationSaveResult,
     AnnotationSaveService,
 )
+from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.job_ledger_service import (
     StageModelInput,
     StageProgress,
@@ -43,6 +50,10 @@ if TYPE_CHECKING:
     from lorairo.database.db_manager import ImageDatabaseManager
     from lorairo.gui.widgets.run_settings_dialog import RunOptions
 
+# ADR 0109: 空きメモリ不足でアプリが実行を見送ったモデルの error_type。lib が推論前の見積もりで
+# 推論しなかった場合 (lib ADR 0013) と同じ分類にし、エラータブで「メモリ不足」として並べる。
+MEMORY_SKIP_ERROR_TYPE = "INSUFFICIENT_MEMORY"
+
 
 @dataclass
 class ModelErrorDetail:
@@ -55,6 +66,8 @@ class ModelErrorDetail:
     stage: str | None = None
     image_id: int | None = None
     raw_image_path: str | None = None
+    # lib の UnifiedAnnotationResult.error_code (例: "OUT_OF_MEMORY")。ADR 0109 でメモリ不足の区別に使う。
+    error_code: str | None = None
 
 
 @dataclass
@@ -104,19 +117,35 @@ class AnnotationExecutionResult:
     is_dry_run: bool = False
     excluded_count: int = 0
     failed_save_paths: list[str] = field(default_factory=list)
+    # ADR 0109: CPU 実行・メモリ不足による見送り・完了済みの省略など、実行状況の説明 (ユーザー向け)。
+    execution_notes: list[str] = field(default_factory=list)
 
 
-class _CancellationCheckingModelList(list[str]):
-    """モデル iteration の各要素直前に Worker cancellation を確認する list。"""
+@dataclass(frozen=True)
+class _ModelTargets:
+    """1 モデルに渡す画像と、その結果の保存先を限定する image_id 集合 (ADR 0109)。
 
-    def __init__(self, models: list[str], check_cancellation: Callable[[], None]) -> None:
-        super().__init__(models)
-        self._check_cancellation = check_cancellation
+    ``save_scope`` は完了済みの画像を推論から外した場合だけ設定する。同じ pHash の
+    完了済み画像へ結果が fan-out して既存の結果を上書きしないよう、保存先をこの集合に限る。
+    """
 
-    def __iter__(self) -> Iterator[str]:
-        for model in super().__iter__():
-            self._check_cancellation()
-            yield model
+    paths: list[str]
+    phashes: list[str] | None
+    save_scope: set[int] | None = None
+
+
+@dataclass
+class _ModelLoopState:
+    """モデル単位ループ (ADR 0109) の 1 回の実行中だけ使う可変状態。"""
+
+    phash_list: list[str] | None
+    local_model_ids: set[str]
+    merged_results: PHashAnnotationResults = field(default_factory=PHashAnnotationResults)
+    model_errors: list[ModelErrorDetail] = field(default_factory=list)
+    completed_keys: set[str] = field(default_factory=set)
+    errored_keys: set[str] = field(default_factory=set)
+    # メモリ不足の後、空きが回復しなかった。残りのローカル ML モデルは待たずに見送る。
+    memory_exhausted: bool = False
 
 
 class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
@@ -158,6 +187,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         db_manager: "ImageDatabaseManager",
         model_registry: ModelRegistryServiceProtocol,
         run_options: "RunOptions | None" = None,
+        execution_policy: AnnotationExecutionPolicy | None = None,
     ):
         """AnnotationWorker初期化
 
@@ -177,6 +207,8 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 moderation preflight をスキップする (過去 refusal の再送を防ぐ refusal
                 filter は rating ゲートと独立して維持)。``None`` の場合は従来挙動
                 (dry_run=False / rating_gate=True)。
+            execution_policy: ローカル ML モデル実行前の受付判定 (ADR 0109)。省略時は
+                ``db_manager.config_service`` の ``[annotation_execution]`` 設定から作る。
         """
         super().__init__(db_manager=db_manager)
 
@@ -205,6 +237,20 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         self._phash_save_status: dict[str, str] = {}
         self._failed_image_ids: set[int] = set()
         self._excluded_count = 0
+        if execution_policy is None:
+            config_service = getattr(db_manager, "config_service", None)
+            execution_policy = AnnotationExecutionPolicy(
+                AnnotationExecutionSettings.from_config(
+                    config_service if isinstance(config_service, ConfigurationService) else None
+                )
+            )
+        self._execution_policy = execution_policy
+        self._execution_notes: list[str] = []
+        self._completed_model_count = 0
+        # 推論して結果を保存しようとしたモデル (中止時に保存できたかを確認するため)
+        self._inferred_model_ids: set[str] = set()
+        # 完了済みを外したモデルの保存先 image_id 集合 (最終保存の再試行でも同じ範囲に限る)
+        self._model_save_scopes: dict[str, set[int]] = {}
 
         logger.info(
             f"AnnotationWorker初期化 - Images: {len(self.image_paths)}, "
@@ -213,7 +259,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         logger.debug(f"  選択モデル (litellm_model_ids): {self.litellm_model_ids}")
         logger.debug(f"  対象画像パス: {self.image_paths[:5]}{'...' if len(self.image_paths) > 5 else ''}")
 
-    def _report_annotation_phase(self, phase: AnnotationPhase) -> None:
+    def _report_annotation_phase(self, phase: AnnotationPhase, note: str = "") -> None:
         if self._annotation_started_at is None:
             self._annotation_started_at = monotonic()
         # A cancellation request remains pending until the worker confirms its terminal.
@@ -227,6 +273,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             self._annotation_started_at,
             monotonic() if phase.is_terminal else None,
             self._annotation_result_summary,
+            note,
         )
         # cancel() may be called by the GUI while execute() blocks the worker thread.
         # Emit directly so a GUI-originated snapshot is never queued behind that API call
@@ -396,15 +443,30 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         self,
         model_results: PHashAnnotationResults,
         model_errors: list[ModelErrorDetail],
+        phash_to_path: dict[str, str] | None = None,
     ) -> None:
-        """lib `result.error` を DB 保存せず summary 用 model_errors に集約する。"""
+        """lib `result.error` を DB 保存せず summary 用 model_errors に集約する。
+
+        Args:
+            model_results: phash → model → result。
+            model_errors: 追記先。
+            phash_to_path: このモデルに渡した画像の pHash → パス (ADR 0109)。指定時はバッチ全体の
+                対応より優先し、同じ pHash の完了済み画像へエラーを付け違えない。
+        """
         for phash, annotations in model_results.items():
-            image_label = self._phash_to_input_filename.get(phash, phash[:12] + "...")
-            image_raw_path = self._phash_to_input_path.get(phash)
+            scoped_path = phash_to_path.get(phash) if phash_to_path is not None else None
+            image_raw_path = scoped_path or self._phash_to_input_path.get(phash)
+            image_label = (
+                Path(scoped_path).name
+                if scoped_path
+                else self._phash_to_input_filename.get(phash, phash[:12] + "...")
+            )
             for model_name, unified_result in annotations.items():
                 error = self._extract_field(unified_result, "error")
                 if not error:
                     continue
+                raw_code = self._extract_field(unified_result, "error_code")
+                code = getattr(raw_code, "value", raw_code)
                 model_errors.append(
                     ModelErrorDetail(
                         model_name=model_name,
@@ -412,6 +474,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                         error_message=str(error),
                         error_type="result_error",
                         raw_image_path=str(image_raw_path) if image_raw_path else None,
+                        error_code=code if isinstance(code, str) and code else None,
                     )
                 )
 
@@ -688,60 +751,189 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                     errored.add(model_key)
         return errored
 
-    def _run_annotation(self) -> tuple[PHashAnnotationResults, list[ModelErrorDetail]]:
-        """選択モデルを一括渡ししてアノテーションを実行する。
+    def _resolve_local_model_ids(self) -> set[str]:
+        """選択モデルのうち受付判定の対象 (ローカル ML) とするモデル ID を返す (ADR 0109)。
 
-        Returns:
-            (マージされたアノテーション結果, モデルエラー詳細リスト) のタプル。
+        API キーを要するモデル (WebAPI) は RAM / VRAM をほぼ消費しないため対象外。
+        registry に無いモデルや registry 取得失敗時は、保守的にローカル扱いにする。
         """
-        merged_results: PHashAnnotationResults = PHashAnnotationResults()
-        model_errors: list[ModelErrorDetail] = []
-        total_models = len(self.litellm_model_ids)
-        phash_list = self._build_phash_list_for_current_paths()
-
-        if total_models == 0:
-            logger.debug("選択モデルなし: アノテーション実行をスキップ")
-            return merged_results, model_errors
-
-        logger.debug(f"モデル一括実行開始: {total_models}モデル = {self.litellm_model_ids}")
-
-        stage_inputs = self._build_stage_model_inputs()
-        self._report_annotation_phase(AnnotationPhase.RUNNING)
-        self._emit_stage_progress(stage_inputs, processed_count=0, progress_unknown=True)
-
         try:
-            self._check_cancellation()
-            bulk_results = self.annotation_runner.execute_annotation(
-                image_paths=self.image_paths,
-                litellm_model_ids=_CancellationCheckingModelList(
-                    self.litellm_model_ids,
-                    self._check_cancellation,
+            model_info_list = self.model_registry.get_available_models()
+            info_map = {(info.litellm_model_id or info.name): info for info in model_info_list}
+        except Exception as exc:
+            logger.warning(f"受付判定用のモデル種別を取得できないため全モデルをローカル扱いにします: {exc}")
+            return set(self.litellm_model_ids)
+        local_ids: set[str] = set()
+        for model_id in self.litellm_model_ids:
+            info = info_map.get(model_id)
+            if info is None or info.requires_api_key is not True:
+                local_ids.add(model_id)
+        return local_ids
+
+    def _select_targets_for_model(
+        self,
+        litellm_model_id: str,
+        phash_list: list[str] | None,
+    ) -> _ModelTargets:
+        """モデルに渡す画像パスと pHash、保存先の限定を返す。
+
+        ``skip_completed_on_rerun`` が有効なら、同じモデルの結果が既にある画像を外す
+        (ADR 0109)。無効時や判定できない場合は全画像を返す。
+        """
+        everything = _ModelTargets(self.image_paths, phash_list)
+        if not self._execution_policy.settings.skip_completed_on_rerun:
+            return everything
+        # pHash 経由の対応 (_path_to_image_id) は同じ pHash の別画像を区別できないため、
+        # パスから image_id を直接引く。
+        try:
+            path_to_id = self.db_manager.image_repo.get_image_ids_by_filepaths(self.image_paths)
+        except SQLAlchemyError as exc:
+            logger.warning(f"完了済み判定に失敗したため全画像を対象にします: {litellm_model_id}: {exc}")
+            return everything
+        if not isinstance(path_to_id, dict):
+            return everything
+        path_ids = [
+            (path, image_id if isinstance(image_id := path_to_id.get(path), int) else None)
+            for path in self.image_paths
+        ]
+        known_ids = [image_id for _path, image_id in path_ids if image_id is not None]
+        if not known_ids:
+            return everything
+        try:
+            completed_ids = self.db_manager.image_repo.get_image_ids_with_model_annotations(
+                known_ids, litellm_model_id
+            )
+        except SQLAlchemyError as exc:
+            logger.warning(f"完了済み判定に失敗したため全画像を対象にします: {litellm_model_id}: {exc}")
+            return everything
+        if not isinstance(completed_ids, set) or not completed_ids:
+            return everything
+        keep = [index for index, (_path, image_id) in enumerate(path_ids) if image_id not in completed_ids]
+        paths = [self.image_paths[index] for index in keep]
+        phashes = [phash_list[index] for index in keep] if phash_list is not None else None
+        save_scope = {image_id for index in keep if (image_id := path_ids[index][1]) is not None}
+        logger.info(
+            f"完了済みの画像を推論から除外: model={litellm_model_id}, "
+            f"除外={len(self.image_paths) - len(paths)}件, 対象={len(paths)}件"
+        )
+        return _ModelTargets(paths, phashes, save_scope)
+
+    def _wait_for_memory(self, litellm_model_id: str) -> AdmissionDecision:
+        """空きメモリが安全余裕を超えるまで待ち、受付または見送りの判定を返す (ADR 0109)。"""
+        waiting_logged = False
+
+        def on_wait(decision: AdmissionDecision, remaining_sec: float) -> None:
+            nonlocal waiting_logged
+            if not waiting_logged:
+                logger.info(
+                    f"空きメモリ不足のため実行を待機: model={litellm_model_id}, {decision.shortage_text()}"
+                )
+                waiting_logged = True
+            self._report_annotation_phase(
+                AnnotationPhase.WAITING_FOR_MEMORY,
+                note=(
+                    f"{litellm_model_id}: {decision.shortage_text()}。"
+                    f"空きの回復を待っています (残り {int(remaining_sec)}秒)"
                 ),
-                phash_list=phash_list,
             )
-            valid_results = self._collect_valid_model_results(
-                bulk_results,
-                set(self.litellm_model_ids),
-                model_errors,
-            )
-            self._collect_l1_model_errors(valid_results, model_errors)
-            self._merge_annotation_results(merged_results, valid_results)
-        except CancellationError:
-            logger.info("モデル一括アノテーション処理がキャンセルされました")
-            raise
-        except Exception as bulk_error:
-            logger.opt(exception=True).warning(
-                f"モデル一括実行に失敗したためモデル単位 fallback に切り替えます: {bulk_error}"
-            )
-            return self._run_annotation_per_model_fallback(phash_list)
 
+        return self._execution_policy.wait_for_admission(
+            check_cancel=self._check_cancellation,
+            on_wait=on_wait,
+        )
+
+    def _record_memory_skip(
+        self,
+        litellm_model_id: str,
+        message: str,
+        model_errors: list[ModelErrorDetail],
+        target_paths: list[str],
+    ) -> None:
+        """メモリ不足で実行を見送ったモデルを error_records と summary に記録する (ADR 0109)。
+
+        記録は推論するはずだった画像だけに付ける (完了済みとして外した画像は失敗扱いにしない)。
+        """
+        logger.warning(f"モデルの実行を見送りました: model={litellm_model_id}, {message}")
+        self._execution_notes.append(f"{litellm_model_id}: {message}")
+        # pHash 経由の対応は同じ pHash の別画像を区別できないため、パスから image_id を直接引く。
         try:
-            self._persist_incremental_results(valid_results)
+            resolved = self.db_manager.image_repo.get_image_ids_by_filepaths(target_paths)
+        except SQLAlchemyError as exc:
+            logger.warning(f"見送り記録の image_id 解決に失敗 (file_path で記録): {exc}")
+            resolved = {}
+        path_to_id = resolved if isinstance(resolved, dict) else {}
+        for image_path in target_paths:
+            model_errors.append(
+                ModelErrorDetail(
+                    model_name=litellm_model_id,
+                    image_path=Path(image_path).name,
+                    error_message=message,
+                    error_type=MEMORY_SKIP_ERROR_TYPE,
+                    raw_image_path=str(image_path),
+                    error_code=MEMORY_SKIP_ERROR_TYPE,
+                )
+            )
+            try:
+                self.db_manager.save_error_record(
+                    operation_type=self._OPERATION_TYPE,
+                    error_type=MEMORY_SKIP_ERROR_TYPE,
+                    error_message=message,
+                    image_id=image_id if isinstance(image_id := path_to_id.get(image_path), int) else None,
+                    file_path=image_path,
+                    model_name=litellm_model_id,
+                )
+            except Exception as save_error:
+                logger.error(f"エラーレコード保存失敗: {image_path}, {save_error}")
+
+    def _note_execution_device(self, litellm_model_id: str, results: PHashAnnotationResults) -> None:
+        """実際の実行先が CPU と分かったモデルを進捗とサマリーに出す (ADR 0109)。
+
+        実行先は lib が記録するモデル (現状 TensorFlow 系) でだけ取れる。取れないモデルは何も出さない。
+        """
+        device: str | None = None
+        for annotations in results.values():
+            candidate = self._extract_field(annotations.get(litellm_model_id), "execution_device")
+            if isinstance(candidate, str) and candidate:
+                device = candidate
+                break
+        if device is None:
+            runner_device = self.annotation_runner.get_execution_device(litellm_model_id)
+            device = runner_device if isinstance(runner_device, str) and runner_device else None
+        if device != "cpu":
+            return
+        note = f"{litellm_model_id}: CPU で実行しました"
+        self._execution_notes.append(note)
+        self._report_annotation_phase(AnnotationPhase.RUNNING, note=note)
+
+    @staticmethod
+    def _has_memory_error(results: PHashAnnotationResults, litellm_model_id: str) -> bool:
+        """結果に lib のメモリ不足 (OUT_OF_MEMORY / INSUFFICIENT_MEMORY) があるか。"""
+        return any(
+            is_memory_error_code(
+                AnnotationWorker._extract_field(annotations.get(litellm_model_id), "error_code")
+            )
+            for annotations in results.values()
+        )
+
+    def _persist_model_results(
+        self,
+        model_results: PHashAnnotationResults,
+        model_errors: list[ModelErrorDetail],
+        targets: _ModelTargets,
+    ) -> None:
+        """1 モデル分の結果を即時保存する。保存失敗は再推論せず summary に記録する (#1551)。"""
+        try:
+            if targets.save_scope is None:
+                self._persist_incremental_results(model_results)
+            else:
+                self._persist_incremental_results(
+                    model_results, allowed_image_ids=targets.save_scope, resolved_allowed_ids=True
+                )
         except Exception as persist_error:
             logger.opt(exception=True).error(
                 f"アノテーション結果のDB保存に失敗しました (推論成功後のため再推論はスキップ): {persist_error}"
             )
-            for path in self.image_paths:
+            for path in targets.paths:
                 model_errors.append(
                     ModelErrorDetail(
                         model_name="db_persistence",
@@ -753,129 +945,208 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                     )
                 )
 
-        self._check_cancellation()
+    def _record_model_call_exception(
+        self,
+        litellm_model_id: str,
+        error: Exception,
+        target_paths: list[str],
+        model_errors: list[ModelErrorDetail],
+    ) -> None:
+        """lib 呼び出しが例外で抜けたモデルを L2 として記録する (ADR 0033 Decision 2/4)。"""
+        logger.opt(exception=True).error(f"モデル {litellm_model_id} でエラー: {error}")
+        self._save_error_records(
+            error,
+            target_paths,
+            model_name=litellm_model_id,
+            error_type=self._ERROR_TYPE_L2,
+        )
+        # NOTE: ModelErrorDetail.model_name はサマリー表示用ラベルとして litellm_model_id 値を
+        # そのまま入れる (登録 ID と一致するためユーザーが models list の結果と照合可能)。
+        for image_path in target_paths:
+            model_errors.append(
+                ModelErrorDetail(
+                    model_name=litellm_model_id,
+                    image_path=Path(image_path).name,
+                    error_message=str(error),
+                    error_type=self._ERROR_TYPE_L2,
+                    raw_image_path=str(image_path),
+                )
+            )
 
-        # 一括実行完了: result.error を持つモデル (例外を投げない L1 エラー) は
-        # 失敗ステージとして通知し、それ以外を完了 (100% / ok) にする。
-        # finished=True で一律 ok にすると result_error のモデルが成功表示になり、
-        # サマリーと矛盾する (Codex P2)。
-        errored_keys = self._stage_errored_model_keys(valid_results)
-        returned_keys = {key for annotations in valid_results.values() for key in annotations}
-        completed_keys = returned_keys - errored_keys
+    def _run_annotation(self) -> tuple[PHashAnnotationResults, list[ModelErrorDetail]]:
+        """選択順にモデルを 1 つずつ実行し、モデルごとに結果を保存する (ADR 0109)。
+
+        各モデルについて (1) ローカル ML なら受付判定と待機、(2) そのモデルだけで lib を呼ぶ、
+        (3) 結果を即時保存、(4) メモリ不足が返ったら残りを続けるかを同じ判定で決める、の順に進む。
+        中止はモデルの境目と待機中に効き、完了済みモデルの結果は保存済みのまま残る。
+
+        Returns:
+            (マージされたアノテーション結果, モデルエラー詳細リスト) のタプル。
+        """
+        total_models = len(self.litellm_model_ids)
+        if total_models == 0:
+            logger.debug("選択モデルなし: アノテーション実行をスキップ")
+            return PHashAnnotationResults(), []
+
+        state = _ModelLoopState(
+            phash_list=self._build_phash_list_for_current_paths(),
+            local_model_ids=self._resolve_local_model_ids(),
+        )
+        logger.debug(
+            f"モデル単位実行開始: {total_models}モデル = {self.litellm_model_ids}, "
+            f"受付判定対象={sorted(state.local_model_ids)}"
+        )
+
+        # Issue #805: per-model 完了/失敗を一意キー (litellm_model_id) で追跡する。
+        # 未起動モデルを 100% と誤表示しないよう processed_count=0 で出し、完了は
+        # completed_keys 経由で 100% にする (Codex P2)。
+        stage_inputs = self._build_stage_model_inputs()
+        self._report_annotation_phase(AnnotationPhase.RUNNING)
+        self._emit_stage_progress(stage_inputs, processed_count=0, progress_unknown=True)
+
+        for model_idx, litellm_model_id in enumerate(self.litellm_model_ids):
+            self._check_cancellation()
+            self._run_single_model(model_idx, litellm_model_id, state)
+            self._emit_model_stage_progress(stage_inputs, state.completed_keys, state.errored_keys)
+
+        self._check_cancellation()
+        logger.debug(f"モデル単位実行完了: 最終結果={len(state.merged_results)}件")
+        return state.merged_results, state.model_errors
+
+    def _admit_model(self, litellm_model_id: str, target_paths: list[str], state: _ModelLoopState) -> bool:
+        """ローカル ML モデルの受付判定。見送る場合は理由を記録して False を返す。"""
+        if litellm_model_id not in state.local_model_ids:
+            return True
+        if state.memory_exhausted:
+            self._record_memory_skip(
+                litellm_model_id,
+                "前のモデルでメモリ不足が発生し、空きが回復しなかったため実行を見送りました",
+                state.model_errors,
+                target_paths,
+            )
+            return False
+        decision = self._wait_for_memory(litellm_model_id)
+        self._resume_running_after_wait()
+        if not decision.admitted:
+            self._record_memory_skip(
+                litellm_model_id,
+                f"空きメモリが回復しなかったため実行を見送りました ({decision.shortage_text()}、"
+                f"{int(decision.waited_sec)}秒待機)",
+                state.model_errors,
+                target_paths,
+            )
+            return False
+        return True
+
+    def _resume_running_after_wait(self) -> None:
+        """待機表示から実行中表示へ戻す。待機しなかった場合は進捗を重ねて出さない。"""
+        if self._annotation_phase is AnnotationPhase.WAITING_FOR_MEMORY:
+            self._report_annotation_phase(AnnotationPhase.RUNNING)
+
+    def _run_single_model(self, model_idx: int, litellm_model_id: str, state: _ModelLoopState) -> None:
+        """1 モデルを対象選択 → 受付判定 → 推論 → 即時保存 → メモリ不足後の継続判定まで進める。"""
+        # 完了済みの判定を受付判定より先に行い、推論不要のモデルで待機・見送りを起こさない。
+        targets = self._select_targets_for_model(litellm_model_id, state.phash_list)
+        target_paths = targets.paths
+        if not target_paths:
+            self._execution_notes.append(f"{litellm_model_id}: 全画像に結果があるため実行を省略しました")
+            state.completed_keys.add(litellm_model_id)
+            self._completed_model_count += 1
+            return
+
+        if not self._admit_model(litellm_model_id, target_paths, state):
+            state.errored_keys.add(litellm_model_id)
+            return
+
+        logger.debug(
+            f"モデル実行開始: {litellm_model_id} ({model_idx + 1}/{len(self.litellm_model_ids)}), "
+            f"対象画像数={len(target_paths)}"
+        )
+        try:
+            model_results = self.annotation_runner.execute_annotation(
+                image_paths=target_paths,
+                litellm_model_ids=[litellm_model_id],
+                phash_list=targets.phashes,
+            )
+            valid_model_results = self._collect_valid_model_results(
+                model_results,
+                {litellm_model_id},
+                state.model_errors,
+            )
+            target_phash_to_path = (
+                dict(zip(targets.phashes, targets.paths, strict=True))
+                if targets.phashes is not None
+                else None
+            )
+            self._collect_l1_model_errors(valid_model_results, state.model_errors, target_phash_to_path)
+            self._merge_annotation_results(state.merged_results, valid_model_results)
+        except CancellationError:
+            logger.info(f"モデル {litellm_model_id} のアノテーション処理がキャンセルされました")
+            raise
+        except Exception as e:
+            state.errored_keys.add(litellm_model_id)
+            # エラーでも次のモデルに進む (部分的成功を許容)
+            self._record_model_call_exception(litellm_model_id, e, target_paths, state.model_errors)
+            return
+
+        # モデルごとに即時保存し、後続モデルの中止・メモリ不足・プロセス終了でも残す。
+        if targets.save_scope is not None:
+            self._model_save_scopes[litellm_model_id] = targets.save_scope
+        self._persist_model_results(valid_model_results, state.model_errors, targets)
+        self._completed_model_count += 1
+        if any(litellm_model_id in annotations for annotations in valid_model_results.values()):
+            self._inferred_model_ids.add(litellm_model_id)
+        state.errored_keys.update(self._stage_errored_model_keys(valid_model_results))
+        if any(litellm_model_id in annotations for annotations in valid_model_results.values()):
+            state.completed_keys.add(litellm_model_id)
+        self._note_execution_device(litellm_model_id, valid_model_results)
+        self._decide_after_memory_error(model_idx, litellm_model_id, valid_model_results, state)
+        logger.debug(f"モデル実行完了: {litellm_model_id}, 結果={len(model_results)}件")
+
+    def _decide_after_memory_error(
+        self,
+        model_idx: int,
+        litellm_model_id: str,
+        model_results: PHashAnnotationResults,
+        state: _ModelLoopState,
+    ) -> None:
+        """メモリ不足が返ったら、残りのローカル ML モデルを続けるかを受付判定で決める (ADR 0109)。"""
+        if litellm_model_id not in state.local_model_ids:
+            return
+        if not self._has_memory_error(model_results, litellm_model_id):
+            return
+        remaining = self.litellm_model_ids[model_idx + 1 :]
+        if not any(model_id in state.local_model_ids for model_id in remaining):
+            return
+        logger.warning(
+            f"メモリ不足の結果を受信: model={litellm_model_id}。残りのモデルの実行可否を判定します"
+        )
+        decision = self._wait_for_memory(litellm_model_id)
+        self._resume_running_after_wait()
+        if not decision.admitted:
+            state.memory_exhausted = True
+            self._execution_notes.append(
+                f"{litellm_model_id} の後: メモリ不足から空きが回復しなかったため、"
+                "残りのローカルモデルを見送りました"
+            )
+
+    def _emit_model_stage_progress(
+        self,
+        stage_inputs: list[StageModelInput],
+        completed_keys: set[str],
+        errored_keys: set[str],
+    ) -> None:
+        """モデル 1 つの完了・失敗・見送りを反映したステージ別進捗を通知する。
+
+        未起動モデルは completed_keys に無いため 0% のまま (false 100% を出さない)。
+        """
         self._emit_stage_progress(
             stage_inputs,
-            processed_count=len(self.image_paths),
+            processed_count=0,
             completed_keys=completed_keys,
             errored_keys=errored_keys,
             progress_unknown=True,
         )
-        logger.debug(f"モデル一括実行完了: 結果={len(bulk_results)}件")
-        return merged_results, model_errors
-
-    def _run_annotation_per_model_fallback(
-        self,
-        phash_list: list[str] | None,
-    ) -> tuple[PHashAnnotationResults, list[ModelErrorDetail]]:
-        """一括呼び出し失敗時の互換 fallback としてモデル単位で実行する。"""
-        merged_results: PHashAnnotationResults = PHashAnnotationResults()
-        model_errors: list[ModelErrorDetail] = []
-        total_models = len(self.litellm_model_ids)
-
-        logger.debug(f"モデル単位 fallback 実行開始: {total_models}モデル = {self.litellm_model_ids}")
-
-        # Issue #805: per-model 完了/失敗を一意キー (litellm_model_id) で追跡する。
-        # 未起動モデルを 100% と誤表示しないよう、ステージ進捗の率は
-        # processed_count=0 (未完了は 0%) で出し、完了は completed_keys 経由で 100%
-        # にする (Codex P2: fallback で未起動モデルが false 100% になる回帰の回避)。
-        stage_inputs = self._build_stage_model_inputs()
-        completed_keys: set[str] = set()
-        errored_keys: set[str] = set()
-
-        for model_idx, litellm_model_id in enumerate(self.litellm_model_ids):
-            self._check_cancellation()
-
-            self._report_annotation_phase(AnnotationPhase.RUNNING)
-            self._emit_stage_progress(
-                stage_inputs,
-                processed_count=0,
-                completed_keys=completed_keys,
-                errored_keys=errored_keys,
-                progress_unknown=True,
-            )
-
-            try:
-                logger.debug(
-                    f"モデル実行開始: {litellm_model_id} ({model_idx + 1}/{total_models}), "
-                    f"対象画像数={len(self.image_paths)}"
-                )
-
-                model_results = self.annotation_runner.execute_annotation(
-                    image_paths=self.image_paths,
-                    litellm_model_ids=[litellm_model_id],
-                    phash_list=phash_list,
-                )
-
-                valid_model_results = self._collect_valid_model_results(
-                    model_results,
-                    {litellm_model_id},
-                    model_errors,
-                )
-                self._collect_l1_model_errors(valid_model_results, model_errors)
-
-                self._merge_annotation_results(merged_results, valid_model_results)
-                self._persist_incremental_results(valid_model_results)
-                self._check_cancellation()
-
-                errored_keys.update(self._stage_errored_model_keys(valid_model_results))
-                if any(litellm_model_id in annotations for annotations in valid_model_results.values()):
-                    completed_keys.add(litellm_model_id)
-
-                logger.debug(
-                    f"モデル実行完了: {litellm_model_id}, 結果={len(model_results)}件, "
-                    f"マージ後合計={len(merged_results)}件"
-                )
-
-            except CancellationError:
-                logger.info(f"モデル {litellm_model_id} のアノテーション処理がキャンセルされました")
-                raise
-
-            except Exception as e:
-                errored_keys.add(litellm_model_id)
-                logger.opt(exception=True).error(f"モデル {litellm_model_id} でエラー: {e}")
-                self._save_error_records(
-                    e,
-                    self.image_paths,
-                    model_name=litellm_model_id,
-                    error_type=self._ERROR_TYPE_L2,
-                )
-                # エラー詳細を収集（全画像に対するモデルレベルエラー）
-                # NOTE: ModelErrorDetail.model_name はサマリー表示用ラベルとして
-                # litellm_model_id 値をそのまま入れる (登録 ID と一致するため
-                # ユーザーが models list の結果と照合可能)。
-                for image_path in self.image_paths:
-                    model_errors.append(
-                        ModelErrorDetail(
-                            model_name=litellm_model_id,
-                            image_path=Path(image_path).name,
-                            error_message=str(e),
-                            error_type=self._ERROR_TYPE_L2,
-                            raw_image_path=str(image_path),
-                        )
-                    )
-                # エラーでも次のモデルに進む(部分的成功を許容)
-
-            # このモデルの完了/失敗を反映したステージ別進捗を通知する。
-            # 未起動モデルは completed_keys に無いため 0% のまま (false 100% を出さない)。
-            self._emit_stage_progress(
-                stage_inputs,
-                processed_count=0,
-                completed_keys=completed_keys,
-                errored_keys=errored_keys,
-                progress_unknown=True,
-            )
-
-        logger.debug(f"モデル単位 fallback 実行完了: 最終結果={len(merged_results)}件")
-        return merged_results, model_errors
 
     def execute(self) -> AnnotationExecutionResult:
         """アノテーション処理実行
@@ -904,6 +1175,10 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         self._phash_save_status.clear()
         self._failed_image_ids.clear()
         self._excluded_count = 0
+        self._execution_notes = []
+        self._completed_model_count = 0
+        self._inferred_model_ids = set()
+        self._model_save_scopes = {}
 
         # Issue #803 (Codex P1): dry-run は実推論・送信・DB保存を一切行わず件数のみ算出する。
         # RunSettings 契約は「実際に推論せずジョブ件数・推定コストだけを検証する」であり、
@@ -973,17 +1248,22 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
                 is_dry_run=False,
                 excluded_count=self._excluded_count,
                 failed_save_paths=failed_save_paths,
+                execution_notes=list(self._execution_notes),
             )
 
         except CancellationError:
             if self._partial_results and not self._dry_run:
                 try:
-                    self._persist_incremental_results(self._partial_results)
+                    self._persist_respecting_save_scopes(
+                        self._partial_results, self._resolve_batch_image_ids()
+                    )
                 except Exception as save_error:
                     logger.warning(f"キャンセル時の部分結果保存に失敗: {save_error}")
             if self._persisted_phashes:
                 AnnotationWorker._unconsumed_persisted_phashes.update(self._persisted_phashes)
                 self.partial_results_persisted.emit(set(self._persisted_phashes))
+            # ADR 0109: 中止はモデルの境目で効き、完了したモデルの結果は保存済みで残る。
+            self._annotation_result_summary = self._canceled_summary()
             self._report_annotation_phase(AnnotationPhase.CANCELED)
             logger.info("アノテーション処理がキャンセルされました")
             raise
@@ -994,6 +1274,17 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
             self._save_error_records(e, self.image_paths, model_name=None, error_type=self._ERROR_TYPE_L3)
             self._error_already_recorded = True
             raise
+
+    def _canceled_summary(self) -> str:
+        """中止時の終端表示。保存を確認できたモデルだけを「保存済み」と表示する (ADR 0109)。"""
+        persisted_models = {model for _key, model in self._persisted_keys}
+        unsaved = sorted(self._inferred_model_ids - persisted_models)
+        if not unsaved:
+            return f"中止しました。完了した {self._completed_model_count}モデルの結果は保存済みです"
+        return (
+            f"中止しました。完了した {self._completed_model_count}モデルのうち "
+            f"{len(unsaved)}モデル ({', '.join(unsaved)}) の結果を保存できませんでした"
+        )
 
     def _apply_refusal_prefilter(self) -> list[ModelErrorDetail]:
         """refusal を持つ画像を `self.image_paths` から除外する (Worker 内実行版)。
@@ -1101,12 +1392,7 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         # (同一 pHash の未選択別版へ結果を書き込み汚染しないため)。
         unpersisted = self._filter_unpersisted_results(results)
         if unpersisted:
-            allowed_image_ids = self._resolve_batch_image_ids()
-            self._persist_incremental_results(
-                unpersisted,
-                allowed_image_ids=allowed_image_ids,
-                resolved_allowed_ids=True,
-            )
+            self._persist_respecting_save_scopes(unpersisted, self._resolve_batch_image_ids())
         elif self._incremental_save_call_count == 0:
             allowed_image_ids = self._resolve_batch_image_ids()
             save_result = AnnotationSaveService(
@@ -1139,6 +1425,39 @@ class AnnotationWorker(LoRAIroWorkerBase["AnnotationExecutionResult"]):
         total_count = success_count + skip_count
         logger.info(f"DB保存完了: {success_count}/{total_count}件成功")
         return success_count, skip_count, image_summaries, phash_to_filename
+
+    def _persist_respecting_save_scopes(
+        self, results: PHashAnnotationResults, batch_image_ids: set[int] | None
+    ) -> None:
+        """保存の再試行 (最終保存・中止時) で、完了済みを外したモデルは推論した画像だけに保存する (ADR 0109)。"""
+        unscoped, scoped = self._split_by_save_scope(results)
+        if unscoped:
+            self._persist_incremental_results(
+                unscoped,
+                allowed_image_ids=batch_image_ids,
+                resolved_allowed_ids=True,
+            )
+        for model_name, chunk in scoped.items():
+            self._persist_incremental_results(
+                chunk,
+                allowed_image_ids=self._model_save_scopes[model_name],
+                resolved_allowed_ids=True,
+            )
+
+    def _split_by_save_scope(
+        self, results: PHashAnnotationResults
+    ) -> tuple[PHashAnnotationResults, dict[str, PHashAnnotationResults]]:
+        """保存先を限定するモデル (ADR 0109) の結果を、モデルごとの塊に分けて返す。"""
+        unscoped: PHashAnnotationResults = PHashAnnotationResults()
+        scoped: dict[str, PHashAnnotationResults] = {}
+        for phash, annotations in results.items():
+            for model_name, unified_result in annotations.items():
+                if model_name in self._model_save_scopes:
+                    chunk = scoped.setdefault(model_name, PHashAnnotationResults())
+                    chunk.setdefault(phash, {})[model_name] = unified_result
+                else:
+                    unscoped.setdefault(phash, {})[model_name] = unified_result
+        return unscoped, scoped
 
     def _build_image_id_to_path_map(self) -> dict[int, str]:
         """現在の image_paths から image_id → パスの逆引き辞書を構築する。"""

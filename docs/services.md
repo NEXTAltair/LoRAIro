@@ -73,6 +73,12 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 - **Purpose**: アノテーションの工程、対象画像・モデル数、経過時間をセッション内のスナップショットとして保持する (Issue #1386)
 - **Boundary**: 処理済み件数や残り時間を推定しない。キャンセル要求後の停止待ちを完了と区別し、終了後は経過時間を固定する
 
+#### AnnotationExecutionPolicy (Qt-free)
+- **Path**: `src/lorairo/services/annotation_execution_policy.py`
+- **Classes**: `AnnotationExecutionPolicy`, `AnnotationExecutionSettings`, `MemorySnapshot`
+- **Purpose**: ローカル ML モデル実行前の受付判定 (空き RAM / VRAM と安全余裕)、回復待ち、見送り判断 (ADR 0109)
+- **Config**: `[annotation_execution]`。空きメモリ取得・時計・sleep は DI でき、テストは fake で書く
+
 #### AnnotationReviewService
 - **Path**: `src/lorairo/services/annotation_review_service.py`
 - **Purpose**: 既存タグ・キャプションと、関連画像群から抽出した未付与タグを ローカル Clef の型付き判定 API で照合する
