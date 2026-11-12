@@ -16,6 +16,7 @@ from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli.commands.images import (
     ImagesCropBatchItem,
     ImagesCropBatchResult,
+    ImagesCropDetectItem,
     ImagesCropItem,
     ImagesCropResult,
     ImageSearchQuery,
@@ -25,6 +26,14 @@ from lorairo.cli.commands.images import (
 )
 from lorairo.domain.crop_request import DEFAULT_CROP_ORIGIN
 from lorairo.public_api.types import ProjectCreateRequest, RegistrationItem
+from lorairo.services.crop_detect_provider import (
+    BELOW_SCORE_REPORT_RATIO,
+    DEFAULT_EXISTING_IOU,
+    DEFAULT_MIN_LONG_EDGE,
+    DEFAULT_NMS_IOU,
+    DEFAULT_PADDING,
+    DETECTOR_CLASSES,
+)
 
 SideEffect = Literal["db_read", "db_write", "file_read", "file_write", "network"]
 SchemaMode = Literal["compact", "json_schema"]
@@ -1852,6 +1861,159 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f("failed_lines", "list[int]", required=True),
                 ),
                 description="Re-running the same file is idempotent: existing parent+rectangle+origin rows are skipped.",
+                schema=ImagesCropBatchResult,
+            ),
+        ),
+        errors=(ERROR_MODEL,),
+    ),
+    "images crop-detect": ToolSpec(
+        name="images crop-detect",
+        path="images crop-detect",
+        summary=(
+            "Detect persons, faces or heads with a bundled ONNX detector and create crop images "
+            "from the padded boxes through the same bulk path as images crop-batch (one box = one "
+            "item). origin stores the detector name; score is output only. Detection runs on "
+            "EXIF-oriented pixels (ADR 0092). The model is downloaded from Hugging Face Hub on "
+            "first use. See ADR 0110."
+        ),
+        read_only=False,
+        side_effects=("db_read", "db_write", "file_read", "file_write", "network"),
+        inputs=(
+            _input(
+                "ImagesCropDetectInput",
+                (
+                    _f("project", "str", required=True),
+                    _f(
+                        "class",
+                        "person|face|head|halfbody",
+                        required=True,
+                        description=(
+                            "Target class -> detector (origin) and default min_score: "
+                            + ", ".join(
+                                f"{spec.class_name} -> {spec.detector} ({spec.default_min_score})"
+                                for spec in DETECTOR_CLASSES.values()
+                            )
+                            + ". halfbody is rejected with INVALID_INPUT (exit 2): its license "
+                            "terms are not reviewed."
+                        ),
+                    ),
+                    _f(
+                        "image_ids",
+                        "csv[int]?",
+                        description="Comma-separated parent image IDs, max 500 (or use --image-ids-file).",
+                    ),
+                    _f(
+                        "image_ids_file",
+                        "path?",
+                        description=(
+                            "Newline/comma-separated parent image ID list. More than 500 distinct IDs "
+                            "is rejected with RESULT_SET_TOO_LARGE (exit 2)."
+                        ),
+                    ),
+                    _f(
+                        "min_score",
+                        "float[0,1]?",
+                        description=(
+                            "Minimum score to crop; omit for the per-class default above. Detections "
+                            f"scoring at least {BELOW_SCORE_REPORT_RATIO} x min_score but below it are "
+                            "reported as skipped (below_min_score)."
+                        ),
+                    ),
+                    _f(
+                        "padding",
+                        "float[0,1]",
+                        default=DEFAULT_PADDING,
+                        description=(
+                            "Margin added on each side as a ratio of the box width/height, clamped "
+                            "to the image."
+                        ),
+                    ),
+                    _f(
+                        "nms_iou",
+                        "float(0,1]",
+                        default=DEFAULT_NMS_IOU,
+                        description="IoU threshold for non-maximum suppression within one image.",
+                    ),
+                    _f(
+                        "min_long_edge",
+                        "int>=1",
+                        default=DEFAULT_MIN_LONG_EDGE,
+                        description="Padded boxes with a shorter long edge (px) are skipped (below_min_long_edge).",
+                    ),
+                    _f(
+                        "existing_iou",
+                        "float(0,1]",
+                        default=DEFAULT_EXISTING_IOU,
+                        description=(
+                            "Boxes whose IoU with an existing crop of the same parent is at least this "
+                            "are skipped (overlaps_existing_crop). The same rectangle and origin is "
+                            "reported as already_exists instead."
+                        ),
+                    ),
+                    _f(
+                        "dry_run",
+                        "bool",
+                        default=False,
+                        description="Detect and report would_create without writing.",
+                    ),
+                ),
+            ),
+        ),
+        outputs=(
+            _output(
+                "ImagesCropDetectItem",
+                (
+                    _f("line", "int?", description="Always null (detector-derived)."),
+                    _f("status", "created|would_create|skipped|failed", required=True),
+                    _f("parent_image_id", "int?"),
+                    _f(
+                        "child_image_id",
+                        "int?",
+                        description="Created child, or the existing image when skipped as a duplicate.",
+                    ),
+                    _f("x", "int?", description="Null for per-image results (no_detection, failures)."),
+                    _f("y", "int?"),
+                    _f("width", "int?"),
+                    _f("height", "int?"),
+                    _f("origin", "str?", description="Detector name."),
+                    _f("score", "float?", description="Detection score; not stored."),
+                    _f(
+                        "reason",
+                        "already_exists|duplicate_image|invalid_rect|parent_not_found|io_error|"
+                        "registration_failed|no_detection|below_min_score|below_min_long_edge|"
+                        "overlaps_existing_crop|detector_unavailable|detection_failed?",
+                        description=(
+                            "Skipped: already_exists, duplicate_image, no_detection, below_min_score, "
+                            "below_min_long_edge, overlaps_existing_crop. Failed: invalid_rect, "
+                            "parent_not_found, io_error, registration_failed, detector_unavailable "
+                            "(model download/load failed; not retried for later images), detection_failed."
+                        ),
+                    ),
+                    _f("message", "str?"),
+                ),
+                schema=ImagesCropDetectItem,
+            ),
+            _output(
+                "ImagesCropBatchResult",
+                (
+                    _f("ok", "bool", required=True),
+                    _f(
+                        "status",
+                        "success|partial_success|failed",
+                        required=True,
+                        description="Skipped results count as success; partial success exits 3; total failure exits 1.",
+                    ),
+                    _f("project", "str", required=True),
+                    _f("dry_run", "bool", required=True),
+                    _f("total", "int", required=True),
+                    _f("created", "int", required=True),
+                    _f("would_create", "int", required=True),
+                    _f("skipped", "int", required=True),
+                    _f("failed", "int", required=True),
+                    _f("created_ids", "list[int]", required=True),
+                    _f("failed_lines", "list[int]", required=True, description="Always empty."),
+                ),
+                description="Same result contract as images crop-batch. Re-running is idempotent.",
                 schema=ImagesCropBatchResult,
             ),
         ),

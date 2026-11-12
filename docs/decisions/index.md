@@ -107,3 +107,4 @@
 * [生成メタデータを根拠に、登録時に ai generated タグを自動で付ける (擬似モデル GENERATION_METADATA)](0107-ai-generated-tag-from-generation-metadata.md)
 * [進捗はステータスバー常設の専用部品に出し、showMessage は操作結果の通知だけに使う](0108-statusbar-permanent-progress-widget.md)
 * [アノテーション実行の受付・待機・停止はアプリが行い、ローカルモデルは 1 つずつ実行して即時保存する](0109-annotation-execution-admission-control.md)
+* [物体検出器でクロップ矩形を決める images crop-detect を CropRectProvider として追加する](0110-detector-crop-rect-provider.md)

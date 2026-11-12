@@ -8,6 +8,8 @@
 - 同じ親・矩形・由来の ``crop_relations`` が既にあれば ``skipped`` (``already_exists``)。
   切り出し結果が既存画像の pHash 重複なら ``skipped`` (``duplicate_image``)。
 - ``dry_run`` では DB とファイル保存先へ書き込まず、範囲検証と重複判定 (pHash 重複を含む) だけを行う。
+- provider が ``skip_reason`` を付けた候補と :class:`CropRectNotice` は、検証も作成もせず
+  そのまま ``skipped`` / ``failed`` として報告する (ADR 0110)。
 - DB 例外 (SQLAlchemyError) は個別の失敗にせず呼び出し元へ伝播させる (継続しても全件失敗するため)。
 
 ``PySide6`` / ``lorairo.gui`` は import しない。
@@ -15,14 +17,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
 from loguru import logger
 
 from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.domain.crop_rect_provider import CropRectCandidate, CropRectProvider
+from lorairo.domain.crop_rect_provider import CropRectCandidate, CropRectNotice, CropRectProvider
 from lorairo.domain.crop_request import CropCreateRequest
 from lorairo.filesystem import FileSystemManager
 from lorairo.public_api.exceptions import DuplicateImageError
@@ -42,6 +44,12 @@ CropBatchReason = Literal[
     "parent_not_found",
     "io_error",
     "registration_failed",
+    "no_detection",
+    "below_min_score",
+    "below_min_long_edge",
+    "overlaps_existing_crop",
+    "detector_unavailable",
+    "detection_failed",
 ]
 
 _RelationKey = tuple[int, int, int, int, str]
@@ -54,23 +62,31 @@ class CropBatchOutcome:
     Attributes:
         status: ``created`` / ``would_create`` (dry-run) / ``skipped`` / ``failed``。
         parent_image_id: 親画像 ID。
-        candidate: 処理した矩形候補 (行番号・由来・スコアを含む)。
+        candidate: 処理した矩形候補 (行番号・由来・スコアを含む)。矩形を伴わない
+            親画像単位の結果 (:class:`CropRectNotice` 由来) では None。
         child_image_id: 作成した子画像 ID。skipped では既存の子 (重複先) の ID。
         reason: skipped / failed の理由コード。
         message: 理由の詳細 (人間向け)。
+        notice_origin: ``candidate`` が None の結果の由来 (provider の origin)。
     """
 
     status: CropBatchStatus
     parent_image_id: int
-    candidate: CropRectCandidate
+    candidate: CropRectCandidate | None
     child_image_id: int | None = None
     reason: CropBatchReason | None = None
     message: str | None = None
+    notice_origin: str | None = None
 
     @property
     def line(self) -> int | None:
-        """候補の入力行番号 (検出器由来なら None)。"""
-        return self.candidate.line
+        """候補の入力行番号 (検出器由来・親画像単位の結果なら None)。"""
+        return self.candidate.line if self.candidate is not None else None
+
+    @property
+    def origin(self) -> str | None:
+        """結果の由来 (候補の origin、親画像単位の結果なら provider の origin)。"""
+        return self.candidate.origin if self.candidate is not None else self.notice_origin
 
 
 def run_crop_batch(
@@ -108,40 +124,72 @@ def run_crop_batch(
             on_outcome(outcome)
 
     for parent_id in parent_image_ids:
-        candidates = provider.candidates_for(parent_id)
-        if not candidates:
-            continue
-        source = _load_source(parent_id, candidates, db_manager, record)
-        if source is None:
-            continue
-        existing: dict[_RelationKey, int | None] = {
-            (rel.x, rel.y, rel.width, rel.height, rel.origin): rel.child_image_id
-            for rel in db_manager.get_crop_children(parent_id)
-        }
-        for candidate in candidates:
-            record(_process_candidate(parent_id, candidate, source, existing, db_manager, fsm, dry_run))
+        _process_parent(parent_id, provider.candidates_for(parent_id), db_manager, fsm, dry_run, record)
 
     _log_summary(outcomes, dry_run)
     return outcomes
 
 
-def _load_source(
+def _process_parent(
     parent_id: int,
-    candidates: Iterable[CropRectCandidate],
+    items: Sequence[CropRectCandidate | CropRectNotice],
     db_manager: ImageDatabaseManager,
+    fsm: FileSystemManager,
+    dry_run: bool,
     record: Callable[[CropBatchOutcome], None],
-) -> CropSourceInfo | None:
-    """親画像情報を取得する。取れなければ全候補を failed として記録し None を返す。"""
-    reason: CropBatchReason
+) -> None:
+    """親画像 1 枚分の候補を provider の順に処理する。
+
+    親画像情報は作成対象の候補が現れたときに 1 回だけ読む (skipped 候補と notice だけなら読まない)。
+    """
+    loaded = False
+    source: CropSourceInfo | None = None
+    failure: tuple[CropBatchReason, str] = ("parent_not_found", "")
+    existing: dict[_RelationKey, int | None] = {}
+    for item in items:
+        if isinstance(item, CropRectNotice):
+            record(
+                CropBatchOutcome(
+                    item.status,
+                    parent_id,
+                    None,
+                    reason=item.reason,
+                    message=item.message,
+                    notice_origin=item.origin,
+                )
+            )
+            continue
+        if item.skip_reason is not None:
+            record(
+                CropBatchOutcome(
+                    "skipped", parent_id, item, reason=item.skip_reason, message=item.skip_message
+                )
+            )
+            continue
+        if not loaded:
+            loaded = True
+            source, failure = _load_source(parent_id, db_manager)
+            if source is not None:
+                existing = {
+                    (rel.x, rel.y, rel.width, rel.height, rel.origin): rel.child_image_id
+                    for rel in db_manager.get_crop_children(parent_id)
+                }
+        if source is None:
+            record(CropBatchOutcome("failed", parent_id, item, reason=failure[0], message=failure[1]))
+            continue
+        record(_process_candidate(parent_id, item, source, existing, db_manager, fsm, dry_run))
+
+
+def _load_source(
+    parent_id: int, db_manager: ImageDatabaseManager
+) -> tuple[CropSourceInfo | None, tuple[CropBatchReason, str]]:
+    """親画像情報を取得する。取れなければ (None, (理由コード, 詳細)) を返す。"""
     try:
-        return get_crop_source_info(parent_id, db_manager=db_manager)
+        return get_crop_source_info(parent_id, db_manager=db_manager), ("parent_not_found", "")
     except ValueError as exc:
-        reason, message = "parent_not_found", str(exc)
+        return None, ("parent_not_found", str(exc))
     except OSError as exc:
-        reason, message = "io_error", f"Cannot read parent image: {exc.strerror or exc}"
-    for candidate in candidates:
-        record(CropBatchOutcome("failed", parent_id, candidate, reason=reason, message=message))
-    return None
+        return None, ("io_error", f"Cannot read parent image: {exc.strerror or exc}")
 
 
 def _process_candidate(
