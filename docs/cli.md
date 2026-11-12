@@ -1099,6 +1099,83 @@ Structured error payload emitted as kind=error by the CLI boundary.
 - `hint`: `str?` (optional, default `None`)
 - `details`: `dict?` (optional, default `None`)
 
+### `images crop-detect`
+
+Detect persons, faces or heads with a bundled ONNX detector and create crop images from the padded boxes through the same bulk path as images crop-batch (one box = one item). origin stores the detector name; score is output only. Detection runs on EXIF-oriented pixels (ADR 0092). The model is downloaded from Hugging Face Hub on first use. See ADR 0110.
+
+- Read only: `false`
+- Strict read only: `false` (root `--read-only`; see [contract](cli-read-only.md))
+- Conditional initialization: `['db_create', 'schema_migration', 'model_seed', 'directory_create']`
+- Side effects: `db_read`, `db_write`, `file_read`, `file_write`, `network`
+
+#### Compact Introspection
+
+```bash
+lorairo-cli --json describe "images crop-detect"
+```
+
+#### Models
+
+**Input `ImagesCropDetectInput`**
+
+- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `class`: `person | face | head | halfbody` (required) - Target class -> detector (origin) and default min_score: person -> person_detect_v1.3_s (0.324), face -> face_detect_v1.4_s (0.307), head -> head_detect_v2.0_s (0.413). halfbody is rejected with INVALID_INPUT (exit 2): its license terms are not reviewed. (CLI: `--class`)
+- `image_ids`: `str?` (optional, default `None`) - Comma-separated parent image IDs, max 500 (or use --image-ids-file). (CLI: `--image-ids`)
+- `image_ids_file`: `str?` (optional, default `None`) - Newline/comma-separated parent image ID list. More than 500 distinct IDs is rejected with RESULT_SET_TOO_LARGE (exit 2). (CLI: `--image-ids-file`)
+- `min_score`: `float[0.0,1.0]?` (optional, default `None`) - Minimum score to crop; omit for the per-class default above. Detections scoring at least 0.5 x min_score but below it are reported as skipped (below_min_score). (CLI: `--min-score`)
+- `padding`: `float[0.0,1.0]` (optional, default `0.1`) - Margin added on each side as a ratio of the box width/height, clamped to the image. (CLI: `--padding`)
+- `nms_iou`: `float<=1.0>0.0` (optional, default `0.5`) - IoU threshold for non-maximum suppression within one image. (CLI: `--nms-iou`)
+- `min_long_edge`: `int>=1` (optional, default `256`) - Padded boxes with a shorter long edge (px) are skipped (below_min_long_edge). (CLI: `--min-long-edge`)
+- `existing_iou`: `float<=1.0>0.0` (optional, default `0.7`) - Boxes whose IoU with an existing crop of the same parent is at least this are skipped (overlaps_existing_crop). The same rectangle and origin is reported as already_exists instead. (CLI: `--existing-iou`)
+- `dry_run`: `bool` (optional, default `False`) - Detect and report would_create without writing. (CLI: `--dry-run`)
+
+**Output `ImagesCropDetectItem`**
+
+- `kind`: `item` (optional, default `item`)
+- `line`: `int?` (optional, default `None`) - Always null (detector-derived).
+- `status`: `created | would_create | skipped | failed` (required)
+- `parent_image_id`: `int?` (optional, default `None`)
+- `child_image_id`: `int?` (optional, default `None`) - Created child, or the existing image when skipped as a duplicate.
+- `x`: `int?` (optional, default `None`) - Null for per-image results (no_detection, failures).
+- `y`: `int?` (optional, default `None`)
+- `width`: `int?` (optional, default `None`)
+- `height`: `int?` (optional, default `None`)
+- `origin`: `str?` (optional, default `None`) - Detector name.
+- `score`: `float?` (optional, default `None`) - Detection score; not stored.
+- `reason`: `already_exists | duplicate_image | invalid_rect | parent_not_found | io_error | registration_failed | no_detection | below_min_score | below_min_long_edge | overlaps_existing_crop | detector_unavailable | detection_failed?` (optional, default `None`) - Skipped: already_exists, duplicate_image, no_detection, below_min_score, below_min_long_edge, overlaps_existing_crop. Failed: invalid_rect, parent_not_found, io_error, registration_failed, detector_unavailable (model download/load failed; not retried for later images), detection_failed.
+- `message`: `str?` (optional, default `None`)
+
+**Output `ImagesCropBatchResult`**
+
+Same result contract as images crop-batch. Re-running is idempotent.
+
+- `kind`: `result` (optional, default `result`)
+- `ok`: `bool` (required)
+- `status`: `success | partial_success | failed` (required) - Skipped results count as success; partial success exits 3; total failure exits 1.
+- `message`: `str` (required)
+- `project`: `str` (required)
+- `dry_run`: `bool` (required)
+- `total`: `int` (required)
+- `created`: `int` (required)
+- `would_create`: `int` (required)
+- `skipped`: `int` (required)
+- `failed`: `int` (required)
+- `created_ids`: `list[int]` (required)
+- `failed_lines`: `list[int]` (required) - Always empty.
+
+**Error `CliErrorResponse`**
+
+Structured error payload emitted as kind=error by the CLI boundary.
+
+- `kind`: `error` (optional, default `error`)
+- `ok`: `false` (optional, default `False`)
+- `code`: `str` (required)
+- `message`: `str` (required)
+- `retryable`: `bool` (required)
+- `user_action_required`: `bool` (required)
+- `hint`: `str?` (optional, default `None`)
+- `details`: `dict?` (optional, default `None`)
+
 ### `images duplicates`
 
 Read-only duplicate candidates from saved 64-bit pHashes, capped at 10,000 project images. See [duplicate report](cli-duplicate-report.md).

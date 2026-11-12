@@ -75,3 +75,21 @@ def test_app_object_available_without_heavy_imports() -> None:
     )
     result = _run_probe(probe)
     assert result.returncode == 0, f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+
+
+@pytest.mark.unit
+@pytest.mark.cli
+def test_crop_detect_help_and_describe_do_not_load_detector_runtime() -> None:
+    """Test: `images crop-detect --help` と describe は検出器 (lib / onnxruntime) を読まない (ADR 0110)。"""
+    probe = (
+        "import sys\n"
+        "from typer.testing import CliRunner\n"
+        "from lorairo.cli.main import app\n"
+        "runner = CliRunner()\n"
+        "assert runner.invoke(app, ['images', 'crop-detect', '--help']).exit_code == 0\n"
+        "assert runner.invoke(app, ['--json', 'describe', 'images crop-detect']).exit_code == 0\n"
+        "loaded = sorted(m for m in sys.modules if 'image_annotator_lib' in m or 'onnxruntime' in m)\n"
+        "assert not loaded, f'unexpected eager import: {loaded}'\n"
+    )
+    result = _run_probe(probe)
+    assert result.returncode == 0, f"stdout={result.stdout!r}\nstderr={result.stderr!r}"

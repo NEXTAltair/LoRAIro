@@ -135,6 +135,11 @@ Qt依存のないビジネスロジックサービス群。CLI、GUI、API全て
 - **Class**: `JsonlCropRectProvider`
 - **Purpose**: 外部で用意した矩形 JSONL (1 行 = image_id + 矩形) を読む `CropRectProvider` の最初の実装。不正な行は行番号付きで保持し、500 行超は count-first で拒否 (ADR 0103)
 
+#### DetectorCropRectProvider (Qt-free)
+- **Path**: `src/lorairo/services/crop_detect_provider.py`
+- **Class**: `DetectorCropRectProvider` (検出器境界: `ObjectDetector` / 実装 `LibObjectDetector`)
+- **Purpose**: image-annotator-lib の物体検出器 (person / face / head) で矩形を決める `CropRectProvider`。余白・閾値・最小長辺・既存クロップとの IoU を判定し、作成しない矩形は理由コード付き候補、検出 0 件や失敗は `CropRectNotice` で返す。lib は検出実行時まで import しない (ADR 0110)
+
 #### ExportOverlay (Qt-free)
 - **Path**: `src/lorairo/services/export_overlay.py`
 - **Purpose**: エクスポート時の per-image タグ変換パイプライン (ADR 0080 §1-§4)

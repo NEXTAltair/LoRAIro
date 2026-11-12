@@ -10,6 +10,7 @@ API層（lorairo.public_api）を経由してService層を利用する。
 
 import json
 import sys
+from collections.abc import Sequence
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Literal
@@ -47,6 +48,17 @@ from lorairo.public_api.images import register_images as api_register_images
 from lorairo.public_api.project import get_project as api_get_project
 from lorairo.public_api.types import RegistrationResult
 from lorairo.services.crop_batch_service import CropBatchOutcome, run_crop_batch
+from lorairo.services.crop_detect_provider import (
+    DEFAULT_EXISTING_IOU,
+    DEFAULT_MIN_LONG_EDGE,
+    DEFAULT_NMS_IOU,
+    DEFAULT_PADDING,
+    DETECTOR_CLASSES,
+    UNSUPPORTED_DETECTOR_CLASSES,
+    DetectionSettings,
+    DetectorCropRectProvider,
+    LibObjectDetector,
+)
 from lorairo.services.crop_rect_jsonl_provider import CropRectLineError, JsonlCropRectProvider
 from lorairo.services.crop_service import create_crop_image, get_crop_source_info, normalize_crop_tags
 from lorairo.services.service_container import get_service_container, service_container_scope
@@ -168,6 +180,46 @@ class ImagesCropBatchItem(BaseModel):
     message: str | None = None
 
     model_config = ConfigDict(title="ImagesCropBatchItem")
+
+
+CropDetectItemReason = Literal[
+    "already_exists",
+    "duplicate_image",
+    "invalid_rect",
+    "parent_not_found",
+    "io_error",
+    "registration_failed",
+    "no_detection",
+    "below_min_score",
+    "below_min_long_edge",
+    "overlaps_existing_crop",
+    "detector_unavailable",
+    "detection_failed",
+]
+
+
+class ImagesCropDetectItem(BaseModel):
+    """JSONL item payload emitted by ``images crop-detect --json`` (ADR 0110).
+
+    ``images crop-batch`` の item と同じ項目。検出器由来なので ``line`` は常に null。
+    矩形を伴わない親画像単位の結果 (``no_detection`` 等) は座標が null。
+    """
+
+    kind: Literal["item"] = "item"
+    line: int | None = None
+    status: CropBatchItemStatus
+    parent_image_id: int | None = None
+    child_image_id: int | None = None
+    x: int | None = None
+    y: int | None = None
+    width: int | None = None
+    height: int | None = None
+    origin: str | None = None
+    score: float | None = None
+    reason: CropDetectItemReason | None = None
+    message: str | None = None
+
+    model_config = ConfigDict(title="ImagesCropDetectItem")
 
 
 class ImagesCropBatchResult(BaseModel):
@@ -1100,31 +1152,43 @@ def _crop_batch_item_from_line_error(error: CropRectLineError) -> ImagesCropBatc
     )
 
 
-def _crop_batch_item_from_outcome(outcome: CropBatchOutcome) -> ImagesCropBatchItem:
+def _crop_batch_item_from_outcome[ItemT: (ImagesCropBatchItem, ImagesCropDetectItem)](
+    outcome: CropBatchOutcome, model: type[ItemT]
+) -> ItemT:
+    """一括処理の結果を item payload にする (理由コードは item モデルの Literal で検証する)。"""
     candidate = outcome.candidate
-    return ImagesCropBatchItem(
-        line=candidate.line,
-        status=outcome.status,
-        parent_image_id=outcome.parent_image_id,
-        child_image_id=outcome.child_image_id,
-        x=candidate.rect.x,
-        y=candidate.rect.y,
-        width=candidate.rect.width,
-        height=candidate.rect.height,
-        origin=candidate.origin,
-        score=candidate.score,
-        reason=outcome.reason,
-        message=outcome.message,
+    rect = candidate.rect if candidate is not None else None
+    return model.model_validate(
+        {
+            "line": outcome.line,
+            "status": outcome.status,
+            "parent_image_id": outcome.parent_image_id,
+            "child_image_id": outcome.child_image_id,
+            "x": rect.x if rect is not None else None,
+            "y": rect.y if rect is not None else None,
+            "width": rect.width if rect is not None else None,
+            "height": rect.height if rect is not None else None,
+            "origin": outcome.origin,
+            "score": candidate.score if candidate is not None else None,
+            "reason": outcome.reason,
+            "message": outcome.message,
+        }
     )
 
 
-def _print_crop_batch_item(item: ImagesCropBatchItem) -> None:
+def _print_crop_batch_item(item: ImagesCropBatchItem | ImagesCropDetectItem) -> None:
     """人間向けに skipped / failed の行だけを表示する (作成成功は件数サマリーに集約)。"""
     if item.status not in ("skipped", "failed"):
         return
     color = "yellow" if item.status == "skipped" else "red"
+    location = f"line={item.line} " if isinstance(item, ImagesCropBatchItem) else ""
+    rect = (
+        f" rect=({item.x},{item.y},{item.width},{item.height})"
+        if isinstance(item, ImagesCropDetectItem) and item.x is not None
+        else ""
+    )
     console.print(
-        f"[{color}]{item.status}[/{color}] line={item.line} image_id={item.parent_image_id}"
+        f"[{color}]{item.status}[/{color}] {location}image_id={item.parent_image_id}{rect}"
         f" {item.reason}: {item.message}",
         markup=True,
         highlight=False,
@@ -1163,7 +1227,12 @@ def _load_crop_rect_provider(rects: str, origin: str) -> JsonlCropRectProvider:
 
 
 def _report_crop_batch_summary(
-    items: list[ImagesCropBatchItem], *, project: str, dry_run: bool, json_mode: bool
+    items: Sequence[ImagesCropBatchItem | ImagesCropDetectItem],
+    *,
+    project: str,
+    dry_run: bool,
+    json_mode: bool,
+    unit: str = "row",
 ) -> Literal["success", "partial_success", "failed"]:
     """件数サマリーを出力し、終了コード判定用の status を返す (skipped は成功扱い)。"""
     counts = {
@@ -1178,7 +1247,7 @@ def _report_crop_batch_summary(
         status = "partial_success" if succeeded else "failed"
     message = (
         f"{'Would create' if dry_run else 'Created'} "
-        f"{counts['would_create'] if dry_run else counts['created']} crop(s) from {len(items)} row(s)"
+        f"{counts['would_create'] if dry_run else counts['created']} crop(s) from {len(items)} {unit}(s)"
     )
     if not json_mode:
         prefix = "[dry-run] " if dry_run else ""
@@ -1271,10 +1340,145 @@ def crop_batch(
             db_manager=container.db_manager,
             fsm=container.file_system_manager,
             dry_run=dry_run,
-            on_outcome=lambda outcome: report(_crop_batch_item_from_outcome(outcome)),
+            on_outcome=lambda outcome: report(_crop_batch_item_from_outcome(outcome, ImagesCropBatchItem)),
         )
 
         status = _report_crop_batch_summary(items, project=project, dry_run=dry_run, json_mode=json_mode)
+        if status != "success":
+            raise typer.Exit(result_exit_code(status))
+
+
+CROP_DETECT_CLASS_CHOICES: tuple[str, ...] = (*DETECTOR_CLASSES, *UNSUPPORTED_DETECTOR_CLASSES)
+"""``--class`` の選択肢。未対応クラスも選択肢に出し、指定時に理由付きで拒否する。"""
+
+
+def _crop_detect_class_help() -> str:
+    defaults = ", ".join(
+        f"{spec.class_name}={spec.detector} (min-score {spec.default_min_score})"
+        for spec in DETECTOR_CLASSES.values()
+    )
+    return f"Target class. {defaults}. halfbody is rejected (license not reviewed)."
+
+
+def _resolve_crop_detect_targets(
+    class_name: str, image_ids_csv: str | None, image_ids_file: str | None
+) -> list[int]:
+    """--class と親画像 ID を検証する (未対応クラス・入力不正は UsageError、500 超は拒否)。"""
+    if class_name in UNSUPPORTED_DETECTOR_CLASSES:
+        raise click.UsageError(UNSUPPORTED_DETECTOR_CLASSES[class_name])
+    image_ids, _is_file = resolve_image_ids_input(image_ids_csv, image_ids_file)
+    unique_ids = list(dict.fromkeys(image_ids))
+    if len(unique_ids) > MAX_IMAGE_IDS:
+        raise ResultSetTooLargeError(len(unique_ids), MAX_IMAGE_IDS)
+    return unique_ids
+
+
+@app.command("crop-detect")
+def crop_detect(
+    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    class_name: str = typer.Option(
+        ...,
+        "--class",
+        click_type=click.Choice(CROP_DETECT_CLASS_CHOICES),
+        help=_crop_detect_class_help(),
+    ),
+    image_ids_csv: str | None = typer.Option(
+        None, "--image-ids", help="Comma-separated parent image IDs, max 500 (or use --image-ids-file)."
+    ),
+    image_ids_file: str | None = typer.Option(
+        None, "--image-ids-file", help="Path to a newline/comma-separated parent image ID list (max 500)."
+    ),
+    min_score: float | None = typer.Option(
+        None,
+        "--min-score",
+        min=0.0,
+        max=1.0,
+        help="Minimum detection score to crop. Omit to use the detector default for --class.",
+    ),
+    padding: float = typer.Option(
+        DEFAULT_PADDING,
+        "--padding",
+        min=0.0,
+        max=1.0,
+        help="Margin added on each side as a ratio of the box width/height; clamped to the image.",
+    ),
+    nms_iou: float = typer.Option(
+        DEFAULT_NMS_IOU,
+        "--nms-iou",
+        click_type=click.FloatRange(0.0, 1.0, min_open=True),
+        help="IoU threshold for non-maximum suppression within one image.",
+    ),
+    min_long_edge: int = typer.Option(
+        DEFAULT_MIN_LONG_EDGE,
+        "--min-long-edge",
+        min=1,
+        help="Skip crops whose long edge (after padding) is smaller than this (px).",
+    ),
+    existing_iou: float = typer.Option(
+        DEFAULT_EXISTING_IOU,
+        "--existing-iou",
+        click_type=click.FloatRange(0.0, 1.0, min_open=True),
+        help="Skip a detection whose IoU with an existing crop of the same parent is at least this.",
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Detect and report would_create without writing."
+    ),
+) -> None:
+    """Detect persons, faces or heads and create crop images from the boxes.
+
+    親画像を EXIF 適用後の表示向きで開き、image-annotator-lib の検出器で矩形を求めて
+    ``images crop-batch`` と同じ一括処理でクロップ画像を作成します (ADR 0110)。
+    ``crop_relations.origin`` には検出器名を保存し、score は出力にだけ載せます。
+    検出 0 件・閾値未満・小さすぎる矩形・既存クロップとの重複は理由コード付きの skipped。
+    初回は Hugging Face Hub から検出モデルを取得します。部分成功は exit 3、全件失敗は exit 1。
+
+    Example:
+        lorairo-cli --json images crop-detect --project proj --class face --image-ids 1,2 --dry-run
+    """
+    with command_boundary(), ExitStack() as stack:
+        if dry_run:
+            _enter_dry_run_scope(stack)
+        parent_ids = _resolve_crop_detect_targets(class_name, image_ids_csv, image_ids_file)
+        spec = DETECTOR_CLASSES[class_name]
+        settings = DetectionSettings(
+            min_score=spec.default_min_score if min_score is None else min_score,
+            padding=padding,
+            nms_iou=nms_iou,
+            min_long_edge=min_long_edge,
+            existing_iou=existing_iou,
+        )
+
+        api_get_project(project)
+        container = get_service_container()
+        container.set_active_project(project)
+
+        json_mode = is_json_mode()
+        items: list[ImagesCropDetectItem] = []
+
+        def report(item: ImagesCropDetectItem) -> None:
+            items.append(item)
+            if json_mode:
+                emit_item(item)
+            else:
+                _print_crop_batch_item(item)
+
+        detector = LibObjectDetector()
+        stack.callback(detector.release)
+        provider = DetectorCropRectProvider(
+            spec, settings, db_manager=container.db_manager, detector=detector
+        )
+        run_crop_batch(
+            provider,
+            parent_ids,
+            db_manager=container.db_manager,
+            fsm=container.file_system_manager,
+            dry_run=dry_run,
+            on_outcome=lambda outcome: report(_crop_batch_item_from_outcome(outcome, ImagesCropDetectItem)),
+        )
+
+        status = _report_crop_batch_summary(
+            items, project=project, dry_run=dry_run, json_mode=json_mode, unit="result"
+        )
         if status != "success":
             raise typer.Exit(result_exit_code(status))
 
