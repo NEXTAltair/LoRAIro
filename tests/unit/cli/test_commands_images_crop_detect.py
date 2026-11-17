@@ -238,6 +238,9 @@ def test_halfbody_is_rejected_as_input_error(parent_id: int, fake_detector: type
         ("--class", "cat", "--image-ids", "1"),
         ("--class", "person"),
         ("--class", "person", "--image-ids", "1", "--nms-iou", "0"),
+        ("--class", "person", "--image-ids", "1", "--nms-iou", "nan"),
+        ("--class", "person", "--image-ids", "1", "--existing-iou", "0"),
+        ("--class", "person", "--image-ids", "1", "--existing-iou", "nan"),
         ("--class", "person", "--image-ids", "1", "--min-score", "1.5"),
     ],
 )
@@ -266,6 +269,8 @@ def test_more_than_500_parent_ids_is_rejected_before_detection(
 
 
 def test_describe_exposes_choices_and_defaults() -> None:
+    from lorairo.cli.commands.images import DETECTOR_CLASSES, UNSUPPORTED_DETECTOR_CLASSES
+
     result = runner.invoke(app, ["--json", "describe", "images crop-detect", "--schema", "json_schema"])
 
     assert result.exit_code == 0, result.output
@@ -275,6 +280,7 @@ def test_describe_exposes_choices_and_defaults() -> None:
     )["schema"]
     props = schema["properties"]
     assert props["class"]["enum"] == ["person", "face", "head", "halfbody"]
+    assert set(props["class"]["enum"]) == set(DETECTOR_CLASSES) | set(UNSUPPORTED_DETECTOR_CLASSES)
     assert "person -> person_detect_v1.3_s (0.324)" in props["class"]["description"]
     assert "face -> face_detect_v1.4_s (0.307)" in props["class"]["description"]
     assert "head -> head_detect_v2.0_s (0.413)" in props["class"]["description"]
@@ -285,4 +291,5 @@ def test_describe_exposes_choices_and_defaults() -> None:
         props["existing_iou"]["default"],
     ) == (0.1, 0.5, 256, 0.7)
     assert props["nms_iou"]["exclusiveMinimum"] == 0.0
+    assert props["existing_iou"]["exclusiveMinimum"] == 0.0
     assert set(schema["required"]) == {"project", "class"}

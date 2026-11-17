@@ -13,7 +13,6 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import click
 import typer
 from PIL import Image
 from rich.progress import (
@@ -722,7 +721,7 @@ def _abort_if_discontinued(model: Any) -> None:
         typer.Exit: モデルが discontinued (`available=False`) の場合 (code=1)。
     """
     if not getattr(model, "available", True):
-        raise click.UsageError(
+        raise typer.BadParameter(
             f"Model '{model.litellm_model_id}' is discontinued / no longer "
             "provided by the annotation library and cannot be used. "
             "Run `lorairo-cli models list` to see available IDs."
@@ -751,7 +750,7 @@ def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> s
         str: 解決後の `litellm_model_id`。
 
     Raises:
-        click.UsageError: 曖昧マッチまたは一致なしの場合。
+        typer.BadParameter: 曖昧マッチまたは一致なしの場合。
     """
     by_litellm = repository.get_model_by_litellm_id(identifier)
     if by_litellm is not None:
@@ -763,7 +762,7 @@ def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> s
         candidate_lines = "\n".join(
             f"  - {m.litellm_model_id} (provider: {m.provider or 'unknown'})" for m in by_name
         )
-        raise click.UsageError(
+        raise typer.BadParameter(
             f"Ambiguous model '{identifier}':\n"
             f"{candidate_lines}\n"
             "Use the full LiteLLM model ID. Run `lorairo-cli models list` to see available IDs."
@@ -777,7 +776,7 @@ def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> s
         by_name[0].provider, by_name[0].requires_api_key, by_name[0].litellm_model_id
     )
     if is_explicit_webapi_model_id(identifier) and not local_name_match:
-        raise click.UsageError(
+        raise typer.BadParameter(
             f"Unknown model ID '{identifier}': an explicit provider-qualified ID must match exactly. "
             "Run `lorairo-cli models list` to see available IDs."
         )
@@ -788,7 +787,7 @@ def _resolve_model_identifier(repository: ModelRepository, identifier: str) -> s
         logger.debug(f"--model '{identifier}' を name 経由で {resolved} に解決")
         return resolved
 
-    raise click.UsageError(
+    raise typer.BadParameter(
         f"Unknown model '{identifier}'. Run `lorairo-cli models list` to see available IDs."
     )
 
@@ -842,7 +841,7 @@ def _validate_required_api_keys(
     missing_lines = "\n".join(
         f"  - {provider}: required for {litellm_id}" for litellm_id, provider in missing
     )
-    raise click.UsageError(
+    raise typer.BadParameter(
         "Missing API keys for selected models:\n"
         f"{missing_lines}\n\n"
         "Configure the missing keys in config/lorairo.toml [api] section, "
@@ -936,18 +935,18 @@ def _validate_run_options(
     output: str | None, run_id: str | None, resume: str | None, *, selection_flags: bool
 ) -> None:
     if output is not None:
-        raise click.UsageError(
+        raise typer.BadParameter(
             "--output/-o is unsupported: annotate run saves results to the project database. "
             "Omit --output, then use export create with explicit image IDs for file output."
         )
     if run_id is not None and resume is not None:
-        raise click.UsageError("--run-id and --resume are mutually exclusive")
+        raise typer.BadParameter("--run-id and --resume are mutually exclusive")
     if run_id is not None or resume is not None:
         from lorairo.services.annotation_run_ledger import validate_run_id
 
         validate_run_id(run_id if run_id is not None else str(resume))
     if resume is not None and selection_flags:
-        raise click.UsageError("--resume uses the saved selection/resolution; omit selection flags")
+        raise typer.BadParameter("--resume uses the saved selection/resolution; omit selection flags")
 
 
 @app.command("run")

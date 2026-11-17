@@ -6,8 +6,8 @@ CLI 起動を介さず `_select_image_records` を直接呼ぶ。レコードは
 
 from typing import Any
 
-import click
 import pytest
+import typer
 
 from lorairo.cli._image_guard import is_original_image_stored_path, reject_original_image_records
 from lorairo.cli.commands import annotate
@@ -177,7 +177,7 @@ def test_reject_original_image_records_fails_mixed_selection_without_dropping() 
         {"id": 2, "stored_image_path": "image_dataset/original_images/2.jpg"},
     ]
 
-    with pytest.raises(click.UsageError) as exc_info:
+    with pytest.raises(typer.BadParameter) as exc_info:
         reject_original_image_records(records, command_name="annotate run")
 
     assert "annotate run cannot operate directly on original images" in str(exc_info.value)

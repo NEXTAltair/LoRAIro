@@ -8,7 +8,6 @@ API層（lorairo.public_api）を経由してService層を利用する。
 に集約し、本モジュールは型付き例外を伝播するだけにする。
 """
 
-import click
 import typer
 from rich.table import Table
 
@@ -120,7 +119,7 @@ def delete(
             # 破る、ADR 0057 §1)。stdin で応答できない agent driving 前提なので、JSON mode
             # では --force を契約上必須とし、未指定は INVALID_INPUT で弾く (Issue #659)。
             if is_json_mode():
-                raise click.UsageError("project delete requires --force in JSON mode")
+                raise typer.BadParameter("project delete requires --force in JSON mode")
             confirm = typer.confirm(f"Delete project '{name}'? This cannot be undone.")
             if not confirm:
                 console.print("[yellow]Cancelled[/yellow]")

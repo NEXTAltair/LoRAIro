@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
 
-import click
+import typer
 
 _ORIGINAL_IMAGE_PREFIX = PurePosixPath("image_dataset/original_images")
 
@@ -74,7 +74,7 @@ def reject_original_image_records(
         for record in original_records[:5]
     )
     extra = "" if len(original_records) <= 5 else f", ... (+{len(original_records) - 5} more)"
-    raise click.UsageError(
+    raise typer.BadParameter(
         f"{command_name} cannot operate directly on original images. "
         "Select processed/resized image records instead. "
         f"Rejected {len(original_records)} original image(s): {samples}{extra}. "

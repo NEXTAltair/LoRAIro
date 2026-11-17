@@ -320,7 +320,7 @@ def test_batch_submit_rating_preflight_rejects_non_moderations_endpoint(
         ],
     )
 
-    # click.UsageError → INVALID_INPUT → exit 2 (入力検証、ADR 0057 §6)。
+    # typer.BadParameter → INVALID_INPUT → exit 2 (入力検証、ADR 0057 §6)。
     assert result.exit_code == 2
     assert "endpoint /v1/moderations" in result.output
     container.provider_batch_workflow_service.submit_images.assert_not_called()
@@ -351,7 +351,7 @@ def test_batch_submit_rejects_google_until_phase3(mock_get_container: MagicMock)
         ],
     )
 
-    # click.UsageError → INVALID_INPUT → exit 2 (入力検証、ADR 0057 §6)。
+    # typer.BadParameter → INVALID_INPUT → exit 2 (入力検証、ADR 0057 §6)。
     assert result.exit_code == 2
     assert "Google Provider Batch submit is disabled" in result.output
     container.provider_batch_workflow_service.submit_images.assert_not_called()

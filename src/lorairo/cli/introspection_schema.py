@@ -5,24 +5,28 @@ from __future__ import annotations
 import re
 from enum import Enum
 from types import GenericAlias
-from typing import Any, Literal, cast
+from typing import Any, Literal, cast, get_args, get_origin
 
-import click
 from pydantic import BaseModel, ConfigDict, Field, create_model
+from typer.core import TyperArgument, TyperCommand, TyperGroup, TyperOption
 
 
-def command_tree() -> tuple[click.Command, dict[str, click.Command]]:
+def command_tree() -> tuple[TyperCommand | TyperGroup, dict[str, TyperCommand]]:
     """Inspect registration without invoking callbacks or initializing a project."""
     from typer.main import get_command
 
     from lorairo.cli.main import app
 
     root = get_command(app)
-    leaves: dict[str, click.Command] = {}
+    if not isinstance(root, (TyperCommand, TyperGroup)):
+        raise TypeError(f"未対応の CLI コマンド型: {type(root).__name__}")
+    leaves: dict[str, TyperCommand] = {}
 
-    def walk(command: click.Command, path: str) -> None:
-        if isinstance(command, click.Group):
+    def walk(command: TyperCommand | TyperGroup, path: str) -> None:
+        if isinstance(command, TyperGroup):
             for name, child in command.commands.items():
+                if not isinstance(child, (TyperCommand, TyperGroup)):
+                    raise TypeError(f"未対応の CLI コマンド型: {type(child).__name__}")
                 walk(child, f"{path} {name}".strip())
         else:
             leaves[path] = command
@@ -31,7 +35,7 @@ def command_tree() -> tuple[click.Command, dict[str, click.Command]]:
     return root, leaves
 
 
-def parameter_name(parameter: click.Parameter, names: set[str]) -> str:
+def parameter_name(parameter: TyperArgument | TyperOption, names: set[str]) -> str:
     """Preserve published names while exposing actual flags/destinations separately."""
     candidates = [parameter.name or ""]
     candidates.extend(option[2:].replace("-", "_") for option in parameter.opts if option.startswith("--"))
@@ -41,9 +45,9 @@ def parameter_name(parameter: click.Parameter, names: set[str]) -> str:
     return next((name for name in candidates if name in names), candidates[0])
 
 
-def _choice_type(parameter_type: click.Choice[Any]) -> tuple[Any, dict[str, Any]]:
-    choices = tuple(value.value if isinstance(value, Enum) else value for value in parameter_type.choices)
-    if parameter_type.case_sensitive:
+def _choice_type(values: tuple[Any, ...], *, case_sensitive: bool) -> tuple[Any, dict[str, Any]]:
+    choices = tuple(value.value if isinstance(value, Enum) else value for value in values)
+    if case_sensitive:
         return Literal[choices], {}
     pattern = (
         "^(?:"
@@ -60,27 +64,29 @@ def _choice_type(parameter_type: click.Choice[Any]) -> tuple[Any, dict[str, Any]
 
 
 def _parameter_type(
-    parameter_type: click.ParamType[Any], path: str, public_name: str
+    parameter: TyperArgument | TyperOption, path: str, public_name: str
 ) -> tuple[Any, dict[str, Any]]:
-    annotation: Any
-    if isinstance(parameter_type, click.types.BoolParamType):
-        annotation = bool
-    elif isinstance(parameter_type, click.types.IntParamType):
-        annotation = int
-    elif isinstance(parameter_type, click.types.FloatParamType):
-        annotation = float
-    else:
+    # Typer 0.29 は Click の ParamType ではなく登録時の型情報を保持する。
+    descriptor = parameter.type_descriptor
+    annotation: Any = descriptor.annotation
+    if get_origin(annotation) is list:
+        annotation = get_args(annotation)[0]
+    if annotation not in (bool, int, float):
         annotation = str
     constraints: dict[str, Any] = {}
-    if isinstance(parameter_type, (click.IntRange, click.FloatRange)):
-        if parameter_type.min is not None:
-            constraints["gt" if parameter_type.min_open else "ge"] = parameter_type.min
-        if parameter_type.max is not None:
-            constraints["lt" if parameter_type.max_open else "le"] = parameter_type.max
-    if isinstance(parameter_type, click.Choice):
-        annotation, choice_constraints = _choice_type(parameter_type)
+    info = descriptor.parameter_info
+    if info.min is not None:
+        constraints["ge"] = info.min
+    if info.max is not None:
+        constraints["le"] = info.max
+    if descriptor.choices is not None:
+        annotation, choice_constraints = _choice_type(
+            descriptor.choices, case_sensitive=info.case_sensitive
+        )
         constraints.update(choice_constraints)
     constraints.update(_runtime_constraints(path, public_name))
+    if "gt" in constraints:
+        constraints.pop("ge", None)
     return annotation, constraints
 
 
@@ -91,11 +97,13 @@ def _runtime_constraints(path: str, name: str) -> dict[str, Any]:
         return {"ge": 0, "le": MAX_LIST_LIMIT} if name == "limit" else {"ge": 0}
     if path == "images process" and name == "resolution":
         return {"multiple_of": 32}
+    if path == "images crop-detect" and name in {"nms_iou", "existing_iou"}:
+        return {"gt": 0.0, "le": 1.0}
     return {}
 
 
 def input_model(
-    name: str, command: click.Command, descriptions: dict[str, str], *, path: str
+    name: str, command: TyperCommand | TyperGroup, descriptions: dict[str, str], *, path: str
 ) -> type[BaseModel]:
     """Generate types, aliases, bounds and defaults from the parser's parameters.
 
@@ -105,6 +113,8 @@ def input_model(
     definitions: dict[str, Any] = {}
     metadata_by_name: dict[str, dict[str, Any]] = {}
     for parameter in command.params:
+        if not isinstance(parameter, (TyperArgument, TyperOption)):
+            raise TypeError(f"未対応の CLI 引数型: {type(parameter).__name__}")
         if parameter.is_eager:
             continue
         public_name = parameter_name(parameter, set(descriptions))
@@ -113,10 +123,10 @@ def input_model(
             metadata_by_name[public_name]["x-cli-options"].extend(aliases)
             metadata_by_name[public_name]["x-cli-destinations"].append(parameter.name)
             metadata_by_name[public_name]["x-cli-locations"].append(
-                "argument" if isinstance(parameter, click.Argument) else "option"
+                "argument" if isinstance(parameter, TyperArgument) else "option"
             )
             continue
-        annotation, constraints = _parameter_type(parameter.type, path, public_name)
+        annotation, constraints = _parameter_type(parameter, path, public_name)
         default: Any = parameter.default
         if isinstance(default, Enum):
             default = default.value
@@ -131,7 +141,7 @@ def input_model(
         metadata: dict[str, Any] = {
             "x-cli-options": aliases,
             "x-cli-destinations": [parameter.name],
-            "x-cli-locations": ["argument" if isinstance(parameter, click.Argument) else "option"],
+            "x-cli-locations": ["argument" if isinstance(parameter, TyperArgument) else "option"],
         }
         if path == "annotate run" and public_name == "output":
             metadata["deprecated"] = True

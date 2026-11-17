@@ -1,6 +1,6 @@
 """Issue #241: CLI annotate run の API key validation 単体テスト。
 
-`_validate_required_api_keys()` が provider 別の不足検出を click.UsageError として
+`_validate_required_api_keys()` が provider 別の不足検出を typer.BadParameter として
 送出することを検証する。
 """
 
@@ -9,8 +9,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-import click
 import pytest
+import typer
 
 from lorairo.cli.commands.annotate import _validate_required_api_keys
 
@@ -51,7 +51,7 @@ class TestValidateRequiredApiKeys:
         repository.get_model_by_litellm_id.return_value = _fake_model("openrouter")
         config = _fake_config({"openai_key": "sk-a"})
 
-        with pytest.raises(click.UsageError) as excinfo:
+        with pytest.raises(typer.BadParameter) as excinfo:
             _validate_required_api_keys(repository, config, ["openrouter/openai/gpt-4o"])
 
         message = excinfo.value.message
@@ -96,7 +96,7 @@ class TestValidateRequiredApiKeys:
         repository.get_model_by_litellm_id.side_effect = lambda lid: provider_map.get(lid)
         config = _fake_config({})  # 全 key 空
 
-        with pytest.raises(click.UsageError) as excinfo:
+        with pytest.raises(typer.BadParameter) as excinfo:
             _validate_required_api_keys(repository, config, ["openai/gpt-4o", "anthropic/claude-3-5"])
 
         message = excinfo.value.message
@@ -139,5 +139,5 @@ class TestValidateRequiredApiKeys:
         repository.get_model_by_litellm_id.return_value = SimpleNamespace(
             provider=provider, requires_api_key=False
         )
-        with pytest.raises(click.UsageError, match="Missing API keys"):
+        with pytest.raises(typer.BadParameter, match="Missing API keys"):
             _validate_required_api_keys(repository, _fake_config({}), [f"{provider}/model"])

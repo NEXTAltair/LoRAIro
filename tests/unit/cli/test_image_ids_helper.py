@@ -2,8 +2,8 @@
 
 from unittest.mock import MagicMock
 
-import click
 import pytest
+import typer
 
 from lorairo.cli._image_ids import MAX_IMAGE_IDS, parse_image_ids, validate_image_ids_exist
 from lorairo.public_api.exceptions import ImageNotFoundError
@@ -21,7 +21,7 @@ class TestParseImageIds:
         assert parse_image_ids("1,,2,") == [1, 2]
 
     def test_raises_usage_error_on_non_integer(self) -> None:
-        with pytest.raises(click.UsageError):
+        with pytest.raises(typer.BadParameter):
             parse_image_ids("1,abc")
 
     @pytest.mark.parametrize(
@@ -37,7 +37,7 @@ class TestParseImageIds:
         self, csv_input: str, expected_escaped: str
     ) -> None:
         """--image-ids の不正トークンに含まれる BOM / ゼロ幅空白 / 制御文字を可視エスケープする (Issue #1507)。"""
-        with pytest.raises(click.UsageError) as exc_info:
+        with pytest.raises(typer.BadParameter) as exc_info:
             parse_image_ids(csv_input)
         assert expected_escaped in exc_info.value.format_message()
 
@@ -84,7 +84,7 @@ class TestParseImageIdsFile:
     def test_missing_file_raises(self) -> None:
         from lorairo.cli._image_ids import parse_image_ids_file
 
-        with pytest.raises(click.UsageError):
+        with pytest.raises(typer.BadParameter):
             parse_image_ids_file("/no/such/file.txt")
 
     def test_non_integer_raises(self, tmp_path) -> None:
@@ -92,7 +92,7 @@ class TestParseImageIdsFile:
 
         f = tmp_path / "ids.txt"
         f.write_text("1,abc,2")
-        with pytest.raises(click.UsageError):
+        with pytest.raises(typer.BadParameter):
             parse_image_ids_file(str(f))
 
     def test_empty_file_raises(self, tmp_path) -> None:
@@ -100,7 +100,7 @@ class TestParseImageIdsFile:
 
         f = tmp_path / "ids.txt"
         f.write_text("\n\n , \n")
-        with pytest.raises(click.UsageError):
+        with pytest.raises(typer.BadParameter):
             parse_image_ids_file(str(f))
 
     def test_utf8_bom_newline_separated_file_parses(self, tmp_path) -> None:
@@ -135,7 +135,7 @@ class TestParseImageIdsFile:
 
         f = tmp_path / "ids_invalid.txt"
         f.write_text(raw_content, encoding="utf-8")
-        with pytest.raises(click.UsageError) as exc_info:
+        with pytest.raises(typer.BadParameter) as exc_info:
             parse_image_ids_file(str(f))
         assert expected_escaped in exc_info.value.format_message()
 
@@ -165,20 +165,20 @@ class TestResolveImageIdsInput:
 
         f = tmp_path / "ids.txt"
         f.write_text("1")
-        with pytest.raises(click.UsageError):
+        with pytest.raises(typer.BadParameter):
             resolve_image_ids_input("1,2", str(f))
 
     def test_neither_specified_raises(self) -> None:
         from lorairo.cli._image_ids import resolve_image_ids_input
 
-        with pytest.raises(click.UsageError):
+        with pytest.raises(typer.BadParameter):
             resolve_image_ids_input(None, None)
 
     def test_csv_over_500_raises(self) -> None:
         from lorairo.cli._image_ids import resolve_image_ids_input
 
         csv = ",".join(str(i) for i in range(501))
-        with pytest.raises(click.UsageError):
+        with pytest.raises(typer.BadParameter):
             resolve_image_ids_input(csv, None)
 
     def test_file_over_500_allowed(self, tmp_path) -> None:

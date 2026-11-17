@@ -9,6 +9,8 @@ loguru の ``logger`` はプロセスグローバルな singleton のため、�
 転送することで、これを防ぐ。
 """
 
+import sys
+from io import StringIO
 from pathlib import Path
 
 import pytest
@@ -16,6 +18,29 @@ from loguru import logger
 
 from lorairo.utils.config import DEFAULT_CLI_LOG_PATH, DEFAULT_LOG_PATH
 from lorairo.utils.log import build_gui_log_config, initialize_logging
+
+
+@pytest.mark.unit
+def test_console_sink_follows_stderr_after_capture_closes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """CliRunner 等が stderr を復元・閉鎖した後も現在の出力先へ記録する。"""
+    previous = StringIO()
+    current = StringIO()
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(sys, "stderr", previous)
+            initialize_logging({"level": "INFO"})
+        previous.close()
+        with monkeypatch.context() as patch:
+            patch.setattr(sys, "stderr", current)
+            logger.warning("stderr redirect regression probe")
+        output = current.getvalue()
+        assert "stderr redirect regression probe" in output
+        assert "Logging error" not in output
+        assert "I/O operation on closed file" not in output
+    finally:
+        logger.remove()
+        previous.close()
+        current.close()
 
 
 @pytest.mark.unit

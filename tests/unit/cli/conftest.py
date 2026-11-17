@@ -4,11 +4,29 @@ Rich/Typer のカラー出力を無効化する autouse フィクスチャを提
 """
 
 from collections import Counter
+from collections.abc import Iterator
 from functools import cache
 
 import pytest
 
 _OBSERVED_SCHEMA_ROWS: Counter[tuple[str, str]] = Counter()
+
+
+@pytest.fixture(autouse=True)
+def isolate_cli_logging(reset_service_container_singleton: None) -> Iterator[None]:
+    """CliRunner が閉じる stderr sink を次のテストへ持ち越さない。
+
+    ServiceContainer の teardown より先に sink を外すため、その fixture に依存する。
+    各テストが logger.remove をモックしても後片付けは実際のメソッドで実施する。
+    """
+    from loguru import logger
+
+    remove = logger.remove
+    remove()
+    try:
+        yield
+    finally:
+        remove()
 
 
 @pytest.fixture(autouse=True)

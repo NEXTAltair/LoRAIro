@@ -19,8 +19,9 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-import click
 import typer
+from typer._click.globals import get_current_context
+from typer.exceptions import TyperException
 
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_error
@@ -88,7 +89,8 @@ def command_boundary() -> Iterator[None]:
         from lorairo.database.access_policy import is_read_only
 
         if is_read_only():
-            context = click.get_current_context(silent=True)
+            # Typer は現在のコンテキスト取得を公開していないため、この境界だけで使う。
+            context = get_current_context(silent=True)
             export_preview = context is not None and context.params.get("dry_run") is True
             parts = []
             while context is not None and context.parent is not None:
@@ -113,8 +115,8 @@ def command_boundary() -> Iterator[None]:
         yield
     except (typer.Exit, typer.Abort):
         raise
-    except click.ClickException as exc:
-        # コマンド本体内で送出された usage / parameter エラー (例: click.UsageError) は
+    except TyperException as exc:
+        # コマンド本体内で送出された usage / parameter エラー (例: typer.BadParameter) は
         # 入力エラーとして INVALID_INPUT + exit 2 に統一する (ADR 0057 §6/§7)。
         info = ErrorInfo(ErrorCode.INVALID_INPUT, retryable=False, user_action_required=True)
         message = exc.format_message() if hasattr(exc, "format_message") else str(exc)

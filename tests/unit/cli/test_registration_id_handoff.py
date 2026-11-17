@@ -5,7 +5,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import click
 import pytest
 import typer
 from PIL import Image
@@ -102,7 +101,7 @@ def test_id_file_boundaries(tmp_path, count):
     path = tmp_path / "ids.txt"
     path.write_text("\n".join(map(str, range(1, count + 1))), encoding="utf-8")
     if count in (0, 100001):
-        with pytest.raises(click.UsageError):
+        with pytest.raises(typer.BadParameter):
             parse_image_ids_file(str(path))
     else:
         assert parse_image_ids_file(str(path)) == list(range(1, count + 1))
@@ -112,7 +111,7 @@ def test_id_file_boundaries(tmp_path, count):
 def test_bad_id_file_is_machine_readable_input_error(tmp_path, content):
     path = tmp_path / "ids.txt"
     path.write_bytes(content)
-    with pytest.raises(click.UsageError):
+    with pytest.raises(typer.BadParameter):
         parse_image_ids_file(str(path))
 
 
@@ -197,7 +196,7 @@ def test_annotation_id_input_is_complete_and_bounded(tmp_path, monkeypatch, caps
 
 @pytest.mark.parametrize(
     "failure",
-    [RuntimeError("inference failed"), KeyboardInterrupt(), click.UsageError("inference refused")],
+    [RuntimeError("inference failed"), KeyboardInterrupt(), typer.BadParameter("inference refused")],
 )
 def test_annotation_interruption_partitions_all_input_ids(tmp_path, monkeypatch, capsys, failure):
     container = container_for_ids(tmp_path, 5)
@@ -312,7 +311,7 @@ def test_batch_validates_last_chunk_before_first_provider_call(tmp_path, failure
             None,
             ValueError("bad metadata"),
         ]
-    with pytest.raises((click.UsageError, ValueError)):
+    with pytest.raises((typer.BadParameter, ValueError)):
         submit(container, list(range(1, 502)))
     container.provider_batch_workflow_service.submit_images.assert_not_called()
 
@@ -702,9 +701,9 @@ def test_annotation_preflight_input_error_keeps_validation_boundary(tmp_path, mo
     container = container_for_ids(tmp_path, 1)
     monkeypatch.setattr(
         "lorairo.cli._annotation_ids._make_preflight",
-        MagicMock(side_effect=click.UsageError("missing key")),
+        MagicMock(side_effect=typer.BadParameter("missing key")),
     )
-    with pytest.raises(click.UsageError, match="missing key"):
+    with pytest.raises(typer.BadParameter, match="missing key"):
         run_id_annotation(
             container,
             image_ids=[1],

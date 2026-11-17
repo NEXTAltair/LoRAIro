@@ -17,11 +17,11 @@ import sys
 import traceback
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-import click
 import typer
 from rich.table import Table
+from typer.exceptions import TyperException
 
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
@@ -184,7 +184,7 @@ def _configure(
                 else:
                     selected = resolve_runtime_configuration(workspace, config_path)
             except (ValueError, KeyError, OSError) as exc:
-                raise click.BadParameter(str(exc), param_hint="--workspace / --config") from exc
+                raise typer.BadParameter(str(exc), param_hint="--workspace / --config") from exc
             if read_only:
                 from lorairo.database.access_policy import read_only_scope
 
@@ -239,16 +239,15 @@ def list_commands() -> None:
 @app.command("describe")
 def describe(
     command: str = typer.Argument(..., help="Space-separated command path, e.g. 'images update'."),
-    schema: str = typer.Option(
+    schema: Literal["compact", "json_schema"] = typer.Option(
         "compact",
         "--schema",
-        click_type=click.Choice(["compact", "json_schema"]),
         help="Schema representation: compact or json_schema.",
     ),
 ) -> None:
     """Describe a command for agents and CI."""
     with command_boundary():
-        emit_describe(command, schema=schema)  # type: ignore[arg-type]
+        emit_describe(command, schema=schema)
 
 
 def _configuration_sources() -> tuple[Path, Path | None, Path | None]:
@@ -400,7 +399,7 @@ def _report_error(message: str, info: ErrorInfo, *, json_mode: bool) -> None:
         console_err.print(f"[red]Error:[/red] {message}")
 
 
-def _handle_click_exception(exc: click.ClickException, *, json_mode: bool) -> int:
+def _handle_typer_exception(exc: TyperException, *, json_mode: bool) -> int:
     """Click の usage / parse error を ``INVALID_INPUT`` で処理する (ADR 0057 §7)。
 
     Args:
@@ -459,10 +458,10 @@ def main(argv: list[str] | None = None) -> None:
         # standalone_mode=False: ctx.exit() / --help は exit code を返し、
         # ClickException / Abort / 一般例外は伝播する。
         result = app(args=cli_argv, standalone_mode=False)
-    except click.exceptions.Abort:
+    except typer.Abort:
         raise SystemExit(130) from None
-    except click.ClickException as exc:
-        raise SystemExit(_handle_click_exception(exc, json_mode=json_mode)) from exc
+    except TyperException as exc:
+        raise SystemExit(_handle_typer_exception(exc, json_mode=json_mode)) from exc
     except SystemExit:
         raise
     except Exception as exc:  # CLI 最上位エラー境界 (ADR 0057 §7)
