@@ -123,6 +123,10 @@ for _submod_name in _ial_submodules:
     _submod.__package__ = _submod_name
     sys.modules[_submod_name] = _submod
 
+# pytest 9.2 は monkeypatch 復元時に実際のインスタンス属性を参照する。
+# 動的生成された MagicMock の子属性を削除済みにしないよう、共有 registry を明示する。
+sys.modules["image_annotator_lib.core.config"].config_registry = _ial_mock.config_registry
+
 # --- 2. genai-tag-db-tools Initialization Mock ---
 # db_core モジュールレベル初期化での RuntimeError を防止
 
