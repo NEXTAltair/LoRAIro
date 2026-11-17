@@ -14,7 +14,7 @@ Model Selection Widget
 from __future__ import annotations
 
 import weakref
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QCloseEvent
@@ -110,7 +110,7 @@ if not __name__ == "__main__":
             "利用可能なWeb APIモデルがありません。APIキー設定とモデルregistry同期状態を確認してください。"
         )
         _auto_refresh_started = False
-        _live_auto_refresh_widgets: weakref.WeakSet[ModelSelectionWidget] = weakref.WeakSet()
+        _live_auto_refresh_widgets: ClassVar[weakref.WeakSet[ModelSelectionWidget]] = weakref.WeakSet()
 
         # UI elements type hints (from Ui_ModelSelectionWidget via multi-inheritance)
         if TYPE_CHECKING:

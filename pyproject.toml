@@ -44,10 +44,7 @@ dependencies = [
     "alembic>=1.15.2",
     "huggingface_hub[hf_xet]",
     # CLI系
-    # Typer 0.26+ は Click を vendor 化し、コマンド introspection とエラー境界で
-    # 使用する外部 Click API をサポートしないため、互換版の上限を維持する。
-    # https://typer.tiangolo.com/tutorial/click/
-    "typer>=0.12.0,<0.26.0",
+    "typer>=0.29.1",
     "rich>=13.0.0",
     # GUI系
     "PySide6>=6.8.0.2",
@@ -100,9 +97,6 @@ exclude-dependencies = ["triton"]
 # Anthropic SDK 1.x は httpx2 へ移行したが、pydantic-ai の AnthropicProvider と
 # retry client は httpx.AsyncClient を注入するため TypeError になる。対応まで 0.x を使う。
 # https://github.com/anthropics/anthropic-sdk-python/blob/main/MIGRATION.md
-# Click 8.5 は Argument.help を追加し、Typer 0.25.1 の位置引数の help を None で
-# 上書きするため、CLI help と公開 schema を維持できる 8.4 系までに制限する。
-# https://click.palletsprojects.com/en/stable/api/#click.Argument
 # pre-commit の virtualenv は既定のバックグラウンド更新でも wheel を取得する。
 # 検証失敗した wheel が再利用キャッシュに残る GHSA-494p-63j8-28p3 の修正版を使う。
 # certifi の侵害された emSign 中間CAを信頼するルートを除去する (GHSA-6q48-6c7w-9gw2)。
@@ -110,7 +104,6 @@ exclude-dependencies = ["triton"]
 constraint-dependencies = [
     "diffusers>=0.38.0",
     "anthropic<1.0",
-    "click<8.5",
     "virtualenv>=21.14.9",
     "certifi>=2026.10.19",
 ]
