@@ -115,6 +115,13 @@ def _level_filter(record: "Record", default_level_no: int, module_level_nos: dic
     return should_pass
 
 
+def _write_to_current_stderr(message: str) -> None:
+    """リダイレクト前の閉じた stream を保持せず、現在の stderr に出力する。"""
+    stream = sys.stderr
+    stream.write(message)
+    stream.flush()
+
+
 def initialize_logging(log_config: dict[str, Any]) -> None:
     """Loguruのロガーを設定します。
 
@@ -147,7 +154,7 @@ def initialize_logging(log_config: dict[str, Any]) -> None:
     # --- シンクの追加 ---
     # コンソールシンク (stderr)
     logger.add(
-        sys.stderr,
+        _write_to_current_stderr,
         level=0,  # フィルタでレベル制御するため、シンク自体のレベルは最低(0)に設定
         filter=filter_func,  # 作成したフィルタ関数を適用
         format=LOG_FORMAT,
