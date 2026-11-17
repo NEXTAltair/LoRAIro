@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 
-import click
 import pytest
+import typer
 
 from lorairo.cli._errors import ErrorCode, classify_exception
 from lorairo.cli.commands.annotate import AnnotationRunFailedError, AnnotationSelectionError
-from lorairo.cli.main import _handle_cli_exception, _handle_click_exception
+from lorairo.cli.main import _handle_cli_exception, _handle_typer_exception
 from lorairo.public_api import exceptions as app_exc
 
 
@@ -57,9 +57,9 @@ def test_handle_cli_exception_internal_writes_traceback(capsys: pytest.CaptureFi
 
 @pytest.mark.unit
 @pytest.mark.cli
-def test_handle_click_exception_maps_to_invalid_input(capsys: pytest.CaptureFixture[str]) -> None:
+def test_handle_typer_exception_maps_to_invalid_input(capsys: pytest.CaptureFixture[str]) -> None:
     """Click usage error → INVALID_INPUT 行 + exit 2。"""
-    exit_code = _handle_click_exception(click.UsageError("no such option"), json_mode=True)
+    exit_code = _handle_typer_exception(typer.BadParameter("no such option"), json_mode=True)
     line = _stdout_error_line(capsys.readouterr().out)
     assert exit_code == 2
     assert line["code"] == "INVALID_INPUT"

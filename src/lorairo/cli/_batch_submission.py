@@ -2,7 +2,6 @@
 
 from typing import Any
 
-import click
 import typer
 from PIL import Image
 
@@ -26,7 +25,7 @@ def _validate_image_paths(paths: dict[int, str]) -> None:
             with Image.open(path) as image:
                 image.verify()
         except (OSError, ValueError) as exc:
-            raise click.UsageError(f"Cannot submit image {image_id}: {exc}. No jobs submitted.") from exc
+            raise typer.BadParameter(f"Cannot submit image {image_id}: {exc}. No jobs submitted.") from exc
 
 
 def _prevalidate(
@@ -46,7 +45,9 @@ def _prevalidate(
             selected = {int(record["id"]): record.get("stored_image_path") for record in records}
         for image_id in chunk:
             if not selected.get(image_id):
-                raise click.UsageError(f"No stored image path for image_id={image_id}. No jobs submitted.")
+                raise typer.BadParameter(
+                    f"No stored image path for image_id={image_id}. No jobs submitted."
+                )
             paths[image_id] = str(resolve_stored_path(str(selected[image_id])))
     _validate_image_paths(paths)
     # Validate custom_id metadata, task/model compatibility, and every request before send.

@@ -2,7 +2,6 @@
 
 from dataclasses import asdict
 
-import click
 import typer
 
 from lorairo.cli._boundary import command_boundary
@@ -38,7 +37,7 @@ def process(
     with command_boundary():
         image_ids, _from_file = resolve_image_ids_input(image_ids_csv, image_ids_file)
         if resolution % 32:
-            raise click.UsageError("--resolution must be a multiple of 32 between 32 and 8192")
+            raise typer.BadParameter("--resolution must be a multiple of 32 between 32 and 8192")
         outcomes = process_images(project, image_ids, resolution, rebuild=rebuild)
         processed_ids = [item.image_id for item in outcomes if item.status == "success"]
         skipped_ids = [item.image_id for item in outcomes if item.status == "skipped"]

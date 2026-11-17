@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import click
 import typer
 
 from lorairo.cli._annotation_ids import _emit_outcome, _make_preflight, _select_ids, _validate_selection
@@ -88,7 +87,7 @@ def _select_new_run(
             for row in _select_image_records(records, limit=limit, offset=offset, image_ids=None)
         ]
     if not selected:
-        raise click.UsageError("No images selected for this annotation run")
+        raise typer.BadParameter("No images selected for this annotation run")
     if not file_input and len(selected) > MAX_ANNOTATE_IMAGES:
         raise ResultSetTooLargeError(len(selected), MAX_ANNOTATE_IMAGES)
     return selected
@@ -270,7 +269,7 @@ def run_durable_annotation(
                     "settings": settings,
                 }.items()
             ):
-                raise click.UsageError(
+                raise typer.BadParameter(
                     "Run project/database/model/configuration differs; resume refused before provider calls"
                 )
             stored = ledger.images()
@@ -280,7 +279,7 @@ def run_durable_annotation(
             if {row["image_id"]: row["identity"] for row in stored} != {
                 row["image_id"]: row["identity"] for row in snapshots
             }:
-                raise click.UsageError(
+                raise typer.BadParameter(
                     "Run image identity/content changed; resume refused before provider calls"
                 )
         else:

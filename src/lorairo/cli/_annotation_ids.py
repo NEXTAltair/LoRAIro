@@ -2,7 +2,6 @@
 
 from typing import Any
 
-import click
 import typer
 from loguru import logger
 
@@ -211,7 +210,7 @@ def _execute_ids(
                     record["stored_image_path"] = paths[int(record["id"])]
             _annotate_chunk(container, records, models, preflight, statuses, counters)
     except (Exception, KeyboardInterrupt) as exc:
-        if not current and isinstance(exc, (click.UsageError, typer.Exit)):
+        if not current and isinstance(exc, (typer.BadParameter, typer.Exit)):
             # Setup validation keeps the input-error boundary; execution failures retain ID accounting.
             raise
         interrupted = isinstance(exc, KeyboardInterrupt)

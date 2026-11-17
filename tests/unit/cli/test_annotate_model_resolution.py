@@ -9,8 +9,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-import click
 import pytest
+import typer
 from PIL import Image
 from typer.testing import CliRunner
 
@@ -79,7 +79,7 @@ class TestResolveModelIdentifier:
             _fake_model("openrouter/openai/gpt-4o", "gpt-4o", "openrouter"),
         ]
 
-        with pytest.raises(click.UsageError) as excinfo:
+        with pytest.raises(typer.BadParameter) as excinfo:
             _resolve_model_identifier(repository, "gpt-4o")
 
         out = excinfo.value.message
@@ -94,7 +94,7 @@ class TestResolveModelIdentifier:
         repository.get_model_by_litellm_id.return_value = None
         repository.get_models_by_name.return_value = []
 
-        with pytest.raises(click.UsageError) as excinfo:
+        with pytest.raises(typer.BadParameter) as excinfo:
             _resolve_model_identifier(repository, "totally-unknown-model")
 
         out = excinfo.value.message
@@ -120,7 +120,7 @@ class TestResolveModelIdentifier:
         )
         repository.get_model_by_litellm_id.return_value = target
 
-        with pytest.raises(click.UsageError) as excinfo:
+        with pytest.raises(typer.BadParameter) as excinfo:
             _resolve_model_identifier(repository, "openai/o4-mini-deep-research-2025-06-26")
 
         out = excinfo.value.message
@@ -134,7 +134,7 @@ class TestResolveModelIdentifier:
             _fake_model("openai/removed", "removed", "openai", available=False),
         ]
 
-        with pytest.raises(click.UsageError) as excinfo:
+        with pytest.raises(typer.BadParameter) as excinfo:
             _resolve_model_identifier(repository, "removed")
 
         assert "discontinued" in excinfo.value.message
@@ -149,7 +149,7 @@ class TestResolveModelIdentifier:
         repository.get_models_by_name.return_value = [
             _fake_model(f"openrouter/{identifier}", identifier, "openrouter")
         ]
-        with pytest.raises(click.UsageError, match="must match exactly"):
+        with pytest.raises(typer.BadParameter, match="must match exactly"):
             _resolve_model_identifier(repository, identifier)
         repository.get_models_by_name.assert_called_once_with(identifier)
 

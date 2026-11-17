@@ -12,7 +12,6 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import click
 import typer
 from genai_tag_db_tools.utils.cleanup_str import TagCleaner
 
@@ -200,7 +199,7 @@ def _bulk_add(
     classifications = [annotation_repo.classify_manual_tag(tag) for tag in tag_list]
     addable = [c for c in classifications if c.classification != "invalid"]
     if not addable:
-        raise click.UsageError("--tags の全タグが正規化後に空になりました (追加対象なし)。")
+        raise typer.BadParameter("--tags の全タグが正規化後に空になりました (追加対象なし)。")
     invalid_tags = [c.input_tag for c in classifications if c.classification == "invalid"]
     applied_tags = [c.input_tag for c in addable]
 
@@ -291,7 +290,7 @@ def add(
 
         tag_list = [t.strip() for t in tags_csv.split(",") if t.strip()]
         if not tag_list:
-            raise click.UsageError("--tags に有効な値がありません。")
+            raise typer.BadParameter("--tags に有効な値がありません。")
 
         api_get_project(project)
         container = get_service_container()
@@ -310,7 +309,7 @@ def add(
         classifications = [annotation_repo.classify_manual_tag(tag) for tag in tag_list]
         addable = [c for c in classifications if c.classification != "invalid"]
         if not addable:
-            raise click.UsageError("--tags の全タグが正規化後に空になりました (追加対象なし)。")
+            raise typer.BadParameter("--tags の全タグが正規化後に空になりました (追加対象なし)。")
 
         resolutions, total_added, total_would_add = _apply_classified_tags(
             annotation_repo, addable, image_ids, dry_run
@@ -469,7 +468,7 @@ def remove(
 
         tag_list = [t.strip() for t in tags_csv.split(",") if t.strip()]
         if not tag_list:
-            raise click.UsageError("--tags に有効な値がありません。")
+            raise typer.BadParameter("--tags に有効な値がありません。")
 
         api_get_project(project)
         container = get_service_container()
@@ -617,9 +616,9 @@ def replace(
     with command_boundary():
         image_ids, is_file = resolve_image_ids_input(image_ids_csv, image_ids_file)
         if not from_tag.strip():
-            raise click.UsageError("--from に有効な値がありません。")
+            raise typer.BadParameter("--from に有効な値がありません。")
         if not to_tag.strip():
-            raise click.UsageError("--to に有効な値がありません。")
+            raise typer.BadParameter("--to に有効な値がありません。")
 
         api_get_project(project)
         container = get_service_container()
@@ -745,7 +744,7 @@ def translations_show(
     """
     with command_boundary():
         if bool(image_ids_csv) == bool(tags_csv):
-            raise click.UsageError("--image-ids か --tags のどちらか一方を指定してください。")
+            raise typer.BadParameter("--image-ids か --tags のどちらか一方を指定してください。")
         api_get_project(project)
         container = get_service_container()
         container.set_active_project(project)
@@ -819,9 +818,9 @@ def _show_translations_for_tags(
     """--tags 指定の翻訳状況表示 (translations show の下請け)。"""
     tag_names = [t.strip() for t in tags_csv.split(",") if t.strip()]
     if not tag_names:
-        raise click.UsageError("--tags に有効な値がありません。")
+        raise typer.BadParameter("--tags に有効な値がありません。")
     if len(tag_names) > MAX_TRANSLATION_TAGS:
-        raise click.UsageError(f"--tags は最大 {MAX_TRANSLATION_TAGS} 件まで。")
+        raise typer.BadParameter(f"--tags は最大 {MAX_TRANSLATION_TAGS} 件まで。")
     entries = _translation_status_entries(service, tag_names)
     if missing_only:
         _emit_capped_missing_pairs(_missing_pair_items(entries), target_tags=len(entries))
@@ -900,9 +899,9 @@ def _show_translations_for_images(
     """--image-ids 指定の翻訳状況表示 (translations show の下請け)。"""
     image_ids = parse_image_ids(image_ids_csv)
     if not image_ids:
-        raise click.UsageError("--image-ids に有効な値がありません。")
+        raise typer.BadParameter("--image-ids に有効な値がありません。")
     if len(image_ids) > MAX_IMAGE_IDS:
-        raise click.UsageError(f"--image-ids は最大 {MAX_IMAGE_IDS} 件まで。")
+        raise typer.BadParameter(f"--image-ids は最大 {MAX_IMAGE_IDS} 件まで。")
     validate_image_ids_exist(container, image_ids)
 
     annotations_by_id = container.db_manager.image_repo.get_image_annotations_batch(image_ids)
@@ -980,14 +979,14 @@ def _parse_translation_line(
         検証済み request。スキップ対象 (kind=result/error) の行は None。
 
     Raises:
-        click.UsageError: JSON 不正・object 以外・必須キー欠落・非対応言語・空 text。
+        typer.BadParameter: JSON 不正・object 以外・必須キー欠落・非対応言語・空 text。
     """
     try:
         row = json.loads(line)
     except json.JSONDecodeError as e:
-        raise click.UsageError(f"--file {line_no} 行目が JSON として不正です: {e}") from e
+        raise typer.BadParameter(f"--file {line_no} 行目が JSON として不正です: {e}") from e
     if not isinstance(row, dict):
-        raise click.UsageError(f"--file {line_no} 行目は JSON object ではありません。")
+        raise typer.BadParameter(f"--file {line_no} 行目は JSON object ではありません。")
     # show --missing-only --json の終端 result 行 (や error 行) はスキップする。
     kind = row.get("kind")
     if kind in ("result", "error"):
@@ -996,17 +995,17 @@ def _parse_translation_line(
     lang = str(row.get("lang") or "").strip()
     text = str(row.get("text") or "").strip()
     if not tag:
-        raise click.UsageError(f"--file {line_no} 行目: 'tag' がありません。")
+        raise typer.BadParameter(f"--file {line_no} 行目: 'tag' がありません。")
     if lang not in _SUPPORTED_LANGS:
-        raise click.UsageError(
+        raise typer.BadParameter(
             f"--file {line_no} 行目: 'lang' は {'/'.join(_SUPPORTED_LANGS)} のみ対応です。"
         )
     if not text:
-        raise click.UsageError(f"--file {line_no} 行目: 'text' が空です (翻訳を埋めてください)。")
+        raise typer.BadParameter(f"--file {line_no} 行目: 'text' が空です (翻訳を埋めてください)。")
     # preferred は JSON boolean のみ許容する (Codex P2)。"false" 等の文字列を bool() で
     # 強制すると非空文字列が True 扱いになり、行が false でも主訳化されてしまう。
     if "preferred" in row and not isinstance(row["preferred"], bool):
-        raise click.UsageError(
+        raise typer.BadParameter(
             f"--file {line_no} 行目: 'preferred' は true/false (JSON boolean) で指定してください。"
         )
     preferred = bool(row["preferred"]) if "preferred" in row else default_preferred
@@ -1022,11 +1021,11 @@ def _parse_translation_file(file_path: str, default_preferred: bool = False) -> 
     (コマンドの --preferred フラグ) を既定にする (Codex P2)。
 
     Raises:
-        click.UsageError: JSON 不正・必須キー欠落・非対応言語・空 text・件数超過。
+        typer.BadParameter: JSON 不正・必須キー欠落・非対応言語・空 text・件数超過。
     """
     path = Path(file_path)
     if not path.is_file():
-        raise click.UsageError(f"--file '{file_path}' が見つかりません。")
+        raise typer.BadParameter(f"--file '{file_path}' が見つかりません。")
     requests: list[dict[str, object]] = []
     for line_no, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         line = raw_line.strip()
@@ -1036,9 +1035,9 @@ def _parse_translation_file(file_path: str, default_preferred: bool = False) -> 
         if parsed is not None:  # kind=result/error 行はスキップ
             requests.append(parsed)
     if not requests:
-        raise click.UsageError("--file に有効な行がありません。")
+        raise typer.BadParameter("--file に有効な行がありません。")
     if len(requests) > MAX_TRANSLATION_TAGS:
-        raise click.UsageError(f"--file は最大 {MAX_TRANSLATION_TAGS} 行まで。")
+        raise typer.BadParameter(f"--file は最大 {MAX_TRANSLATION_TAGS} 行まで。")
     return requests
 
 
@@ -1176,9 +1175,9 @@ def translations_add(
     """
     with command_boundary():
         if file is not None and (tag is not None or lang is not None or text is not None):
-            raise click.UsageError("--file と --tag/--lang/--text は同時に指定できません。")
+            raise typer.BadParameter("--file と --tag/--lang/--text は同時に指定できません。")
         if file is None and (tag is None or lang is None or text is None):
-            raise click.UsageError("--tag/--lang/--text の3つ、または --file を指定してください。")
+            raise typer.BadParameter("--tag/--lang/--text の3つ、または --file を指定してください。")
 
         dry_run = not apply
 
@@ -1193,10 +1192,10 @@ def translations_add(
 
         assert tag is not None and lang is not None and text is not None
         if lang not in _SUPPORTED_LANGS:
-            raise click.UsageError(f"--lang は {'/'.join(_SUPPORTED_LANGS)} のみ対応です。")
+            raise typer.BadParameter(f"--lang は {'/'.join(_SUPPORTED_LANGS)} のみ対応です。")
         text_value = text.strip()
         if not text_value:
-            raise click.UsageError("--text に有効な値がありません。")
+            raise typer.BadParameter("--text に有効な値がありません。")
         api_get_project(project)
         container = get_service_container()
         container.set_active_project(project)
@@ -1204,12 +1203,12 @@ def translations_add(
 
         classification = annotation_repo.classify_manual_tag(tag)
         if classification.classification == "invalid":
-            raise click.UsageError(f"--tag '{tag}' は正規化後に空になるため対象にできません。")
+            raise typer.BadParameter(f"--tag '{tag}' は正規化後に空になるため対象にできません。")
         if classification.tag_id is None and classification.classification in (
             "typo_candidate",
             "ambiguous",
         ):
-            raise click.UsageError(
+            raise typer.BadParameter(
                 f"--tag '{tag}' は未登録で類似候補があります: {classification.candidates}。"
                 "正タグへ翻訳を付けるか、`tags alias` で確定してから再実行してください。"
             )
@@ -1254,11 +1253,11 @@ def _resolve_translation_target_tag_id(service: TagManagementService, tag: str) 
     `set_preferred_translation` と同じ完全一致解決 (`resolve_tag_id`) を使う。
 
     Raises:
-        click.UsageError: canonical が tag DB で解決できない場合。
+        typer.BadParameter: canonical が tag DB で解決できない場合。
     """
     tag_id = service.resolve_tag_id(tag)
     if tag_id is None:
-        raise click.UsageError(f"--tag '{tag}' が tag DB に見つかりません。")
+        raise typer.BadParameter(f"--tag '{tag}' が tag DB に見つかりません。")
     return tag_id
 
 
@@ -1280,10 +1279,10 @@ def translations_delete(
     """
     with command_boundary():
         if lang not in _SUPPORTED_LANGS:
-            raise click.UsageError(f"lang は {'/'.join(_SUPPORTED_LANGS)} のみ対応です。")
+            raise typer.BadParameter(f"lang は {'/'.join(_SUPPORTED_LANGS)} のみ対応です。")
         text_value = text.strip()
         if not text_value:
-            raise click.UsageError("text に有効な値がありません。")
+            raise typer.BadParameter("text に有効な値がありません。")
         api_get_project(project)
         container = get_service_container()
         container.set_active_project(project)
@@ -1337,10 +1336,10 @@ def translations_suppress(
     """
     with command_boundary():
         if lang not in _SUPPORTED_LANGS:
-            raise click.UsageError(f"lang は {'/'.join(_SUPPORTED_LANGS)} のみ対応です。")
+            raise typer.BadParameter(f"lang は {'/'.join(_SUPPORTED_LANGS)} のみ対応です。")
         text_value = text.strip()
         if not text_value:
-            raise click.UsageError("text に有効な値がありません。")
+            raise typer.BadParameter("text に有効な値がありません。")
         api_get_project(project)
         container = get_service_container()
         container.set_active_project(project)
@@ -1390,10 +1389,10 @@ def translations_unsuppress(
     """
     with command_boundary():
         if lang not in _SUPPORTED_LANGS:
-            raise click.UsageError(f"lang は {'/'.join(_SUPPORTED_LANGS)} のみ対応です。")
+            raise typer.BadParameter(f"lang は {'/'.join(_SUPPORTED_LANGS)} のみ対応です。")
         text_value = text.strip()
         if not text_value:
-            raise click.UsageError("text に有効な値がありません。")
+            raise typer.BadParameter("text に有効な値がありません。")
         api_get_project(project)
         container = get_service_container()
         container.set_active_project(project)
@@ -1453,12 +1452,12 @@ def alias_tag(
 
         to_cls = annotation_repo.classify_manual_tag(to_tag)
         if to_cls.tag_id is None:
-            raise click.UsageError(
+            raise typer.BadParameter(
                 f"--to '{to_tag}' が tag DB に見つかりません。alias 先は既存タグを指定してください。"
             )
         from_cls = annotation_repo.classify_manual_tag(from_tag)
         if from_cls.classification == "invalid":
-            raise click.UsageError(f"--from '{from_tag}' は正規化後に空になるため登録できません。")
+            raise typer.BadParameter(f"--from '{from_tag}' は正規化後に空になるため登録できません。")
         if from_cls.tag_id is not None:
             if from_cls.canonical_tag == to_cls.canonical_tag:
                 # 既に同じ preferred へ解決される → 冪等 no-op
@@ -1473,7 +1472,7 @@ def alias_tag(
                 else:
                     console.print(f"{OK} '{from_tag}' は既に '{to_cls.canonical_tag}' へ解決されます")
                 return
-            raise click.UsageError(
+            raise typer.BadParameter(
                 f"--from '{from_tag}' は既存タグ (tag_id={from_cls.tag_id}, "
                 f"canonical='{from_cls.canonical_tag}') です。既存タグの付け替えは CLI では行いません。"
             )

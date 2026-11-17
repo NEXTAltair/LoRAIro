@@ -2,7 +2,7 @@
 
 出力は ADR 0057/0058 に従う: ``--json`` 時は stdout に JSONL (item/result)、
 それ以外は rich 人間向け。エラー整形は :func:`lorairo.cli._boundary.command_boundary`
-に集約し、検証エラーは ``click.UsageError`` (INVALID_INPUT / exit 2) で送出する。
+に集約し、検証エラーは ``typer.BadParameter`` (INVALID_INPUT / exit 2) で送出する。
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import click
 import typer
 from rich.table import Table
 
@@ -92,11 +91,11 @@ def _resolve_model(repository: Any, identifier: str) -> Any:
         candidates = "\n".join(
             f"  - {model.litellm_model_id} (provider: {model.provider or 'unknown'})" for model in by_name
         )
-        raise click.UsageError(
+        raise typer.BadParameter(
             f"Ambiguous model '{identifier}':\n{candidates}\nUse the full LiteLLM model ID."
         )
 
-    raise click.UsageError(f"Unknown model '{identifier}'. Run `lorairo-cli models list`.")
+    raise typer.BadParameter(f"Unknown model '{identifier}'. Run `lorairo-cli models list`.")
 
 
 def _infer_provider(model: Any, explicit_provider: str | None) -> str:
@@ -111,7 +110,7 @@ def _infer_provider(model: Any, explicit_provider: str | None) -> str:
     if provider in {"openai", "anthropic", "google"}:
         return provider
 
-    raise click.UsageError(
+    raise typer.BadParameter(
         f"Could not infer a direct Provider Batch provider for {litellm_model_id!r}. "
         "Use a direct openai/... or anthropic/... model."
     )
@@ -119,9 +118,9 @@ def _infer_provider(model: Any, explicit_provider: str | None) -> str:
 
 def _validate_submit_provider(provider: str) -> None:
     if provider == "google":
-        raise click.UsageError("Google Provider Batch submit is disabled until Phase 3.")
+        raise typer.BadParameter("Google Provider Batch submit is disabled until Phase 3.")
     if provider not in _SUPPORTED_SUBMIT_PROVIDERS:
-        raise click.UsageError(
+        raise typer.BadParameter(
             f"Unsupported Provider Batch provider '{provider}'. Supported providers: openai, anthropic."
         )
 
@@ -135,13 +134,13 @@ def _resolve_submit_endpoint(provider: str, task_type: str, endpoint: str | None
     provider_endpoints = _TASK_TYPE_ENDPOINTS.get(task_type, _TASK_TYPE_ENDPOINTS["annotation"])
     expected_endpoint = provider_endpoints.get(provider)
     if expected_endpoint is None:
-        raise click.UsageError(f"Task type '{task_type}' is not supported for provider '{provider}'.")
+        raise typer.BadParameter(f"Task type '{task_type}' is not supported for provider '{provider}'.")
     if endpoint is None:
         return expected_endpoint
     if task_type == "rating_preflight":
         normalized_endpoint = endpoint if endpoint.startswith("/") else f"/{endpoint}"
         if normalized_endpoint.rstrip("/") != expected_endpoint:
-            raise click.UsageError("rating_preflight submit requires endpoint /v1/moderations.")
+            raise typer.BadParameter("rating_preflight submit requires endpoint /v1/moderations.")
         return expected_endpoint
     return endpoint
 
@@ -219,7 +218,7 @@ def _parse_image_ids_csv(value: str) -> list[int]:
             details.append("empty item(s)")
         if not image_ids:
             details.append("no image IDs")
-        raise click.UsageError(
+        raise typer.BadParameter(
             "--image-ids must be a comma-separated list of integer image IDs "
             f"(example: --image-ids 2,7,11): {'; '.join(details)}"
         )
@@ -363,7 +362,7 @@ def _resolve_processed_image_paths(
         image_id -> stored_image_path の辞書。全 ID が解決された場合のみ返る。
 
     Raises:
-        click.UsageError: 指定解像度の processed image が存在しない image_id がある場合。
+        typer.BadParameter: 指定解像度の processed image が存在しない image_id がある場合。
 
     """
     image_repo = container.db_manager.image_repo
@@ -377,7 +376,7 @@ def _resolve_processed_image_paths(
     if missing:
         sample = ", ".join(str(i) for i in missing[:5])
         suffix = " ..." if len(missing) > 5 else ""
-        raise click.UsageError(
+        raise typer.BadParameter(
             f"No processed image at resolution {resolution} for image_id(s): {sample}{suffix}"
         )
 
@@ -428,7 +427,7 @@ def submit(
     """
     with command_boundary():
         if image_ids_csv is not None and image_ids_file is not None:
-            raise click.UsageError("--image-ids and --image-ids-file are mutually exclusive.")
+            raise typer.BadParameter("--image-ids and --image-ids-file are mutually exclusive.")
         image_ids = (
             parse_image_ids_file(image_ids_file)
             if image_ids_file is not None
@@ -441,15 +440,15 @@ def submit(
         _validate_submit_provider(resolved_provider)
         normalized_task_type = task_type.strip().lower()
         if normalized_task_type not in _SUPPORTED_TASK_TYPES:
-            raise click.UsageError(f"Unsupported task type '{task_type}'.")
+            raise typer.BadParameter(f"Unsupported task type '{task_type}'.")
         if normalized_task_type == "rating_preflight":
             if resolved_provider != "openai":
-                raise click.UsageError(
+                raise typer.BadParameter(
                     "rating_preflight submit is only supported for direct openai models "
                     "such as openai/omni-moderation-latest."
                 )
             if not _model_has_model_type(db_model, "ratings"):
-                raise click.UsageError(
+                raise typer.BadParameter(
                     "rating_preflight submit requires a ratings model_type using openai/omni-moderation-*."
                 )
 
@@ -529,7 +528,7 @@ def status(
             else container.db_manager.provider_batch_repo.get_provider_batch_job(job_id)
         )
         if job is None:
-            raise click.UsageError(f"Provider Batch job not found: {job_id}")
+            raise typer.BadParameter(f"Provider Batch job not found: {job_id}")
 
         fetched_items: list[Any] = []
         if show_items:

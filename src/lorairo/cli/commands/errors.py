@@ -8,7 +8,6 @@ DB の error_records テーブルを閲覧・解決マークするコマンド�
 
 from __future__ import annotations
 
-import click
 import typer
 from rich.table import Table
 
@@ -37,12 +36,12 @@ def _parse_ids(ids_csv: str) -> list[int]:
         ID の整数リスト。
 
     Raises:
-        click.UsageError: 整数に変換できない値が含まれていた場合。
+        typer.BadParameter: 整数に変換できない値が含まれていた場合。
     """
     try:
         return [int(x.strip()) for x in ids_csv.split(",") if x.strip()]
     except ValueError as e:
-        raise click.UsageError(f"--ids には整数のみ指定可: {e}") from e
+        raise typer.BadParameter(f"--ids には整数のみ指定可: {e}") from e
 
 
 @app.command("list")
@@ -75,11 +74,11 @@ def list_errors(
     with command_boundary():
         # Validate inside the JSONL boundary, before any project lookup or DB access.
         if not 0 <= limit <= MAX_LIST_LIMIT:
-            raise click.UsageError(
+            raise typer.BadParameter(
                 f"--limit must be between 0 and {MAX_LIST_LIMIT} (0 returns no records)."
             )
         if offset < 0:
-            raise click.UsageError("--offset must be nonnegative.")
+            raise typer.BadParameter("--offset must be nonnegative.")
         api_get_project(project)
         container = get_service_container()
         container.set_active_project(project)
@@ -210,7 +209,7 @@ def resolve_errors(
     """
     with command_boundary():
         if ids is None and operation is None and error_type is None and message_contains is None:
-            raise click.UsageError(
+            raise typer.BadParameter(
                 "--ids / --operation / --error-type / --message-contains のいずれかを指定してください。"
             )
 
@@ -222,7 +221,7 @@ def resolve_errors(
         if ids is not None:
             target_ids = _parse_ids(ids)
             if not target_ids:
-                raise click.UsageError("--ids に有効な値がありません。")
+                raise typer.BadParameter("--ids に有効な値がありません。")
         else:
             target_ids = repo.get_error_ids_by_filter(
                 operation_type=operation,

@@ -12,7 +12,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
-import click
+import typer
 
 from lorairo.database.filter_criteria import ImageFilterCriteria
 from lorairo.public_api.exceptions import ImageNotFoundError
@@ -64,7 +64,7 @@ def parse_image_ids(image_ids_csv: str) -> list[int]:
         画像 ID の整数リスト。
 
     Raises:
-        click.UsageError: 整数に変換できない値が含まれていた場合。
+        typer.BadParameter: 整数に変換できない値が含まれていた場合。
     """
     ids: list[int] = []
     for raw_token in image_ids_csv.split(","):
@@ -75,7 +75,7 @@ def parse_image_ids(image_ids_csv: str) -> list[int]:
             ids.append(int(token))
         except ValueError as e:
             formatted = _format_invalid_id_token(token)
-            raise click.UsageError(f"--image-ids には整数のみ指定可: invalid ID {formatted}") from e
+            raise typer.BadParameter(f"--image-ids には整数のみ指定可: invalid ID {formatted}") from e
     return ids
 
 
@@ -84,9 +84,9 @@ def _positive_file_id(token: str) -> int:
         value = int(token)
     except ValueError as exc:
         formatted = _format_invalid_id_token(token)
-        raise click.UsageError(f"--image-ids-file contains invalid ID: {formatted}") from exc
+        raise typer.BadParameter(f"--image-ids-file contains invalid ID: {formatted}") from exc
     if value <= 0:
-        raise click.UsageError("--image-ids-file IDs must be positive integers.")
+        raise typer.BadParameter("--image-ids-file IDs must be positive integers.")
     return value
 
 
@@ -104,11 +104,11 @@ def parse_image_ids_file(file_path: str) -> list[int]:
         画像 ID の整数リスト (初出順、重複排除済み)。
 
     Raises:
-        click.UsageError: ファイル不在・整数変換失敗・有効値なし・件数超過。
+        typer.BadParameter: ファイル不在・整数変換失敗・有効値なし・件数超過。
     """
     path = Path(file_path)
     if not path.is_file():
-        raise click.UsageError(f"--image-ids-file '{file_path}' が見つかりません。")
+        raise typer.BadParameter(f"--image-ids-file '{file_path}' が見つかりません。")
     seen: set[int] = set()
     image_ids: list[int] = []
     try:
@@ -123,11 +123,13 @@ def parse_image_ids_file(file_path: str) -> list[int]:
                         seen.add(value)
                         image_ids.append(value)
                         if len(image_ids) > MAX_IMAGE_IDS_FILE:
-                            raise click.UsageError(f"--image-ids-file は最大 {MAX_IMAGE_IDS_FILE} 件まで。")
+                            raise typer.BadParameter(
+                                f"--image-ids-file は最大 {MAX_IMAGE_IDS_FILE} 件まで。"
+                            )
     except (OSError, UnicodeError) as exc:
-        raise click.UsageError(f"Cannot read UTF-8 --image-ids-file: {exc}") from exc
+        raise typer.BadParameter(f"Cannot read UTF-8 --image-ids-file: {exc}") from exc
     if not image_ids:
-        raise click.UsageError("--image-ids-file に有効な画像 ID がありません。")
+        raise typer.BadParameter("--image-ids-file に有効な画像 ID がありません。")
     return image_ids
 
 
@@ -146,17 +148,17 @@ def resolve_image_ids_input(
         直接指定は上限 MAX_IMAGE_IDS を適用する。
 
     Raises:
-        click.UsageError: 両方指定 / 未指定 / 各パースエラー / 直接指定の件数超過。
+        typer.BadParameter: 両方指定 / 未指定 / 各パースエラー / 直接指定の件数超過。
     """
     if bool(image_ids_csv) == bool(image_ids_file):
-        raise click.UsageError(f"{option_label} か --image-ids-file のどちらか一方を指定してください。")
+        raise typer.BadParameter(f"{option_label} か --image-ids-file のどちらか一方を指定してください。")
     if image_ids_file:
         return parse_image_ids_file(image_ids_file), True
     ids = parse_image_ids(image_ids_csv or "")
     if not ids:
-        raise click.UsageError(f"{option_label} に有効な値がありません。")
+        raise typer.BadParameter(f"{option_label} に有効な値がありません。")
     if len(ids) > MAX_IMAGE_IDS:
-        raise click.UsageError(f"{option_label} は最大 {MAX_IMAGE_IDS} 件まで。")
+        raise typer.BadParameter(f"{option_label} は最大 {MAX_IMAGE_IDS} 件まで。")
     return ids, False
 
 
@@ -182,7 +184,7 @@ def validate_candidate_ids(repository: Any, image_ids: list[int]) -> list[int]:
     """Validate an explicit set in500-ID queries without materializing metadata."""
     unique_ids = list(dict.fromkeys(image_ids))
     if not unique_ids or any(image_id <= 0 for image_id in unique_ids):
-        raise click.UsageError("Explicit image IDs must be a nonempty set of positive integers.")
+        raise typer.BadParameter("Explicit image IDs must be a nonempty set of positive integers.")
     for start in range(0, len(unique_ids), BULK_CHUNK_SIZE):
         chunk = unique_ids[start : start + BULK_CHUNK_SIZE]
         existing = set(repository.get_candidate_image_ids(chunk))
@@ -194,5 +196,5 @@ def validate_candidate_ids(repository: Any, image_ids: list[int]) -> list[int]:
 
 def resolve_annotation_ids(image_ids: list[int], image_ids_file: str | None) -> list[int]:
     if image_ids_file is not None and image_ids:
-        raise click.UsageError("--image-id and --image-ids-file are mutually exclusive.")
+        raise typer.BadParameter("--image-id and --image-ids-file are mutually exclusive.")
     return parse_image_ids_file(image_ids_file) if image_ids_file is not None else image_ids

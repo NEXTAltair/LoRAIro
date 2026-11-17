@@ -13,9 +13,8 @@ import sys
 from collections.abc import Sequence
 from contextlib import ExitStack
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 
-import click
 import typer
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from rich.table import Table
@@ -532,7 +531,9 @@ def update(
     """
     with command_boundary():
         if not tags:
-            raise click.UsageError('At least one update operation is required. Example: --tags "tag1,tag2"')
+            raise typer.BadParameter(
+                'At least one update operation is required. Example: --tags "tag1,tag2"'
+            )
 
         api_get_project(project)
 
@@ -559,7 +560,7 @@ def update(
 
         tag_list = [t.strip() for t in tags.split(",") if t.strip()]
         if not tag_list:
-            raise click.UsageError("No valid tags specified.")
+            raise typer.BadParameter("No valid tags specified.")
 
         total_added, failed_tags = _apply_tags_to_images(annotation_repo, image_ids, tag_list)
 
@@ -590,9 +591,9 @@ def update(
 def _load_search_query(query_file: str | None, query: str | None) -> ImageSearchQuery:
     """--query-file / --query (or stdin) を読み込み ImageSearchQuery へ検証する。"""
     if query_file is None and query is None:
-        raise click.UsageError("--query-file または --query - のいずれかを指定してください。")
+        raise typer.BadParameter("--query-file または --query - のいずれかを指定してください。")
     if query_file is not None and query is not None:
-        raise click.UsageError("--query-file と --query は同時に指定できません。")
+        raise typer.BadParameter("--query-file と --query は同時に指定できません。")
     try:
         if query_file is not None:
             raw = Path(query_file).read_text(encoding="utf-8")
@@ -600,11 +601,11 @@ def _load_search_query(query_file: str | None, query: str | None) -> ImageSearch
             raw = sys.stdin.read() if query == "-" else (query or "")
         parsed = json.loads(raw)
     except (OSError, json.JSONDecodeError) as e:
-        raise click.UsageError(f"JSON 読み込みエラー: {e}") from e
+        raise typer.BadParameter(f"JSON 読み込みエラー: {e}") from e
     try:
         return ImageSearchQuery.model_validate(parsed)
     except ValidationError as e:
-        raise click.UsageError(f"検索スキーマが無効です: {e}") from e
+        raise typer.BadParameter(f"検索スキーマが無効です: {e}") from e
 
 
 def _emit_search_page(records: list[dict[str, object]], total: int, q: ImageSearchQuery) -> None:
@@ -806,14 +807,14 @@ def show(
         if image_ids_csv:
             id_sources.append(image_ids_csv)
         if not id_sources:
-            raise click.UsageError(
+            raise typer.BadParameter(
                 "画像 ID を指定してください: `images show 42 57` または `--image-ids 42,57`。"
             )
         image_ids = parse_image_ids(",".join(id_sources))
         if not image_ids:
-            raise click.UsageError("画像 ID に有効な値がありません。")
+            raise typer.BadParameter("画像 ID に有効な値がありません。")
         if len(image_ids) > MAX_IMAGE_IDS:
-            raise click.UsageError(f"画像 ID は最大 {MAX_IMAGE_IDS} 件まで。")
+            raise typer.BadParameter(f"画像 ID は最大 {MAX_IMAGE_IDS} 件まで。")
         api_get_project(project)
 
         container = get_service_container()
@@ -933,9 +934,9 @@ def _parse_optional_image_ids(positional: list[str] | None, csv: str | None) -> 
         id_sources.append(csv)
     image_ids = parse_image_ids(",".join(id_sources)) if id_sources else []
     if id_sources and not image_ids:
-        raise click.UsageError("画像 ID に有効な値がありません。")
+        raise typer.BadParameter("画像 ID に有効な値がありません。")
     if len(image_ids) > MAX_IMAGE_IDS:
-        raise click.UsageError(f"画像 ID は最大 {MAX_IMAGE_IDS} 件まで。")
+        raise typer.BadParameter(f"画像 ID は最大 {MAX_IMAGE_IDS} 件まで。")
     return image_ids
 
 
@@ -943,7 +944,7 @@ def _parse_analyze_image_ids(positional: list[str] | None, csv: str | None, forc
     """analyze-metadata の画像 ID 指定を検証して返す。省略時は空リスト。"""
     image_ids = _parse_optional_image_ids(positional, csv)
     if force and not image_ids:
-        raise click.UsageError("--force は画像 ID と一緒に指定してください。")
+        raise typer.BadParameter("--force は画像 ID と一緒に指定してください。")
     return image_ids
 
 
@@ -1216,14 +1217,14 @@ def _enter_dry_run_scope(stack: ExitStack) -> None:
 def _load_crop_rect_provider(rects: str, origin: str) -> JsonlCropRectProvider:
     """--rects / --origin を検証して JSONL provider を読み込む (入力不正は UsageError)。"""
     if not origin.strip():
-        raise click.UsageError("--origin must not be empty.")
+        raise typer.BadParameter("--origin must not be empty.")
     rects_path = Path(rects)
     if not rects_path.is_file():
-        raise click.UsageError(f"--rects file not found: {rects}")
+        raise typer.BadParameter(f"--rects file not found: {rects}")
     try:
         return JsonlCropRectProvider.from_path(rects_path, default_origin=origin, max_rows=MAX_IMAGE_IDS)
     except UnicodeDecodeError as exc:
-        raise click.UsageError(f"--rects must be UTF-8 JSONL: {exc.reason}") from exc
+        raise typer.BadParameter(f"--rects must be UTF-8 JSONL: {exc.reason}") from exc
 
 
 def _report_crop_batch_summary(
@@ -1348,7 +1349,8 @@ def crop_batch(
             raise typer.Exit(result_exit_code(status))
 
 
-CROP_DETECT_CLASS_CHOICES: tuple[str, ...] = (*DETECTOR_CLASSES, *UNSUPPORTED_DETECTOR_CLASSES)
+CropDetectClass = Literal["person", "face", "head", "halfbody"]
+CROP_DETECT_CLASS_CHOICES: tuple[str, ...] = get_args(CropDetectClass)
 """``--class`` の選択肢。未対応クラスも選択肢に出し、指定時に理由付きで拒否する。"""
 
 
@@ -1365,7 +1367,7 @@ def _resolve_crop_detect_targets(
 ) -> list[int]:
     """--class と親画像 ID を検証する (未対応クラス・入力不正は UsageError、500 超は拒否)。"""
     if class_name in UNSUPPORTED_DETECTOR_CLASSES:
-        raise click.UsageError(UNSUPPORTED_DETECTOR_CLASSES[class_name])
+        raise typer.BadParameter(UNSUPPORTED_DETECTOR_CLASSES[class_name])
     image_ids, _is_file = resolve_image_ids_input(image_ids_csv, image_ids_file)
     unique_ids = list(dict.fromkeys(image_ids))
     if len(unique_ids) > MAX_IMAGE_IDS:
@@ -1373,13 +1375,19 @@ def _resolve_crop_detect_targets(
     return unique_ids
 
 
+def _validate_positive_iou(value: float) -> float:
+    """IoU の排他的な下限を検証し、NaN も入力エラーにする。"""
+    if not 0.0 < value <= 1.0:
+        raise typer.BadParameter("IoU must be greater than 0 and at most 1.")
+    return value
+
+
 @app.command("crop-detect")
 def crop_detect(
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
-    class_name: str = typer.Option(
+    class_name: CropDetectClass = typer.Option(
         ...,
         "--class",
-        click_type=click.Choice(CROP_DETECT_CLASS_CHOICES),
         help=_crop_detect_class_help(),
     ),
     image_ids_csv: str | None = typer.Option(
@@ -1405,7 +1413,9 @@ def crop_detect(
     nms_iou: float = typer.Option(
         DEFAULT_NMS_IOU,
         "--nms-iou",
-        click_type=click.FloatRange(0.0, 1.0, min_open=True),
+        min=0.0,
+        max=1.0,
+        callback=_validate_positive_iou,
         help="IoU threshold for non-maximum suppression within one image.",
     ),
     min_long_edge: int = typer.Option(
@@ -1417,7 +1427,9 @@ def crop_detect(
     existing_iou: float = typer.Option(
         DEFAULT_EXISTING_IOU,
         "--existing-iou",
-        click_type=click.FloatRange(0.0, 1.0, min_open=True),
+        min=0.0,
+        max=1.0,
+        callback=_validate_positive_iou,
         help="Skip a detection whose IoU with an existing crop of the same parent is at least this.",
     ),
     dry_run: bool = typer.Option(
@@ -1554,7 +1566,7 @@ def _normalize_manual_rating_arg(rating: str) -> str | None:
         return None
     if cleaned in CANONICAL_MANUAL_RATINGS:
         return cleaned
-    raise click.UsageError(
+    raise typer.BadParameter(
         f"Invalid --rating value: {rating!r}. Must be one of: PG, PG-13, R, X, XXX, or none."
     )
 

@@ -111,7 +111,7 @@ def create(
         api_get_project(project)
 
         # image_ids パース・検証 (--image-ids / --image-ids-file 排他、Issue #1216)。
-        # click.UsageError → 境界が INVALID_INPUT exit 2
+        # typer.BadParameter → 境界が INVALID_INPUT exit 2
         image_ids, _is_file = resolve_image_ids_input(image_ids_csv, image_ids_file)
         total_images = len(image_ids)
         image_ids = list(dict.fromkeys(image_ids))
