@@ -18,6 +18,8 @@ def command_tree() -> tuple[TyperCommand | TyperGroup, dict[str, TyperCommand]]:
     from lorairo.cli.main import app
 
     root = get_command(app)
+    if not isinstance(root, (TyperCommand, TyperGroup)):
+        raise TypeError(f"未対応の CLI コマンド型: {type(root).__name__}")
     leaves: dict[str, TyperCommand] = {}
 
     def walk(command: TyperCommand | TyperGroup, path: str) -> None:
@@ -66,7 +68,7 @@ def _parameter_type(
 ) -> tuple[Any, dict[str, Any]]:
     # Typer 0.29 は Click の ParamType ではなく登録時の型情報を保持する。
     descriptor = parameter.type_descriptor
-    annotation = descriptor.annotation
+    annotation: Any = descriptor.annotation
     if get_origin(annotation) is list:
         annotation = get_args(annotation)[0]
     if annotation not in (bool, int, float):
@@ -101,7 +103,7 @@ def _runtime_constraints(path: str, name: str) -> dict[str, Any]:
 
 
 def input_model(
-    name: str, command: TyperCommand, descriptions: dict[str, str], *, path: str
+    name: str, command: TyperCommand | TyperGroup, descriptions: dict[str, str], *, path: str
 ) -> type[BaseModel]:
     """Generate types, aliases, bounds and defaults from the parser's parameters.
 
