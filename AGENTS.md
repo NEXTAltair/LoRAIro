@@ -128,3 +128,22 @@ inventory, overlap resolution rules, workflow-by-workflow minimal checklists, an
 ## Security & Configuration Tips
 - Store API keys in a local `.env` (see `.env.example`). Never commit secrets.
 - Keep local data and logs out of version control (`logs/`, `lorairo_data/`).
+
+<!-- agent-kit:begin -->
+## Agent kit rules
+
+altairs-agent-dev-kit 0.7.1 が管理する区画。手で編集せず `agent_kit.py install` で更新する。
+Claude Code と Antigravity は同じ内容を自分の rules ディレクトリから読み込む。
+それ以外のエージェントは次の一覧に従ってファイルを読む。
+
+作業を始める前に必ず読む:
+- [.agents/rules/parallel-execution.md](.agents/rules/parallel-execution.md) — uv を並列に走らせて共有 venv を壊さないための運用
+
+該当する作業の前に読む:
+- [.agents/rules/coding-style.md](.agents/rules/coding-style.md) — Python 実装の lint / 型チェック設定と lint 結果の扱い (対象: `**/*.py`, `pyproject.toml`)
+- [.agents/rules/dependency-management.md](.agents/rules/dependency-management.md) — 依存パッケージを追加・更新するとき。AI 推論 SDK は最新追従、他は計画的 bump
+- [.agents/rules/logging.md](.agents/rules/logging.md) — ログ出力を追加・変更するとき。レベル設計と量の基準
+- [.agents/rules/planning-memory.md](.agents/rules/planning-memory.md) — 計画・設計を始める前に ADR / 過去の計画 / lessons-learned を確認するとき
+- [.agents/rules/security.md](.agents/rules/security.md) — Ruff S ルールで検出できないセキュリティ判断 (秘密情報・入力検証等) (対象: `**/*.py`)
+- [.agents/rules/testing.md](.agents/rules/testing.md) — テストを書く・実行する・カバレッジを判断するとき (pytest)
+<!-- agent-kit:end -->
