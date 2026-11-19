@@ -25,6 +25,7 @@ from enum import StrEnum
 from pathlib import PurePath
 from typing import Any, Protocol
 
+from ..database.schema import MANUAL_EDIT_NAME
 from ..domain.generation_metadata import (
     GenerationMetadataResult,
     GenerationMetadataSource,
@@ -844,8 +845,19 @@ class ComparisonSnapshot:
 
 
 def _origin_label(annotation: dict[str, Any]) -> str:
-    """タグ / キャプション 1 件の出所の表示名。"""
+    """タグ / キャプション 1 件の出所の表示名。
+
+    擬似モデルの行は AI と表示しない (ADR 0111): 関連ファイル取り込みは「取り込み」、
+    画像処理の自動タグは「画像処理」、MANUAL_EDIT は「手動」。
+    """
+    source = annotation.get("source")
+    if source == "Import":
+        return "取り込み"
+    if source == "Processing":
+        return "画像処理"
     model_name = annotation.get("model_name")
+    if model_name == MANUAL_EDIT_NAME:
+        return "手動"
     has_model = bool(model_name) and model_name != "Unknown"
     manual = bool(annotation.get("is_edited_manually")) or annotation.get("source") == "Manual"
     if has_model:

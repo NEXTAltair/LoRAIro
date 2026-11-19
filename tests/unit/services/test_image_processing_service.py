@@ -361,7 +361,9 @@ class TestAddUpscaledTag:
         tag = tags_arg[0]
         assert tag["tag"] == "upscaled"
         assert tag["tag_id"] == 33138
-        assert tag["model_id"] is None
+        # 画像処理の自動タグは model_id NULL でなく IMAGE_PROCESSING で持つ (ADR 0111)
+        assert tag["model_id"] == mock_idm.get_image_processing_model_id.return_value
+        assert (tag["existing"], tag["is_edited_manually"]) == (False, False)
 
     def test_exception_does_not_propagate(self, service, mock_idm):
         """save_tags が例外を投げても RuntimeError を伝播させない"""

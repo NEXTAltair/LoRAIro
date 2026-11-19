@@ -472,13 +472,14 @@ class ImageProcessingService:
             upscaler_used (str | None): 使用されたアップスケーラー名
         """
         try:
-            from ..database.schema import TagAnnotationData
+            from ..database.schema import UPSCALED_TAG, TagAnnotationData
 
             # upscaledタグを追加
             upscaled_tag: TagAnnotationData = {
-                "tag": "upscaled",
+                "tag": UPSCALED_TAG,
                 "tag_id": 33138,  # データベースにある既存のupscaledタグID
-                "model_id": None,  # アップスケーラーはAIモデルではないためNone
+                # アップスケーラーはAIのタグ付けではないため、画像処理の擬似モデルで持つ (ADR 0111)
+                "model_id": self.idm.get_image_processing_model_id(),
                 "existing": False,  # 処理によって追加されたタグ
                 "is_edited_manually": False,
                 "confidence_score": None,

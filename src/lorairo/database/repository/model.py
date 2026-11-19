@@ -21,12 +21,18 @@ from ..schema import (
     GENERATION_METADATA_LITELLM_ID,
     GENERATION_METADATA_NAME,
     GENERATION_METADATA_PROVIDER,
+    IMAGE_PROCESSING_LITELLM_ID,
+    IMAGE_PROCESSING_NAME,
+    IMAGE_PROCESSING_PROVIDER,
     KOHYA_DATASET_LITELLM_ID,
     KOHYA_DATASET_NAME,
     KOHYA_DATASET_PROVIDER,
     MANUAL_EDIT_LITELLM_ID,
     MANUAL_EDIT_NAME,
     MANUAL_EDIT_PROVIDER,
+    SIDECAR_IMPORT_LITELLM_ID,
+    SIDECAR_IMPORT_NAME,
+    SIDECAR_IMPORT_PROVIDER,
     Model,
     ModelType,
 )
@@ -283,6 +289,72 @@ class ModelRepository(BaseRepository):
         logger.debug(f"GENERATION_METADATA モデルを作成: ID={model.id}")
         new_id: int = model.id
         return new_id
+
+    @staticmethod
+    def _get_or_create_pseudo_model(
+        session: Session, name: str, provider: str, litellm_model_id: str
+    ) -> int:
+        """擬似モデルの ID を sentinel `litellm_model_id` で取得し、無ければ作成する (ADR 0111)。
+
+        model_types には関連付けず `requires_api_key=False` で作る (推論の対象にしない)。
+        呼び出し元のセッションで動き、commit はしない。
+
+        Args:
+            session: データベースセッション。
+            name: モデルの表示名。
+            provider: プロバイダ名。
+            litellm_model_id: 擬似モデルの sentinel。
+
+        Returns:
+            擬似モデルの ID。
+
+        Raises:
+            SQLAlchemyError: データベース操作中にエラーが発生した場合。
+        """
+        existing_id = session.execute(
+            select(Model.id).where(Model.litellm_model_id == litellm_model_id)
+        ).scalar_one_or_none()
+        if existing_id is not None:
+            return existing_id
+        model = Model(
+            name=name,
+            provider=provider,
+            litellm_model_id=litellm_model_id,
+            requires_api_key=False,
+        )
+        session.add(model)
+        session.flush()
+        logger.debug(f"{name} モデルを作成: ID={model.id}")
+        new_id: int = model.id
+        return new_id
+
+    @staticmethod
+    def get_or_create_sidecar_import_model(session: Session) -> int:
+        """関連ファイル (.txt) から取り込んだタグ用の擬似モデル ID を取得または作成する (ADR 0111)。
+
+        Args:
+            session: データベースセッション。
+
+        Returns:
+            `SIDECAR_IMPORT` モデルの ID。
+        """
+        return ModelRepository._get_or_create_pseudo_model(
+            session, SIDECAR_IMPORT_NAME, SIDECAR_IMPORT_PROVIDER, SIDECAR_IMPORT_LITELLM_ID
+        )
+
+    @staticmethod
+    def get_or_create_image_processing_model(session: Session) -> int:
+        """画像処理が自動で付けたタグ用の擬似モデル ID を取得または作成する (ADR 0111)。
+
+        Args:
+            session: データベースセッション。
+
+        Returns:
+            `IMAGE_PROCESSING` モデルの ID。
+        """
+        return ModelRepository._get_or_create_pseudo_model(
+            session, IMAGE_PROCESSING_NAME, IMAGE_PROCESSING_PROVIDER, IMAGE_PROCESSING_LITELLM_ID
+        )
 
     def insert_model(
         self,

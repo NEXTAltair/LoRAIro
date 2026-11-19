@@ -224,6 +224,8 @@ class TestUpscalerDatabaseIntegration:
         assert upscaled_tag["tag_id"] == 33138
         assert upscaled_tag["existing"] is False
         assert upscaled_tag["is_edited_manually"] is False
+        # 画像処理の自動タグは model_id NULL でなく擬似モデル IMAGE_PROCESSING で持つ (ADR 0111)
+        assert upscaled_tag["model_id"] == image_db_manager.get_image_processing_model_id()
 
     def test_512px_generation_with_upscaler_info(self, image_db_manager):
         """512px生成時のアップスケーラー情報記録の統合テスト（直接DB登録テスト）"""

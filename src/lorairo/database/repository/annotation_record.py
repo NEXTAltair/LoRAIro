@@ -449,7 +449,9 @@ class AnnotationRepository(BaseRepository):
             session: SQLAlchemy セッション。
             image_ids: 対象画像 ID リスト。
             resolved_tag: canonical 解決済みの保存タグ文字列。
-            model_id: モデル ID (手動編集は None)。
+            model_id: 追加する行のモデル ID (手動編集は MANUAL_EDIT の ID)。
+                None は MANUAL_EDIT モデルがまだ無い dry-run 見積りを表し、
+                復活対象が存在しないため soft-reject 済み行を探さない。
 
         Returns:
             (新規 INSERT 対象の image_id リスト, 復活対象の image_id -> soft-reject 済み Tag 行)。
@@ -458,16 +460,17 @@ class AnnotationRepository(BaseRepository):
         dedup_key = self._dedup_key(resolved_tag)
         existing_tags_by_image = self._build_existing_tags_map(session, image_ids)
 
-        rejected_rows_stmt = select(Tag).where(
-            Tag.image_id.in_(image_ids),
-            Tag.rejected_at.is_not(None),
-            (Tag.model_id == model_id) if model_id is not None else Tag.model_id.is_(None),
-        )
         rejected_by_image: dict[int, dict[str, Tag]] = {}
-        for row in session.execute(rejected_rows_stmt).scalars():
-            if row.image_id is None:
-                continue
-            rejected_by_image.setdefault(row.image_id, {}).setdefault(self._dedup_key(row.tag), row)
+        if model_id is not None:
+            rejected_rows_stmt = select(Tag).where(
+                Tag.image_id.in_(image_ids),
+                Tag.rejected_at.is_not(None),
+                Tag.model_id == model_id,
+            )
+            for row in session.execute(rejected_rows_stmt).scalars():
+                if row.image_id is None:
+                    continue
+                rejected_by_image.setdefault(row.image_id, {}).setdefault(self._dedup_key(row.tag), row)
 
         to_insert: list[int] = []
         to_revive: dict[int, Tag] = {}
@@ -504,7 +507,8 @@ class AnnotationRepository(BaseRepository):
             resolved_tag: canonical 解決済みの保存タグ文字列 (呼び出し元が
                 classify_manual_tag の結果から組み立てる。未解決タグの外部 DB
                 登録が走らないよう、本メソッドは canonical 解決を行わない)。
-            model_id: モデル ID (手動編集は None)。
+            model_id: モデル ID。None は手動編集 (MANUAL_EDIT) を表す (ADR 0111)。
+                見積りは読み取り専用のため、MANUAL_EDIT モデル行が無くても作らない。
 
         Returns:
             --apply 時に追加される見込みの件数。
@@ -512,6 +516,10 @@ class AnnotationRepository(BaseRepository):
         if not image_ids or not resolved_tag.strip():
             return 0
         with self.session_factory() as session:
+            if model_id is None:
+                model_id = session.execute(
+                    select(Model.id).where(Model.litellm_model_id == MANUAL_EDIT_LITELLM_ID)
+                ).scalar_one_or_none()
             to_insert, to_revive = self._plan_tag_addition(
                 session, image_ids, resolved_tag.strip().lower(), model_id
             )
@@ -531,7 +539,8 @@ class AnnotationRepository(BaseRepository):
         Args:
             image_ids: 対象画像のIDリスト
             tag: 追加するタグ(正規化済み前提: lower + strip)
-            model_id: モデルID(手動編集の場合はマニュアルモデルID)
+            model_id: モデルID。None は手動編集 (MANUAL_EDIT) を表し、MANUAL_EDIT の
+                model_id で保存する (model_id NULL の行は作らない、ADR 0111)。
             resolved: 呼び出し元が事前解決済みの (保存タグ文字列, 外部 tag_id)。
                 CLI の分類経路 (Issue #1174) が classify_manual_tag / register_user_tag の
                 結果を渡し、内部の再解決 (danbooru スコープ検索 + base DB 登録) をスキップする。
@@ -568,6 +577,8 @@ class AnnotationRepository(BaseRepository):
                         "Saving with tag_id=None.",
                     )
 
+                if model_id is None:
+                    model_id = ModelRepository._get_or_create_manual_edit_model(session)
                 to_insert, to_revive = self._plan_tag_addition(session, image_ids, resolved_tag, model_id)
 
                 for image_id, rejected_row in to_revive.items():
@@ -736,6 +747,8 @@ class AnnotationRepository(BaseRepository):
 
         変換元タグが存在する画像のみ処理。変換先タグが既に存在する場合は
         変換元を削除のみ行い（重複させない）、ステータスは changed 扱い。
+        変換先は手動編集 (MANUAL_EDIT) の行として追加し、同じ表記の soft-reject 済み
+        MANUAL_EDIT 行があればそれを復活させる (ADR 0111)。
 
         Args:
             image_ids: 対象画像のIDリスト
@@ -793,24 +806,9 @@ class AnnotationRepository(BaseRepository):
                     )
 
                     # 変換先タグを追加（各画像で既存チェックして重複回避）
-                    to_tag_external_id: int | None = None
-                    for image_id in images_to_change:
-                        existing_tags = existing_tags_by_image.get(image_id, set())
-                        if normalized_to not in existing_tags:
-                            if to_tag_external_id is None:
-                                to_tag_external_id = self._get_or_create_tag_id_external(
-                                    session, normalized_to
-                                )
-                            new_tag = Tag(
-                                image_id=image_id,
-                                model_id=None,
-                                tag=normalized_to,
-                                tag_id=to_tag_external_id,
-                                confidence_score=None,
-                                existing=False,
-                                is_edited_manually=True,
-                            )
-                            session.add(new_tag)
+                    self._add_replacement_targets(
+                        session, images_to_change, existing_tags_by_image, normalized_to
+                    )
 
                 session.commit()
                 changed = len(images_to_change)
@@ -824,6 +822,61 @@ class AnnotationRepository(BaseRepository):
                 session.rollback()
                 logger.opt(exception=True).error(f"Atomic batch tag replace failed, rolled back: {e}")
                 raise
+
+    def _add_replacement_targets(
+        self,
+        session: Session,
+        image_ids: list[int],
+        existing_tags_by_image: dict[int, set[str]],
+        normalized_to: str,
+    ) -> None:
+        """置換先タグを手動編集 (MANUAL_EDIT) の行として各画像へ足す (ADR 0111)。
+
+        既に置換先タグを持つ画像には足さない。同じ (image, MANUAL_EDIT, tag) の soft-reject 済み
+        行は uq_tags_image_model_tag のため INSERT せず復活させる。
+
+        Args:
+            session: SQLAlchemy セッション。
+            image_ids: 置換元タグを持っていた画像 ID。
+            existing_tags_by_image: 置換前の採用中タグ (小文字) の画像ごとの集合。
+            normalized_to: 置換先タグ (strip + lower 済み)。
+        """
+        manual_edit_model_id = ModelRepository._get_or_create_manual_edit_model(session)
+        rejected_targets = {
+            row.image_id: row
+            for row in session.execute(
+                select(Tag).where(
+                    Tag.image_id.in_(image_ids),
+                    Tag.model_id == manual_edit_model_id,
+                    Tag.tag == normalized_to,
+                    Tag.rejected_at.is_not(None),
+                )
+            ).scalars()
+        }
+        to_tag_external_id: int | None = None
+        for image_id in image_ids:
+            if normalized_to in existing_tags_by_image.get(image_id, set()):
+                continue
+            rejected_target = rejected_targets.get(image_id)
+            if rejected_target is not None:
+                rejected_target.rejected_at = None
+                rejected_target.reject_reason = None
+                rejected_target.is_edited_manually = True
+                rejected_target.updated_at = func.now()
+                continue
+            if to_tag_external_id is None:
+                to_tag_external_id = self._get_or_create_tag_id_external(session, normalized_to)
+            session.add(
+                Tag(
+                    image_id=image_id,
+                    model_id=manual_edit_model_id,
+                    tag=normalized_to,
+                    tag_id=to_tag_external_id,
+                    confidence_score=None,
+                    existing=False,
+                    is_edited_manually=True,
+                )
+            )
 
     def restore_tag_for_images_batch(
         self,

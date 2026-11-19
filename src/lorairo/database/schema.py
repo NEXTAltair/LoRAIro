@@ -45,6 +45,30 @@ GENERATION_METADATA_PROVIDER = "user"
 GENERATION_METADATA_LITELLM_ID = "__generation_metadata__"
 AI_GENERATED_TAG = "ai generated"
 
+# ADR 0111: 画像に添えた .txt (関連ファイル) から取り込んだタグの擬似モデル。
+# 他の擬似モデルと同じく model_types を持たず requires_api_key=False で、推論経路に乗らない。
+SIDECAR_IMPORT_NAME = "SIDECAR_IMPORT"
+SIDECAR_IMPORT_PROVIDER = "user"
+SIDECAR_IMPORT_LITELLM_ID = "__sidecar_import__"
+
+# ADR 0111: 画像処理 (アップスケール) が自動で付けたタグ (`upscaled`) の擬似モデル。
+IMAGE_PROCESSING_NAME = "IMAGE_PROCESSING"
+IMAGE_PROCESSING_PROVIDER = "user"
+IMAGE_PROCESSING_LITELLM_ID = "__image_processing__"
+UPSCALED_TAG = "upscaled"
+
+# ADR 0111: 擬似モデル (AI の推論ではない出所を model_id で表すための行) の sentinel 一覧。
+# 「この model_id は AI か」を判定する箇所はすべてこの集合を使う。
+PSEUDO_MODEL_LITELLM_IDS: frozenset[str] = frozenset(
+    {
+        MANUAL_EDIT_LITELLM_ID,
+        KOHYA_DATASET_LITELLM_ID,
+        GENERATION_METADATA_LITELLM_ID,
+        SIDECAR_IMPORT_LITELLM_ID,
+        IMAGE_PROCESSING_LITELLM_ID,
+    }
+)
+
 # タグ/キャプションの soft-reject 種別 (reject_reason 列の値、Issue #1003 / ADR 0065)。
 # rejected_at が非 NULL のときのみ意味を持つ。NULL = 採用中。
 # エクスポート抽出は従来どおり ``rejected_at IS NULL`` で行い、3値すべて除外される

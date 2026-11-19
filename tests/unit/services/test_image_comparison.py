@@ -539,3 +539,14 @@ def test_service_loads_generation_metadata_alongside_annotations() -> None:
     assert right.generation_metadata.has_metadata is False
     assert comparison.generation.availability is Availability.RIGHT_MISSING
     assert comparison.generation.identical is False
+
+
+def test_snapshot_origins_label_pseudo_models_not_as_ai() -> None:
+    """擬似モデルの行は AI と表示しない (ADR 0111)。"""
+    tags = [
+        {"tag": "cat", "model_name": "SIDECAR_IMPORT", "source": "Import", "existing": True},
+        {"tag": "upscaled", "model_name": "IMAGE_PROCESSING", "source": "Processing"},
+        {"tag": "dog", "model_name": "MANUAL_EDIT", "source": "Manual", "is_edited_manually": True},
+    ]
+    snapshot = snapshot_from_metadata(7, _metadata(tags=tags))
+    assert [t.origins for t in snapshot.tags] == [("取り込み",), ("画像処理",), ("手動",)]

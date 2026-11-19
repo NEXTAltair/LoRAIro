@@ -1059,6 +1059,8 @@ class TestRegisterImageWithSideEffects:
         manager.save_captions = Mock()
         # ai generated の自動付与 (ADR 0107) は実 DB の結合テストで確かめる
         manager.apply_ai_generated_tag = Mock(return_value=False)
+        # 関連ファイル取り込みの擬似モデル (ADR 0111) は DB を使わず固定 ID にする
+        manager.get_sidecar_import_model_id = Mock(return_value=99)
         mock_fsm = Mock(spec=FileSystemManager)
         return manager, mock_image_repo, mock_fsm
 
