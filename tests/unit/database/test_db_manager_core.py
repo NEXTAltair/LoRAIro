@@ -733,37 +733,6 @@ class TestRegisterOriginalImage:
 
 
 # ---------------------------------------------------------------------------
-# register_prompt_tags (タグが空のとき早期リターン)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestRegisterPromptTags:
-    """register_prompt_tags メソッドのテスト"""
-
-    def test_returns_early_when_tags_empty(
-        self, manager: ImageDatabaseManager, mock_annotation_repo: Mock
-    ) -> None:
-        """タグリストが空のとき何もしない。"""
-        manager.register_prompt_tags(1, [])
-        mock_annotation_repo.save_annotations.assert_not_called()
-
-    def test_calls_save_tags_with_correct_structure(
-        self, manager: ImageDatabaseManager, mock_annotation_repo: Mock
-    ) -> None:
-        """タグが存在するとき save_annotations を呼び出す。"""
-        manager.register_prompt_tags(1, ["cat", "dog"])
-        mock_annotation_repo.save_annotations.assert_called_once()
-        call_args = mock_annotation_repo.save_annotations.call_args[0]
-        image_id_passed = call_args[0]
-        annotations = call_args[1]
-        assert image_id_passed == 1
-        assert len(annotations["tags"]) == 2
-        assert annotations["tags"][0]["tag"] == "cat"
-        assert annotations["tags"][0]["existing"] is True
-
-
-# ---------------------------------------------------------------------------
 # filter_by_annotation_status
 # ---------------------------------------------------------------------------
 

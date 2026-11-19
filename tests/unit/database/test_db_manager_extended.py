@@ -8,7 +8,6 @@
 - _handle_duplicate_image: 各パス (223-248)
 - _generate_thumbnail_512px: DB登録失敗パス (290)
 - save_tags/captions/scores/ratings: エラーパス (459-461, 465-476, 480-491, 495-506)
-- register_prompt_tags: save_tags エラーパス (526-528)
 - save_score: 各パス (534-549)
 - get_processed_metadata: 各パス (608-622)
 - get_manual_edit_model_id: (693-698)
@@ -555,31 +554,6 @@ class TestSaveAnnotationMethods:
         mock_annotation_repo.save_annotations.side_effect = RuntimeError("DB error")
         with pytest.raises(RuntimeError):
             manager.save_ratings(1, [])
-
-
-# ---------------------------------------------------------------------------
-# register_prompt_tags — save_tags 例外パス
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestRegisterPromptTagsException:
-    """register_prompt_tags の例外パスのテスト"""
-
-    def test_does_not_raise_on_sqlalchemy_error(
-        self, manager: ImageDatabaseManager, mock_annotation_repo: Mock
-    ) -> None:
-        """save_tags が SQLAlchemyError を送出しても register_prompt_tags は raise しない (best-effort)。"""
-        mock_annotation_repo.save_annotations.side_effect = SQLAlchemyError("DB error")
-        # best-effort: SQLAlchemyError は warning に畳んで raise しない
-        manager.register_prompt_tags(1, ["cat", "dog"])
-
-    def test_does_not_raise_on_value_error(
-        self, manager: ImageDatabaseManager, mock_annotation_repo: Mock
-    ) -> None:
-        """save_tags が ValueError を送出しても register_prompt_tags は raise しない (best-effort)。"""
-        mock_annotation_repo.save_annotations.side_effect = ValueError("bad input")
-        manager.register_prompt_tags(1, ["cat", "dog"])
 
 
 # ---------------------------------------------------------------------------

@@ -956,34 +956,6 @@ class ImageDatabaseManager:
             logger.opt(exception=True).error(f"画像 ID {image_id} のレーティング保存中にエラー: {e}")
             raise
 
-    def register_prompt_tags(self, image_id: int, tags: list[str]) -> None:
-        """プロンプトなど、元ファイル由来のタグを登録します。
-
-        best-effort: タグ登録の失敗は呼び出し元 (画像登録パイプライン) を止めないため、
-        DB エラー / 入力エラーは warning にしてフィルタアウトする。予期しない例外は伝播。
-
-        """
-        if not tags:
-            return
-        tags_data: list[TagAnnotationData] = [
-            {
-                "tag": tag,
-                "model_id": None,
-                "confidence_score": None,
-                "existing": True,
-                "is_edited_manually": False,
-                "tag_id": None,
-            }
-            for tag in tags
-        ]
-        try:
-            self.save_tags(image_id, tags_data)
-            logger.info(f"画像 ID {image_id} のプロンプトタグ {len(tags)} 件を登録しました。")
-        except (SQLAlchemyError, ValueError) as e:
-            # save_tags 内でログが出るのでここでは再ログしないか、レベルを変える
-            logger.warning(f"画像 ID {image_id} のプロンプトタグ登録に失敗: {e}")
-            # raise はしない(上位処理を止めない場合)
-
     # 旧 save_score を save_scores を使うように変更
     def save_score(self, image_id: int, score_dict: dict[str, Any]) -> None:
         """単一のスコア情報を保存します (下位互換性のため)。
