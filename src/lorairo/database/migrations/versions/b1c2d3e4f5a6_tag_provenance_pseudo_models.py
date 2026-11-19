@@ -49,9 +49,16 @@ _models = sa.table("models", sa.column("id", sa.Integer), sa.column("litellm_mod
 _TagCondition = Callable[[sa.FromClause], sa.ColumnElement[bool]]
 
 
+def _not_manual(t: sa.FromClause) -> sa.ColumnElement[bool]:
+    """手入力でない (is_edited_manually が False または NULL)。"""
+    return sa.func.coalesce(t.c.is_edited_manually, sa.false()) == sa.false()
+
+
+# 3 つの条件は互いに排他にする。衝突で移せなかった手動の行が、後の取り込みの
+# 振り分けに拾われて SIDECAR_IMPORT になる誤分類を防ぐため。
 def _upscaled_condition(t: sa.FromClause) -> sa.ColumnElement[bool]:
     """画像処理が付けた `upscaled` (取り込み元ファイルに無かったタグ)。"""
-    return sa.and_(t.c.tag == _UPSCALED_TAG, t.c.existing == sa.false())
+    return sa.and_(t.c.tag == _UPSCALED_TAG, t.c.existing == sa.false(), _not_manual(t))
 
 
 def _manual_condition(t: sa.FromClause) -> sa.ColumnElement[bool]:
@@ -61,7 +68,7 @@ def _manual_condition(t: sa.FromClause) -> sa.ColumnElement[bool]:
 
 def _sidecar_condition(t: sa.FromClause) -> sa.ColumnElement[bool]:
     """取り込み元ファイルにあったタグ (関連ファイル .txt 取り込み)。"""
-    return t.c.existing == sa.true()
+    return sa.and_(t.c.existing == sa.true(), _not_manual(t))
 
 
 def _get_or_create_pseudo_model(connection: sa.engine.Connection, name: str, litellm_model_id: str) -> int:

@@ -47,6 +47,10 @@ _SEED_TAGS: list[tuple[int, int, str | None, str, int, int | None]] = [
     (9, 2, MANUAL_EDIT, "smile", 0, 1),  # 移行前からの MANUAL_EDIT 行
     (10, 2, None, "smile", 0, 1),  # 移行先に同じ行がある → NULL のまま (UNIQUE を守る)
     (11, 2, None, "upscaled", 1, 0),  # existing=True の upscaled は取り込み由来 → SIDECAR_IMPORT
+    (12, 2, MANUAL_EDIT, "bow", 0, 1),  # 移行前からの MANUAL_EDIT 行
+    (13, 2, None, "bow", 1, 1),  # 手動の行が衝突で移れなくても取り込みへ流さず NULL のまま
+    (14, 2, None, "hat", 0, 1),  # 手動の NULL 重複の先頭 → MANUAL_EDIT
+    (15, 2, None, "hat", 1, 1),  # 手動の NULL 重複の 2 行目 → 取り込みへ流さず NULL のまま
 ]
 
 
@@ -131,6 +135,10 @@ def test_upgrade_assigns_null_rows_by_origin(migrated_db: tuple[Path, Config]) -
         9: MANUAL_EDIT,
         10: None,
         11: SIDECAR_IMPORT,
+        12: MANUAL_EDIT,
+        13: None,
+        14: MANUAL_EDIT,
+        15: None,
     }
 
 
