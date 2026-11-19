@@ -59,8 +59,11 @@ from ...domain.score_scaler import calibrate_to_display, display_weight_for
 from ...utils.log import logger
 from ..filter_criteria import ImageFilterCriteria, KeywordSearchGroup
 from ..schema import (
+    IMAGE_PROCESSING_LITELLM_ID,
     MANUAL_EDIT_LITELLM_ID,
     MANUAL_EDIT_NAME,
+    PSEUDO_MODEL_LITELLM_IDS,
+    SIDECAR_IMPORT_LITELLM_ID,
     Caption,
     CropRelation,
     ErrorRecord,
@@ -2642,7 +2645,7 @@ class ImageRepository(BaseRepository):
                     "tag_id": tag.tag_id,
                     "model_id": tag.model_id,
                     "model_name": tag.model.name if tag.model else "Unknown",
-                    "source": "Manual" if (tag.is_edited_manually or tag.existing) else "AI",
+                    "source": self._tag_source(tag),
                     "existing": tag.existing,
                     "is_edited_manually": tag.is_edited_manually,
                     "confidence_score": tag.confidence_score,
@@ -2655,6 +2658,23 @@ class ImageRepository(BaseRepository):
         else:
             annotations["tags"] = []
             annotations["tags_text"] = ""
+
+    @staticmethod
+    def _tag_source(tag: Tag) -> str:
+        """タグ 1 行の出所区分 (表示用) を返す (ADR 0111)。
+
+        擬似モデルの行は model_id で出所が決まる: 関連ファイル取り込み (SIDECAR_IMPORT) は
+        ``"Import"``、画像処理の自動タグ (IMAGE_PROCESSING) は ``"Processing"``、手動編集
+        (MANUAL_EDIT) は ``"Manual"``。それ以外は従来どおりフラグで判定する。
+        """
+        litellm_model_id = tag.model.litellm_model_id if tag.model else None
+        if litellm_model_id == SIDECAR_IMPORT_LITELLM_ID:
+            return "Import"
+        if litellm_model_id == IMAGE_PROCESSING_LITELLM_ID:
+            return "Processing"
+        if litellm_model_id == MANUAL_EDIT_LITELLM_ID or tag.is_edited_manually or tag.existing:
+            return "Manual"
+        return "AI"
 
     def _format_captions(self, image: Image, annotations: dict[str, Any]) -> None:
         """キャプションアノテーション情報をフォーマットする。
@@ -4121,7 +4141,8 @@ class ImageRepository(BaseRepository):
         """指定日時以降にタグ変更があった image_id に絞り込む (#614)。
 
         「変更」は以下のいずれか:
-        - AI 実行: `model_id` 付きのタグ行で `updated_at > since`
+        - AI 実行: 擬似モデル以外の `model_id` 付きのタグ行で `updated_at > since`
+          (MANUAL_EDIT・関連ファイル取り込み・画像処理などの擬似モデルの行は AI 実行ではない、ADR 0111)
         - 手動編集: `is_edited_manually = True` のタグ行で `updated_at > since`
 
         AI 再実行は既存タグ行を update する (created_at は据え置き・updated_at が更新される)
@@ -4152,7 +4173,11 @@ class ImageRepository(BaseRepository):
                     .where(
                         Tag.image_id.in_(requested_ids),
                         or_(
-                            and_(Tag.model_id.is_not(None), Tag.updated_at > since),
+                            and_(
+                                Tag.model_id.is_not(None),
+                                Tag.model_id.not_in(self._pseudo_model_ids_subquery()),
+                                Tag.updated_at > since,
+                            ),
                             and_(Tag.is_edited_manually.is_(True), Tag.updated_at > since),
                         ),
                     )
@@ -4246,11 +4271,17 @@ class ImageRepository(BaseRepository):
             for day_range, count in zip(day_bins, counts, strict=True)
         ]
 
+    @staticmethod
+    def _pseudo_model_ids_subquery() -> Select[int]:
+        """擬似モデル (AI の推論ではない出所) の model.id を返すサブクエリ (ADR 0111)。"""
+        return select(Model.id).where(Model.litellm_model_id.in_(PSEUDO_MODEL_LITELLM_IDS))
+
     def get_recently_used_model_ids(self, limit: int = 10) -> list[str]:
         """アノテーション実績があるモデルの litellm_model_id を返す。
 
         Tag / Caption / Score のいずれかにアノテーション実績があるモデルを
-        model.id 降順（最近登録順）で返す。
+        model.id 降順（最近登録順）で返す。擬似モデル (MANUAL_EDIT・関連ファイル取り込み等)
+        は AI モデルではないため含めない (ADR 0111)。
 
         Args:
             limit: 最大件数（デフォルト 10）。
@@ -4266,7 +4297,8 @@ class ImageRepository(BaseRepository):
                         Model.id.in_(select(Tag.model_id).distinct()),
                         Model.id.in_(select(Caption.model_id).distinct()),
                         Model.id.in_(select(Score.model_id).distinct()),
-                    )
+                    ),
+                    Model.litellm_model_id.not_in(PSEUDO_MODEL_LITELLM_IDS),
                 )
                 .order_by(Model.id.desc())
                 .limit(limit)

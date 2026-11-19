@@ -209,7 +209,8 @@ class TestCreateCropImage:
         child_tags = test_db_manager.get_image_annotations(child_id)["tags"]
         assert [tag["tag"] for tag in child_tags] == ["closeup"]
         assert child_tags[0]["existing"] is True
-        assert child_tags[0]["model_id"] is None
+        # 手入力のタグは model_id NULL でなく MANUAL_EDIT で持つ (ADR 0111)
+        assert child_tags[0]["model_id"] == test_db_manager.get_manual_edit_model_id()
         assert child_tags[0]["is_edited_manually"] is True
 
     def test_full_bounds_crop_raises_duplicate_image_error_without_relation(

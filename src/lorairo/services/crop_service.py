@@ -400,7 +400,7 @@ def _copy_tags(
 
     親に同名タグがあれば ``model_id`` / ``confidence_score`` / ``existing`` /
     ``is_edited_manually`` を引き継ぎ、無ければユーザーが新たに与えたタグとして
-    手動編集扱い (``is_edited_manually=True``、``model_id=None``) で登録する。
+    手動編集扱い (``is_edited_manually=True``、``model_id`` は MANUAL_EDIT、ADR 0111) で登録する。
     親のタグ自体は変更しない。
     """
     tags = normalize_crop_tags(request.tags)
@@ -414,14 +414,17 @@ def _copy_tags(
         parent_tags.setdefault(_tag_match_key(str(parent_tag["tag"])), parent_tag)
 
     tags_data: list[TagAnnotationData] = []
+    manual_edit_model_id: int | None = None
     for tag in tags:
         source = parent_tags.get(_tag_match_key(tag))
         if source is None:
+            if manual_edit_model_id is None:
+                manual_edit_model_id = db_manager.get_manual_edit_model_id()
             tags_data.append(
                 {
                     "tag": tag,
                     "tag_id": None,
-                    "model_id": None,
+                    "model_id": manual_edit_model_id,
                     "existing": True,
                     "is_edited_manually": True,
                     "confidence_score": None,

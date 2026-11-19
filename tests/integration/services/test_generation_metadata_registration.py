@@ -298,8 +298,12 @@ def test_ai_generated_tag_is_not_duplicated(tmp_path, gen_db, fs_manager) -> Non
     again = _png(tmp_path / "b" / "img.png", A1111_TEXT)
     manager.register_image_with_side_effects(again, fs_manager)
 
-    # 関連 .txt (取り込み時に ai generated へ整形される) に既にあるため、自動付与の行は足さない
-    assert _tags(factory, "img.png") == [("1girl", None), ("ai generated", None)]
+    # 関連 .txt (取り込み時に ai generated へ整形される) に既にあるため、自動付与の行は足さない。
+    # .txt 由来の行は擬似モデル SIDECAR_IMPORT で持つ (ADR 0111)
+    assert _tags(factory, "img.png") == [
+        ("1girl", "__sidecar_import__"),
+        ("ai generated", "__sidecar_import__"),
+    ]
 
 
 def test_ai_generated_tag_is_added_once_on_reimport(tmp_path, gen_db, fs_manager) -> None:

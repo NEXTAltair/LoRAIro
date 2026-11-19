@@ -35,7 +35,9 @@ from .repository.model import ModelRepository
 from .repository.project import ProjectRepository
 from .repository.provider_batch import ProviderBatchRepository
 from .schema import (
+    IMAGE_PROCESSING_LITELLM_ID,
     REJECT_REASON_INCORRECT,
+    SIDECAR_IMPORT_LITELLM_ID,
     AnnotationsDict,
     CaptionAnnotationData,
     CropRelation,
@@ -501,12 +503,14 @@ class ImageDatabaseManager:
         raw_tags = annotations.get("tags", [])
         tags = [tag for tag in raw_tags if isinstance(tag, str)] if isinstance(raw_tags, list) else []
         if tags:
+            sidecar_model_id = self.get_sidecar_import_model_id()
             tags_data: list[TagAnnotationData] = [
                 {
                     "tag_id": (
                         tag_id_cache.get(TagCleaner.clean_format(tag).strip()) if tag_id_cache else None
                     ),
-                    "model_id": None,
+                    # 関連ファイル由来と分かるよう擬似モデル SIDECAR_IMPORT で持つ (ADR 0111)
+                    "model_id": sidecar_model_id,
                     "tag": tag,
                     "confidence_score": None,
                     "existing": True,
@@ -1294,6 +1298,50 @@ class ImageDatabaseManager:
                 session.commit()
             logger.debug(f"MANUAL_EDITモデルIDをキャッシュ: {self._manual_edit_model_id}")
         return self._manual_edit_model_id
+
+    def get_sidecar_import_model_id(self) -> int:
+        """関連ファイル (.txt) 取り込み用の擬似モデル ID を返す (無ければ作成、ADR 0111)。
+
+        Returns:
+            int: SIDECAR_IMPORT モデルの ID。
+
+        Raises:
+            SQLAlchemyError: データベース操作中にエラーが発生した場合。
+        """
+        return self._get_pseudo_model_id(
+            SIDECAR_IMPORT_LITELLM_ID, self.model_repo.get_or_create_sidecar_import_model
+        )
+
+    def get_image_processing_model_id(self) -> int:
+        """画像処理が自動で付けるタグ用の擬似モデル ID を返す (無ければ作成、ADR 0111)。
+
+        Returns:
+            int: IMAGE_PROCESSING モデルの ID。
+
+        Raises:
+            SQLAlchemyError: データベース操作中にエラーが発生した場合。
+        """
+        return self._get_pseudo_model_id(
+            IMAGE_PROCESSING_LITELLM_ID, self.model_repo.get_or_create_image_processing_model
+        )
+
+    def _get_pseudo_model_id(self, litellm_model_id: str, get_or_create: Callable[[Session], int]) -> int:
+        """擬似モデル ID を取得または作成し、インスタンス内でキャッシュする。
+
+        Args:
+            litellm_model_id: 擬似モデルの sentinel (キャッシュのキー)。
+            get_or_create: セッションを受けて ID を返す取得/作成関数。
+
+        Returns:
+            int: 擬似モデルの ID。
+        """
+        cache: dict[str, int] = self.__dict__.setdefault("_pseudo_model_ids", {})
+        if litellm_model_id not in cache:
+            with self.model_repo.session_factory() as session:
+                cache[litellm_model_id] = get_or_create(session)
+                session.commit()
+            logger.debug(f"擬似モデルIDをキャッシュ: {litellm_model_id}={cache[litellm_model_id]}")
+        return cache[litellm_model_id]
 
     # --- TagEdit soft-reject 導線 (Issue #792) ---
 

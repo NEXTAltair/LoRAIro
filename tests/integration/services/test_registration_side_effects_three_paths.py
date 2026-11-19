@@ -112,6 +112,8 @@ class TestUnifiedEntrySideEffectDefinition:
         mgr.save_captions = Mock()
         # ai generated の自動付与 (ADR 0107) は別テストで実 DB を使って確かめる
         mgr.apply_ai_generated_tag = Mock(return_value=False)
+        # 関連ファイル取り込みの擬似モデル (ADR 0111) は DB を使わず固定 ID にする
+        mgr.get_sidecar_import_model_id = Mock(return_value=99)
         return mgr
 
     @pytest.mark.parametrize(
