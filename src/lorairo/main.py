@@ -160,7 +160,9 @@ def setup_application_fonts(app: QApplication, config: dict[str, Any] | None = N
         else:
             logger.warning("適切なフォントが見つかりません。システムデフォルトを使用します。")
 
-    except Exception as e:
+    except (AttributeError, TypeError, RuntimeError) as e:
+        # AttributeError: qt 設定が dict でない / TypeError: font_size 等の設定値の型不正 /
+        # RuntimeError: Qt のフォント API 失敗。起動は止めず既定フォントで続ける (#1610)
         logger.warning(f"フォント設定でエラーが発生しました: {e}")
 
 
@@ -296,7 +298,9 @@ def main() -> int:
                 window.setWindowState(window.windowState() & ~window.windowState().WindowMinimized)
                 app.processEvents()
                 logger.info(f"強制表示後の状態: visible={window.isVisible()}")
-            except Exception as show_error:
+            except (AttributeError, RuntimeError) as show_error:
+                # AttributeError: PySide6 の列挙型アクセス差異 / RuntimeError: ウィンドウ破棄済み。
+                # 想定外は下の起動エラー経路 (show_critical) へ伝播させる (#1610)
                 logger.error(f"強制表示エラー: {show_error}")
 
         # タグ DB の初期化 (HF Hub 確認) は window 表示後に背景で行い、起動中の「応答なし」を避ける (#1438)

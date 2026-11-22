@@ -34,6 +34,7 @@ from lorairo.gui.widgets.image_preview import ImagePreviewWidget
 from lorairo.gui.widgets.selected_image_details_widget import SelectedImageDetailsWidget
 from lorairo.gui.widgets.thumbnail_item import ThumbnailItem
 from lorairo.gui.widgets.thumbnail_selector_widget import ThumbnailSelectorWidget
+from lorairo.services.service_container import SERVICE_WIRING_ERRORS
 
 
 @pytest.fixture
@@ -691,6 +692,100 @@ def test_failed_saved_clef_config_disables_review_without_breaking_search(
     assert "Cannot read saved config" in review.status_label.text()
     assert not review.evaluate_button.isEnabled()
     assert tab.thumbnail_selector is not None
+
+
+class _UnexpectedWiringError(Exception):
+    """SERVICE_WIRING_ERRORS のどれにも当たらない、想定外の例外 (#1610)。"""
+
+
+_WIRING_ERRORS = [pytest.param(exc, id=exc.__name__) for exc in SERVICE_WIRING_ERRORS]
+
+
+@pytest.mark.gui
+@pytest.mark.parametrize("exception_type", _WIRING_ERRORS)
+def test_review_reload_known_failure_disables_review_and_keeps_tab(
+    tab: SearchTabWidget, service_container: Mock, exception_type: type[Exception]
+) -> None:
+    """Clef レビュー設定の読込で既知の失敗が起きてもタブは使え、理由はタブ内に出る (#1610)。"""
+    service_container.config_service.get_setting.side_effect = exception_type("saved-config-broken")
+
+    tab.reload_annotation_review_service()
+
+    review = tab.selected_image_details_widget.annotation_review_widget
+    assert review._service is None
+    assert "saved-config-broken" in review.status_label.text()
+    assert tab.thumbnail_selector is not None
+
+
+@pytest.mark.gui
+def test_review_reload_unexpected_failure_propagates(tab: SearchTabWidget, service_container: Mock) -> None:
+    """想定外の例外は「設定を確認」表示へ偽装せず、呼び出し元へ伝播する (#1610)。"""
+    service_container.config_service.get_setting.side_effect = _UnexpectedWiringError("bug")
+
+    with pytest.raises(_UnexpectedWiringError):
+        tab.reload_annotation_review_service()
+
+
+def _raise_in_refinement_wiring(exc: Exception):
+    def _raise(_self: SearchTabWidget) -> None:
+        raise exc
+
+    return _raise
+
+
+@pytest.mark.gui
+@pytest.mark.parametrize("exception_type", _WIRING_ERRORS)
+def test_refinement_wiring_known_failure_keeps_tab_alive(
+    qtbot,
+    monkeypatch: pytest.MonkeyPatch,
+    service_container: Mock,
+    db_manager: Mock,
+    dataset_state_manager: DatasetStateManager,
+    exception_type: type[Exception],
+) -> None:
+    """refinement の配線で既知の失敗 (tagdb 不可等) が起きてもタブは構築できる (#1610)。"""
+    monkeypatch.setattr(
+        SearchTabWidget,
+        "_resolve_refinement_service",
+        _raise_in_refinement_wiring(exception_type("no tagdb")),
+    )
+
+    widget = SearchTabWidget(
+        service_container=service_container,
+        db_manager=db_manager,
+        dataset_state_manager=dataset_state_manager,
+        staging_state_manager=StagingStateManager(),
+        worker_service=Mock(),
+    )
+    qtbot.addWidget(widget)
+
+    assert widget.thumbnail_selector is not None
+    assert widget.selected_image_details_widget._refinement_service is None
+
+
+@pytest.mark.gui
+def test_refinement_wiring_unexpected_failure_propagates(
+    qtbot,
+    monkeypatch: pytest.MonkeyPatch,
+    service_container: Mock,
+    db_manager: Mock,
+    dataset_state_manager: DatasetStateManager,
+) -> None:
+    """想定外の例外は握らず、タブ構築 (MainWindow の初期化失敗経路) へ伝播する (#1610)。"""
+    monkeypatch.setattr(
+        SearchTabWidget,
+        "_resolve_refinement_service",
+        _raise_in_refinement_wiring(_UnexpectedWiringError()),
+    )
+
+    with pytest.raises(_UnexpectedWiringError):
+        SearchTabWidget(
+            service_container=service_container,
+            db_manager=db_manager,
+            dataset_state_manager=dataset_state_manager,
+            staging_state_manager=StagingStateManager(),
+            worker_service=Mock(),
+        )
 
 
 @pytest.mark.gui

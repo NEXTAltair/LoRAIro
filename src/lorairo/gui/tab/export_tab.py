@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
 from ...database.db_core import resolve_stored_path
 from ...database.repository.dataset import DatasetRepository
 from ...services.export_overlay import ExportOverlayPlan, ExportTagOverlay, ScopedOverlayRule
+from ...services.service_container import SERVICE_WIRING_ERRORS
 from ...services.staging_tag_aggregation import StagingTagAggregationService
 from ...services.tag_suggestion_service import TagSuggestionService
 from ..message_box import show_critical, show_information, show_warning
@@ -248,8 +249,9 @@ class ExportTabWidget(QWidget):
         # tagdb 初期化失敗でもタブを巻き込まず degrade する (refinement は付加機能のため非致命)。
         try:
             self._selected_image_details_widget.set_refinement_service(self._resolve_refinement_service())
-        except Exception as e:
-            # graceful degradation (#931): どの初期化エラーでもタブを生かす意図で広く捕捉。
+        except SERVICE_WIRING_ERRORS as e:
+            # graceful degradation (#931): 配線で起こり得る既知の失敗 (SERVICE_WIRING_ERRORS) では
+            # タブを生かす (#1610)。
             logger.warning(f"RefinementService 配線をスキップ (tagdb 不可?): {e}")
         # tagdb userdb 系書き込み (#989): 翻訳追加 / type 補正。未準備・tagdb 不可でも degrade する。
         self._wire_tag_management_service()

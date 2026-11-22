@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
 from lorairo.database.db_core import create_project_session_factory
@@ -98,3 +99,44 @@ def test_pyproject_configures_faulthandler_timeout() -> None:
     data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
     pytest_opts = data["tool"]["pytest"]["ini_options"]
     assert pytest_opts.get("faulthandler_timeout") == 60
+
+
+class _UnexpectedDisposeError(Exception):
+    """Engine 破棄で想定していない例外 (#1610)。"""
+
+
+def _container_with_engine(engine: MagicMock) -> ServiceContainer:
+    container = ServiceContainer()
+    container._image_repository = ImageRepository(
+        session_factory=sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    )
+    return container
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("exception_type", [SQLAlchemyError, OSError])
+def test_dispose_known_failure_is_logged_and_does_not_raise(exception_type: type[Exception]) -> None:
+    """Engine 破棄の既知の失敗 (DB / ファイル I/O) は警告に留め、リセットを止めない (#1610)。"""
+    engine = MagicMock()
+    engine.dispose.side_effect = exception_type("cannot close")
+    container = _container_with_engine(engine)
+
+    container._dispose_active_engines()
+
+    engine.dispose.assert_called_once_with()
+    # 後始末のためのテスト終了時 reset が失敗しないよう、破棄対象を外しておく
+    container._image_repository = None
+
+
+@pytest.mark.unit
+def test_dispose_unexpected_failure_propagates() -> None:
+    """想定外の例外は握らず伝播する (#1610)。"""
+    engine = MagicMock()
+    engine.dispose.side_effect = _UnexpectedDisposeError("bug")
+    container = _container_with_engine(engine)
+
+    try:
+        with pytest.raises(_UnexpectedDisposeError):
+            container._dispose_active_engines()
+    finally:
+        container._image_repository = None
