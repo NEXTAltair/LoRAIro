@@ -124,7 +124,9 @@ report, so that [`review run`](cli.md) can check the representatives only.
   file is then rejected by `review run` (`INVALID_INPUT`, exit 2) before any request.
 - **JSONL output (`--json`)**: each `kind:item` has `image_id`, `cluster_id`,
   `member_count`, `width`, `height`, `pixel_count` (`null` when unknown). The final
-  `kind:result` has the usual report counts plus `representatives_only:true`,
+  `kind:result` has the report counts above except `limit`, `returned_clusters` and
+  `clusters_truncated` (which describe the capped cluster report, not representatives), plus
+  `representatives_only:true`,
   `representative_count`, `review_max_images:500`, `exceeds_review_max_images`, and
   `reference_only:true`. The JSONL stream itself is not an ID file; extract the IDs with
   `jq -r 'select(.kind=="item") | .image_id'`.

@@ -21,6 +21,7 @@ console = make_console()
 err_console = make_console(stderr=True)
 
 DEFAULT_REPORT_LIMIT = 100
+_CLUSTER_OUTPUT_KEYS = frozenset({"limit", "returned_clusters", "clusters_truncated"})
 
 _REPRESENTATIVE_NOTE = (
     "Representatives are reference only (largest pixel count, ties by smallest image ID); "
@@ -50,7 +51,8 @@ def _emit_representatives(project: str, result: DuplicateReport) -> None:
             review_max_images=MAX_REVIEW_IMAGES,
             exceeds_review_max_images=over_review_limit,
             reference_only=True,
-            **result.summary(),
+            # 出力上限に関する値はクラスタ報告用で、全件出力する代表とは無関係。
+            **{key: value for key, value in result.summary().items() if key not in _CLUSTER_OUTPUT_KEYS},
         )
         return
     # stdout は 1 行 1 ID のみ。そのまま `review run --image-ids-file` に渡せる。

@@ -165,6 +165,8 @@ def test_representatives_json_rows_have_stable_contract(representative_api):
     assert summary["cluster_count"] == 3 and summary["unclustered_images"] == 1
     assert summary["read_only"] is True and summary["candidate_only"] is True
     assert "cluster_id" not in summary and 3 not in [row["image_id"] for row in items]
+    # クラスタ報告の出力上限に関する値は代表モードの result に含めない
+    assert {"limit", "returned_clusters", "clusters_truncated"}.isdisjoint(summary)
 
 
 def test_representatives_json_reports_complete_count_and_review_cap(representative_api):
@@ -239,3 +241,22 @@ def test_representatives_failures_use_the_same_structured_errors(representative_
     assert result.exit_code == 2
     rows = [json.loads(line) for line in result.stdout.splitlines()]
     assert len(rows) == 1 and rows[0]["code"] == "RESULT_SET_TOO_LARGE"
+
+
+def test_representatives_result_has_no_cluster_report_cap_values_with_many_clusters(monkeypatch):
+    images = [
+        _sized(2 * pair + offset, f"{pair:016x}", 10 + offset, 10)
+        for pair in range(1, 602)
+        for offset in (1, 2)
+    ]
+    report = analyze_saved_hashes(images, max_distance=0, limit=100)
+    assert report.clusters_truncated and report.returned_clusters == 100
+    monkeypatch.setattr("lorairo.cli.commands.duplicates.report_duplicates", Mock(return_value=report))
+    result = runner.invoke(
+        app, ["--json", "images", "duplicates", "-p", "s", "--max-distance", "0", "--representatives"]
+    )
+    rows = [json.loads(line) for line in result.stdout.splitlines()]
+    summary = rows[-1]
+    assert len(rows) - 1 == summary["representative_count"] == 601
+    assert {"limit", "returned_clusters", "clusters_truncated"}.isdisjoint(summary)
+    assert summary["cluster_count"] == 601
