@@ -616,6 +616,54 @@ class DuplicateReportResult(BaseModel):
     max_pair_comparisons: Literal[49995000]
 
 
+class DuplicateRepresentativeItem(BaseModel):
+    """`--representatives` の 1 行。画素数最大 (同点は最小 image_id) の代表。参考表示のみ。"""
+
+    kind: Literal["item"] = "item"
+    image_id: int
+    cluster_id: int
+    member_count: int
+    width: int | None
+    height: int | None
+    pixel_count: int | None
+
+
+class DuplicateRepresentativeResult(BaseModel):
+    """`--representatives` の終端行。代表は全クラスタ分を出力し、--limit は適用しない。
+
+    クラスタ報告の出力上限に関する値 (limit / returned_clusters / clusters_truncated) は
+    代表の件数と無関係なので持たない。
+    """
+
+    kind: Literal["result"] = "result"
+    ok: Literal[True] = True
+    message: str
+    project: str
+    read_only: Literal[True]
+    status: Literal["success"]
+    candidate_only: Literal[True]
+    total_images: int
+    valid_phash_images: int
+    missing_phash_images: int
+    invalid_phash_images: int
+    unique_phashes: int
+    cluster_count: int
+    clustered_images: int
+    unclustered_images: int
+    max_distance: int
+    hash_bits: Literal[64]
+    distance_metric: Literal["hamming"]
+    clustering: Literal["connected_components"]
+    compared_hash_pairs: int
+    max_images: Literal[10000]
+    max_pair_comparisons: Literal[49995000]
+    representatives_only: Literal[True]
+    representative_count: int
+    review_max_images: int
+    exceeds_review_max_images: bool
+    reference_only: Literal[True]
+
+
 class MaintenanceCheckItem(BaseModel):
     kind: Literal["item"] = "item"
     check: Literal[
@@ -3688,16 +3736,28 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     ),
                     _f(
                         "limit",
-                        "int[1,500]",
-                        default=100,
-                        description="Output cap for clusters and members; detection and counts cover the complete bounded project.",
+                        "int[1,500]?",
+                        default=None,
+                        description="Output cap for clusters and members; omitted means 100, and any explicit value is rejected with --representatives. Detection and counts cover the complete bounded project.",
+                    ),
+                    _f(
+                        "representatives",
+                        "bool",
+                        default=False,
+                        description=(
+                            "Output only one representative for every cluster (largest width*height, ties by smallest image_id; "
+                            "singletons excluded). Plain mode prints one image ID per line for `review run --image-ids-file`; "
+                            "JSONL items use DuplicateRepresentativeItem. Reference only; not evidence for other images."
+                        ),
                     ),
                 ),
             ),
         ),
         outputs=(
             _output("DuplicateClusterItem", (), schema=DuplicateClusterItem),
+            _output("DuplicateRepresentativeItem", (), schema=DuplicateRepresentativeItem),
             _output("DuplicateReportResult", (), schema=DuplicateReportResult),
+            _output("DuplicateRepresentativeResult", (), schema=DuplicateRepresentativeResult),
         ),
         errors=(ERROR_MODEL,),
     ),

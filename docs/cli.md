@@ -1197,7 +1197,8 @@ lorairo-cli --json describe "images duplicates"
 
 - `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
 - `max_distance`: `int[0,64]` (optional, default `4`) - Maximum Hamming distance of connecting pairs; cluster endpoints may exceed this threshold. (CLI: `--max-distance`)
-- `limit`: `int[1,500]` (optional, default `100`) - Output cap for clusters and members; detection and counts cover the complete bounded project. (CLI: `--limit`)
+- `limit`: `int[1,500]?` (optional, default `None`) - Output cap for clusters and members; omitted means 100, and any explicit value is rejected with --representatives. Detection and counts cover the complete bounded project. (CLI: `--limit`)
+- `representatives`: `bool` (optional, default `False`) - Output only one representative for every cluster (largest width*height, ties by smallest image_id; singletons excluded). Plain mode prints one image ID per line for `review run --image-ids-file`; JSONL items use DuplicateRepresentativeItem. Reference only; not evidence for other images. (CLI: `--representatives`)
 
 **Output `DuplicateClusterItem`**
 
@@ -1206,6 +1207,16 @@ lorairo-cli --json describe "images duplicates"
 - `member_count`: `int` (required)
 - `members`: `list[DuplicateMember]` (required)
 - `members_truncated`: `bool` (required)
+
+**Output `DuplicateRepresentativeItem`**
+
+- `kind`: `item` (optional, default `item`)
+- `image_id`: `int` (required)
+- `cluster_id`: `int` (required)
+- `member_count`: `int` (required)
+- `width`: `int?` (required)
+- `height`: `int?` (required)
+- `pixel_count`: `int?` (required)
 
 **Output `DuplicateReportResult`**
 
@@ -1234,6 +1245,36 @@ lorairo-cli --json describe "images duplicates"
 - `limit`: `int` (required)
 - `max_images`: `10000` (required)
 - `max_pair_comparisons`: `49995000` (required)
+
+**Output `DuplicateRepresentativeResult`**
+
+- `kind`: `result` (optional, default `result`)
+- `ok`: `true` (optional, default `True`)
+- `message`: `str` (required)
+- `project`: `str` (required)
+- `read_only`: `true` (required)
+- `status`: `success` (required)
+- `candidate_only`: `true` (required)
+- `total_images`: `int` (required)
+- `valid_phash_images`: `int` (required)
+- `missing_phash_images`: `int` (required)
+- `invalid_phash_images`: `int` (required)
+- `unique_phashes`: `int` (required)
+- `cluster_count`: `int` (required)
+- `clustered_images`: `int` (required)
+- `unclustered_images`: `int` (required)
+- `max_distance`: `int` (required)
+- `hash_bits`: `64` (required)
+- `distance_metric`: `hamming` (required)
+- `clustering`: `connected_components` (required)
+- `compared_hash_pairs`: `int` (required)
+- `max_images`: `10000` (required)
+- `max_pair_comparisons`: `49995000` (required)
+- `representatives_only`: `true` (required)
+- `representative_count`: `int` (required)
+- `review_max_images`: `int` (required)
+- `exceeds_review_max_images`: `bool` (required)
+- `reference_only`: `true` (required)
 
 **Error `CliErrorResponse`**
 

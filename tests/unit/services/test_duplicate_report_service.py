@@ -156,3 +156,111 @@ def test_project_growth_after_count_is_rejected_before_comparing(monkeypatch):
     with pytest.raises(ResultSetTooLargeError) as caught:
         DuplicateReportService(factory).report()
     assert caught.value.matched == 3
+
+
+# ---- 代表画像の決定 (#1604) ----
+
+
+def sized(image_id, phash, width, height):
+    return SavedImageHash(
+        image_id, phash, f"stored/{image_id}.png", f"original/{image_id}.png", width=width, height=height
+    )
+
+
+def test_representative_is_largest_pixel_count_with_smallest_id_on_tie():
+    images = [
+        sized(1, "0000000000000000", 100, 100),  # 10,000 px
+        sized(2, "0000000000000000", 200, 100),  # 20,000 px (最大, 同点)
+        sized(3, "0000000000000000", 100, 200),  # 20,000 px (同点, id が大きい)
+        sized(4, "0000000000000000", 50, 50),
+    ]
+    report = analyze_saved_hashes(images, max_distance=0)
+    assert [(r.image_id, r.cluster_id, r.member_count) for r in report.representatives] == [(2, 1, 4)]
+    assert (report.representatives[0].width, report.representatives[0].height) == (200, 100)
+    assert report.representatives[0].pixel_count == 20_000
+
+
+def test_representatives_cover_every_cluster_and_exclude_singletons():
+    images = [
+        sized(1, "0000000000000000", 10, 10),
+        sized(2, "0000000000000000", 20, 20),
+        sized(3, "ffffffffffffffff", 30, 30),  # 単独画像
+        sized(4, "00000000000000ff", 40, 40),
+        sized(5, "00000000000000ff", 40, 40),
+        sized(6, "0f0f0f0f0f0f0f0f", 99, 99),  # 単独画像 (面積最大でも含めない)
+    ]
+    report = analyze_saved_hashes(images, max_distance=0)
+    assert report.cluster_count == 2
+    assert [(r.cluster_id, r.image_id) for r in report.representatives] == [(1, 2), (4, 4)]
+    assert report.unclustered_images == 2
+    assert {3, 6}.isdisjoint(r.image_id for r in report.representatives)
+
+
+def test_representatives_do_not_depend_on_input_order_or_output_limit():
+    images = [
+        sized(1, "0000000000000000", 10, 10),
+        sized(2, "0000000000000000", 20, 20),
+        sized(3, "00000000000000ff", 5, 5),
+        sized(4, "00000000000000ff", 6, 6),
+        sized(5, "ff00000000000000", 1, 1),
+        sized(6, "ff00000000000000", 1, 1),
+    ]
+    expected = [(1, 2), (3, 4), (5, 5)]
+    for ordering in (images, list(reversed(images)), images[2:] + images[:2]):
+        report = analyze_saved_hashes(ordering, max_distance=0, limit=1)
+        assert [(r.cluster_id, r.image_id) for r in report.representatives] == expected
+    # limit は cluster 行の出力上限であり、代表の決定には影響しない
+    assert analyze_saved_hashes(images, max_distance=0, limit=1).returned_clusters == 1
+
+
+def test_unknown_pixel_count_loses_to_known_and_falls_back_to_smallest_id():
+    known = analyze_saved_hashes(
+        [sized(1, "0" * 16, None, None), sized(2, "0" * 16, 0, 500), sized(3, "0" * 16, 2, 2)],
+        max_distance=0,
+    )
+    assert known.representatives[0].image_id == 3
+    assert known.representatives[0].pixel_count == 4
+    unknown = analyze_saved_hashes(
+        [sized(9, "0" * 16, None, 10), sized(4, "0" * 16, -1, 10), sized(7, "0" * 16, 0, 0)],
+        max_distance=0,
+    )
+    assert unknown.representatives[0].image_id == 4
+    assert unknown.representatives[0].pixel_count is None
+    assert unknown.representatives[0].width is None and unknown.representatives[0].height is None
+
+
+def test_images_without_usable_hash_are_never_representatives():
+    report = analyze_saved_hashes(
+        [sized(1, None, 99, 99), sized(2, "not-a-hash", 99, 99), sized(3, "0" * 16, 1, 1)],
+        max_distance=0,
+    )
+    assert report.representatives == []
+
+
+def test_summary_excludes_representatives_like_clusters():
+    report = analyze_saved_hashes([sized(1, "0" * 16, 1, 1), sized(2, "0" * 16, 1, 1)], max_distance=0)
+    assert "representatives" not in report.summary() and "clusters" not in report.summary()
+
+
+def test_service_selects_dimensions_from_database_for_representatives():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    with factory() as session:
+        for image_id, width, height in ((1, 10, 10), (2, 30, 20), (3, 20, 30)):
+            session.add(
+                Image(
+                    id=image_id,
+                    uuid=f"u{image_id}",
+                    phash="0" * 16,
+                    original_image_path=f"o{image_id}.png",
+                    stored_image_path=f"s{image_id}.png",
+                    width=width,
+                    height=height,
+                    format="PNG",
+                    extension=".png",
+                )
+            )
+        session.commit()
+    report = DuplicateReportService(factory).report(max_distance=0)
+    assert [(r.image_id, r.pixel_count) for r in report.representatives] == [(2, 600)]
