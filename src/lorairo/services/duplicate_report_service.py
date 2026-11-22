@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -46,6 +46,9 @@ class SavedImageHash:
     phash: str | None
     stored_image_path: str
     original_image_path: str
+    # 代表の決定にだけ使う。未保存・不正値 (None / 0 以下) は画素数不明として扱う。
+    width: int | None = None
+    height: int | None = None
 
 
 @dataclass(frozen=True)
@@ -62,6 +65,22 @@ class DuplicateCluster:
     member_count: int
     members: list[DuplicateMember]
     members_truncated: bool
+
+
+@dataclass(frozen=True)
+class DuplicateRepresentative:
+    """重複クラスタ 1 件の代表画像。保存済みの寸法だけで決まり、画像は開かない。
+
+    代表は「確認を代表で済ませる」ための参考であり、同じクラスタの他画像の内容や
+    注釈の正しさを保証しない。
+    """
+
+    image_id: int
+    cluster_id: int
+    member_count: int
+    width: int | None
+    height: int | None
+    pixel_count: int | None
 
 
 @dataclass(frozen=True)
@@ -86,10 +105,46 @@ class DuplicateReport:
     candidate_only: bool = True
     max_images: int = MAX_PROJECT_IMAGES
     max_pair_comparisons: int = MAX_PAIR_COMPARISONS
+    # 検出された全クラスタ (limit で切らない) の代表。cluster_id 昇順。単独画像は含めない。
+    representatives: list[DuplicateRepresentative] = field(default_factory=list)
 
     def summary(self) -> dict[str, object]:
         """Keep bounded cluster records in their own JSONL items."""
-        return {key: value for key, value in asdict(self).items() if key != "clusters"}
+        return {
+            key: value for key, value in asdict(self).items() if key not in ("clusters", "representatives")
+        }
+
+
+def _pixel_count(image: SavedImageHash | None) -> int | None:
+    """幅×高さ。どちらかが未保存・0 以下なら不明 (None)。"""
+    if image is None:
+        return None
+    width, height = image.width, image.height
+    if type(width) is not int or type(height) is not int or width <= 0 or height <= 0:
+        return None
+    return width * height
+
+
+def _select_representative(
+    members: Sequence[DuplicateMember], dimensions: dict[int, SavedImageHash], cluster_id: int
+) -> DuplicateRepresentative:
+    """画素数最大、同点は最小 image_id。画素数不明は既知より常に後ろ (不明同士は最小 image_id)。"""
+
+    def rank(member: DuplicateMember) -> tuple[int, int, int]:
+        pixels = _pixel_count(dimensions.get(member.image_id))
+        return (0, -pixels, member.image_id) if pixels is not None else (1, 0, member.image_id)
+
+    best = min(members, key=rank)
+    source = dimensions.get(best.image_id)
+    pixels = _pixel_count(source)
+    return DuplicateRepresentative(
+        image_id=best.image_id,
+        cluster_id=cluster_id,
+        member_count=len(members),
+        width=source.width if pixels is not None and source is not None else None,
+        height=source.height if pixels is not None and source is not None else None,
+        pixel_count=pixels,
+    )
 
 
 def _group_saved_hashes(
@@ -165,6 +220,10 @@ def analyze_saved_hashes(
         DuplicateCluster(members[0].image_id, len(members), members[:limit], len(members) > limit)
         for members in candidates[:limit]
     ]
+    dimensions = {image.image_id: image for image in images}
+    representatives = [
+        _select_representative(members, dimensions, members[0].image_id) for members in candidates
+    ]
     valid = len(images) - missing - invalid
     clustered = sum(map(len, candidates))
     return DuplicateReport(
@@ -182,6 +241,7 @@ def analyze_saved_hashes(
         compared_hash_pairs=compared,
         limit=limit,
         clusters=clusters,
+        representatives=representatives,
     )
 
 
@@ -197,7 +257,14 @@ class DuplicateReportService:
             count = session.execute(select(func.count()).select_from(Image)).scalar_one()
             _check_project_size(count)
             rows = session.execute(
-                select(Image.id, Image.phash, Image.stored_image_path, Image.original_image_path)
+                select(
+                    Image.id,
+                    Image.phash,
+                    Image.stored_image_path,
+                    Image.original_image_path,
+                    Image.width,
+                    Image.height,
+                )
                 .order_by(Image.id)
                 .limit(MAX_PROJECT_IMAGES + 1)
             ).all()

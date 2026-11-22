@@ -616,6 +616,28 @@ class DuplicateReportResult(BaseModel):
     max_pair_comparisons: Literal[49995000]
 
 
+class DuplicateRepresentativeItem(BaseModel):
+    """`--representatives` の 1 行。画素数最大 (同点は最小 image_id) の代表。参考表示のみ。"""
+
+    kind: Literal["item"] = "item"
+    image_id: int
+    cluster_id: int
+    member_count: int
+    width: int | None
+    height: int | None
+    pixel_count: int | None
+
+
+class DuplicateRepresentativeResult(DuplicateReportResult):
+    """`--representatives` の終端行。代表は全クラスタ分を出力し、--limit は適用しない。"""
+
+    representatives_only: Literal[True]
+    representative_count: int
+    review_max_images: int
+    exceeds_review_max_images: bool
+    reference_only: Literal[True]
+
+
 class MaintenanceCheckItem(BaseModel):
     kind: Literal["item"] = "item"
     check: Literal[
@@ -3690,14 +3712,26 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                         "limit",
                         "int[1,500]",
                         default=100,
-                        description="Output cap for clusters and members; detection and counts cover the complete bounded project.",
+                        description="Output cap for clusters and members; omitted means 100, and any explicit value is rejected with --representatives. Detection and counts cover the complete bounded project.",
+                    ),
+                    _f(
+                        "representatives",
+                        "bool",
+                        default=False,
+                        description=(
+                            "Output only one representative for every cluster (largest width*height, ties by smallest image_id; "
+                            "singletons excluded). Plain mode prints one image ID per line for `review run --image-ids-file`; "
+                            "JSONL items use DuplicateRepresentativeItem. Reference only; not evidence for other images."
+                        ),
                     ),
                 ),
             ),
         ),
         outputs=(
             _output("DuplicateClusterItem", (), schema=DuplicateClusterItem),
+            _output("DuplicateRepresentativeItem", (), schema=DuplicateRepresentativeItem),
             _output("DuplicateReportResult", (), schema=DuplicateReportResult),
+            _output("DuplicateRepresentativeResult", (), schema=DuplicateRepresentativeResult),
         ),
         errors=(ERROR_MODEL,),
     ),

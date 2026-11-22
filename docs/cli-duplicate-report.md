@@ -96,3 +96,53 @@ Python callers use `lorairo.public_api.duplicate_report.report_duplicates(projec
 max_distance=4, limit=100)`. It returns the same `DuplicateReport`, including typed
 `clusters` and `summary()`. The pure `analyze_saved_hashes` function accepts synthetic
 `SavedImageHash` records for verification without a database or image files.
+
+## Cluster representatives for Clef review (`--representatives`)
+
+```sh
+lorairo-cli images duplicates --project training --representatives > representatives.txt
+lorairo-cli review run --project training --image-ids-file representatives.txt
+```
+
+`--representatives` outputs one image per duplicate cluster instead of the cluster
+report, so that [`review run`](cli.md) can check the representatives only.
+
+- **Rule**: the image with the largest saved pixel count (`width × height`) is the
+  representative. Ties go to the smallest `image_id`; the same input always gives the
+  same result regardless of input order. A missing or non-positive width/height counts as
+  an unknown pixel count, which loses to every known one; if every member is unknown the
+  smallest `image_id` wins. Only saved dimensions are used; images are not opened.
+- **Singletons are excluded.** Images that belong to no cluster (including images with
+  missing or invalid hashes) never appear. There is no option to include them.
+- **All clusters are output.** `--limit` is rejected with `--representatives` (exit 2)
+  because truncating would make the remaining representatives unreachable. The project
+  cap of 10,000 images bounds the output to at most 5,000 representatives.
+- **Plain output**: stdout is one integer image ID per line, in ascending `cluster_id`
+  order, and nothing else, so it can be saved unmodified and given to
+  `review run --image-ids-file`. The summary, the 500-image warning, and the reference
+  note go to stderr. With no clusters stdout is empty and the exit code is 0; an empty ID
+  file is then rejected by `review run` (`INVALID_INPUT`, exit 2) before any request.
+- **JSONL output (`--json`)**: each `kind:item` has `image_id`, `cluster_id`,
+  `member_count`, `width`, `height`, `pixel_count` (`null` when unknown). The final
+  `kind:result` has the usual report counts plus `representatives_only:true`,
+  `representative_count`, `review_max_images:500`, `exceeds_review_max_images`, and
+  `reference_only:true`. The JSONL stream itself is not an ID file; extract the IDs with
+  `jq -r 'select(.kind=="item") | .image_id'`.
+- **500-image review cap**: `review run` accepts at most 500 unique images per run and
+  returns `RESULT_SET_TOO_LARGE` (exit 2) before opening the project or sending any
+  request for more. When `exceeds_review_max_images` is true (or stderr shows the split
+  warning), split the list, for example `split -l 500 representatives.txt part-`, and run
+  `review run` once per part.
+
+Python callers read `report_duplicates(...).representatives` (a list of
+`DuplicateRepresentative`, one per cluster, ordered by `cluster_id`, not limited by
+`limit`). The pure `analyze_saved_hashes` accepts `SavedImageHash` records with optional
+`width` / `height` for verification without a database.
+
+### Treat the result as a reference
+
+A representative's Clef result is a **reference only**. There is no ground-truth data
+showing that pHash neighbors share the same annotation errors, so the result must not be
+used as evidence about other images in the cluster. Nothing is copied from a
+representative to its cluster members, and no tag, caption or image is changed or deleted:
+the command is read-only and `review run` does not save results ([ADR 0095](decisions/0095-clef-review-batch-results.md)).

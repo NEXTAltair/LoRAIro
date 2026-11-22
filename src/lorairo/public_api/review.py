@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from lorairo.services.annotation_review_service import AnnotationReviewResult, ReviewSnapshot
     from lorairo.services.service_container import ServiceContainer
 
-_MAX_REVIEW_IMAGES = 500
+MAX_REVIEW_IMAGES = 500
 _VALIDATION_CHUNK_SIZE = 500
 _STOP_REVIEW_ERROR_CODES = frozenset({"configuration", "transport", "timeout"})
 
@@ -49,8 +49,8 @@ def _validate_image_ids(image_ids: list[int]) -> list[int]:
     if not image_ids or any(type(image_id) is not int or image_id <= 0 for image_id in image_ids):
         raise InvalidInputError("image_ids", "Specify a nonempty set of positive integer image IDs.")
     unique_ids = list(dict.fromkeys(image_ids))
-    if len(unique_ids) > _MAX_REVIEW_IMAGES:
-        raise ResultSetTooLargeError(len(unique_ids), _MAX_REVIEW_IMAGES)
+    if len(unique_ids) > MAX_REVIEW_IMAGES:
+        raise ResultSetTooLargeError(len(unique_ids), MAX_REVIEW_IMAGES)
     return unique_ids
 
 
