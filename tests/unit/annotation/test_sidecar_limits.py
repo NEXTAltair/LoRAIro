@@ -56,6 +56,49 @@ def test_sidecar_preserves_encoding_fallback(tmp_path, encoding, text):
     assert result["captions"] == [text]
 
 
+@pytest.mark.parametrize(
+    "payload,tags",
+    [
+        ("cat, 50% off".encode("utf-8-sig"), ["\ufeffcat", "50% off"]),
+        ("cat, 50% off".encode("cp932"), ["cat", "50% off"]),
+        ("猫, ①".encode("cp932"), ["\x94L", "\x87@"]),
+        ("cat, 猫".encode("utf-16"), ["cat", "猫"]),
+        (b"\xfe\xff" + "cat, 猫".encode("utf-16-be"), ["cat", "猫"]),
+        ("cat\r\ndog".encode("utf-16"), ["cat", "dog"]),
+    ],
+    ids=["utf8_bom", "cp932_ascii", "cp932_extension", "utf16_le", "utf16_be", "utf16_newline"],
+)
+def test_text_encodings_are_not_treated_as_binary(tmp_path, payload, tags):
+    """NUL 検査で既存の復号結果を変えず、BOM 付き UTF-16 もバイナリ扱いしない (#1620)。"""
+    image = tmp_path / "text.png"
+    image.with_suffix(".txt").write_bytes(payload)
+    image.with_suffix(".caption").write_bytes(payload)
+    result = SidecarAnnotationReader().get_existing_annotations(image)
+    assert result["tags"] == tags
+    assert result["captions"] == [", ".join(tags)]
+
+
+@pytest.mark.parametrize("suffix,key", [(".txt", "tags"), (".caption", "captions")])
+@pytest.mark.parametrize(
+    "payload",
+    [bytes(8), b"tag\x00", b"\xff\xfe\x00\x00", b"\xff\xfeSECRET\x00", "cat".encode("utf-16-le")],
+    ids=["all_zero", "trailing_nul", "bom_then_zero", "broken_utf16", "utf16_without_bom"],
+)
+def test_binary_like_sidecar_is_skipped_before_parsing(
+    tmp_path, monkeypatch, suffix, key, payload, sidecar_logs
+):
+    image = tmp_path / "binary.png"
+    image.with_suffix(suffix).write_bytes(payload)
+    monkeypatch.setattr(
+        "lorairo.annotation.sidecar_reader.TagCleaner.clean_format",
+        lambda _: pytest.fail("バイナリ様の本文を分割した"),
+    )
+    result = SidecarAnnotationReader().get_existing_annotations(image)
+    assert result[key] == []
+    assert any("NUL" in line and f"binary{suffix}" in line for line in sidecar_logs)
+    assert all("SECRET" not in line and "\x00" not in line for line in sidecar_logs)
+
+
 def test_parsing_and_universal_newlines_match_existing_reader(tmp_path):
     image = tmp_path / "parsed.png"
     image.with_suffix(".txt").write_bytes(b"  tag_one,,tag_two,\r\n tag_three,  ")
