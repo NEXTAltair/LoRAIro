@@ -1021,11 +1021,12 @@ class AnnotationRepository(BaseRepository):
 
         logger.debug("Searching tag in external tag_db (length={})", len(normalized_tag))
 
-        # 3. 既存タグ検索（公開API search_tags()使用、完全一致）
+        # 3. 既存タグ検索（公開API search_tags()使用、`*` / `%` も文字として扱う完全一致 #1620）
         try:
             request = TagSearchRequest(
                 query=normalized_tag,
                 partial=False,
+                literal=True,
                 resolve_preferred=False,
                 include_aliases=True,
                 include_deprecated=False,
@@ -1093,6 +1094,7 @@ class AnnotationRepository(BaseRepository):
             request = TagSearchRequest(
                 query=normalized_tag,
                 partial=False,
+                literal=True,
                 format_names=[format_name],
                 resolve_preferred=True,
                 include_aliases=True,
@@ -1156,6 +1158,7 @@ class AnnotationRepository(BaseRepository):
             retry_request = TagSearchRequest(
                 query=normalized_tag,
                 partial=False,
+                literal=True,
                 format_names=[_LORAIRO_FORMAT],
                 resolve_preferred=True,
                 include_aliases=True,
@@ -1580,6 +1583,7 @@ class AnnotationRepository(BaseRepository):
             retry_request = TagSearchRequest(
                 query=tag_str,
                 partial=False,
+                literal=True,
                 resolve_preferred=False,
                 include_aliases=True,
                 include_deprecated=False,

@@ -1,5 +1,6 @@
 """既存の画像ファイルに対応する .txt/.caption ファイルからアノテーションを読み込むモジュール。"""
 
+import codecs
 import os
 import stat
 from pathlib import Path
@@ -36,6 +37,7 @@ def _read_sidecar_text(file_path: Path) -> str | None:
     POSIX では NOFOLLOW / NONBLOCK で lstat 後のリンク・FIFO への置換にも対応。
     それらのフラグがない Windows でも reparse point と open 後の同一性を検査し、
     本文を読む前に置換を検出する。親ディレクトリの隔離は扱わない。
+    復号結果が NUL を含むものはバイナリ様として拒否する (#1620)。
     """
     try:
         before = file_path.lstat()
@@ -66,7 +68,21 @@ def _read_sidecar_text(file_path: Path) -> str | None:
         _validate_sidecar(os.fstat(descriptor))
     finally:
         os.close(descriptor)
-    return decode_text_with_fallback(bytes(data))
+    text = _decode_sidecar(bytes(data))
+    # latin-1 は任意のバイト列を、UTF-8 も全ゼロを復号できるため、復号後に検査する
+    if "\x00" in text:
+        raise SidecarReadError("contains NUL (binary-like)")
+    return text
+
+
+def _decode_sidecar(data: bytes) -> str:
+    """BOM 付き UTF-16 は NUL 検査に掛からないよう先に復号し、他は既存の文字コード順で復号する。"""
+    if data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        try:
+            return decode_text_with_fallback(data, ("utf-16",))
+        except UnicodeDecodeError:
+            logger.debug("BOM 付き UTF-16 として復号できないため既存の文字コード順で復号")
+    return decode_text_with_fallback(data)
 
 
 class SidecarAnnotationReader:
