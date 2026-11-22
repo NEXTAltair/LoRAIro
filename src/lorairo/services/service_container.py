@@ -12,6 +12,8 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
+from sqlalchemy.exc import SQLAlchemyError
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
@@ -35,6 +37,26 @@ from .image_registration_service import ImageRegistrationService
 from .model_registry_protocol import ModelRegistryServiceProtocol
 from .model_sync_service import ModelSyncService
 from .project_management_service import ProjectManagementService
+
+# ServiceContainer の遅延初期化プロパティ (設定読込 / DB 接続 / lazy import) を起動・設定反映の
+# 経路から呼ぶ箇所が「継続してよい」例外の型 (#1610)。これ以外 (TypeError など呼び出し側の
+# 実装不具合を示すもの) は握らず、呼び出し元の既存ハンドラへ伝播させる。
+#   AttributeError : 注入された db_manager / widget の属性欠落
+#   ImportError    : genai_tag_db_tools / image_annotator_lib の lazy import 失敗
+#   KeyError       : 設定の必須セクション欠落 (utils.config.load_config)
+#   OSError        : 設定ファイル・DB ディレクトリの読み書き失敗
+#   RuntimeError   : Qt オブジェクト破棄済み・初期化前の呼び出し
+#   SQLAlchemyError: Engine / セッションファクトリの生成失敗
+#   ValueError     : 設定値の不正 (TOML 解析エラー・範囲外の値)
+SERVICE_WIRING_ERRORS: tuple[type[Exception], ...] = (
+    AttributeError,
+    ImportError,
+    KeyError,
+    OSError,
+    RuntimeError,
+    SQLAlchemyError,
+    ValueError,
+)
 
 
 def _get_attr_if_present(obj: object, name: str) -> Any:
@@ -630,7 +652,8 @@ class ServiceContainer:
                     try:
                         dispose()
                         logger.debug(f"Disposed SQLAlchemy engine: {engine}")
-                    except Exception:
+                    except (SQLAlchemyError, OSError):
+                        # Engine 破棄の失敗は継続可 (残りの Engine も破棄する)。想定外は伝播させる (#1610)
                         logger.opt(exception=True).warning("Failed to dispose SQLAlchemy engine")
 
     def reset_container(self) -> None:

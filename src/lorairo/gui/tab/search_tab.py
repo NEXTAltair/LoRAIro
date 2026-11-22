@@ -47,7 +47,7 @@ from ...database.db_manager import ImageDatabaseManager
 from ...filesystem import FileSystemManager
 from ...services.model_selection_service import ModelSelectionService
 from ...services.refinement_service import RefinementService
-from ...services.service_container import ServiceContainer
+from ...services.service_container import SERVICE_WIRING_ERRORS, ServiceContainer
 from ...services.tag_suggestion_service import TagSuggestionService
 from ...utils.log import logger
 from ..designer.SearchTab_ui import Ui_SearchTab
@@ -223,9 +223,9 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         # merged-reader と同様に degrade する (refinement は付加機能のため非致命)。
         try:
             self._selected_image_details_widget.set_refinement_service(self._resolve_refinement_service())
-        except Exception as e:
+        except SERVICE_WIRING_ERRORS as e:
             # tagdb 不可時の graceful degradation (#931): refinement は付加機能のため、
-            # どの初期化エラーでもタブを生かす意図で広く捕捉する。
+            # 配線で起こり得る既知の失敗 (SERVICE_WIRING_ERRORS) ではタブを生かす (#1610)。
             logger.warning(f"RefinementService 配線をスキップ (tagdb 不可?): {e}")
         # tagdb userdb 系書き込み (#989): 翻訳追加 / type 補正。未準備・tagdb 不可でも degrade する。
         self._wire_tag_management_service()
@@ -298,7 +298,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             self.selection_review_widget.set_services(
                 self._review_service, self._review_store, load_history=False
             )
-        except Exception as error:
+        except SERVICE_WIRING_ERRORS as error:
             # 理由はタブ内に表示されるためログのみ (#1599)
             logger.warning(f"Clef レビュー設定を読み込めませんでした: {error}")
             self._review_store = None

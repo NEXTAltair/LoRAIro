@@ -16,6 +16,7 @@ from lorairo.gui.state.staging_state import StagingStateManager
 from lorairo.gui.tab.export_tab import ExportTabWidget
 from lorairo.gui.widgets.export_overlay_bar import ExportOverlayBar
 from lorairo.gui.widgets.staging_tag_panel import StagingTagPanel
+from lorairo.services.service_container import SERVICE_WIRING_ERRORS
 
 
 @pytest.fixture
@@ -97,6 +98,54 @@ def test_export_tab_refinement_falls_back_to_active_db_without_db_manager(
 
     service_container.create_refinement_service.assert_not_called()
     assert widget._selected_image_details_widget._refinement_service is service_container.refinement_service
+
+
+class _UnexpectedWiringError(Exception):
+    """SERVICE_WIRING_ERRORS のどれにも当たらない、想定外の例外 (#1610)。"""
+
+
+def _raise_in_refinement_wiring(exc: Exception):
+    def _raise(_self: ExportTabWidget) -> None:
+        raise exc
+
+    return _raise
+
+
+@pytest.mark.gui
+@pytest.mark.parametrize("exception_type", [pytest.param(e, id=e.__name__) for e in SERVICE_WIRING_ERRORS])
+def test_export_tab_refinement_wiring_known_failure_keeps_tab_alive(
+    qtbot,
+    monkeypatch: pytest.MonkeyPatch,
+    service_container: Mock,
+    staging_manager: StagingStateManager,
+    exception_type: type[Exception],
+) -> None:
+    """refinement の配線で既知の失敗 (tagdb 不可等) が起きてもタブは構築できる (#1610)。"""
+    monkeypatch.setattr(
+        ExportTabWidget,
+        "_resolve_refinement_service",
+        _raise_in_refinement_wiring(exception_type("no tagdb")),
+    )
+
+    widget = ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
+    qtbot.addWidget(widget)
+
+    assert widget._selected_image_details_widget._refinement_service is None
+
+
+@pytest.mark.gui
+def test_export_tab_refinement_wiring_unexpected_failure_propagates(
+    monkeypatch: pytest.MonkeyPatch, service_container: Mock, staging_manager: StagingStateManager
+) -> None:
+    """想定外の例外は握らず、タブ構築 (MainWindow の初期化失敗経路) へ伝播する (#1610)。"""
+    monkeypatch.setattr(
+        ExportTabWidget,
+        "_resolve_refinement_service",
+        _raise_in_refinement_wiring(_UnexpectedWiringError()),
+    )
+
+    with pytest.raises(_UnexpectedWiringError):
+        ExportTabWidget(service_container=service_container, staging_state_manager=staging_manager)
 
 
 @pytest.mark.gui

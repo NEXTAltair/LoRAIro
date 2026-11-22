@@ -41,7 +41,7 @@ from ...gui.designer.MainWindow_ui import Ui_MainWindow
 from ...services import get_service_container
 from ...services.configuration_service import ConfigurationService
 from ...services.selection_state_service import SelectionStateService
-from ...services.service_container import ServiceContainer
+from ...services.service_container import SERVICE_WIRING_ERRORS, ServiceContainer
 from ...utils.log import logger
 from ..controllers.annotation_workflow_controller import AnnotationWorkflowController
 from ..controllers.dataset_controller import DatasetController
@@ -81,6 +81,12 @@ _PROJECT_SWITCH_WINDOWS: list["MainWindow"] = []
 
 # タグ DB 背景準備の進捗キー (ProgressStateService.show_progress / finish_progress)
 _TAG_DB_WARMUP_PROGRESS_KEY = "tag_db_warmup"
+
+# Qt ウィジェット生成・シグナル配線が送出し得る例外 (#1610)。
+#   AttributeError: 配線先 (タブ / アクション / signal) が None または属性欠落
+#   RuntimeError  : 配線先の C++ オブジェクトが破棄済み (PySide6: "Signal source has been deleted")
+# TypeError (slot が callable でない等) は実装不具合なので握らず、初期化失敗経路へ伝播させる。
+_QT_WIRING_ERRORS: tuple[type[Exception], ...] = (AttributeError, RuntimeError)
 
 
 class MainWindow(QMainWindow, Ui_MainWindow):
@@ -247,7 +253,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         try:
             self.file_system_manager = self._create_project_file_system_manager()
             logger.info("✅ FileSystemManager初期化成功")
-        except Exception as e:
+        except (OSError, RuntimeError) as e:
+            # OSError: プロジェクトディレクトリ作成失敗 / RuntimeError: 初期化前の FileSystemManager
             logger.error(f"❌ FileSystemManager初期化失敗: {e}")
             self._record_startup_warning("画像ファイルの保存先管理", f"FileSystemManager: {e}")
             self.file_system_manager = None
@@ -269,7 +276,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.dataset_state_manager.set_db_manager(self.db_manager)
                 logger.info("✅ DatasetStateManager DB Manager参照設定完了")
             logger.info("✅ DatasetStateManager初期化成功")
-        except Exception as e:
+        except RuntimeError as e:
             logger.error(f"❌ DatasetStateManager初期化失敗: {e}")
             self._record_startup_warning("画像の選択と表示", f"DatasetStateManager: {e}")
             self.dataset_state_manager = None
@@ -399,7 +406,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.staging_state_manager.staged_images_changed.connect(self._on_staged_images_changed)
             self.staging_state_manager.staging_cleared.connect(self._handle_staging_cleared)
             logger.info("✅ StagingStateManager初期化成功")
-        except Exception as e:
+        except _QT_WIRING_ERRORS as e:
             logger.error(f"❌ StagingStateManager初期化失敗: {e}")
             MainWindow._record_startup_warning(self, "ステージング", f"StagingStateManager: {e}")
             self.staging_state_manager = None
@@ -524,7 +531,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.settings_controller = SettingsController(config_service=self.config_service, parent=self)
 
             logger.info("✅ Service/Controller層初期化完了")
-        except Exception as e:
+        except _QT_WIRING_ERRORS as e:
             logger.error(f"❌ Controller初期化失敗: {e}")
             MainWindow._record_startup_warning(
                 self, "アノテーション実行・データセット登録・設定", f"Controller: {e}"
@@ -604,7 +611,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             layout.addWidget(widget)
             self.map_tab = widget
             logger.info("マップタブ (MapTabWidget) initialized")
-        except Exception as e:
+        except _QT_WIRING_ERRORS as e:
             self.map_tab = None
             MainWindow._record_startup_warning(self, "マップタブ", f"MapTabWidget: {e}")
             logger.opt(exception=True).error(f"マップタブ initialization failed: {e}")
@@ -666,7 +673,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             insert_index = self.tabWidgetMainMode.indexOf(self.tabResults)
             self.tabWidgetMainMode.insertTab(insert_index, widget, "ジョブ")
             logger.info("✅ ジョブタブ (JobsTabWidget) initialized")
-        except Exception as e:
+        except SERVICE_WIRING_ERRORS as e:
             self.jobs_tab = None
             MainWindow._record_startup_warning(self, "ジョブタブ", f"JobsTabWidget: {e}")
             logger.opt(exception=True).error(f"❌ ジョブタブ initialization failed: {e}")
@@ -706,7 +713,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # Dialog初期化（遅延生成）
             self.tag_management_dialog = None
 
-        except Exception as e:
+        except _QT_WIRING_ERRORS as e:
             logger.opt(exception=True).error(f"❌ ErrorNotificationWidget初期化失敗: {e}")
             MainWindow._record_startup_warning(
                 self, "ステータスバーのエラー件数表示", f"ErrorNotificationWidget: {e}"
@@ -975,7 +982,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 AnnotationReviewService(get_service_container().config_service, self.db_manager),
                 AnnotationReviewStore(self.db_manager),
             )
-        except Exception as error:
+        except SERVICE_WIRING_ERRORS as error:
             self.results_tab.set_annotation_review_unavailable_reason(str(error))
             logger.warning("Clef results configuration could not be loaded: {}", error)
 
@@ -1134,7 +1141,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.search_tab.settings_requested.connect(self.open_settings)
             self.search_tab.search_error_occurred.connect(self._on_search_error)
             logger.info("    ✅ SearchTabWidget シグナル接続完了")
-        except Exception as e:
+        except _QT_WIRING_ERRORS as e:
             logger.error(f"    ❌ SearchTabWidget シグナル接続失敗: {e}")
             # 検索タブのボタン (エクスポート/登録/設定など) が無反応になるため通知する (#1599)
             MainWindow._record_startup_warning(
@@ -1202,7 +1209,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 refinement_service = None
                 try:
                     refinement_service = self.service_container.refinement_service
-                except Exception as e:
+                except SERVICE_WIRING_ERRORS as e:
                     # graceful degradation (#977): RefinementService 初期化エラーでも
                     # タグ管理ダイアログ自体は使えるようにする。
                     logger.warning(f"RefinementService 配線をスキップ (tagdb 不可?): {e}")
@@ -1242,7 +1249,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.actionDeselectAll.triggered.connect(self._on_deselect_all_triggered)
             MainWindow._update_selection_actions_for_tab(self)
             logger.info("    ✅ 編集メニュー（全選択/選択解除）接続完了")
-        except Exception as e:
+        except _QT_WIRING_ERRORS as e:
             logger.error(f"    ❌ 編集メニュー接続失敗: {e}")
             MainWindow._record_startup_warning(
                 self, "編集メニューの全選択/選択解除", f"edit menu actions: {e}"
@@ -1632,7 +1639,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.annotate_tab.annotation_execute_requested.connect(self._on_annotation_execute_requested)
             self.annotate_tab.configure_key_requested.connect(self._on_annotate_configure_key_requested)
             logger.info("    ✅ AnnotateTabWidget シグナル接続完了")
-        except Exception as e:
+        except _QT_WIRING_ERRORS as e:
             logger.error(f"    ❌ AnnotateTabWidget シグナル接続失敗: {e}")
             # 実行ボタンと API キー設定導線が無反応になるため通知する (#1599)
             MainWindow._record_startup_warning(
@@ -1709,7 +1716,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if hasattr(self, "_on_settings_changed"):
             try:
                 self._on_settings_changed()
-            except Exception as e:
+            except SERVICE_WIRING_ERRORS as e:
                 # 黙って握らない: 設定は保存済みだが画面への反映に失敗したことを知らせる (#1599)
                 logger.opt(exception=True).warning(f"設定変更の反映に失敗: {e}")
                 show_warning(
@@ -1741,7 +1748,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self._connect_settings_signals()
             self._connect_panel_toggle_actions()
             logger.info("  ✅ イベント接続完了")
-        except Exception as e:
+        except _QT_WIRING_ERRORS as e:
             logger.opt(exception=True).error(f"イベント接続で予期しないエラー: {e}")
             # 以降のメニュー・ワーカー進捗の配線がまとめてスキップされるため通知する (#1599)
             MainWindow._record_startup_warning(
@@ -1765,7 +1772,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.actionTogglePreviewPanel.toggled.connect(self._toggle_preview_panel)
                 logger.info("    ✅ actionTogglePreviewPanel 接続完了")
 
-        except Exception as e:
+        except _QT_WIRING_ERRORS as e:
             logger.error(f"    ❌ パネル表示切替接続失敗: {e}")
             MainWindow._record_startup_warning(
                 self, "表示メニューのパネル表示切替", f"panel toggle actions: {e}"
@@ -2261,7 +2268,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
             logger.info("Service層統合完了")
 
-        except Exception as e:
+        except _QT_WIRING_ERRORS as e:
             logger.opt(exception=True).error(f"Service層統合失敗: {e}")
             logger.warning("一部のService機能は利用できませんが、その他の機能は正常に動作します")
             MainWindow._record_startup_warning(
@@ -2303,7 +2310,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         try:
             self.annotate_tab.refresh_model_selection()
             logger.debug("設定変更を反映してモデル選択ウィジェットを更新しました")
-        except Exception as e:
+        except SERVICE_WIRING_ERRORS as e:
             logger.warning(f"モデル選択ウィジェットの更新に失敗 (継続可): {e}")
 
     def open_settings(self) -> None:
