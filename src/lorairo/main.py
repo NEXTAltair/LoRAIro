@@ -160,8 +160,9 @@ def setup_application_fonts(app: QApplication, config: dict[str, Any] | None = N
         else:
             logger.warning("適切なフォントが見つかりません。システムデフォルトを使用します。")
 
-    except (AttributeError, TypeError, RuntimeError) as e:
+    except (AttributeError, TypeError, OverflowError, RuntimeError) as e:
         # AttributeError: qt 設定が dict でない / TypeError: font_size 等の設定値の型不正 /
+        # OverflowError: font_size が int32 範囲外・inf・nan (QFont が送出) /
         # RuntimeError: Qt のフォント API 失敗。起動は止めず既定フォントで続ける (#1610)
         logger.warning(f"フォント設定でエラーが発生しました: {e}")
 

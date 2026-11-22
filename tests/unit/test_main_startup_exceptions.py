@@ -28,6 +28,12 @@ class TestSetupApplicationFonts:
         [
             pytest.param({"qt": "not-a-table"}, "AttributeError", id="qt-section-not-dict"),
             pytest.param({"qt": {"font_size": "large"}}, "TypeError", id="font-size-wrong-type"),
+            pytest.param({"qt": {"font_size": 2**40}}, "OverflowError", id="font-size-int-overflow"),
+            pytest.param({"qt": {"font_size": float("inf")}}, "OverflowError", id="font-size-inf"),
+            pytest.param({"qt": {"font_size": float("nan")}}, "OverflowError", id="font-size-nan"),
+            pytest.param(
+                {"qt": {"font_size": -(2**40)}}, "OverflowError", id="font-size-negative-overflow"
+            ),
         ],
     )
     def test_invalid_font_config_is_logged_and_startup_continues(
