@@ -7,6 +7,7 @@ MainWindow初期化、タブ切り替え、ウィジェット統合を検証。
 from unittest.mock import Mock
 
 import pytest
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QTabWidget, QWidget
 
 from lorairo.gui.widgets.errors_triage_widget import ErrorsTriageWidget
@@ -25,6 +26,10 @@ def main_window_with_tabs(qapp, monkeypatch):
     window = MainWindow()
     yield window
     window.close()
+    # close() だけでは C++ 側の MainWindow がモジュール終端の gc まで残り、テストごとに
+    # 約 15 MB ずつ RSS が積み上がる。メインスレッドでその場で破棄する。
+    window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 class TestMainWindowTabInitialization:
