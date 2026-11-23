@@ -16,6 +16,7 @@ from PySide6.QtWidgets import QWidget
 from ...database.repository.dataset import DatasetRepository
 from ...utils.log import logger
 from ..message_box import show_critical, show_information, show_warning
+from ..services.result_handler_service import registration_status_message
 from ..widgets.dataset_select_dialog import DatasetSelection
 
 if TYPE_CHECKING:
@@ -197,17 +198,18 @@ class DatasetController:
             if bar is not None:
                 bar.showMessage(message, timeout_ms)
 
-    def _on_batch_registration_finished(self, _result: object = None) -> None:
-        """バッチ登録完了時にステータスバーへ次ステップの案内を表示する (#1550)。"""
+    def _on_batch_registration_finished(self, result: object = None) -> None:
+        """バッチ登録終了時にステータスバーへ次ステップの案内を表示する (#1550)。
+
+        キャンセルで中断した結果なら、完了ではなく中断と処理済み件数を示す (#1621)。
+        """
         if not self.parent:
             return
         status_bar_fn = getattr(self.parent, "statusBar", None)
         if callable(status_bar_fn):
             bar = status_bar_fn()
             if bar is not None:
-                bar.showMessage(
-                    "画像の登録が完了しました（検索タブで一覧を確認・ステージングできます）", 8000
-                )
+                bar.showMessage(registration_status_message(result), 8000)
 
     def _on_dataset_import_error(self, error_message: str) -> None:
         """取り込み失敗の警告ポップアップを表示する。

@@ -430,3 +430,25 @@ class TestDatasetControllerKohyaImport:
         mock_parent.statusBar.return_value.showMessage.assert_called_once()
         msg = mock_parent.statusBar.return_value.showMessage.call_args.args[0]
         assert "画像の登録が完了しました" in msg
+
+    def test_cancelled_batch_registration_reports_interruption(self, controller, mock_parent):
+        """中断した登録を「完了」と案内せず、処理済み件数と再登録の案内を出す (#1621)。"""
+        from lorairo.gui.workers.registration_worker import DatabaseRegistrationResult
+
+        result = DatabaseRegistrationResult(
+            registered_count=2,
+            skipped_count=0,
+            error_count=0,
+            processed_paths=[],
+            total_processing_time=1.0,
+            cancelled=True,
+            total_count=5,
+        )
+        controller._on_batch_registration_finished(result)
+
+        msg = mock_parent.statusBar.return_value.showMessage.call_args.args[0]
+        assert "完了しました" not in msg
+        assert (
+            msg
+            == "画像の登録を中断しました（2/5 件処理済み。同じフォルダを再登録すると残りを登録できます）"
+        )

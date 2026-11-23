@@ -162,13 +162,76 @@ class TestWorkerService:
         assert worker_service.current_registration_worker_id == "batch_reg_existing"
 
     def test_cancel_batch_registration(self, worker_service):
-        """バッチ登録キャンセルテスト"""
-        worker_service.worker_manager.cancel_worker.return_value = True
+        """登録キャンセルは協調要求だけを出し、GUI スレッドで待機・強制終了しない (#1621)。"""
+        worker_id = "batch_reg_abc12345"
+        worker_service._register_operation(worker_id, OperationType.BATCH_REGISTRATION)
+        worker_service._on_worker_started(worker_id)
+        worker_service.worker_manager.request_cancel_worker.return_value = True
+        progress_mock = Mock()
+        worker_service.worker_progress_updated.connect(progress_mock)
 
-        result = worker_service.cancel_batch_registration("test_worker_id")
+        result = worker_service.cancel_batch_registration(worker_id)
 
         assert result is True
-        worker_service.worker_manager.cancel_worker.assert_called_once_with("test_worker_id")
+        worker_service.worker_manager.request_cancel_worker.assert_called_once_with(worker_id)
+        worker_service.worker_manager.cancel_worker.assert_not_called()
+        # Jobs 行は「停止待ち」、ステータスバーは「キャンセル中」を示す
+        assert worker_service.job_ledger.get(worker_id).status is JobStatus.CANCELING
+        progress_mock.assert_called_once()
+        emitted_id, progress = progress_mock.call_args.args
+        assert emitted_id == worker_id
+        assert "キャンセル中" in progress.status_message
+
+    def test_cancel_batch_registration_unknown_worker(self, worker_service):
+        """終了済みの登録へのキャンセル要求は False で、台帳と進捗に触れない (#1621)。"""
+        worker_service.worker_manager.request_cancel_worker.return_value = False
+        progress_mock = Mock()
+        worker_service.worker_progress_updated.connect(progress_mock)
+
+        assert worker_service.cancel_batch_registration("batch_reg_gone") is False
+        progress_mock.assert_not_called()
+
+    def test_cancel_job_routes_registration_to_cooperative_cancel(self, worker_service):
+        """Jobs 行のキャンセルは登録 worker ID に結び付いた協調キャンセルを使う (#1621)。"""
+        worker_service.worker_manager.request_cancel_worker.return_value = True
+
+        assert worker_service.cancel_job("batch_reg_abc12345") is True
+        worker_service.worker_manager.request_cancel_worker.assert_called_once_with("batch_reg_abc12345")
+        worker_service.worker_manager.cancel_worker.assert_not_called()
+
+    def test_cancelled_registration_result_is_recorded_as_canceled(self, worker_service):
+        """中断状態の登録結果は台帳で「キャンセル」とし、完了件数をサマリーに残す (#1621)."""
+        from lorairo.gui.workers.registration_worker import DatabaseRegistrationResult
+
+        worker_id = "batch_reg_abc12345"
+        worker_service._register_operation(worker_id, OperationType.BATCH_REGISTRATION)
+        worker_service._on_worker_started(worker_id)
+        finished_mock = Mock()
+        worker_service.batch_registration_finished.connect(finished_mock)
+        result = DatabaseRegistrationResult(
+            registered_count=2,
+            skipped_count=1,
+            error_count=0,
+            processed_paths=[],
+            total_processing_time=1.0,
+            cancelled=True,
+            total_count=10,
+            interrupted_file="image3.png",
+        )
+
+        worker_service._on_worker_terminal(
+            WorkerTerminalEvent(
+                worker_id=worker_id,
+                worker_type="batch_reg",
+                outcome=WorkerOutcome.SUCCEEDED,
+                result=result,
+            )
+        )
+
+        entry = worker_service.job_ledger.get(worker_id)
+        assert entry.status is JobStatus.CANCELED
+        assert entry.summary == "中断: 3/10 件処理済み (中断対象: image3.png)"
+        finished_mock.assert_called_once_with(result)
 
     # 注: 旧start_annotation()テストは削除済み（新API: start_enhanced_batch_annotation）
 

@@ -17,7 +17,6 @@ from sqlalchemy.orm import sessionmaker
 
 from lorairo.database.db_manager import ImageDatabaseManager, RegistrationOutcome
 from lorairo.database.schema import SIDECAR_IMPORT_LITELLM_ID, Base, Caption, Image, Model, Tag
-from lorairo.gui.workers.base import CancellationError
 from lorairo.gui.workers.registration_worker import DatabaseRegistrationWorker
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.search_criteria_processor import SearchCriteriaProcessor, _expand_single_keyword
@@ -257,8 +256,11 @@ def test_cancel_keeps_only_images_registered_before_it(tmp_path, env, fs_manager
         return result
 
     monkeypatch.setattr(env.manager, "register_image_with_side_effects", register_then_cancel)
-    with pytest.raises(CancellationError):
-        worker.execute()
+    # #1621: キャンセルは例外でなく、処理済み件数と中断状態を持つ結果で返る
+    result = worker.execute()
+    assert result.cancelled is True
+    assert [item.filename for item in result.detail] == [paths[0].name]
+    assert result.total_count == 3
 
     with env.images() as session:
         assert list(session.scalars(select(Image.filename))) == [paths[0].name]

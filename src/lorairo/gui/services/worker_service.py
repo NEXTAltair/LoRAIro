@@ -23,7 +23,7 @@ from ..workers.base import LoRAIroWorkerBase, WorkerProgress
 from ..workers.dataset_import_worker import DatasetImportWorker
 from ..workers.manager import WorkerManager
 from ..workers.model_install_worker import ModelInstallWorker
-from ..workers.registration_worker import DatabaseRegistrationWorker
+from ..workers.registration_worker import DatabaseRegistrationResult, DatabaseRegistrationWorker
 from ..workers.search_worker import SearchResult, SearchWorker
 from ..workers.terminal import CancelReason, WorkerOutcome, WorkerTerminalEvent
 from ..workers.thumbnail_worker import ThumbnailWorker
@@ -240,8 +240,31 @@ class WorkerService(QObject):
             raise RuntimeError(f"ワーカー開始失敗: {worker_id}")
 
     def cancel_batch_registration(self, worker_id: str) -> bool:
-        """バッチ登録キャンセル"""
-        return self.worker_manager.cancel_worker(worker_id)
+        """実行中のバッチ登録へ協調キャンセルを要求する (#1621)。
+
+        GUI スレッドで終了待ちや ``QThread.terminate()`` をしないよう ``request_cancel_worker``
+        を使う。登録は画像ごとに DB へ確定するため、強制終了すると処理途中の画像が中途半端に
+        残る。worker は先読み中・画像の間・タグ DB の検索中 (SQL 中断) で止まり、処理済み件数と
+        中断状態を結果として返す。要求後は Jobs 行を「停止待ち」、ステータスバーを
+        「キャンセル中」にする。
+
+        Args:
+            worker_id: キャンセル対象の登録ワーカーID。
+
+        Returns:
+            要求を受け付けたら True。ワーカーが見つからなければ False。
+        """
+        requested = self.worker_manager.request_cancel_worker(worker_id)
+        if not requested:
+            return False
+        entry = self.job_ledger.get(worker_id)
+        if entry is not None and not entry.status.is_terminal:
+            self.job_ledger.update(worker_id, status=JobStatus.CANCELING)
+            self.job_ledger_changed.emit()
+        self.worker_progress_updated.emit(
+            worker_id, WorkerProgress(0, "データベース登録をキャンセル中... (処理中の画像で停止します)")
+        )
+        return True
 
     # === Annotation ===
     # 注: 旧APIメソッド（start_annotation, start_enhanced_single_annotation）は削除済み
@@ -937,6 +960,8 @@ class WorkerService(QObject):
             # 不完全な版が残って同名で再実行できなくなる。中断点を持たせるまでキャンセルを拒否する
             logger.warning(f"データセット取り込みはキャンセルできません: {worker_id}")
             return False
+        if worker_id.startswith("batch_reg_"):
+            return self.cancel_batch_registration(worker_id)
         if self._cancel_queued_gpu_job(worker_id):
             return True
         return self._request_annotation_cancel(worker_id)
@@ -1381,6 +1406,10 @@ class WorkerService(QObject):
         self._pending_stage_progress.pop(event.worker_id, None)
         self._pending_annotation_progress.pop(event.worker_id, None)
         status, summary = self._ledger_status_for_outcome(outcome, event)
+        cancelled_registration = self._cancelled_registration_summary(event)
+        if cancelled_registration is not None:
+            # 登録は中断時も処理済みの結果を返す (成功終端)。台帳では中断として示す (#1621)
+            status, summary = JobStatus.CANCELED, cancelled_registration
         entry = self.job_ledger.finish(event.worker_id, status, summary)
         if entry is not None:
             if entry.annotation_progress is not None:
@@ -1395,6 +1424,24 @@ class WorkerService(QObject):
                     ),
                 )
             self.job_ledger_changed.emit()
+
+    @staticmethod
+    def _cancelled_registration_summary(event: WorkerTerminalEvent) -> str | None:
+        """中断状態で返った登録結果なら台帳サマリー文言を返す (#1621)。"""
+        result = event.result
+        if (
+            event.outcome is not WorkerOutcome.SUCCEEDED
+            or not isinstance(result, DatabaseRegistrationResult)
+            or not result.cancelled
+        ):
+            return None
+        processed = (
+            result.registered_count + result.variant_count + result.skipped_count + result.error_count
+        )
+        summary = f"中断: {processed}/{result.total_count} 件処理済み"
+        if result.interrupted_file:
+            summary += f" (中断対象: {result.interrupted_file})"
+        return summary
 
     @staticmethod
     def _ledger_status_for_outcome(

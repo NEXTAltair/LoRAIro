@@ -81,6 +81,13 @@ class RegistrationSummaryWidget(QWidget):
         header_row.addWidget(self._dismiss_button)
         outer.addLayout(header_row)
 
+        # 中断時の注記 (#1621): 中断対象・未着手の扱いと再登録での回復方法
+        self._cancel_note_label = QLabel(self)
+        self._cancel_note_label.setObjectName("registrationSummaryCancelNote")
+        self._cancel_note_label.setWordWrap(True)
+        self._cancel_note_label.setVisible(False)
+        outer.addWidget(self._cancel_note_label)
+
         # 内訳コンテナ（既定で折りたたみ）
         self._detail_container = QWidget(self)
         self._detail_container.setObjectName("registrationSummaryDetail")
@@ -101,9 +108,26 @@ class RegistrationSummaryWidget(QWidget):
         """
         directory_name = result.directory.name if result.directory is not None else "—"
         total = result.registered_count + result.variant_count + result.skipped_count + result.error_count
-        self._header_label.setText(
-            f"✓ 登録完了 — {directory_name} · {total}枚 · {result.total_processing_time:.1f}s"
-        )
+        if result.cancelled:
+            self._header_label.setText(
+                f"■ 登録中断 — {directory_name} · {total}/{result.total_count}枚処理済み · "
+                f"{result.total_processing_time:.1f}s"
+            )
+            interrupted = (
+                f"「{result.interrupted_file}」は処理の途中で止めたため、関連タグが未保存です。"
+                if result.interrupted_file
+                else ""
+            )
+            self._cancel_note_label.setText(
+                f"キャンセルで中断しました。{interrupted}"
+                "同じフォルダを再登録すると、処理済みの画像は重複として扱われ、残りの画像と関連タグを登録できます。"
+            )
+            self._cancel_note_label.setVisible(True)
+        else:
+            self._header_label.setText(
+                f"✓ 登録完了 — {directory_name} · {total}枚 · {result.total_processing_time:.1f}s"
+            )
+            self._cancel_note_label.setVisible(False)
         self._counts_label.setText(
             f"新規 {result.registered_count} · 別版 {result.variant_count} · "
             f"skip {result.skipped_count} · エラー {result.error_count}"

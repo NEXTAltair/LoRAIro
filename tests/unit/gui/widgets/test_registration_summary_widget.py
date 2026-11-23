@@ -157,3 +157,35 @@ def test_buttons_have_tooltips(qtbot):
     qtbot.addWidget(widget)
     assert widget._dismiss_button.toolTip() == "サマリーを閉じる"
     assert widget._toggle_button.toolTip() != ""
+
+
+def test_cancelled_result_shows_interrupted_state(qtbot, result):
+    """中断した登録は「登録中断」と処理済み件数・中断対象・再登録の案内を示す (#1621)。"""
+    from dataclasses import replace
+
+    widget = RegistrationSummaryWidget()
+    qtbot.addWidget(widget)
+
+    widget.show_result(replace(result, cancelled=True, total_count=12, interrupted_file="shiba_013.png"))
+
+    header = widget.findChild(QLabel, "registrationSummaryHeader").text()
+    assert header.startswith("■ 登録中断 — shiba_batch_07 · 7/12枚処理済み")
+    assert "登録完了" not in header
+    status = widget.findChild(QLabel, "registrationSummaryCancelNote")
+    assert status is not None and not status.isHidden()
+    assert "shiba_013.png" in status.text()
+    assert "同じフォルダを再登録" in status.text()
+
+
+def test_completed_result_hides_cancel_note(qtbot, result):
+    """完了した登録ではキャンセル注記を出さない (前回の中断表示を引きずらない)。"""
+    from dataclasses import replace
+
+    widget = RegistrationSummaryWidget()
+    qtbot.addWidget(widget)
+    widget.show_result(replace(result, cancelled=True, total_count=12))
+
+    widget.show_result(result)
+
+    assert widget.findChild(QLabel, "registrationSummaryHeader").text().startswith("✓ 登録完了")
+    assert widget.findChild(QLabel, "registrationSummaryCancelNote").isHidden()

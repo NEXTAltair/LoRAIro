@@ -72,3 +72,26 @@ def is_sqlite_disk_io_error(exc: BaseException) -> bool:
         if "disk i/o error" in str(item).lower():
             return True
     return False
+
+
+def is_sqlite_interrupt_error(exc: BaseException) -> bool:
+    """例外 (または cause chain) が SQLite の実行中 SQL 中断 (``interrupted``) かを判定する。
+
+    tag DB の接続には progress handler が入っており、worker スレッドへのキャンセル要求が
+    あると実行中の SQL を ``OperationalError("interrupted")`` で打ち切る (#1206)。
+    この例外はキャンセル要求でしか起きないため、縮退保存・retry・個別フォールバックへ
+    進めず呼び出し元へ伝播させる判定に使う (#1621)。genai-tag-db-tools が ``ValueError``
+    に包んで送出する場合も cause chain から検出する。
+
+    Args:
+        exc: 判定対象の例外。
+
+    Returns:
+        ``interrupted`` を示す ``OperationalError`` がチェーン上に存在すれば ``True``。
+    """
+    for item in _iter_exception_chain(exc):
+        if type(item).__name__ != "OperationalError":
+            continue
+        if "interrupted" in str(item).lower():
+            return True
+    return False
