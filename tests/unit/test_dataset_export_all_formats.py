@@ -13,6 +13,24 @@ from lorairo.services.export_overlay import ExportOverlayPlan, ExportTagOverlay,
 pytestmark = pytest.mark.unit
 
 
+class _CountingStub:
+    """呼び出し回数だけを数える stub。
+
+    MagicMock は呼び出しごとに引数を保持するため、1 万件規模のケースでは 100 MB 超を確保し、
+    unit セッションのピークメモリを決めていた (#1632)。回数だけを見る検証にはこちらを使う。
+    """
+
+    def __init__(self, side_effect=None):
+        self.call_count = 0
+        self._side_effect = side_effect
+
+    def __call__(self, *args, **kwargs):
+        self.call_count += 1
+        if self._side_effect is None:
+            return None
+        return self._side_effect(*args, **kwargs)
+
+
 def make_service(tmp_path):
     db = MagicMock()
     db.get_image_metadata.side_effect = lambda image_id: {"id": image_id}
@@ -34,8 +52,15 @@ def make_service(tmp_path):
 @pytest.mark.parametrize("languages", [["canonical"], ["canonical", "ja"]])
 def test_all_formats_single_pass_operation_counts(tmp_path, count, languages):
     service = make_service(tmp_path)
-    service._write_export_text_files = MagicMock()
-    service._build_export_tag_list = MagicMock(side_effect=lambda tags, *args: tags)
+    # 回数だけを数える stub に置き換える (引数を保持しない)。戻り値と assert は MagicMock のときと同じ
+    service.file_system_manager.copy_file = _CountingStub()
+    service._resolve_processed_image_path = _CountingStub(service._resolve_processed_image_path.side_effect)
+    service.db_manager.get_image_metadata = _CountingStub(service.db_manager.get_image_metadata.side_effect)
+    service.db_manager.get_image_annotations = _CountingStub(
+        service.db_manager.get_image_annotations.side_effect
+    )
+    service._write_export_text_files = _CountingStub()
+    service._build_export_tag_list = _CountingStub(lambda tags, *args: tags)
     high_water = {}
 
     def translate(tags, language, reader, cache):
@@ -43,7 +68,7 @@ def test_all_formats_single_pass_operation_counts(tmp_path, count, languages):
         high_water[language] = max(high_water.get(language, 0), len(cache))
         return tags
 
-    service._translate_export_tag_list = MagicMock(side_effect=translate)
+    service._translate_export_tag_list = _CountingStub(translate)
     report = service.export_dataset_all_formats(
         list(range(1, count + 1)), tmp_path / "out", tag_languages=languages
     )
