@@ -108,3 +108,28 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if "tests/unit/gui" in str(item.fspath) or "tests/integration/gui" in str(item.fspath):
             item.add_marker(pytest.mark.gui)
+
+
+# ===== 重いサブプロセス検査の先行起動 =====
+
+_CROP_IMPORT_TEST = "test_crop_dialog_imports.py::test_import_adds_no_db_or_service_modules"
+_probe_modules = []
+"""先行起動した検査を持つテストモジュール (セッション終了時の後片付け用)。"""
+
+
+def pytest_collection_finish(session):
+    """cold import のサブプロセス検査を、選択されていれば収集直後に起動しておく。
+
+    新しいインタプリタでの import に数秒かかるため、他のテストと並行して走らせ、
+    テスト本体では結果を待つだけにする。検査内容と assert はテスト側にある。
+    """
+    for item in session.items:
+        if item.nodeid.endswith(_CROP_IMPORT_TEST):
+            item.module.start_import_probe()
+            _probe_modules.append(item.module)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """結果を待たれずに残った検査サブプロセスを終了させる。"""
+    for module in _probe_modules:
+        module.stop_import_probe()
