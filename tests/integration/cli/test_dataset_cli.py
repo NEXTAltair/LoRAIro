@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import random
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -40,8 +41,18 @@ def cli_runner() -> CliRunner:
 
 
 @pytest.fixture
-def project_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli_runner: CliRunner) -> Path:
-    """隔離したプロジェクトディレクトリに空のプロジェクトを作る。"""
+def project_dir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cli_runner: CliRunner,
+    skip_alembic_upgrade_at_head: Callable[[Path], None],
+    copy_prepared_project_db: Callable[[Path], None],
+) -> Path:
+    """隔離したプロジェクトディレクトリに空のプロジェクトを作る。
+
+    DB の作成と Alembic の経路はこのファイルの検証対象ではないため、準備済み DB の複製を使う
+    (`tests/integration/cli/conftest.py`)。
+    """
     projects_dir = tmp_path / "projects"
     projects_dir.mkdir()
     ServiceContainer.reset_for_testing()
@@ -55,7 +66,9 @@ def project_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli_runner: Cli
     monkeypatch.setattr(ProjectManagementService, "__init__", patched_init)
     result = cli_runner.invoke(app, ["project", "create", PROJECT])
     assert result.exit_code == 0, result.stdout
-    return next(path for path in projects_dir.iterdir() if path.name.startswith(PROJECT))
+    created = next(path for path in projects_dir.iterdir() if path.name.startswith(PROJECT))
+    copy_prepared_project_db(created)
+    return created
 
 
 @pytest.fixture
@@ -143,24 +156,16 @@ def test_roundtrip_two_versions_with_parent(
     assert (out_dir / "10_a" / "a1.txt").read_bytes() == TEXT_A
 
 
-def test_cli_exclude_dir_adds_to_default_exclusions(
+def test_cli_exclude_dir_adds_to_default_exclusions_and_show_prints_folders(
     cli_runner: CliRunner, project_dir: Path, kohya_root: Path
 ) -> None:
-    """--exclude-dir は既定の除外 (sample*) に加えて、指定フォルダも取り込まない。"""
+    """--exclude-dir は既定の除外 (sample*) に加えて指定フォルダも取り込まず、
+    show はフォルダ名・繰り返し回数・画像数・トリガーワードを出す。"""
     version_id = _import(cli_runner, kohya_root, "--exclude-dir", "3_skipme")
     show = cli_runner.invoke(app, ["dataset", "show", str(version_id), "-p", PROJECT])
     assert show.exit_code == 0, show.stdout + show.stderr
-    assert "10_a" in show.stdout
-    assert "5_b" in show.stdout
     assert "3_skipme" not in show.stdout
     assert "sample001" not in show.stdout
-
-
-def test_cli_show_prints_folders(cli_runner: CliRunner, project_dir: Path, kohya_root: Path) -> None:
-    """show はフォルダ名・繰り返し回数・画像数・トリガーワードを出す。"""
-    version_id = _import(cli_runner, kohya_root, "--exclude-dir", "3_skipme")
-    show = cli_runner.invoke(app, ["dataset", "show", str(version_id), "-p", PROJECT])
-    assert show.exit_code == 0, show.stdout + show.stderr
     assert "10_a  repeats=10  images=1  trigger=-" in show.stdout
     assert "5_b  repeats=5  images=1  trigger=-" in show.stdout
     assert "total: 2 folder(s), 2 image(s)" in show.stdout

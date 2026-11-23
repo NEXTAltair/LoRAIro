@@ -7,6 +7,7 @@ MainWindow初期化、タブ切り替え、ウィジェット統合を検証。
 from unittest.mock import Mock
 
 import pytest
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QTabWidget, QWidget
 
 from lorairo.gui.widgets.errors_triage_widget import ErrorsTriageWidget
@@ -25,6 +26,10 @@ def main_window_with_tabs(qapp, monkeypatch):
     window = MainWindow()
     yield window
     window.close()
+    # close() だけでは C++ 側の MainWindow がモジュール終端の gc まで残り、テストごとに
+    # 約 15 MB ずつ RSS が積み上がる。メインスレッドでその場で破棄する。
+    window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 class TestMainWindowTabInitialization:
@@ -347,12 +352,6 @@ class TestTabSwitching:
 class TestBatchTagWidgetIntegration:
     """BatchTagAddWidget統合テスト"""
 
-    def test_batchtagaddwidget_exists(self, main_window_with_tabs):
-        """BatchTagAddWidget が AnnotateTabWidget 経由で参照できる (#868)"""
-        annotate_tab = main_window_with_tabs.annotate_tab
-        assert annotate_tab is not None
-        assert annotate_tab.batch_tag_add_widget is not None
-
     def test_stage_toolbar_button_treats_clicked_bool_as_selection_request(
         self, main_window_with_tabs, monkeypatch, qtbot
     ):
@@ -408,49 +407,6 @@ class TestBatchTagWidgetIntegration:
                     found_in_splitter = True
                     break
             assert found_in_splitter, "BatchTagAddWidget should be in splitter"
-
-
-class TestSignalConnections:
-    """シグナル接続テスト"""
-
-    def test_tab_changed_signal_connected(self, main_window_with_tabs):
-        """tabWidgetMainMode.currentChanged シグナルが接続されている"""
-        # currentChangedシグナルのレシーバー数を確認
-        # 少なくとも1つの接続があるはず（_on_main_tab_changed）
-        # Note: Qt内部でシグナル接続数を直接取得する方法は限られているため、
-        # シグナル発火時の動作で確認
-        # ここでは接続されていることの検証は省略（実際の動作テストで確認）
-        assert hasattr(main_window_with_tabs, "_on_main_tab_changed")
-
-
-class TestStatePreservation:
-    """状態保持テスト"""
-
-    def test_dataset_state_manager_preserved_across_tabs(self, main_window_with_tabs):
-        """タブを切り替えてもDatasetStateManagerが保持される"""
-        tab_widget = main_window_with_tabs.tabWidgetMainMode
-        dataset_state = main_window_with_tabs.dataset_state_manager
-
-        # ワークスペースタブのDatasetStateManager
-        workspace_state = main_window_with_tabs.dataset_state_manager
-
-        # アノテーションタブに切り替え
-        tab_widget.setCurrentWidget(main_window_with_tabs.tabBatchTag)
-
-        # アノテーションタブでもDatasetStateManagerが同じインスタンス
-        batch_tag_state = main_window_with_tabs.dataset_state_manager
-
-        assert workspace_state is dataset_state
-        assert batch_tag_state is dataset_state
-        assert workspace_state is batch_tag_state
-
-
-class TestAnnotationControlVisibility:
-    """アノテーション制御表示テスト"""
-
-    def test_tab_changed_handler_exists(self, main_window_with_tabs):
-        """_on_main_tab_changedメソッドが存在する"""
-        assert hasattr(main_window_with_tabs, "_on_main_tab_changed")
 
 
 class TestAnnotationDataDisplayWidget:

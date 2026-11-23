@@ -103,6 +103,23 @@ S1〜S3 の coverage データを `coverage combine` した合算は 92.0%。
 
 | ファイル::テスト名 | 分類 | 根拠 | 統合先 |
 |---|---|---|---|
+| tests/integration/gui/test_widget_integration.py::TestWidgetSignalIntegration::test_filter_search_to_model_selection_signal_flow | 陳腐化 | Mock 同士をテスト内で `connect` し、`connect.assert_called_with` を見るだけ。src のコードを呼ばない | なし (src の検証を含まない) |
+| tests/integration/gui/test_widget_integration.py::TestWidgetSignalIntegration::test_annotation_results_to_data_display_signal_flow | 陳腐化 | 同上 (Mock の自己検証) | なし |
+| tests/integration/gui/test_widget_integration.py::TestWidgetSignalIntegration::test_status_filter_to_image_list_signal_flow | 陳腐化 | 同上 (Mock の自己検証) | なし |
+| tests/integration/gui/test_widget_integration.py::TestMainWorkspaceIntegration::test_three_panel_layout_integration | 陳腐化 | テスト内で Mock の属性を作り、その `hasattr` を確かめるだけ | なし |
+| tests/integration/gui/test_widget_integration.py::TestMainWorkspaceIntegration::test_end_to_end_annotation_workflow | 陳腐化 | テスト内で Mock のメソッドを呼び、その呼び出しを確かめるだけ | なし |
+| tests/integration/gui/test_widget_integration.py::TestWidgetServiceIntegration::test_filter_search_panel_with_search_service_integration | 陳腐化 | パネルの UI 部品を Mock に差し替え、パネル側の処理をテスト内に書き直して実行している。実際に通る src は `create_search_conditions` / `create_search_preview` だけ | tests/unit/gui/services/test_search_filter_service.py::test_create_search_preview_comprehensive (解像度・重複除外の preview を同じ粒度で確認)、同ファイル内の ::test_search_filter_conditions_and_preview_integration |
+| tests/integration/gui/test_widget_integration.py::TestWidgetServiceIntegration::test_custom_range_slider_date_mode_integration | 重複 | 日付モードとラベル長 10 文字の確認 | tests/unit/gui/widgets/test_custom_range_slider.py::test_set_date_range / ::test_date_mode_labels |
+| tests/integration/gui/test_filter_search_integration.py::TestWidgetIntegration::test_custom_range_slider_date_mode | 重複 | CustomRangeSlider 単体の `set_date_range` | tests/unit/gui/widgets/test_custom_range_slider.py::test_set_date_range |
+| tests/integration/gui/test_filter_search_integration.py::TestWidgetIntegration::test_custom_range_slider_numeric_mode | 重複 | CustomRangeSlider 単体の `set_range` | tests/unit/gui/widgets/test_custom_range_slider.py::test_set_range |
+| tests/integration/gui/test_filter_search_integration.py::TestWidgetIntegration::test_range_slider_signal_emission | 重複 | `update_labels` が valueChanged を出すことの確認 | tests/unit/gui/widgets/test_custom_range_slider.py::test_signal_connections_mock (`update_labels` 後の発行) / ::test_value_changed_signal |
+| tests/integration/gui/test_filter_search_integration.py::TestFilterSearchIntegration::test_error_handling_integration | 陳腐化 | 最後の assert が `len(results_received) >= 0` で常に真。docstring も検証できていないと書いている | なし (同じ `_on_search_requested` 経路は ::test_signal_flow_integration が通る) |
+| tests/integration/test_main_window_tab_integration.py::TestSignalConnections::test_tab_changed_signal_connected | 陳腐化 | `hasattr(window, "_on_main_tab_changed")` だけ。コメントで接続の検証は省略と明記 | なし (currentChanged は同ファイルのタブ切替テストが実際に通る) |
+| tests/integration/test_main_window_tab_integration.py::TestAnnotationControlVisibility::test_tab_changed_handler_exists | 重複 | 上と同じ `hasattr` の assert | なし |
+| tests/integration/test_main_window_tab_integration.py::TestStatePreservation::test_dataset_state_manager_preserved_across_tabs | 陳腐化 | 同じ属性を 3 回読んで `is` で比べるだけで、タブ切替で変わり得ない | なし |
+| tests/integration/test_main_window_tab_integration.py::TestBatchTagWidgetIntegration::test_batchtagaddwidget_exists | 重複 | `batch_tag_add_widget is not None` の確認 | 同ファイルの ::test_batchtagaddwidget_placeholder_replaced (同じ not None に加えて objectName と splitter 内の配置を確認) |
+| tests/integration/gui/test_worker_coordination.py::TestWorkerSystemPerformance::test_memory_usage_stability | 陳腐化 | 末尾が `assert True` で、メモリについて何も確認していない | なし (SearchWorker.run は tests/unit/workers の SearchWorker テストが通る) |
+| tests/integration/cli/test_dataset_cli.py::test_cli_show_prints_folders | 重複 | ::test_cli_exclude_dir_adds_to_default_exclusions と同じ取り込み (`--exclude-dir 3_skipme`) と `dataset show` を実行し、出力の別の行を確かめていた | 同ファイルの ::test_cli_exclude_dir_adds_to_default_exclusions_and_show_prints_folders に統合 (両方の assert を残した) |
 
 ### image-annotator-lib
 

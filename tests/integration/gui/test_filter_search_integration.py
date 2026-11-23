@@ -273,31 +273,6 @@ class TestFilterSearchIntegration:
         # クリアシグナルが発行されることを確認
         clear_handler.assert_called_once()
 
-    def test_error_handling_integration(self, filter_panel, mock_dependencies):
-        """エラーハンドリング統合テスト
-
-        現在の実装では、エラーが発生した場合はPipelineState.ERRORに遷移し、
-        シグナルは発行されない設計となっている。
-        """
-        # 検索実行（検索条件なしの場合は早期リターン）
-        filter_panel.ui.lineEditSearch.setText("test")
-        filter_panel.ui.checkboxTags.setChecked(True)
-
-        # search_filter_serviceまたはworker_serviceが設定されていない場合の動作確認
-        # テストフィクスチャではworker_serviceがNoneのため、同期検索にフォールバック
-        results_received = []
-
-        def result_handler(data):
-            results_received.append(data)
-
-        filter_panel.search_requested.connect(result_handler)
-        filter_panel._on_search_requested()
-
-        # 正常なモック応答があるので、結果が返されることを確認
-        # （エラー時の動作は別途テストが必要だが、現在のフィクスチャでは検証困難）
-        # 検索条件が設定されていれば、何らかの結果が返る
-        assert len(results_received) >= 0  # 結果は0以上（早期リターンの可能性あり）
-
     def test_performance_integration(self, filter_panel, mock_dependencies):
         """パフォーマンス統合テスト"""
         # 大量データのモック
@@ -414,55 +389,6 @@ class TestServiceLayerIntegration:
 
         # 3. 結果確認
         assert len(filtered_images) <= len(images)
-
-
-@pytest.mark.gui
-class TestWidgetIntegration:
-    """ウィジェット統合テスト"""
-
-    @pytest.fixture
-    def range_slider(self, qapp):
-        """カスタム範囲スライダー"""
-        return CustomRangeSlider()
-
-    def test_custom_range_slider_date_mode(self, range_slider):
-        """カスタム範囲スライダー日付モード統合テスト"""
-        # 日付モードに設定
-        range_slider.set_date_range()
-
-        # 日付モードが正しく設定されることを確認
-        assert range_slider.is_date_mode is True
-        assert range_slider.min_value > 0  # 2023年のタイムスタンプ
-        assert range_slider.max_value > range_slider.min_value
-
-    def test_custom_range_slider_numeric_mode(self, range_slider):
-        """カスタム範囲スライダー数値モード統合テスト"""
-        # 数値範囲設定
-        range_slider.set_range(0, 100)
-
-        # 数値モードが正しく設定されることを確認
-        assert range_slider.is_date_mode is False
-        assert range_slider.min_value == 0
-        assert range_slider.max_value == 100
-
-    def test_range_slider_signal_emission(self, range_slider):
-        """範囲スライダーシグナル発行統合テスト"""
-        signal_received = []
-
-        def signal_handler(min_val, max_val):
-            signal_received.append((min_val, max_val))
-
-        range_slider.valueChanged.connect(signal_handler)
-
-        # 値変更を発火
-        range_slider.update_labels()
-
-        # シグナルが受信されることを確認
-        assert len(signal_received) > 0
-        min_val, max_val = signal_received[0]
-        assert isinstance(min_val, int)
-        assert isinstance(max_val, int)
-        assert min_val <= max_val
 
 
 @pytest.mark.gui
