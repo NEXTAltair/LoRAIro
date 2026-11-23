@@ -36,6 +36,10 @@ Claudeはexec形式、CodexはGitルート解決とWindows用コマンドを使�
 GNU timeoutは不要。CodexではGitでworktreeを作成する。新規worktreeの配置先は `.agents/worktree/`。
 Codexの `workspace-write` では `.agents/` と共有 `.git/` が保護されるため、
 編集やGit操作にはセッション権限に応じて承認が必要になる。
+`workspace-write` で作業ファイルを編集できるようにするには、使用中のOSのユーザー設定で
+`[sandbox_workspace_write]` の `writable_roots` に、共有checkoutの
+`.agents/worktree/` の絶対パスを追加する。既存のパス指定は維持する。
+共有 `.git/` への書き込みやネットワーク操作にはセッションの承認設定が適用される。
 `.ui` の生成は既存画面のため維持し、対象worktreeのソースと共有Pythonを使って同期なしで実行する。
 
 ユーザー設定や `.claude/settings.local.json` に旧フックが残っていると重複実行される。
