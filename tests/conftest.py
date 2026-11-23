@@ -1091,6 +1091,45 @@ def _collect_qt_wrappers_on_main_thread() -> Iterator[None]:
     gc.collect()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _disable_sqlite_fsync_in_tests() -> Iterator[None]:
+    """テスト中に SQLAlchemy が開く SQLite 接続へ ``PRAGMA synchronous=OFF`` を設定する (#1632)。
+
+    tmp_path のファイル DB へ ``create_all`` すると DDL ごとの fsync で 1 回 0.5〜0.7 秒
+    かかる。テスト DB は使い捨てで耐久性は不要なため fsync を省く。Engine クラスへの
+    listener はインスタンス listener より先に走るので、本番の接続リスナー (db_core の
+    ``synchronous=NORMAL`` など) が設定する値はそのまま後勝ちで残り、PRAGMA の値を
+    検証するテストは影響を受けない。sqlite3 を直接開く接続は対象外。
+
+    ``PRAGMA synchronous`` はスキーマの読み取りで共有ロックを要するため、別接続が
+    排他ロックを持つと busy timeout (sqlite3 既定 5 秒) まで待って失敗する。ロック競合を
+    検証するテストの経路を変えないよう、待たずに試し、失敗したらこの接続では設定しない。
+    """
+    import sqlite3
+
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    def _set_synchronous_off(dbapi_connection: object, _connection_record: object) -> None:
+        if not isinstance(dbapi_connection, sqlite3.Connection):
+            return
+        busy_timeout = dbapi_connection.execute("PRAGMA busy_timeout").fetchone()[0]
+        dbapi_connection.execute("PRAGMA busy_timeout=0")
+        try:
+            dbapi_connection.execute("PRAGMA synchronous=OFF")
+        except sqlite3.OperationalError:
+            # ロック中の DB は設定せず、本番の接続リスナーへそのまま渡す
+            pass
+        finally:
+            dbapi_connection.execute(f"PRAGMA busy_timeout={int(busy_timeout)}")
+
+    event.listen(Engine, "connect", _set_synchronous_off)
+    try:
+        yield
+    finally:
+        event.remove(Engine, "connect", _set_synchronous_off)
+
+
 @pytest.fixture
 def local_clef_settings(tmp_path, monkeypatch):
     """Use the real decision client and HTTP validation without starting a model."""
