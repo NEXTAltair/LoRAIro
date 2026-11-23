@@ -182,6 +182,40 @@ class TestWorkerService:
         assert emitted_id == worker_id
         assert "キャンセル中" in progress.status_message
 
+    @patch("lorairo.gui.services.worker_service.DatabaseRegistrationWorker")
+    def test_cancel_batch_registration_keeps_last_progress(self, mock_worker_class, worker_service):
+        """「キャンセル中」の表示は直前の進捗 (件数・割合) を引き継ぎ、0% に戻さない (#1621)。"""
+        from PySide6.QtCore import QObject, Signal
+
+        from lorairo.gui.workers.base import WorkerProgress
+
+        class _FakeWorker(QObject):
+            progress_updated = Signal(object)
+            batch_progress = Signal(int, int, str)
+
+        fake_worker = _FakeWorker()
+        mock_worker_class.return_value = fake_worker
+        worker_service.worker_manager.start_worker.return_value = True
+        worker_service.worker_manager.request_cancel_worker.return_value = True
+        worker_id = worker_service.start_batch_registration(Path("/test/directory"))
+        fake_worker.progress_updated.emit(WorkerProgress(52, "登録中: a.png", "/x/a.png", 6, 10))
+        progress_mock = Mock()
+        worker_service.worker_progress_updated.connect(progress_mock)
+
+        assert worker_service.cancel_batch_registration(worker_id) is True
+
+        _emitted_id, progress = progress_mock.call_args.args
+        assert (progress.percentage, progress.processed_count, progress.total_count) == (52, 6, 10)
+        assert "キャンセル中" in progress.status_message
+
+        # 終端したら保持していた進捗を捨てる
+        worker_service._on_worker_terminal(
+            WorkerTerminalEvent(
+                worker_id=worker_id, worker_type="batch_reg", outcome=WorkerOutcome.CANCELED
+            )
+        )
+        assert worker_id not in worker_service._last_registration_progress
+
     def test_cancel_batch_registration_unknown_worker(self, worker_service):
         """終了済みの登録へのキャンセル要求は False で、台帳と進捗に触れない (#1621)。"""
         worker_service.worker_manager.request_cancel_worker.return_value = False

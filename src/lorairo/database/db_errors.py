@@ -14,6 +14,15 @@ SQLite は WAL + ``busy_timeout`` を設定しても、待機時間内に他プ�
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+
+# タグ DB 境界の縮退処理で SQL 中断を再送出するか (#1621)。既定は従来どおり縮退する。
+# 画像登録だけが opt-in する。アノテーション保存はキャンセル後も同じスレッドで部分結果を
+# 保存する (ADR 0109) ため、中断で保存を失敗させてはいけない。
+_propagate_sqlite_interrupts: ContextVar[bool] = ContextVar("propagate_sqlite_interrupts", default=False)
+
 # SQLite ロック競合を示すメッセージ断片 (sqlite3 / SQLAlchemy 共通)。
 _LOCK_MESSAGE_FRAGMENTS = ("database is locked", "database is busy")
 
@@ -95,3 +104,29 @@ def is_sqlite_interrupt_error(exc: BaseException) -> bool:
         if "interrupted" in str(item).lower():
             return True
     return False
+
+
+@contextmanager
+def propagate_sqlite_interrupts() -> Iterator[None]:
+    """この文脈の間だけ、タグ DB 境界でキャンセル由来の SQL 中断を縮退させず伝播させる (#1621)。
+
+    ``ContextVar`` なので、設定したスレッド (と、その中で作られた文脈) だけに効く。
+    画像一括登録の worker が ``execute`` 全体を囲む。
+    """
+    token = _propagate_sqlite_interrupts.set(True)
+    try:
+        yield
+    finally:
+        _propagate_sqlite_interrupts.reset(token)
+
+
+def should_propagate_sqlite_interrupt(exc: BaseException) -> bool:
+    """縮退処理で ``exc`` を再送出すべきか (中断を伝播する文脈の SQL 中断のときだけ True)。
+
+    Args:
+        exc: タグ DB 境界で捕捉した例外。
+
+    Returns:
+        :func:`propagate_sqlite_interrupts` の文脈内で、``exc`` が SQL 中断なら ``True``。
+    """
+    return _propagate_sqlite_interrupts.get() and is_sqlite_interrupt_error(exc)

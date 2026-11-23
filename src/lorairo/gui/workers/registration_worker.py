@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, ClassVar
 from sqlalchemy.exc import SQLAlchemyError
 
 from ...annotation.sidecar_reader import SidecarAnnotationReader
-from ...database.db_errors import is_sqlite_interrupt_error
+from ...database.db_errors import is_sqlite_interrupt_error, propagate_sqlite_interrupts
 from ...database.db_manager import RegistrationOutcome
 from ...services.folder_common_tags import FolderCommonTags
 from ...utils.log import logger
@@ -97,7 +97,19 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         }
 
     def execute(self) -> DatabaseRegistrationResult:
-        """データベース登録処理を実行
+        """データベース登録処理を実行する。
+
+        タグ DB 境界の縮退処理がキャンセル由来の SQL 中断を伝播するのは、この登録の
+        文脈の中だけにする (#1621)。他の処理 (アノテーション保存等) は従来どおり縮退する。
+
+        Returns:
+            DatabaseRegistrationResult: 登録結果。
+        """
+        with propagate_sqlite_interrupts():
+            return self._execute_registration()
+
+    def _execute_registration(self) -> DatabaseRegistrationResult:
+        """データベース登録処理の本体
 
         指定ディレクトリ内の画像ファイルを検索し、重複チェックを行った後に
         データベースへの登録を実行する。進捗状況は定期的に報告される。

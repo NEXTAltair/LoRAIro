@@ -323,3 +323,58 @@ def test_cancel_during_batch_tag_resolution_skips_fallback(
 
     _rerun(env, fs_manager, monkeypatch, source_images)
     _assert_fully_registered(env)
+
+
+def test_annotation_partial_results_still_saved_on_cancelled_thread(env, qapp):
+    """キャンセル済みスレッドでもアノテーションの部分結果は保存される (中断の伝播は登録だけ)。
+
+    AnnotationWorker はキャンセル後も同じ worker スレッドで完了済みモデルの結果を保存する
+    (ADR 0109)。そのスレッドではタグ DB の SQL が interrupted になるが、保存は従来どおり
+    tag_id を解決できないタグを None に縮退して続ける。
+    """
+    from types import SimpleNamespace
+
+    from lorairo.database.schema import Model
+    from lorairo.gui.workers.base import CancellationController
+    from lorairo.services.annotation_save_service import AnnotationSaveService
+
+    with env.images() as session:
+        image = Image(
+            uuid="cancel-annotation-001",
+            phash="phash_cancel_001",
+            original_image_path="/tmp/cancel.png",
+            stored_image_path="/tmp/cancel.png",
+            width=64,
+            height=64,
+            format="PNG",
+            extension=".png",
+        )
+        session.add_all([image, Model(name="wd-tagger", provider="local", litellm_model_id="wd-tagger")])
+        session.commit()
+        image_id = image.id
+
+    controller = CancellationController()
+    controller.cancel()
+    sql_abort.register_current_thread(controller)
+    try:
+        service = AnnotationSaveService(env.manager.annotation_repo)
+        result = SimpleNamespace(
+            error=None,
+            error_code=None,
+            tags=["cat", "dog", "new delta"],
+            captions=None,
+            scores=None,
+            score_labels=None,
+            ratings=None,
+        )
+        save_result = service.save_annotation_results(
+            {"phash_cancel_001": {"wd-tagger": result}}, allowed_image_ids={image_id}
+        )
+    finally:
+        sql_abort.unregister_current_thread()
+
+    assert env.tag_statements, "タグ DB の SQL を発行し、中断判定を通っている"
+    assert (save_result.success_count, save_result.error_count) == (1, 0)
+    with env.images() as session:
+        saved = sorted(session.scalars(select(Tag.tag).where(Tag.image_id == image_id)))
+    assert saved == ["cat", "dog", "new delta"]

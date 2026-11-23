@@ -75,3 +75,16 @@ def test_lock_and_plain_errors_are_not_interrupt() -> None:
 
     assert is_sqlite_interrupt_error(_operational_error("database is locked")) is False
     assert is_sqlite_interrupt_error(ValueError("interrupted")) is False
+
+
+@pytest.mark.unit
+def test_interrupt_propagates_only_inside_registration_context() -> None:
+    """中断の伝播は propagate_sqlite_interrupts の文脈内だけ (#1621)。"""
+    from lorairo.database.db_errors import propagate_sqlite_interrupts, should_propagate_sqlite_interrupt
+
+    interrupted = _operational_error("interrupted")
+    assert should_propagate_sqlite_interrupt(interrupted) is False
+    with propagate_sqlite_interrupts():
+        assert should_propagate_sqlite_interrupt(interrupted) is True
+        assert should_propagate_sqlite_interrupt(_operational_error("database is locked")) is False
+    assert should_propagate_sqlite_interrupt(interrupted) is False

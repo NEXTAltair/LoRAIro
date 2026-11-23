@@ -1,8 +1,10 @@
 """タグ DB 境界の縮退処理がキャンセル由来の SQL 中断を握りつぶさないことの単体テスト (#1621)。
 
 progress handler が実行中 SQL を打ち切ると ``OperationalError("interrupted")`` が上がる。
-これは worker スレッドへのキャンセル要求でしか起きないため、縮退保存 (tag_id=None)・
-個別検索へのフォールバック・競合 retry へ進まず、そのまま呼び出し元へ伝播させる。
+これは worker スレッドへのキャンセル要求でしか起きない。画像登録の文脈
+(``propagate_sqlite_interrupts``) では縮退保存 (tag_id=None)・個別検索へのフォールバック・
+競合 retry へ進まず、そのまま呼び出し元へ伝播させる。それ以外 (キャンセル後も部分結果を
+保存するアノテーション等) は従来どおり縮退する。
 """
 
 from unittest.mock import Mock, patch
@@ -11,6 +13,7 @@ import pytest
 from genai_tag_db_tools.models import TagSearchResult
 from sqlalchemy.exc import IntegrityError, OperationalError
 
+from lorairo.database.db_errors import propagate_sqlite_interrupts
 from lorairo.database.repository.annotation_record import AnnotationRepository
 
 _SEARCH = "lorairo.database.repository.annotation_record.search_tags"
@@ -32,6 +35,13 @@ def _wrapped_interrupt() -> ValueError:
 
 
 @pytest.fixture
+def registration_context():
+    """画像登録と同じく、中断を伝播する文脈で実行する。"""
+    with propagate_sqlite_interrupts():
+        yield
+
+
+@pytest.fixture
 def repository() -> AnnotationRepository:
     repo = AnnotationRepository()
     repo.merged_reader = Mock()
@@ -40,7 +50,7 @@ def repository() -> AnnotationRepository:
 
 
 @pytest.mark.unit
-def test_single_search_interrupt_propagates_without_registration(repository):
+def test_single_search_interrupt_propagates_without_registration(registration_context, repository):
     with patch(_SEARCH, side_effect=_interrupted()) as search:
         with pytest.raises(OperationalError, match="interrupted"):
             repository._get_or_create_tag_id_external(Mock(), "cat")
@@ -50,7 +60,9 @@ def test_single_search_interrupt_propagates_without_registration(repository):
 
 @pytest.mark.unit
 @pytest.mark.parametrize("error_factory", [_interrupted, _wrapped_interrupt])
-def test_registration_interrupt_propagates_without_retry_search(repository, error_factory):
+def test_registration_interrupt_propagates_without_retry_search(
+    registration_context, repository, error_factory
+):
     repository.tag_register_service.register_tag.side_effect = error_factory()
     with patch(_SEARCH, return_value=TagSearchResult(items=[])) as search:
         with pytest.raises((OperationalError, ValueError)):
@@ -60,7 +72,7 @@ def test_registration_interrupt_propagates_without_retry_search(repository, erro
 
 
 @pytest.mark.unit
-def test_retry_search_interrupt_propagates(repository):
+def test_retry_search_interrupt_propagates(registration_context, repository):
     repository.tag_register_service.register_tag.side_effect = IntegrityError("i", {}, Exception("dup"))
     with patch(_SEARCH, side_effect=[TagSearchResult(items=[]), _interrupted()]):
         with pytest.raises(OperationalError, match="interrupted"):
@@ -68,7 +80,9 @@ def test_retry_search_interrupt_propagates(repository):
 
 
 @pytest.mark.unit
-def test_bulk_resolution_interrupt_propagates_without_individual_registration(repository):
+def test_bulk_resolution_interrupt_propagates_without_individual_registration(
+    registration_context, repository
+):
     repository.merged_reader.search_tags_bulk.side_effect = _interrupted()
     with pytest.raises(OperationalError, match="interrupted"):
         repository.batch_resolve_tag_ids({"cat", "new tag"})
@@ -77,7 +91,9 @@ def test_bulk_resolution_interrupt_propagates_without_individual_registration(re
 
 @pytest.mark.unit
 @pytest.mark.parametrize("error_factory", [_interrupted, _wrapped_interrupt])
-def test_missing_tag_registration_interrupt_stops_remaining_tags(repository, error_factory):
+def test_missing_tag_registration_interrupt_stops_remaining_tags(
+    registration_context, repository, error_factory
+):
     repository.merged_reader.search_tags_bulk.return_value = {}
     repository.tag_register_service.register_tag.side_effect = error_factory()
     with patch(_SEARCH) as search:
@@ -89,7 +105,7 @@ def test_missing_tag_registration_interrupt_stops_remaining_tags(repository, err
 
 
 @pytest.mark.unit
-def test_retry_tag_search_interrupt_propagates(repository):
+def test_retry_tag_search_interrupt_propagates(registration_context, repository):
     repository.merged_reader.search_tags_bulk.return_value = {}
     repository.tag_register_service.register_tag.side_effect = IntegrityError("i", {}, Exception("dup"))
     with patch(_SEARCH, side_effect=_interrupted()):
@@ -98,14 +114,14 @@ def test_retry_tag_search_interrupt_propagates(repository):
 
 
 @pytest.mark.unit
-def test_canonical_resolution_interrupt_propagates(repository):
+def test_canonical_resolution_interrupt_propagates(registration_context, repository):
     repository.merged_reader.search_tags_bulk.side_effect = _interrupted()
     with pytest.raises(OperationalError, match="interrupted"):
         repository._resolve_danbooru_canonical({"cat"})
 
 
 @pytest.mark.unit
-def test_reader_initialization_interrupt_propagates_and_retries_later():
+def test_reader_initialization_interrupt_propagates_and_retries_later(registration_context):
     """初期化中の中断で tag DB を「利用不可」と確定させない (次回の呼び出しで再初期化する)。"""
     repo = AnnotationRepository()
     with patch(
@@ -125,3 +141,22 @@ def test_non_interrupt_errors_keep_degrading(repository):
     )
     assert repository.batch_resolve_tag_ids({"cat"}) == {"cat": None}
     assert repository._resolve_danbooru_canonical({"cat"}) == {}
+
+
+@pytest.mark.unit
+def test_interrupt_outside_registration_keeps_degrading(repository):
+    """登録の文脈外 (アノテーション保存等) では中断も従来どおり縮退する (ADR 0109 の部分保存を守る)。"""
+    repository.merged_reader.search_tags_bulk.side_effect = _interrupted()
+    assert repository.batch_resolve_tag_ids({"cat"}) == {"cat": None}
+    assert repository._resolve_danbooru_canonical({"cat"}) == {}
+    with patch(_SEARCH, side_effect=_interrupted()):
+        assert repository._get_or_create_tag_id_external(Mock(), "cat") is None
+
+
+@pytest.mark.unit
+def test_registration_context_is_reset_after_exit(repository):
+    """文脈を抜けたら既定 (縮退) に戻る。"""
+    with propagate_sqlite_interrupts():
+        pass
+    repository.merged_reader.search_tags_bulk.side_effect = _interrupted()
+    assert repository.batch_resolve_tag_ids({"cat"}) == {"cat": None}

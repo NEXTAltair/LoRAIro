@@ -59,7 +59,7 @@ from sqlalchemy.orm import Session
 
 from ...utils.log import logger
 from ..db_core import ensure_tag_db_initialized
-from ..db_errors import is_sqlite_interrupt_error
+from ..db_errors import is_sqlite_interrupt_error, should_propagate_sqlite_interrupt
 from ..schema import (
     MANUAL_EDIT_LITELLM_ID,
     REJECT_REASON_INCORRECT,
@@ -201,7 +201,7 @@ class AnnotationRepository(BaseRepository):
             ensure_tag_db_initialized()
             return get_default_reader()
         except Exception as e:
-            if is_sqlite_interrupt_error(e):
+            if should_propagate_sqlite_interrupt(e):
                 # キャンセルによる中断で tag DB を「利用不可」と確定させない (#1621)
                 raise
             logger.warning(
@@ -1050,7 +1050,7 @@ class AnnotationRepository(BaseRepository):
             return self._register_new_tag(normalized_tag, tag_string, request)
 
         except Exception as e:
-            if is_sqlite_interrupt_error(e):
+            if should_propagate_sqlite_interrupt(e):
                 raise  # キャンセルによる SQL 中断は縮退させない (#1621)
             logger.error("Error searching tag in external tag_db ({})", type(e).__name__)
             return None  # 検索失敗時は縮退動作（tag_id=None で保存）  # その他のエラーも縮退動作
@@ -1398,7 +1398,7 @@ class AnnotationRepository(BaseRepository):
             logger.warning("Race condition detected during tag registration, retrying search...")
             return self._retry_new_tag_search(normalized_tag, search_request)
         except ValueError as ve:
-            if is_sqlite_interrupt_error(ve):
+            if should_propagate_sqlite_interrupt(ve):
                 raise  # キャンセルによる SQL 中断は競合 retry しない (#1621)
             # genai-tag-db-tools は FK IntegrityError を ValueError に包んで返す (#1239)。
             # FK/DB 操作失敗由来なら競合として retry し、無効な format/type 等はそのまま
@@ -1409,7 +1409,7 @@ class AnnotationRepository(BaseRepository):
             logger.error("Tag registration failed (invalid format/type, {})", type(ve).__name__)
             return None
         except Exception as reg_error:
-            if is_sqlite_interrupt_error(reg_error):
+            if should_propagate_sqlite_interrupt(reg_error):
                 raise  # キャンセルによる SQL 中断は縮退させない (#1621)
             logger.error("Unexpected error during tag registration ({})", type(reg_error).__name__)
             return None
@@ -1434,7 +1434,7 @@ class AnnotationRepository(BaseRepository):
                 logger.debug("Found tag_id {} on retry", tag_id)
                 return cast("int | None", tag_id)
         except Exception as retry_error:
-            if is_sqlite_interrupt_error(retry_error):
+            if should_propagate_sqlite_interrupt(retry_error):
                 raise  # キャンセルによる SQL 中断は縮退させない (#1621)
             logger.error("Retry search failed ({})", type(retry_error).__name__)
         return None
@@ -1470,7 +1470,7 @@ class AnnotationRepository(BaseRepository):
                 lightweight=True,  # tag_id / deprecated のみ使う (Issue #1449)
             )
         except Exception as e:
-            if is_sqlite_interrupt_error(e):
+            if should_propagate_sqlite_interrupt(e):
                 raise  # キャンセルによる SQL 中断で個別登録へフォールバックしない (#1621)
             logger.error("search_tags_bulk failed ({})", type(e).__name__)
             return dict.fromkeys(normalized_tags)
@@ -1571,7 +1571,7 @@ class AnnotationRepository(BaseRepository):
             logger.warning("Race condition during tag registration, retrying search...")
             return self._retry_tag_search(tag_str)
         except ValueError as value_error:
-            if is_sqlite_interrupt_error(value_error):
+            if should_propagate_sqlite_interrupt(value_error):
                 raise  # キャンセルによる SQL 中断は競合 retry しない (#1621)
             # genai-tag-db-tools は sqlite3/SQLAlchemy IntegrityError を ValueError に包んで
             # 返す (repository.py の DB_OPERATION_FAILED / "DB operation failed") ため、
@@ -1586,7 +1586,7 @@ class AnnotationRepository(BaseRepository):
             )
             return None
         except Exception as reg_error:
-            if is_sqlite_interrupt_error(reg_error):
+            if should_propagate_sqlite_interrupt(reg_error):
                 raise  # キャンセルによる SQL 中断は縮退させない (#1621)
             logger.error("Tag registration failed ({}, length={})", type(reg_error).__name__, len(tag_str))
             return None
@@ -1619,7 +1619,7 @@ class AnnotationRepository(BaseRepository):
                 return tag_id
             return None
         except Exception as retry_error:
-            if is_sqlite_interrupt_error(retry_error):
+            if should_propagate_sqlite_interrupt(retry_error):
                 raise  # キャンセルによる SQL 中断は縮退させない (#1621)
             logger.error("Retry search failed ({}, length={})", type(retry_error).__name__, len(tag_str))
             return None
@@ -1654,7 +1654,7 @@ class AnnotationRepository(BaseRepository):
                 lightweight=True,  # tag / tag_id / deprecated のみ使う (Issue #1449)
             )
         except Exception as e:
-            if is_sqlite_interrupt_error(e):
+            if should_propagate_sqlite_interrupt(e):
                 raise  # キャンセルによる SQL 中断は縮退保存しない (#1621)
             # tag_db は任意依存 (ADR 0068): 解決失敗時は整形済みのまま保存へ縮退する。
             logger.error("danbooru canonical の一括解決に失敗 ({})", type(e).__name__)

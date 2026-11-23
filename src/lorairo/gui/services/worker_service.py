@@ -137,6 +137,8 @@ class WorkerService(QObject):
         # シングルトンワーカー管理
         self.current_search_worker_id: str | None = None
         self.current_registration_worker_id: str | None = None
+        # 登録 worker の最後の進捗。キャンセル要求時の表示で件数・割合を引き継ぐ (#1621)
+        self._last_registration_progress: dict[str, WorkerProgress] = {}
         self.current_annotation_worker_id: str | None = None
         self.current_thumbnail_worker_id: str | None = None
         self.current_batch_import_worker_id: str | None = None
@@ -221,9 +223,9 @@ class WorkerService(QObject):
         worker_id = f"batch_reg_{uuid.uuid4().hex[:8]}"
         self._register_operation(worker_id, OperationType.BATCH_REGISTRATION)
 
-        # 進捗シグナル接続
+        # 進捗シグナル接続 (最後の進捗はキャンセル表示で引き継ぐため保持する)
         worker.progress_updated.connect(
-            lambda progress: self.worker_progress_updated.emit(worker_id, progress)
+            lambda progress: self._forward_registration_progress(worker_id, progress)
         )
         worker.batch_progress.connect(
             lambda current, total, filename: self.worker_batch_progress.emit(
@@ -261,10 +263,20 @@ class WorkerService(QObject):
         if entry is not None and not entry.status.is_terminal:
             self.job_ledger.update(worker_id, status=JobStatus.CANCELING)
             self.job_ledger_changed.emit()
-        self.worker_progress_updated.emit(
-            worker_id, WorkerProgress(0, "データベース登録をキャンセル中... (処理中の画像で停止します)")
+        cancel_message = "データベース登録をキャンセル中... (処理中の画像で停止します)"
+        last = self._last_registration_progress.get(worker_id)
+        progress = (
+            replace(last, status_message=cancel_message, current_item="")
+            if last is not None
+            else WorkerProgress(0, cancel_message)
         )
+        self.worker_progress_updated.emit(worker_id, progress)
         return True
+
+    def _forward_registration_progress(self, worker_id: str, progress: WorkerProgress) -> None:
+        """登録 worker の進捗を保持して転送する (#1621)。"""
+        self._last_registration_progress[worker_id] = progress
+        self.worker_progress_updated.emit(worker_id, progress)
 
     # === Annotation ===
     # 注: 旧APIメソッド（start_annotation, start_enhanced_single_annotation）は削除済み
@@ -1099,6 +1111,7 @@ class WorkerService(QObject):
 
     def _on_worker_terminal(self, event: WorkerTerminalEvent) -> None:
         """Unified worker terminal event dispatcher."""
+        self._last_registration_progress.pop(event.worker_id, None)
         self.worker_terminal.emit(event)
         self._emit_operation_terminal(event)
 

@@ -4,6 +4,7 @@ title: 画像一括登録のキャンセルと再登録
 description: GUI の画像一括登録を止めたときに、完了済み・中断対象・未着手の画像がどう残り、どう回復するか
 tags: [registration, cancel, gui, recovery]
 status: active
+timestamp: 2026-11-23
 ---
 
 # 画像一括登録のキャンセルと再登録
