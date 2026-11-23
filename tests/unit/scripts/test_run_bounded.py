@@ -173,6 +173,25 @@ def test_downstream_process_group_is_cleaned_up(tmp_path: Path) -> None:
     assert _wait_process_gone(_read_pid(pid_file))
 
 
+def test_target_start_failure_cleans_up_downstream(tmp_path: Path) -> None:
+    # shebang の無い実行ファイルは Exec format error (OSError) で起動に失敗する
+    not_executable = tmp_path / "no_shebang"
+    not_executable.write_bytes(b"\x00\x01not an executable\n")
+    not_executable.chmod(0o755)
+    pid_file = tmp_path / "downstream_start_failure.pid"
+
+    rc = run_bounded_script.run_bounded(
+        [str(not_executable)],
+        timeout=10.0,
+        kill_after=1.0,
+        pipe_to=_downstream_spawning_grandchild(pid_file, sleep_after_eof=True),
+    )
+
+    assert rc == run_bounded_script.EXIT_NOT_EXECUTABLE
+    # 下流は EOF 後も居座るので、猶予 (1 秒) の間に孫を起動し終えてから群ごと止められる
+    assert _wait_process_gone(_read_pid(pid_file))
+
+
 def test_memory_limit_rejects_oversized_allocation() -> None:
     limit = 1 * _GIB
     allocate = "import sys; b = bytearray({size}); sys.exit(0)"

@@ -202,6 +202,14 @@ def _start_target(
     except PermissionError:
         _log(f"コマンドを実行できません: {command[0]}")
         return EXIT_NOT_EXECUTABLE
+    except OSError as e:
+        # shebang の無いスクリプト (Exec format error) など、起動自体に失敗した場合
+        _log(f"コマンドを起動できません: {command[0]} ({e.strerror})")
+        return EXIT_NOT_EXECUTABLE
+    except subprocess.SubprocessError as e:
+        # preexec_fn (RLIMIT_AS の設定) が子プロセス側で失敗した場合
+        _log(f"コマンドの起動準備に失敗しました: {command[0]} ({e})")
+        return EXIT_NOT_EXECUTABLE
     finally:
         # 親側の書き込み端を閉じる。閉じないと対象が終わっても下流に EOF が届かない
         if downstream is not None and downstream.stdin is not None:
@@ -295,7 +303,13 @@ def run_bounded(
             return started
         downstream = started
 
-    started_target = _start_target(command, preexec, downstream)
+    started_target: subprocess.Popen[bytes] | int | None = None
+    try:
+        started_target = _start_target(command, preexec, downstream)
+    finally:
+        # 想定外の例外で対象の起動が中断されても、起動済みの下流を残さない
+        if started_target is None and downstream is not None:
+            _finish_downstream(downstream, kill_after)
     proc = None if isinstance(started_target, int) else started_target
     try:
         target_code, downstream_code = _supervise(proc, downstream, timeout, kill_after)
