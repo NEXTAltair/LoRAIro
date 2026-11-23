@@ -33,7 +33,11 @@ def _snapshot(workspace):
 @pytest.mark.parametrize("database_state", ["current", "missing", "old", "incompatible"])
 @pytest.mark.parametrize("root_read_only", [False, True])
 def test_report_uses_real_read_only_database_without_side_effects(
-    tmp_path, monkeypatch, database_state, root_read_only
+    tmp_path,
+    monkeypatch,
+    database_state,
+    root_read_only,
+    prepare_project_db,
 ):
     workspace = tmp_path / "tag-health-workspace"
     monkeypatch.setenv("LORAIRO_CLI_LOG_PATH", str(tmp_path / "cli.log"))
@@ -41,7 +45,7 @@ def test_report_uses_real_read_only_database_without_side_effects(
     with runtime_configuration_scope(configuration):
         info = ProjectManagementService().create_project("project")
     db = info.path / "image_database.db"
-    engine = db_core._prepare_project_database(db)
+    engine = prepare_project_db(db)
     with Session(engine) as session:
         for image_id in (1, 2, 3):
             session.add(

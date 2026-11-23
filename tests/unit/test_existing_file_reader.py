@@ -9,13 +9,6 @@ from lorairo.annotation.sidecar_reader import SidecarAnnotationReader
 class TestSidecarAnnotationReader:
     """SidecarAnnotationReader のテスト"""
 
-    def test_init(self):
-        """初期化テスト"""
-        reader = SidecarAnnotationReader()
-
-        # SidecarAnnotationReader が正常に初期化されることを確認
-        assert reader is not None
-
     def test_get_existing_annotations_txt_only(self):
         """txtファイルのみ存在する場合のテスト"""
         reader = SidecarAnnotationReader()
@@ -197,24 +190,6 @@ class TestSidecarAnnotationReader:
         assert result["tags"] == []
         assert result["captions"] == []
         assert "private body" not in str(mock_logger.warning.call_args)
-
-    def test_tag_cleaner_integration(self):
-        """TagCleaner の統合テスト"""
-        reader = SidecarAnnotationReader()
-
-        # SidecarAnnotationReader が TagCleaner.clean_format() を静的メソッドとして使用することを確認
-        assert reader is not None
-
-    def test_file_path_construction(self):
-        """ファイルパス構築のテスト"""
-        reader = SidecarAnnotationReader()
-        image_path = Path("test_image.jpg")
-
-        with patch.object(reader, "get_existing_annotations") as mock_method:
-            reader.get_existing_annotations(image_path)
-
-            # メソッドが呼び出されることを確認
-            mock_method.assert_called_once_with(image_path)
 
     def test_get_existing_annotations_empty_files(self):
         """空のファイルの場合のテスト"""

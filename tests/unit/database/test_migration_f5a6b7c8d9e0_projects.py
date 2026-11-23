@@ -242,13 +242,23 @@ def _create_schema_at_e4a8(db_path: Path) -> None:
     engine.dispose()
 
 
-@pytest.mark.unit
-def test_f5a6b7c8d9e0_creates_projects_table(tmp_path: Path) -> None:
-    """upgrade() 後に projects テーブルが作成される。"""
-    db_path = tmp_path / "projects.db"
-    _create_schema_at_e4a8(db_path)
+@pytest.fixture(scope="module")
+def upgraded_db_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """_create_schema_at_e4a8 の DB を f5a6b7c8d9e0 まで upgrade した DB を module で 1 回だけ作る。
 
+    これを使うテストは同じ seed・同じ upgrade の結果を読むだけなので共有する。
+    DB を変更するテストは従来どおり個別に作る。
+    """
+    db_path = tmp_path_factory.mktemp("projects") / "projects.db"
+    _create_schema_at_e4a8(db_path)
     command.upgrade(_make_alembic_config(db_path), "f5a6b7c8d9e0")
+    return db_path
+
+
+@pytest.mark.unit
+def test_f5a6b7c8d9e0_creates_projects_table(upgraded_db_path: Path) -> None:
+    """upgrade() 後に projects テーブルが作成される。"""
+    db_path = upgraded_db_path
 
     engine = create_engine(f"sqlite:///{db_path}")
     insp = inspect(engine)
@@ -257,12 +267,9 @@ def test_f5a6b7c8d9e0_creates_projects_table(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_f5a6b7c8d9e0_projects_table_has_expected_columns(tmp_path: Path) -> None:
+def test_f5a6b7c8d9e0_projects_table_has_expected_columns(upgraded_db_path: Path) -> None:
     """projects テーブルの必須カラムが存在する。"""
-    db_path = tmp_path / "projects.db"
-    _create_schema_at_e4a8(db_path)
-
-    command.upgrade(_make_alembic_config(db_path), "f5a6b7c8d9e0")
+    db_path = upgraded_db_path
 
     engine = create_engine(f"sqlite:///{db_path}")
     insp = inspect(engine)
@@ -276,12 +283,9 @@ def test_f5a6b7c8d9e0_projects_table_has_expected_columns(tmp_path: Path) -> Non
 
 
 @pytest.mark.unit
-def test_f5a6b7c8d9e0_images_gets_project_id_column(tmp_path: Path) -> None:
+def test_f5a6b7c8d9e0_images_gets_project_id_column(upgraded_db_path: Path) -> None:
     """upgrade() 後に images テーブルに project_id カラムが追加される。"""
-    db_path = tmp_path / "projects.db"
-    _create_schema_at_e4a8(db_path)
-
-    command.upgrade(_make_alembic_config(db_path), "f5a6b7c8d9e0")
+    db_path = upgraded_db_path
 
     engine = create_engine(f"sqlite:///{db_path}")
     insp = inspect(engine)
@@ -292,12 +296,9 @@ def test_f5a6b7c8d9e0_images_gets_project_id_column(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_f5a6b7c8d9e0_project_id_is_nullable(tmp_path: Path) -> None:
+def test_f5a6b7c8d9e0_project_id_is_nullable(upgraded_db_path: Path) -> None:
     """images.project_id カラムは nullable=True である。"""
-    db_path = tmp_path / "projects.db"
-    _create_schema_at_e4a8(db_path)
-
-    command.upgrade(_make_alembic_config(db_path), "f5a6b7c8d9e0")
+    db_path = upgraded_db_path
 
     engine = create_engine(f"sqlite:///{db_path}")
     insp = inspect(engine)
@@ -308,12 +309,9 @@ def test_f5a6b7c8d9e0_project_id_is_nullable(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_f5a6b7c8d9e0_version_is_set(tmp_path: Path) -> None:
+def test_f5a6b7c8d9e0_version_is_set(upgraded_db_path: Path) -> None:
     """upgrade() 後に alembic_version が f5a6b7c8d9e0 になる。"""
-    db_path = tmp_path / "projects.db"
-    _create_schema_at_e4a8(db_path)
-
-    command.upgrade(_make_alembic_config(db_path), "f5a6b7c8d9e0")
+    db_path = upgraded_db_path
 
     engine = create_engine(f"sqlite:///{db_path}")
     with engine.connect() as conn:

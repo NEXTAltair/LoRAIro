@@ -39,31 +39,6 @@ class TestApplyAIRatingFilter:
         assert result_query is not None
         assert result_query != base_query  # クエリが変更されている
 
-    def test_apply_ai_rating_filter_case_insensitive(self, repository):
-        """AI評価フィルタが大文字小文字を区別しないことを確認"""
-        base_query = select(Image.id)
-
-        # 小文字でフィルタ適用
-        result_lowercase = repository._apply_ai_rating_filter(base_query, "pg")
-        assert result_lowercase is not None
-
-        # 大文字でフィルタ適用
-        result_uppercase = repository._apply_ai_rating_filter(base_query, "PG")
-        assert result_uppercase is not None
-
-        # 混在でフィルタ適用
-        result_mixed = repository._apply_ai_rating_filter(base_query, "Pg")
-        assert result_mixed is not None
-
-    def test_apply_ai_rating_filter_all_rating_values(self, repository):
-        """全てのレーティング値に対してフィルタが適用可能であることを確認"""
-        base_query = select(Image.id)
-        rating_values = ["PG", "PG-13", "R", "X", "XXX"]
-
-        for rating in rating_values:
-            result_query = repository._apply_ai_rating_filter(base_query, rating)
-            assert result_query is not None, f"Failed to apply filter for rating: {rating}"
-
 
 class TestApplyUnratedFilter:
     """_apply_unrated_filter() メソッドのテスト"""

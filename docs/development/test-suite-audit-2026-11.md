@@ -74,6 +74,21 @@ S1〜S3 の coverage データを `coverage combine` した合算は 92.0%。
 
 | ファイル::テスト名 | 分類 | 根拠 | 統合先 |
 |---|---|---|---|
+| tests/unit/cli/test_exit_code_process.py::test_process_exit_contract の子プロセス 45 ケース (8 シナリオ × 3 状態 × json/no-json の 48 から代表 3 を除いたもの) | 重複 | 子プロセスで検証していたのは「シナリオと状態から main() が出す終了コード 0 / 3 / 1 と最終 JSON 行」で、同じ差し替えと argv で in-process の `main()` を呼べば同じ写像を検証できる。子プロセスでしか見えないのは interpreter の終了コードと実 stdout パイプだけで、代表 3 ケース (0 / 3 / 1、json と no-json を両方含む) で残した | 同ファイル::test_main_exit_contract (48 ケース全件、in-process) と ::test_process_exit_contract (代表 3 ケース、子プロセス)。シナリオ定義は `install_scenario()` 1 か所を両方が使う |
+| tests/unit/cli/test_exit_code_process.py::test_maintenance_check_findings_still_exit_zero の子プロセス実行 (4 ケース) | 重複 | 「findings があっても exit 0」は main() の写像で、プロセス境界の終了コードは上の代表 3 ケースが確認する。テスト関数と 4 ケースの assert は残し、実行を in-process の `main()` に替えた | 同テスト (in-process) と ::test_process_exit_contract |
+| tests/unit/public_api/test_types.py::TestExportCriteria::test_has_any_filter_score_min_zero_is_true | 重複 | 本体が ::test_has_any_filter_with_score_min と同一 (`ExportCriteria(score_min=0.0).has_any_filter() is True`)。残す側の docstring に「0.0 でも有効」とある | tests/unit/public_api/test_types.py::TestExportCriteria::test_has_any_filter_with_score_min |
+| tests/unit/test_existing_file_reader.py::TestSidecarAnnotationReader::test_init | 陳腐化 | `assert reader is not None` だけ。コンストラクタは同クラスの全テストが呼ぶ | 同クラスの get_existing_annotations 系テスト |
+| tests/unit/test_existing_file_reader.py::TestSidecarAnnotationReader::test_tag_cleaner_integration | 陳腐化 | 本体が test_init と同一で、名前の TagCleaner 連携を何も検証していない | 同上 |
+| tests/unit/test_existing_file_reader.py::TestSidecarAnnotationReader::test_file_path_construction | 実装詳細の検証 | 対象メソッド自体を `patch.object` で差し替えて呼び、mock が呼ばれたことを確かめるだけで実装を通らない | 同上 |
+| tests/unit/public_api/test_tags_api.py::TestGetUnknownTags::test_each_tag_has_type_name_unknown | 重複 | ::test_returns_tag_info_list_from_service が 2 件とも `type_name == "unknown"` と `count == 0` を assert 済み | tests/unit/public_api/test_tags_api.py::TestGetUnknownTags::test_returns_tag_info_list_from_service |
+| tests/unit/public_api/test_tags_api.py::TestGetUnknownTags::test_each_tag_has_zero_count | 重複 | 同上 (`count == 0`) | 同上 |
+| tests/unit/public_api/test_tags_api.py::TestGetAvailableTypes::test_delegates_to_tag_management_service | 重複 | `get_all_available_types.assert_called_once()` だけで、::test_returns_list_of_type_names が同じ assert と戻り値を検証済み | tests/unit/public_api/test_tags_api.py::TestGetAvailableTypes::test_returns_list_of_type_names |
+| tests/unit/public_api/test_tags_api.py::TestGetAvailableTypes::test_returns_single_type | 重複 | 1 要素のリストを素通しするだけで、複数要素の ::test_returns_list_of_type_names と同じ分岐 | 同上 |
+| tests/unit/database/test_db_repository_ai_rating_filter.py::TestApplyAIRatingFilter::test_apply_ai_rating_filter_case_insensitive | 陳腐化 | 3 通りの入力で `is not None` を見るだけ。`_apply_ai_rating_filter` は常に Select を返すので失敗しえない | tests/unit/database/test_db_repository_ai_rating_filter.py::TestApplyAIRatingFilter::test_apply_ai_rating_filter_creates_subqueries |
+| tests/unit/database/test_db_repository_ai_rating_filter.py::TestApplyAIRatingFilter::test_apply_ai_rating_filter_all_rating_values | 陳腐化 | 5 値のループで `is not None` を見るだけ。値ごとの分岐は `_apply_ai_rating_filter` に無い | 同上 |
+| tests/unit/test_dataset_export_service.py::TestDatasetExportService::test_initialization | 陳腐化 | fixture が mock で渡した属性 4 つに `is not None` を見るだけ | 同ファイルの export 系テスト (同じ fixture で同じコンストラクタを通る) |
+| tests/unit/workers/test_database_related_workers.py::TestDatabaseRegistrationWorker::test_import_paths_are_correct | 陳腐化 | import して `is not None` を見るだけ。import できなければ同ファイルの他テストが先に失敗する | tests/unit/workers/test_database_related_workers.py::TestDatabaseRegistrationWorker::test_worker_execution_with_real_objects |
+| tests/unit/database/test_image_repository_histogram.py::TestGetCreatedAtHistogram::test_empty_db_returns_empty_list | 重複 | 本体が「空 DB で `get_created_at_histogram(bins=10)` が `[]`」で tz の指定有無だけが違う。tz 省略の経路は同ファイルの他テストが通る | tests/unit/database/test_image_repository_created_at_filter.py::TestCreatedAtHistogram::test_empty_db_returns_empty_list |
 
 ### 本体 unit GUI
 

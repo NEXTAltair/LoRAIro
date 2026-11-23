@@ -242,7 +242,9 @@ def test_review_function_is_lazily_exported():
 
 
 @pytest.mark.parametrize("database_state", ["current", "missing", "old"])
-def test_real_project_review_never_prepares_or_changes_database(tmp_path, monkeypatch, database_state):
+def test_real_project_review_never_prepares_or_changes_database(
+    tmp_path, monkeypatch, database_state, prepare_project_db
+):
     """Exercise the actual facade, container, read-only SQLite and empty-review service."""
     from sqlalchemy import event, text
     from sqlalchemy.engine import Engine
@@ -259,7 +261,7 @@ def test_real_project_review_never_prepares_or_changes_database(tmp_path, monkey
     with runtime_configuration_scope(configuration):
         info = ProjectManagementService().create_project("project")
     db = info.path / "image_database.db"
-    engine = db_core._prepare_project_database(db)
+    engine = prepare_project_db(db)
     stored_image = info.path / "image_dataset" / "original_images" / "sample.png"
     stored_image.write_bytes(b"empty-candidates never need to decode this image")
     with Session(engine) as session:

@@ -183,13 +183,23 @@ def _create_schema_at_879(db_path: Path) -> None:
     engine.dispose()
 
 
-@pytest.mark.unit
-def test_a860e469d0c4_creates_model_types_table(tmp_path: Path) -> None:
-    """upgrade() 後に model_types テーブルが作成される。"""
-    db_path = tmp_path / "model-types.db"
-    _create_schema_at_879(db_path)
+@pytest.fixture(scope="module")
+def upgraded_db_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """_create_schema_at_879 の DB を a860e469d0c4 まで upgrade した DB を module で 1 回だけ作る。
 
+    これを使うテストは同じ seed・同じ upgrade の結果を読むだけなので共有する。
+    DB を変更するテストは従来どおり個別に作る。
+    """
+    db_path = tmp_path_factory.mktemp("model-types") / "model-types.db"
+    _create_schema_at_879(db_path)
     command.upgrade(_make_alembic_config(db_path), "a860e469d0c4")
+    return db_path
+
+
+@pytest.mark.unit
+def test_a860e469d0c4_creates_model_types_table(upgraded_db_path: Path) -> None:
+    """upgrade() 後に model_types テーブルが作成される。"""
+    db_path = upgraded_db_path
 
     engine = create_engine(f"sqlite:///{db_path}")
     insp = inspect(engine)
@@ -198,12 +208,9 @@ def test_a860e469d0c4_creates_model_types_table(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_a860e469d0c4_inserts_initial_model_types(tmp_path: Path) -> None:
+def test_a860e469d0c4_inserts_initial_model_types(upgraded_db_path: Path) -> None:
     """upgrade() 後に model_types に初期レコード(tagger/score/captioner/upscaler/llm)が存在する。"""
-    db_path = tmp_path / "model-types.db"
-    _create_schema_at_879(db_path)
-
-    command.upgrade(_make_alembic_config(db_path), "a860e469d0c4")
+    db_path = upgraded_db_path
 
     engine = create_engine(f"sqlite:///{db_path}")
     with engine.connect() as conn:
@@ -219,12 +226,9 @@ def test_a860e469d0c4_inserts_initial_model_types(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_a860e469d0c4_creates_model_function_associations_table(tmp_path: Path) -> None:
+def test_a860e469d0c4_creates_model_function_associations_table(upgraded_db_path: Path) -> None:
     """upgrade() 後に model_function_associations テーブルが作成される。"""
-    db_path = tmp_path / "model-types.db"
-    _create_schema_at_879(db_path)
-
-    command.upgrade(_make_alembic_config(db_path), "a860e469d0c4")
+    db_path = upgraded_db_path
 
     engine = create_engine(f"sqlite:///{db_path}")
     insp = inspect(engine)
@@ -268,12 +272,9 @@ def test_a860e469d0c4_existing_model_gets_association(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_a860e469d0c4_version_is_set(tmp_path: Path) -> None:
+def test_a860e469d0c4_version_is_set(upgraded_db_path: Path) -> None:
     """upgrade() 後に alembic_version が a860e469d0c4 になる。"""
-    db_path = tmp_path / "model-types.db"
-    _create_schema_at_879(db_path)
-
-    command.upgrade(_make_alembic_config(db_path), "a860e469d0c4")
+    db_path = upgraded_db_path
 
     engine = create_engine(f"sqlite:///{db_path}")
     with engine.connect() as conn:

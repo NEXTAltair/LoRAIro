@@ -83,16 +83,6 @@ class TestDatasetExportService:
             ],
         }
 
-    def test_initialization(self, dataset_export_service):
-        """DatasetExportService初期化テスト"""
-        # Given, When: DatasetExportServiceが初期化される（フィクスチャで実行）
-
-        # Then: 適切に初期化されている
-        assert dataset_export_service.config_service is not None
-        assert dataset_export_service.file_system_manager is not None
-        assert dataset_export_service.db_manager is not None
-        assert dataset_export_service.search_processor is not None
-
     def test_export_dataset_txt_format_success(
         self, dataset_export_service, mock_file_system_manager, sample_image_data
     ):

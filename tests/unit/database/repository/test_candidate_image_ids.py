@@ -9,8 +9,12 @@ from lorairo.database.repository.image import ImageRepository
 from lorairo.database.schema import Base, Image, Model, ProcessedImage, Rating
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def candidate_repo():
+    """1001 画像の in-memory DB。全テストが読み取りだけなので module で共有する。
+
+    インスタンス属性の差し替えは各テストの monkeypatch (function scope) が戻す。
+    """
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     factory = sessionmaker(engine)

@@ -7,6 +7,7 @@ create_all + stamp で作るアプリの手順 (`_prepare_project_database`) と
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -107,9 +108,10 @@ def _tag_models(db_path: Path) -> dict[int, str | None]:
     return {row[0]: row[1] for row in rows}
 
 
-@pytest.fixture
-def migrated_db(tmp_path: Path) -> tuple[Path, Config]:
-    db_path = tmp_path / "provenance.db"
+@pytest.fixture(scope="module")
+def migrated_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """create_all + stamp + seed + upgrade 済みの DB を module で 1 回だけ作る。"""
+    db_path = tmp_path_factory.mktemp("provenance") / "provenance.db"
     cfg = _make_alembic_config(db_path)
     engine = create_engine(f"sqlite:///{db_path}")
     Base.metadata.create_all(engine)
@@ -117,7 +119,15 @@ def migrated_db(tmp_path: Path) -> tuple[Path, Config]:
     command.stamp(cfg, PREVIOUS_REVISION)
     _seed(db_path)
     command.upgrade(cfg, REVISION)
-    return db_path, cfg
+    return db_path
+
+
+@pytest.fixture
+def migrated_db(migrated_template: Path, tmp_path: Path) -> tuple[Path, Config]:
+    """テストごとに upgrade 済み DB の複製を渡す (downgrade するテストが他へ影響しないように)。"""
+    db_path = tmp_path / "provenance.db"
+    shutil.copyfile(migrated_template, db_path)
+    return db_path, _make_alembic_config(db_path)
 
 
 def test_upgrade_assigns_null_rows_by_origin(migrated_db: tuple[Path, Config]) -> None:

@@ -80,20 +80,6 @@ class TestDatabaseRegistrationWorker:
         assert callable(real_db_manager.register_image_with_side_effects)
         assert callable(real_db_manager.get_image_metadata)
 
-    def test_import_paths_are_correct(self):
-        """
-        インポートパスが正しいことをテスト
-        - このテストは実際の...database.db_coreインポートエラーを検出できる
-        """
-        # 分割済みworkerがインポート可能であることを確認
-        # 依存するモジュールがインポート可能であることを確認
-        from lorairo.database.db_core import resolve_stored_path  # インポートエラーを検出
-        from lorairo.gui.workers.registration_worker import DatabaseRegistrationWorker
-
-        # クラスが正しく定義されていることを確認
-        assert DatabaseRegistrationWorker is not None
-        assert resolve_stored_path is not None
-
     def test_worker_execution_with_real_objects(self, temp_dir, real_db_manager, mock_fsm):
         """
         実際のオブジェクトを使用したワーカー実行テスト
