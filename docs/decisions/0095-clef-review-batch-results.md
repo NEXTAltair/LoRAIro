@@ -9,6 +9,11 @@ tags: [clef, annotation, review, worker, persistence]
 
 > 2026-10-08追記: Clefの実行先・認証設定は [ADR 0097](0097-clef-local-only.md) によりローカル専用へ変更した。
 
+> 2026-11-23追記: CLI は `--save-results` を明示した場合だけ保存する。既定は保存しない。
+> 保存は GUI と同じ Store・規則 (fingerprint、確認開始時刻による原子的 upsert) を使い、
+> ルートの `--read-only` とは併用できない
+> ([LoRAIro #1603](https://github.com/NEXTAltair/LoRAIro/issues/1603))。
+
 ## Context
 
 ADR 0094 の初期実装は選択画像の一時的な警告に対応した。画像を切り替えると結果が消え、

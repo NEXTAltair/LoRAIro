@@ -55,7 +55,14 @@ CLI は対象 ID を明示して実行する:
 ```bash
 lorairo-cli --read-only review run --project my_dataset --image-ids 12,34
 lorairo-cli --json review run --project my_dataset --image-ids-file ids.txt
+lorairo-cli --json review run --project my_dataset --crop-children-of 42
+lorairo-cli --json review run --project my_dataset --crop-children --save-results
 ```
+
+`--crop-children-of <親 ID>` は親から切り出したクロップ子画像だけ、`--crop-children` は
+プロジェクトの全クロップ子画像を `crop_relations` から解決して確認する。親や無関係の画像は含めない。
+ID 指定・ID ファイル・2 つのクロップ指定は同時に使えない。子画像が 0 件のときは
+「対象 0 件」を表示して終了コード 0 で終わる。存在しない親 ID は `NOT_FOUND` になる。
 
 CLI は 1 回につき最大 500 枚を確認する。ID ファイルを使う場合も同じ上限で、
 超過時はモデル起動・画像読み込み前に `RESULT_SET_TOO_LARGE` で拒否する。
@@ -100,7 +107,12 @@ CLI の結果は個々の候補に画像 ID、注釈 ID、種別、原文、状�
 画像ごとに最新の確認結果をプロジェクト DB に保存する。画像を切り替えたりアプリを再起動したり
 しても結果は残る。結果には元の注釈 ID・文章、一致確率、警告や失敗の状態、判定モデル・基準、
 確認時刻を保持する。途中で中止しても、それまでに完了した画像の結果は失われない。
-CLI の明示実行は従来どおり読み取り専用で、結果を DB に保存しない。
+CLI は `--save-results` を明示した場合だけ、画像ごとの結果を GUI と同じ規則で保存する。
+既定は保存しない (読み取り専用)。保存した結果は結果画面と検索の「要確認」にそのまま現れる。
+ルートの `--read-only` と `--save-results` は併用できない (`INVALID_INPUT`)。
+保存は画像ごとに確定し、ある画像の保存に失敗 (DB のロック等) しても残りの確認と保存は続ける。
+保存に失敗した画像があると終了コード 3、1 枚も保存できなければ 1 で終わる。
+注釈・画像・reviewed 状態は変更しない。
 
 「結果」画面で画像ごとの警告を確認し、手動確認の操作から検索画面の対象画像を開く。
 結果一覧は直近の最大 500 枚を表示する。それ以前の結果も DB に保持し、対象画像の詳細欄から確認できる。

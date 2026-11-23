@@ -98,6 +98,30 @@ class CropRelationRepository(BaseRepository):
                 logger.opt(exception=True).error(f"クロップ子一覧の取得に失敗: parent={parent_image_id}")
                 raise
 
+    def get_child_image_ids(self, parent_image_id: int | None = None) -> list[int]:
+        """子画像 ID を登録順に返す。親を省略すると全クロップ子画像が対象 (#1603)。
+
+        Args:
+            parent_image_id: 直接の親画像 ID。None なら全親が対象。
+
+        Returns:
+            子画像 ID のリスト (関係行の登録順)。子が無ければ空リスト。
+
+        Raises:
+            SQLAlchemyError: 予期しない DB エラー。
+        """
+        with self.session_factory() as session:
+            try:
+                stmt = select(CropRelation.child_image_id).order_by(CropRelation.id)
+                if parent_image_id is not None:
+                    stmt = stmt.where(CropRelation.parent_image_id == parent_image_id)
+                return list(session.execute(stmt).scalars().all())
+            except SQLAlchemyError:
+                logger.opt(exception=True).error(
+                    f"クロップ子画像 ID の取得に失敗: parent={parent_image_id}"
+                )
+                raise
+
     def get_parent(self, child_image_id: int) -> CropRelation | None:
         """指定した子画像の直接の親の関係行を返す。
 

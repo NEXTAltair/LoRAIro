@@ -1372,6 +1372,8 @@ class ToolSpec:
                 if self.path == "models list"
                 else ["network_download", "tag_cache_create", "db_create", "directory_create"]
                 if self.path == "tags translations show"
+                else ["db_write", "schema_migration", "directory_create"]
+                if self.path == "review run"
                 else ["db_create", "schema_migration", "model_seed", "directory_create"]
                 if "db_read" in self.side_effects
                 and self.path not in {"models list", "project list", "review run"}
@@ -2168,7 +2170,10 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "review run": ToolSpec(
         name="review run",
         path="review run",
-        summary="Evaluate existing tags/captions with local Clef; explicit IDs required, no DB changes.",
+        summary=(
+            "Evaluate existing tags/captions with local Clef; explicit IDs or crop children required. "
+            "No DB changes unless --save-results stores per-image results (db_write; not with --read-only)."
+        ),
         read_only=True,
         side_effects=("db_read", "file_read", "network"),
         inputs=(
@@ -2179,12 +2184,29 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f(
                         "image_ids",
                         "str?",
-                        description="Explicit positive image IDs in CSV; one of image_ids/image_ids_file is required. Review max 500 unique images per run; larger selections fail with RESULT_SET_TOO_LARGE before opening the project or sending requests. CSV reader accepts up to 100,000 IDs; duplicates evaluated once. No implicit all-image review.",
+                        description="Explicit positive image IDs in CSV; exactly one of image_ids/image_ids_file/crop_children_of/crop_children is required. Review max 500 unique images per run; larger selections fail with RESULT_SET_TOO_LARGE before opening the project or sending requests. CSV reader accepts up to 100,000 IDs; duplicates evaluated once. No implicit all-image review.",
                     ),
                     _f(
                         "image_ids_file",
                         "path?",
                         description="UTF-8 newline/comma IDs, exclusive with image_ids. Review max 500 unique images per run; larger selections fail with RESULT_SET_TOO_LARGE before opening the project or sending requests. File reader accepts up to 100,000 IDs; duplicates evaluated once.",
+                    ),
+                    _f(
+                        "crop_children_of",
+                        "int?",
+                        description="Parent image ID; review only its crop children from crop_relations (parent excluded). Exclusive with other selections. Unknown parent fails with NOT_FOUND; zero children succeeds with image_count=0 (対象 0 件). Over 500 children fails with RESULT_SET_TOO_LARGE.",
+                    ),
+                    _f(
+                        "crop_children",
+                        "bool",
+                        default=False,
+                        description="Review every crop child image in crop_relations. Exclusive with other selections. Zero children succeeds with image_count=0; over 500 fails with RESULT_SET_TOO_LARGE.",
+                    ),
+                    _f(
+                        "save_results",
+                        "bool",
+                        default=False,
+                        description="Save each image result to annotation_review_results like the GUI (fingerprint, newer result kept). Default false: no DB writes. Rejected with root --read-only (INVALID_INPUT). A per-image save failure continues the run and returns exit 3 (or 1 if nothing was saved).",
                     ),
                 ),
             ),

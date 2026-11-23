@@ -187,6 +187,30 @@ class TestGetChildren:
         assert crop_relation_repository.get_children(9999) == []
 
 
+class TestGetChildImageIds:
+    """`get_child_image_ids` は子 ID だけを登録順に返す (#1603)。"""
+
+    def test_parent_filter_and_all_children(
+        self, crop_relation_repository: CropRelationRepository, db_session_factory
+    ) -> None:
+        parent = _insert_image(db_session_factory, uuid="ids-parent")
+        other_parent = _insert_image(db_session_factory, uuid="ids-other-parent")
+        unrelated = _insert_image(db_session_factory, uuid="ids-unrelated")
+        second = _insert_image(db_session_factory, uuid="ids-second")
+        first = _insert_image(db_session_factory, uuid="ids-first")
+        other_child = _insert_image(db_session_factory, uuid="ids-other-child")
+        grandchild = _insert_image(db_session_factory, uuid="ids-grandchild")
+        crop_relation_repository.add_relation(parent, second, 0, 0, 8, 8)
+        crop_relation_repository.add_relation(other_parent, other_child, 0, 0, 8, 8)
+        crop_relation_repository.add_relation(parent, first, 8, 8, 8, 8)
+        crop_relation_repository.add_relation(second, grandchild, 0, 0, 4, 4)
+
+        assert crop_relation_repository.get_child_image_ids(parent) == [second, first]
+        assert crop_relation_repository.get_child_image_ids() == [second, other_child, first, grandchild]
+        assert crop_relation_repository.get_child_image_ids(unrelated) == []
+        assert parent not in crop_relation_repository.get_child_image_ids()
+
+
 class TestGetParent:
     """`get_parent` は直接の親の関係行を返す。"""
 

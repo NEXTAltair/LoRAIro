@@ -1,11 +1,13 @@
-"""Read-only Clef evaluation of existing project annotations."""
+"""Clef evaluation of existing project annotations; results are saved only on request."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -13,16 +15,36 @@ from lorairo.public_api.exceptions import ImageNotFoundError, InvalidInputError,
 
 if TYPE_CHECKING:
     from lorairo.services.annotation_review_service import AnnotationReviewResult, ReviewSnapshot
+    from lorairo.services.annotation_review_store import AnnotationReviewStore
     from lorairo.services.service_container import ServiceContainer
 
 MAX_REVIEW_IMAGES = 500
 _VALIDATION_CHUNK_SIZE = 500
 _STOP_REVIEW_ERROR_CODES = frozenset({"configuration", "transport", "timeout"})
 
+ReviewSaveStatus = Literal["saved", "skipped", "failed"]
+
+
+@dataclass(frozen=True)
+class ReviewSaveOutcome:
+    """Per-image persistence outcome of ``review_annotations(save_results=True)``.
+
+    ``skipped`` means the store kept a newer result or an empty cancellation had
+    nothing to save; it is not a failure. ``failed`` carries a safe message.
+    """
+
+    image_id: int
+    status: ReviewSaveStatus
+    error: str | None = None
+
 
 @contextmanager
-def _project_context(project_name: str) -> Iterator[ServiceContainer]:
-    """Open only an existing compatible project, without preparing or changing it."""
+def _project_context(project_name: str, *, read_only: bool = True) -> Iterator[ServiceContainer]:
+    """Open only an existing project; read-only mode never prepares or changes it.
+
+    ``read_only=False`` is used only for explicit result saving (#1603) and opens
+    the project like other write commands.
+    """
     from lorairo.database.access_policy import read_only_scope
     from lorairo.services.service_container import service_container_scope
     from lorairo.utils.config import (
@@ -36,11 +58,11 @@ def _project_context(project_name: str) -> Iterator[ServiceContainer]:
     configuration = get_runtime_configuration() or RuntimeConfiguration(
         Path.cwd(), DEFAULT_CONFIG_PATH, get_config()
     )
-    with (
-        runtime_configuration_scope(configuration),
-        read_only_scope(),
-        service_container_scope() as container,
-    ):
+    with ExitStack() as stack:
+        stack.enter_context(runtime_configuration_scope(configuration))
+        if read_only:
+            stack.enter_context(read_only_scope())
+        container = stack.enter_context(service_container_scope())
         container.set_active_project(project_name)
         yield container
 
@@ -54,6 +76,24 @@ def _validate_image_ids(image_ids: list[int]) -> list[int]:
     return unique_ids
 
 
+def resolve_crop_child_image_ids(project_name: str, parent_image_id: int | None = None) -> list[int]:
+    """Resolve crop child image IDs from ``crop_relations`` without changing the DB.
+
+    ``parent_image_id=None`` selects every crop child. The working-set cap is
+    left to ``review_annotations`` so the resolved set is reviewed unchanged.
+
+    Raises:
+        InvalidInputError: ``parent_image_id`` is not a positive integer.
+        ImageNotFoundError: The parent image does not exist.
+    """
+    if parent_image_id is not None and (type(parent_image_id) is not int or parent_image_id <= 0):
+        raise InvalidInputError("parent_image_id", "Specify a positive integer parent image ID.")
+    from lorairo.services.crop_review_targets import resolve_crop_child_image_ids as resolve
+
+    with _project_context(project_name) as container:
+        return resolve(container.db_manager, parent_image_id)
+
+
 def review_annotations(
     project_name: str,
     image_ids: list[int],
@@ -61,8 +101,16 @@ def review_annotations(
     on_result: Callable[[AnnotationReviewResult], None] | None = None,
     collect_results: bool = True,
     is_cancelled: Callable[[], bool] | None = None,
+    save_results: bool = False,
+    on_saved: Callable[[ReviewSaveOutcome], None] | None = None,
 ) -> list[AnnotationReviewResult]:
-    """Evaluate saved tags and captions, without modifying annotations or the DB.
+    """Evaluate saved tags and captions, without modifying annotations.
+
+    The DB is unchanged unless ``save_results=True``. Then each image result is
+    saved independently to ``annotation_review_results`` with the GUI's store
+    (fingerprint, atomic upsert by request time), and ``on_saved`` receives the
+    outcome before ``on_result``. A save failure is image-scoped and does not stop
+    the run; tags, captions, images and reject state are never changed.
 
     At most 500 unique images may be reviewed per call; this cap is checked before
     opening the project. The complete explicit ID selection is validated before
@@ -84,16 +132,14 @@ def review_annotations(
     )
 
     results: list[AnnotationReviewResult] = []
-    with _project_context(project_name) as container:
-        repository = container.db_manager.image_repo
-        for start in range(0, len(selected), _VALIDATION_CHUNK_SIZE):
-            chunk = selected[start : start + _VALIDATION_CHUNK_SIZE]
-            existing = set(repository.get_candidate_image_ids(chunk))
-            missing = [image_id for image_id in chunk if image_id not in existing]
-            if missing:
-                raise ImageNotFoundError(missing[0])
-
+    requested_at = datetime.now(UTC)
+    context = (
+        _project_context(project_name, read_only=False) if save_results else _project_context(project_name)
+    )
+    with context as container:
+        _require_existing_images(container, selected)
         service = AnnotationReviewService(container.config_service, container.db_manager)
+        store = _open_review_store(container) if save_results else None
         blocked_error: AnnotationReviewResult | None = None
         for image_id in selected:
             snapshot: ReviewSnapshot | None = None
@@ -138,8 +184,64 @@ def review_annotations(
                     status="failed",
                     error=message,
                 )
+            if store is not None:
+                _save_review(store, result, service.warning_threshold, requested_at, on_saved)
             if collect_results:
                 results.append(result)
             if on_result is not None:
                 on_result(result)
     return results
+
+
+def _require_existing_images(container: ServiceContainer, selected: list[int]) -> None:
+    """Validate the complete selection before any inference starts."""
+    repository = container.db_manager.image_repo
+    for start in range(0, len(selected), _VALIDATION_CHUNK_SIZE):
+        chunk = selected[start : start + _VALIDATION_CHUNK_SIZE]
+        existing = set(repository.get_candidate_image_ids(chunk))
+        missing = [image_id for image_id in chunk if image_id not in existing]
+        if missing:
+            raise ImageNotFoundError(missing[0])
+
+
+def _open_review_store(container: ServiceContainer) -> AnnotationReviewStore:
+    from lorairo.services.annotation_review_store import AnnotationReviewStore
+
+    return AnnotationReviewStore(container.db_manager)
+
+
+def _save_review(
+    store: AnnotationReviewStore,
+    review: AnnotationReviewResult,
+    warning_threshold: float,
+    requested_at: datetime,
+    on_saved: Callable[[ReviewSaveOutcome], None] | None,
+) -> None:
+    """Save one image like the GUI batch worker and report it; failures stay image-scoped."""
+    outcome = _store_review(store, review, warning_threshold, requested_at)
+    if on_saved is not None:
+        on_saved(outcome)
+
+
+def _store_review(
+    store: AnnotationReviewStore,
+    review: AnnotationReviewResult,
+    warning_threshold: float,
+    requested_at: datetime,
+) -> ReviewSaveOutcome:
+    from lorairo.services.annotation_review_store import AnnotationReviewImageMissingError
+    from lorairo.utils.log import logger
+
+    try:
+        saved = store.save(review, warning_threshold, requested_at=requested_at)
+    except AnnotationReviewImageMissingError:
+        return ReviewSaveOutcome(
+            review.image_id, "failed", "The image was removed before its review result could be saved."
+        )
+    except (SQLAlchemyError, OSError, ValueError, TypeError) as error:
+        # DB ロック等の詳細はログのみに残し、利用者向けの文言には含めない。
+        logger.warning("Annotation review save failed for image {}: {}", review.image_id, error)
+        return ReviewSaveOutcome(
+            review.image_id, "failed", f"Could not save the review result ({type(error).__name__})."
+        )
+    return ReviewSaveOutcome(review.image_id, "saved" if saved else "skipped")

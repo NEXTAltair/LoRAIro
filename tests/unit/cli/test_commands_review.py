@@ -321,10 +321,19 @@ def test_describe_publishes_read_only_network_and_nullable_probabilities():
     tool = rows[0]
     assert tool["read_only"] is tool["strict_read_only_supported"] is True
     assert set(tool["side_effects"]) == {"db_read", "file_read", "network"}
-    assert tool["conditional_side_effects"] == []
+    # --save-results 指定時だけ DB へ書き込む (#1603)。既定は読み取り専用のまま。
+    assert tool["conditional_side_effects"] == ["db_write", "schema_migration", "directory_create"]
+    assert "--save-results" in tool["summary"] and "--read-only" in tool["summary"]
     schemas = {row["name"]: row["schema"] for row in rows if row.get("type") == "schema"}
     assert {"ReviewRunInput", "ReviewRunItem", "ReviewRunOutcome", "ReviewRunResult"} <= set(schemas)
-    assert set(schemas["ReviewRunInput"]["properties"]) == {"project", "image_ids", "image_ids_file"}
+    assert set(schemas["ReviewRunInput"]["properties"]) == {
+        "project",
+        "image_ids",
+        "image_ids_file",
+        "crop_children_of",
+        "crop_children",
+        "save_results",
+    }
     probability = schemas["ReviewRunItem"]["properties"]["probability"]
     assert probability["anyOf"] == [{"maximum": 1.0, "minimum": 0.0, "type": "number"}, {"type": "null"}]
     assert {"unevaluated", "stale"} <= set(schemas["ReviewRunOutcome"]["properties"]["status"]["enum"])
@@ -335,3 +344,180 @@ def test_describe_publishes_read_only_network_and_nullable_probabilities():
     file_description = schemas["ReviewRunInput"]["properties"]["image_ids_file"]["description"]
     assert "500 unique images" in file_description and "RESULT_SET_TOO_LARGE" in file_description
     assert "File reader accepts up to 100,000 IDs" in file_description
+
+
+# --- #1603: クロップ子画像の選択と --save-results ---
+
+
+@pytest.fixture
+def crop_children(monkeypatch):
+    """crop_relations の解決結果を差し替える (解決ロジック自体は統合テストで実 DB を使う)."""
+    resolved: dict[int | None, list[int]] = {5: [12, 11], None: [11, 12, 21]}
+    resolver = Mock(side_effect=lambda project, parent=None: resolved[parent])
+    monkeypatch.setattr(review, "resolve_crop_child_image_ids", resolver)
+    return resolver, resolved
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("--crop-children-of", "5", "--image-ids", "1"),
+        ("--crop-children", "--image-ids-file", "ids.txt"),
+        ("--crop-children-of", "5", "--crop-children"),
+    ],
+)
+def test_crop_selection_is_exclusive_with_other_selections(api, crop_children, args):
+    resolver, _ = crop_children
+    result = _invoke(*args)
+
+    assert result.exit_code == 2, result.output
+    assert _rows(result)[-1]["code"] == "INVALID_INPUT"
+    resolver.assert_not_called()
+    api.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "args, parent, expected",
+    [(("--crop-children-of", "5"), 5, [12, 11]), (("--crop-children",), None, [11, 12, 21])],
+)
+def test_resolved_crop_children_are_passed_unchanged_to_review(api, crop_children, args, parent, expected):
+    resolver, _ = crop_children
+    result = _invoke(*args)
+
+    assert result.exit_code == 0, result.output
+    resolver.assert_called_once_with("test-project", parent)
+    assert api.call_args.args == ("test-project", expected)
+    assert "save_results" not in api.call_args.kwargs
+    outcomes = [row for row in _rows(result) if row.get("type") == "annotation_review_outcome"]
+    assert [row["image_id"] for row in outcomes] == expected
+    assert all(row["save_status"] is None and row["save_error"] is None for row in outcomes)
+    summary = _rows(result)[-1]
+    assert summary["save_results"] is False and summary["saved"] == 0
+
+
+@pytest.mark.parametrize("json_mode", [True, False])
+def test_zero_crop_children_succeeds_with_explicit_zero_targets(api, crop_children, json_mode):
+    _, resolved = crop_children
+    resolved[5] = []
+    mode = "--json" if json_mode else "--no-json"
+    result = runner.invoke(
+        app, [mode, "review", "run", "--project", "test-project", "--crop-children-of", "5"]
+    )
+
+    assert result.exit_code == 0, result.output
+    api.assert_not_called()
+    if json_mode:
+        rows = _rows(result)
+        assert len(rows) == 1
+        assert rows[0]["kind"] == "result" and rows[0]["ok"] is True and rows[0]["status"] == "success"
+        assert rows[0]["message"] == "対象 0 件: no crop child images matched; nothing was reviewed."
+        assert rows[0]["image_count"] == rows[0]["item_count"] == rows[0]["successful"] == 0
+    else:
+        assert "対象 0 件: no crop child images matched; nothing was reviewed." in result.stdout
+
+
+@pytest.mark.parametrize("count, expected_exit", [(500, 0), (501, 2)])
+def test_crop_children_use_the_existing_500_image_working_set_cap(
+    real_review_api, monkeypatch, count, expected_exit
+):
+    context, factory, service, network = real_review_api
+    monkeypatch.setattr(
+        review, "resolve_crop_child_image_ids", Mock(return_value=list(range(1, count + 1)))
+    )
+
+    result = _invoke("--crop-children")
+
+    assert result.exit_code == expected_exit, result.output
+    rows = _rows(result)
+    if count == 500:
+        assert rows[-1]["image_count"] == 500
+        assert service.review.call_count == 500
+    else:
+        assert len(rows) == 1 and rows[0]["code"] == "RESULT_SET_TOO_LARGE"
+        assert rows[0]["details"] == {"limit": 500, "matched": 501}
+        context.assert_not_called()
+        factory.assert_not_called()
+        service.review.assert_not_called()
+    network.assert_not_called()
+
+
+def test_save_results_is_rejected_with_root_read_only(api, crop_children):
+    resolver, _ = crop_children
+    result = runner.invoke(
+        app,
+        [
+            "--json",
+            "--read-only",
+            "review",
+            "run",
+            "--project",
+            "test-project",
+            "--image-ids",
+            "1",
+            "--save-results",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    row = _rows(result)[-1]
+    assert row["code"] == "INVALID_INPUT" and "--read-only" in row["message"]
+    resolver.assert_not_called()
+    api.assert_not_called()
+
+
+def _saving_api(monkeypatch, statuses):
+    from lorairo.public_api.review import ReviewSaveOutcome
+
+    def execute(project, ids, *, on_result, collect_results, save_results, on_saved):
+        assert collect_results is False and save_results is True
+        for image_id, status in zip(ids, statuses, strict=True):
+            error = "Could not save the review result (OperationalError)." if status == "failed" else None
+            on_saved(ReviewSaveOutcome(image_id, status, error))
+            on_result(_result(image_id))
+        return []
+
+    mocked = Mock(side_effect=execute)
+    monkeypatch.setattr(review, "review_annotations", mocked)
+    return mocked
+
+
+@pytest.mark.parametrize(
+    "statuses, expected_exit, expected_status",
+    [
+        (["saved", "saved"], 0, "success"),
+        (["saved", "skipped"], 0, "success"),
+        (["saved", "failed"], 3, "partial_success"),
+        (["failed", "failed"], 1, "failed"),
+    ],
+)
+def test_save_results_reports_each_image_and_maps_save_failures_to_exit_codes(
+    monkeypatch, statuses, expected_exit, expected_status
+):
+    mocked = _saving_api(monkeypatch, statuses)
+
+    result = _invoke("--image-ids", "1,2", "--save-results")
+
+    assert result.exit_code == expected_exit, result.output
+    assert mocked.call_args.kwargs["save_results"] is True
+    rows = _rows(result)
+    outcomes = [row for row in rows if row.get("type") == "annotation_review_outcome"]
+    assert [row["save_status"] for row in outcomes] == statuses
+    assert [row["save_error"] is not None for row in outcomes] == [s == "failed" for s in statuses]
+    summary = rows[-1]
+    assert summary["status"] == expected_status and summary["ok"] is (expected_exit == 0)
+    assert summary["save_results"] is True
+    assert summary["saved"] == statuses.count("saved")
+    assert summary["save_skipped"] == statuses.count("skipped")
+    assert summary["save_failed"] == statuses.count("failed")
+
+
+def test_human_output_shows_save_status_and_counts(monkeypatch):
+    _saving_api(monkeypatch, ["saved", "failed"])
+    result = runner.invoke(
+        app,
+        ["--no-json", "review", "run", "--project", "test-project", "--image-ids", "1,2", "--save-results"],
+    )
+    assert result.exit_code == 3, result.output
+    assert "Save: saved" in result.stdout
+    assert "Save: failed — Could not save the review result (OperationalError)." in result.stdout
+    assert "saved 1, save skipped 0, save failed 1" in result.stdout
