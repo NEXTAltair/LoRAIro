@@ -1091,20 +1091,6 @@ def _collect_qt_wrappers_on_main_thread() -> Iterator[None]:
     gc.collect()
 
 
-def pytest_collection_finish(session: pytest.Session) -> None:
-    """collection 完了時点のオブジェクトを GC の走査対象から外す (#1632)。
-
-    import 済みモジュールや収集済みテストなどの巨大なヒープを、モジュール終端の
-    ``gc.collect()`` が毎回フルスキャンすると 1 回 0.3〜0.7 秒かかる。ここで一度
-    回収してから ``gc.freeze()`` で permanent generation へ移し、以後の走査対象を
-    テスト中に生まれたオブジェクトだけにする。QApplication や各テストが作る Qt
-    ラッパーは freeze 後に生まれるため、モジュール終端でメインスレッドが回収する
-    #1077/#1090 の目的は保たれる。
-    """
-    gc.collect()
-    gc.freeze()
-
-
 @pytest.fixture(scope="session", autouse=True)
 def _disable_sqlite_fsync_in_tests() -> Iterator[None]:
     """テスト中に SQLAlchemy が開く SQLite 接続へ ``PRAGMA synchronous=OFF`` を設定する (#1632)。
