@@ -860,6 +860,19 @@ def test_batch_annotation_1000_images(test_project):
     assert duration < 300  # Under 5 minutes
 ```
 
+## 上限付き実行 (run_bounded)
+
+長時間の pytest や計測は `... | tail` で直接実行せず、`scripts/run_bounded.py` を通す。
+`| tail` は失敗の終了コードを隠し、タイムアウトしても子プロセスがバックグラウンドに残る (Issue #1632)。
+このラッパーは対象を独立したプロセス群として起動し、タイムアウト時 (終了コード 124) や終了後に
+孫プロセスまで SIGTERM → SIGKILL で後始末する。`--pipe-to` で出力を絞っても、終了コードは
+対象コマンドのものを返す。`--memory-limit-gb` は対象の仮想メモリ (RLIMIT_AS) に上限を設ける (POSIX 専用)。
+
+```bash
+.venv/bin/python scripts/run_bounded.py --timeout 600 --memory-limit-gb 16 --pipe-to "tail -n 40" \
+    -- .venv/bin/python -m pytest tests/unit --timeout=60 --timeout-method=thread
+```
+
 ## 継続的インテグレーション
 
 ### GitHub Actionsワークフロー
