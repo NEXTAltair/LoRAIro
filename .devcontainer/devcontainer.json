@@ -18,7 +18,7 @@
     ],
     // 複数の Devcontainer がある場合、プロジェクトごとにこのポート番号を変える
     "forwardPorts": [2222],
-    // host checkout を rw で共有する。worktree は .worktrees/ 配下に OS ごとに作る
+    // host checkout を rw で共有する。worktree は .agents/worktree/ 配下に OS ごとに作る
     "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/LoRAIro,type=bind",
     "workspaceFolder": "/workspaces/LoRAIro",
     "customizations": {

@@ -33,10 +33,9 @@ OS 固有の絶対パスを置かない。プロジェクト設定の優先度�
 Claudeはexec形式、CodexはGitルート解決とWindows用コマンドを使う。
 新規worktreeに共通ランタイムがなければ共有checkoutへフォールバックする。
 固有のルールは作業中のworktreeから読み、共有checkoutのルールにすり替えない。
-GNU timeoutは不要。CodexではGitでworktreeを作成し、Claudeの作成フックは `.agent-kit/worktree.json` を読む。
-新規worktreeは共有checkout直下の `.worktrees/` に作成する。
-Codexの `workspace-write` で作業ファイルを編集できるが、
-共有 `.git/` に書き込むGit操作にはセッション権限に応じて承認が必要になる。
+GNU timeoutは不要。CodexではGitでworktreeを作成する。新規worktreeの配置先は `.agents/worktree/`。
+Codexの `workspace-write` では `.agents/` と共有 `.git/` が保護されるため、
+編集やGit操作にはセッション権限に応じて承認が必要になる。
 `.ui` の生成は既存画面のため維持し、対象worktreeのソースと共有Pythonを使って同期なしで実行する。
 
 ユーザー設定や `.claude/settings.local.json` に旧フックが残っていると重複実行される。

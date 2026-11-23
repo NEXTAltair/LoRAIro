@@ -1,6 +1,6 @@
 {
     // 明示 opt-in: devcontainer --config .devcontainer/shared-worktree/devcontainer.json
-    // rw マウント・.worktrees/・lorairo-venv の基本形は既定プロファイルと同じ。
+    // rw マウント・.agents/worktree/・lorairo-venv の基本形は既定プロファイルと同じ。
     // このプロファイルは Herdr / SSH 永続化 (persist volume)・volume prefix を足す opt-in。
     "name": "LoRAIro Shared Worktree",
     "build": {

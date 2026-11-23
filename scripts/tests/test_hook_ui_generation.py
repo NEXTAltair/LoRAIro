@@ -43,7 +43,7 @@ class UiGenerationHookTests(unittest.TestCase):
     def test_shared_interpreter_and_worktree_sources_without_sync(self):
         with tempfile.TemporaryDirectory() as directory:
             main = Path(directory)
-            worktree = main / ".worktrees/child"
+            worktree = main / ".agents/worktree/child"
             environment = main / ".venv"
             interpreter = environment / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
             interpreter.parent.mkdir(parents=True)

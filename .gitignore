@@ -32,9 +32,10 @@ venv/
 env/
 ENV/
 
-# Agent worktree チェックアウト
+# Agent worktree チェックアウト (.agents/worktree/<branch>。git worktree の実体、追跡しない)
+.agents/worktree/
+# Checkouts created while .worktrees/ was the default
 /.worktrees/
-/.agents/worktree/
 
 # Local agent-kit checkout, one-off release smoke, and retained working notes
 /altairs-agent-dev-kit/
@@ -200,4 +201,3 @@ data/
 # Immutable kit runtime cache is shared; the branch lock is tracked.
 .agent-kit/*
 !.agent-kit/hooks.lock.json
-!.agent-kit/worktree.json
