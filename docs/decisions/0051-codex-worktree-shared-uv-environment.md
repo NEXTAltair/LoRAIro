@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: Codex Worktree Shared uv Environment
-status: Accepted (amended 2026-10-11: OS user settings; amended 2026-11-08: independent Linux checkout withdrawn)
+status: Accepted (amended 2026-10-11: OS user settings; amended 2026-11-08: independent Linux checkout withdrawn; amended 2026-11-23: worktree location)
 timestamp: 2026-06-01
 tags: []
 ---
@@ -85,3 +85,12 @@ independent named-volume checkout are withdrawn. In their place:
 
 The OS user settings part of the 2026-10-11 amendment (no OS-specific absolute paths in shared project
 config, `configure_agent_environment.py` writing the current OS user settings) remains in force.
+
+## Amendment (2026-11-23): repository-root worktree directory
+
+New Windows and Dev Container worktrees live under `.worktrees/` in the shared checkout.
+This puts checked-out source outside `.agents/`, which Codex protects recursively
+in `workspace-write` mode. Git metadata in `.git/` remains subject to Codex permissions.
+
+Existing worktrees under `.agents/worktree/` can finish in place. Cleanup recognizes both
+locations and applies the same OS ownership, clean state and merge checks.

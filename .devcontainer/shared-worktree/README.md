@@ -1,7 +1,7 @@
 # Shared-worktree profile (opt-in)
 
 The default profile (`../devcontainer.json`) already uses the shared-worktree shape: host checkout
-bind-mounted **rw** at `/workspaces/LoRAIro`, OS-specific worktrees under `.agents/worktree/`, the
+bind-mounted **rw** at `/workspaces/LoRAIro`, OS-specific worktrees under `.worktrees/`, the
 existing `lorairo-venv` volume at `/workspaces/LoRAIro/.venv`, and `UV_PROJECT_ENVIRONMENT` set to
 that path. This profile keeps that shape and adds only opt-in extras: a persist volume restored by
 `bootstrap.sh` (Herdr binary, `~/.claude.json`, SSH `authorized_keys` / `known_hosts`), the sshd

@@ -10,7 +10,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-WORKTREE_ROOT = Path(__file__).resolve().parents[1] / ".agents/worktree"
+WORKTREE_DIRECTORIES = (".worktrees", ".agents/worktree")
 DEFAULT_BASE = "origin/main"
 
 
@@ -110,8 +110,8 @@ def pr_is_merged(worktree: Worktree, *, repo: Path) -> bool:
     return bool(prs)
 
 
-def removable_reason(worktree: Worktree, *, repo: Path, base: str) -> str | None:
-    if not worktree.path.is_relative_to(WORKTREE_ROOT):
+def removable_reason(worktree: Worktree, *, repo: Path, base: str, roots: tuple[Path, ...]) -> str | None:
+    if not any(root in worktree.path.parents for root in roots):
         return None
     if not worktree.path.exists():
         return None
@@ -133,7 +133,6 @@ def remove_worktree(worktree: Worktree, *, repo: Path, force: bool) -> subproces
 
 
 def main() -> int:
-    global WORKTREE_ROOT
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--base", default=DEFAULT_BASE, help=f"base ref used for ancestry checks (default: {DEFAULT_BASE})"
@@ -148,14 +147,14 @@ def main() -> int:
     common = Path(
         run_git(["rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=repo).stdout.strip()
     )
-    WORKTREE_ROOT = common.parent / ".agents/worktree"
+    roots = tuple(common.parent / directory for directory in WORKTREE_DIRECTORIES)
     worktree_list = run_git(["worktree", "list", "--porcelain"], cwd=repo).stdout
     worktrees = parse_worktrees(worktree_list)
 
     matched = 0
     removed = 0
     for worktree in worktrees:
-        reason = removable_reason(worktree, repo=repo, base=args.base)
+        reason = removable_reason(worktree, repo=repo, base=args.base, roots=roots)
         if reason is None:
             continue
 
@@ -176,7 +175,8 @@ def main() -> int:
             )
 
     if matched == 0:
-        print(f"no clean merged worktrees found under {WORKTREE_ROOT}")
+        locations = ", ".join(map(str, roots))
+        print(f"no clean merged worktrees found under {locations}")
         return 0
     elif args.dry_run:
         print(f"found {matched} removable worktree(s)")

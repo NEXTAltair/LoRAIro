@@ -2,14 +2,15 @@
 
 Windows owns the host checkout. The container bind-mounts the same checkout **read-write** at
 /workspaces/LoRAIro and works in it. Implementation work starts from worktrees under
-.agents/worktree/, created separately on each OS. Worktrees registered from one OS use absolute
+.worktrees/, created separately on each OS. Worktrees registered from one OS use absolute
 paths the other OS cannot resolve, so `git worktree list` shows them as `prunable` there.
+Existing `.agents/worktree/` checkouts can finish in place. Use `.worktrees/` for new checkouts.
 Home-directory state is isolated per OS by named volumes.
 
 | State | Windows | Container |
 | --- | --- | --- |
 | Git/source/project hooks, rules, agents, skills | Host checkout | Same host checkout (rw bind mount at /workspaces/LoRAIro) |
-| Worktrees | Host .agents/worktree/, created from Windows | Same .agents/worktree/, created from the container |
+| Worktrees | Host .worktrees/, created from Windows | Same .worktrees/, created from the container |
 | Shared Python per OS | Host .venv/Scripts/python.exe | Existing lorairo-venv volume at /workspaces/LoRAIro/.venv (bin/python) |
 | Codex user settings/auth/history | Windows user .codex | lorairo-codex-config at /home/vscode/.codex |
 | Claude user settings/auth/history | Windows user .claude | Existing lorairo-claude-config at /home/vscode/.claude |
