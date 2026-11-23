@@ -1091,6 +1091,46 @@ def _collect_qt_wrappers_on_main_thread() -> Iterator[None]:
     gc.collect()
 
 
+def pytest_collection_finish(session: pytest.Session) -> None:
+    """collection 完了時点のオブジェクトを GC の走査対象から外す (#1632)。
+
+    import 済みモジュールや収集済みテストなどの巨大なヒープを、モジュール終端の
+    ``gc.collect()`` が毎回フルスキャンすると 1 回 0.3〜0.7 秒かかる。ここで一度
+    回収してから ``gc.freeze()`` で permanent generation へ移し、以後の走査対象を
+    テスト中に生まれたオブジェクトだけにする。QApplication や各テストが作る Qt
+    ラッパーは freeze 後に生まれるため、モジュール終端でメインスレッドが回収する
+    #1077/#1090 の目的は保たれる。
+    """
+    gc.collect()
+    gc.freeze()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _disable_sqlite_fsync_in_tests() -> Iterator[None]:
+    """テスト中に SQLAlchemy が開く SQLite 接続へ ``PRAGMA synchronous=OFF`` を設定する (#1632)。
+
+    tmp_path のファイル DB へ ``create_all`` すると DDL ごとの fsync で 1 回 0.5〜0.7 秒
+    かかる。テスト DB は使い捨てで耐久性は不要なため fsync を省く。Engine クラスへの
+    listener はインスタンス listener より先に走るので、本番の接続リスナー (db_core の
+    ``synchronous=NORMAL`` など) が設定する値はそのまま後勝ちで残り、PRAGMA の値を
+    検証するテストは影響を受けない。sqlite3 を直接開く接続は対象外。
+    """
+    import sqlite3
+
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    def _set_synchronous_off(dbapi_connection: object, _connection_record: object) -> None:
+        if isinstance(dbapi_connection, sqlite3.Connection):
+            dbapi_connection.execute("PRAGMA synchronous=OFF")
+
+    event.listen(Engine, "connect", _set_synchronous_off)
+    try:
+        yield
+    finally:
+        event.remove(Engine, "connect", _set_synchronous_off)
+
+
 @pytest.fixture
 def local_clef_settings(tmp_path, monkeypatch):
     """Use the real decision client and HTTP validation without starting a model."""
