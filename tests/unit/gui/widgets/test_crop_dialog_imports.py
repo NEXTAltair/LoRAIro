@@ -83,31 +83,57 @@ def test_source_has_no_db_or_service_import(module_name: str) -> None:
     assert forbidden == [], f"{module_name} が DB/サービスを import している: {forbidden}"
 
 
-def test_import_adds_no_db_or_service_modules() -> None:
-    """import 実行時にも DB / サービスモジュールを新たに読み込まない。"""
-    snippet = (
-        "import json, sys\n"
-        # パッケージ __init__ の副作用を baseline に含める
-        "import lorairo.gui.widgets\n"
-        "baseline = set(sys.modules)\n"
-        "import lorairo.gui.widgets.crop_dialog\n"
-        "import lorairo.gui.widgets.crop_rect_selector\n"
-        "import lorairo.gui.widgets.crop_tag_list_widget\n"
-        f"prefixes = {FORBIDDEN_PREFIXES!r}\n"
-        "added = sorted(m for m in set(sys.modules) - baseline if m.startswith(prefixes))\n"
-        "print(json.dumps(added))\n"
-    )
+_IMPORT_PROBE_SNIPPET = (
+    "import json, sys\n"
+    # パッケージ __init__ の副作用を baseline に含める
+    "import lorairo.gui.widgets\n"
+    "baseline = set(sys.modules)\n"
+    "import lorairo.gui.widgets.crop_dialog\n"
+    "import lorairo.gui.widgets.crop_rect_selector\n"
+    "import lorairo.gui.widgets.crop_tag_list_widget\n"
+    f"prefixes = {FORBIDDEN_PREFIXES!r}\n"
+    "added = sorted(m for m in set(sys.modules) - baseline if m.startswith(prefixes))\n"
+    "print(json.dumps(added))\n"
+)
+
+_import_probe: subprocess.Popen[str] | None = None
+"""起動済みの import 検査サブプロセス (未起動なら None)。"""
+
+
+def start_import_probe() -> None:
+    """import 検査のサブプロセスを起動する (起動済みなら何もしない)。
+
+    新しいインタプリタでの cold import に数秒かかるため、tests/unit/gui/conftest.py が
+    収集直後にこれを呼び、他のテストと並行して走らせる。検査内容は
+    ``test_import_adds_no_db_or_service_modules`` で結果を待つときと同じ。
+    """
+    global _import_probe
+    if _import_probe is not None:
+        return
     env = dict(os.environ)
     env["PYTHONPATH"] = str(SRC_DIR)
     env["QT_QPA_PLATFORM"] = "offscreen"
-    result = subprocess.run(
-        [sys.executable, "-c", snippet],
-        capture_output=True,
+    _import_probe = subprocess.Popen(
+        [sys.executable, "-c", _IMPORT_PROBE_SNIPPET],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
         env=env,
-        timeout=180,
-        check=False,
     )
-    assert result.returncode == 0, f"import に失敗しました: {result.stderr}"
-    added = json.loads(result.stdout.strip().splitlines()[-1])
+
+
+def stop_import_probe() -> None:
+    """結果を待たれずに残ったサブプロセスを終了させる (``-x`` で途中終了した場合など)。"""
+    if _import_probe is not None and _import_probe.poll() is None:
+        _import_probe.kill()
+        _import_probe.communicate()
+
+
+def test_import_adds_no_db_or_service_modules() -> None:
+    """import 実行時にも DB / サービスモジュールを新たに読み込まない。"""
+    start_import_probe()
+    assert _import_probe is not None
+    stdout, stderr = _import_probe.communicate(timeout=180)
+    assert _import_probe.returncode == 0, f"import に失敗しました: {stderr}"
+    added = json.loads(stdout.strip().splitlines()[-1])
     assert added == [], f"crop_* の import が DB/サービスを引き込んでいる: {added}"

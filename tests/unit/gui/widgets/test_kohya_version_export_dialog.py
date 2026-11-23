@@ -7,6 +7,7 @@ QMessageBox / message_box は tests/unit/gui/conftest.py の autouse で抑止�
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -40,10 +41,29 @@ pytestmark = [pytest.mark.unit, pytest.mark.gui]
 _TIMEOUT_MS = 10000
 
 
-@pytest.fixture
-def engine(tmp_path: Path) -> Iterator[Engine]:
-    eng = create_db_engine(f"sqlite:///{tmp_path / 'dialog.db'}")
+@pytest.fixture(scope="module")
+def schema_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """スキーマ作成済みの空 DB ファイル (モジュール内で 1 回だけ作る)。
+
+    ``create_all`` は DDL ごとに fsync が走り 1 回 0.5 秒ほどかかるため、作成済みの
+    ファイルをテストごとに複製する。各テストは複製を受け取るので、DB を書き換えても
+    他のテストに影響しない。
+    """
+    path = tmp_path_factory.mktemp("kohya_template") / "template.db"
+    eng = create_db_engine(f"sqlite:///{path}")
     Base.metadata.create_all(eng)
+    eng.dispose()
+    # 複製元に未反映のジャーナルが残っていないこと (複製が不完全にならない)
+    leftovers = [p.name for p in path.parent.iterdir() if p != path]
+    assert leftovers == [], f"テンプレート DB にジャーナルが残っている: {leftovers}"
+    return path
+
+
+@pytest.fixture
+def engine(tmp_path: Path, schema_template: Path) -> Iterator[Engine]:
+    db_path = tmp_path / "dialog.db"
+    shutil.copyfile(schema_template, db_path)
+    eng = create_db_engine(f"sqlite:///{db_path}")
     yield eng
     eng.dispose()
 
