@@ -50,17 +50,17 @@ def _hex_rgb(token: str) -> tuple[int, int, int]:
     return (int(token[1:3], 16), int(token[3:5], 16), int(token[5:7], 16))
 
 
-@pytest.fixture(autouse=True, scope="module")
-def _global_qss(qapp):
-    """テーマのグローバル QSS を適用する (checkbox 描画に必須)。
+def _themed_host() -> QWidget:
+    """テーマのグローバル QSS を適用した PAPER 地のホストを返す (checkbox 描画に必須)。
 
-    QApplication 全体への QSS 適用は数秒かかる (全ウィジェットの再ポリッシュ) ため、
-    テストごとではなくモジュールで 1 回だけ適用し、終了時に元へ戻す。
+    QApplication 全体へ QSS を適用すると、その時点で生きている全ウィジェットの再ポリッシュに
+    数秒かかる (適用と復元で 2 回)。同じ QSS をホストに適用すれば、ホスト配下の checkbox /
+    groupbox には同じ規則が効くので、描画の検証内容は変わらない。背景だけはホスト側で
+    PAPER に上書きする (後勝ちにするため末尾に足す)。
     """
-    previous = qapp.styleSheet()
-    qapp.setStyleSheet(theme.build_global_qss())
-    yield
-    qapp.setStyleSheet(previous)
+    host = QWidget()
+    host.setStyleSheet(f"{theme.build_global_qss()}\nQWidget {{ background: {theme.PAPER}; }}")
+    return host
 
 
 def _render_checkbox(qtbot, *, checked: bool) -> tuple[QRect, QImage]:
@@ -70,8 +70,7 @@ def _render_checkbox(qtbot, *, checked: bool) -> tuple[QRect, QImage]:
     Leave イベントを送って既定 (非 hover) 状態で描画させる。indicator の正確な矩形は
     QStyle から取得して host 座標系へ写す。
     """
-    host = QWidget()
-    host.setStyleSheet(f"background: {theme.PAPER};")
+    host = _themed_host()
     layout = QVBoxLayout(host)
     layout.setContentsMargins(40, 40, 10, 10)  # indicator を (0,0) から離す
     checkbox = QCheckBox("")
@@ -186,8 +185,7 @@ def _render_groupbox(qtbot, *, checked: bool) -> tuple[QRect, QImage]:
     """
     from PySide6.QtWidgets import QGroupBox, QStyleOptionGroupBox
 
-    host = QWidget()
-    host.setStyleSheet(f"background: {theme.PAPER};")
+    host = _themed_host()
     layout = QVBoxLayout(host)
     layout.setContentsMargins(20, 20, 20, 20)
     group = QGroupBox("お気に入り")

@@ -13,6 +13,8 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 # NOTE: #869 で以下のロジックは SearchTabWidget へ移送された。これらの振る舞い
 # 検証は tests/unit/gui/tab/test_search_tab.py が担う:
@@ -1058,6 +1060,13 @@ class TestMainWindowWave5Features:
                 patch("genai_tag_db_tools.initialize_databases", return_value=[Mock()]) as mock_init_db,
                 patch.object(container, "_dispose_active_engines"),
                 patch.object(container.file_system_manager, "initialize"),
+                # 見たいのはタグ DB 状態のリセットだけ。project DB の migration (1 回約 1 秒) は
+                # 開けない場合のロールバックを隣のテストが別に検証しているので in-memory で代用する
+                patch.object(
+                    db_core,
+                    "create_project_session_factory",
+                    side_effect=lambda _path: sessionmaker(bind=create_engine("sqlite://")),
+                ),
             ):
                 container.set_active_project_directory(proj_a)
                 db_core.ensure_tag_db_initialized()

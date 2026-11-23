@@ -335,7 +335,8 @@ def translated_parent_image_id(
 ) -> int:
     """tag_id を持つタグと、tag_id 無しの手動タグを併せ持つ親画像 (#1355)。"""
     source = tmp_path / "translated_parent.png"
-    Image.new("RGB", (PARENT_WIDTH, PARENT_HEIGHT), (90, 60, 30)).save(source)
+    # 翻訳系のテストは矩形を切らないので、登録 (pHash・サムネイル) とデコードが軽い小さな画像で足りる
+    Image.new("RGB", (256, 256), (90, 60, 30)).save(source)
     registered = crop_db_manager.register_original_image(source, fs_manager)
     assert registered is not None
     parent_id: int = registered[0]
