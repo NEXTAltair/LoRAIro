@@ -59,6 +59,8 @@ CLAUDE_SKILLS_DIR = PROJECT_ROOT / ".claude" / "skills"
 STATE_FILE = SKILLS_DIR / ".installed-lock-hashes.json"
 PENDING_DIR = SKILLS_DIR / ".pending-replace"
 KNOWN_SOURCE_TYPES = {"local", "github"}
+# Use the same lock hash algorithm on CI (Node 20) and newer local Node releases.
+SKILLS_CLI = "skills@1.5.18"
 
 
 def load_state() -> dict[str, str]:
@@ -146,7 +148,7 @@ def restore_exact_ref(name: str, entry: dict, source_cache: Path | None = None) 
             [
                 shutil.which("npx") or "npx",
                 "--yes",
-                "skills",
+                SKILLS_CLI,
                 "add",
                 str(manifest.parent),
                 "--skill",
@@ -202,7 +204,7 @@ def install_skill(
                 [
                     shutil.which("npx") or "npx",
                     "--yes",
-                    "skills",
+                    SKILLS_CLI,
                     "add",
                     src,
                     "--skill",
@@ -519,7 +521,7 @@ def main() -> int:
             "ERROR: 復元した skill が lock 記録時と異なる内容 (upstream drift) のため除去しました"
             " (旧実体があれば復元済み): "
             + ", ".join(drifted)
-            + "\n  取り込む場合: `npx skills add github:<source> --skill <name> -y` を手動実行し、"
+            + f"\n  取り込む場合: `npx --yes {SKILLS_CLI} add github:<source> --skill <name> -y` を手動実行し、"
             + "skills-lock.json の diff を確認して commit する"
             + "\n  固定する場合: upstream を lock 記録時の revision へ戻すか、lock エントリに ref を記録する",
             file=sys.stderr,
