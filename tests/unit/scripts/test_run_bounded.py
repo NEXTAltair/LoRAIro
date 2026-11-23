@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -107,6 +108,69 @@ def test_pipe_success_does_not_hide_upstream_failure(capfd: pytest.CaptureFixtur
     )
     assert result.returncode == 7
     assert result.stdout.strip() == "last"
+
+
+def _downstream_spawning_grandchild(pid_file: Path, *, sleep_after_eof: bool) -> str:
+    """孫プロセス (sleep 300) を起動してから stdin を読み切る下流コマンドを作る."""
+    lines = [
+        "import subprocess, sys, time",
+        "p = subprocess.Popen(['sleep', '300'])",
+        f"open({str(pid_file)!r}, 'w').write(str(p.pid))",
+        "sys.stdin.buffer.read()",
+    ]
+    if sleep_after_eof:
+        lines.append("time.sleep(300)")
+    return shlex.join([sys.executable, "-c", "\n".join(lines)])
+
+
+def _wait_file(path: Path, timeout: float = 5.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists() and path.read_text():
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_downstream_process_group_is_cleaned_up(tmp_path: Path) -> None:
+    sleeping_target = [sys.executable, "-c", "import time; time.sleep(300)"]
+
+    # タイムアウト: 下流は EOF で終わるが、下流が起動した孫は残してはいけない
+    pid_file = tmp_path / "downstream_timeout.pid"
+    rc = run_bounded_script.run_bounded(
+        sleeping_target,
+        timeout=1.0,
+        kill_after=0.5,
+        pipe_to=_downstream_spawning_grandchild(pid_file, sleep_after_eof=False),
+    )
+    assert rc == 124
+    assert _wait_process_gone(_read_pid(pid_file))
+
+    # ラッパーへの SIGTERM: EOF 後も居座る下流とその孫をまとめて止める
+    pid_file = tmp_path / "downstream_sigterm.pid"
+    wrapper = subprocess.Popen(
+        [
+            sys.executable,
+            str(_SCRIPT_PATH),
+            "--timeout",
+            "30",
+            "--kill-after",
+            "0.5",
+            "--pipe-to",
+            _downstream_spawning_grandchild(pid_file, sleep_after_eof=True),
+            "--",
+            *sleeping_target,
+        ],
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        assert _wait_file(pid_file)
+        wrapper.send_signal(signal.SIGTERM)
+        assert wrapper.wait(timeout=5) == 128 + signal.SIGTERM
+    finally:
+        if wrapper.poll() is None:
+            wrapper.kill()
+    assert _wait_process_gone(_read_pid(pid_file))
 
 
 def test_memory_limit_rejects_oversized_allocation() -> None:

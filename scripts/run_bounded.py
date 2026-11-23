@@ -105,17 +105,27 @@ def _terminate_group(proc: subprocess.Popen[bytes], kill_after: float) -> None:
 
 
 def _finish_downstream(downstream: subprocess.Popen[bytes], kill_after: float) -> int:
-    """下流コマンドの終了を待つ。対象側の出力が閉じた後も終わらなければ停止させる."""
+    """下流コマンドの終了を待ち、下流のプロセス群に残ったプロセスを後始末する.
+
+    対象側のパイプが閉じれば下流は EOF で自然に終わるので、まず猶予を与える
+    (タイムアウト後も tail 等が最後の出力を表示できるようにするため)。
+    その後、リーダーが終了済みでも、下流が起動した子が群に残っていれば群ごと止める。
+
+    Args:
+        downstream: 下流コマンドの Popen (独立したプロセス群のリーダー)。
+        kill_after: 自然終了を待つ猶予、および SIGTERM から SIGKILL までの猶予 (秒)。
+
+    Returns:
+        下流コマンドの終了コード (シグナル終了は 128+signum)。
+    """
     try:
-        return _normalize_returncode(downstream.wait(timeout=kill_after))
+        downstream.wait(timeout=kill_after)
     except subprocess.TimeoutExpired:
         _log("下流コマンドが終了しないため停止します")
-        downstream.terminate()
-        try:
-            return _normalize_returncode(downstream.wait(timeout=kill_after))
-        except subprocess.TimeoutExpired:
-            downstream.kill()
-            return _normalize_returncode(downstream.wait())
+    _terminate_group(downstream, kill_after)
+    if downstream.returncode is None:
+        return 128 + signal.SIGKILL
+    return _normalize_returncode(downstream.returncode)
 
 
 def _make_memory_limiter(limit_bytes: int) -> Callable[[], None]:
@@ -157,9 +167,13 @@ def _restore_signal_handlers(previous: dict[int, _SignalHandler]) -> None:
 
 
 def _start_downstream(downstream_cmd: list[str]) -> subprocess.Popen[bytes] | int:
-    """下流コマンドを起動する。失敗時は終了コードを返す."""
+    """下流コマンドを対象とは別の独立したプロセス群として起動する。失敗時は終了コードを返す.
+
+    独立した群にするのは、下流が起動した子まで後始末で止められるようにするため。
+    対象とは別の群なので、対象を止めた後も下流は EOF まで出力を処理できる。
+    """
     try:
-        return subprocess.Popen(downstream_cmd, stdin=subprocess.PIPE)
+        return subprocess.Popen(downstream_cmd, stdin=subprocess.PIPE, start_new_session=True)
     except FileNotFoundError:
         _log(f"下流コマンドが見つかりません: {downstream_cmd[0]}")
         return EXIT_NOT_FOUND
@@ -195,28 +209,47 @@ def _start_target(
 
 
 def _wait_target(proc: subprocess.Popen[bytes], timeout: float, kill_after: float) -> int:
-    """対象の終了 (またはタイムアウト) を待ち、プロセス群を後始末して終了コードを返す.
+    """対象の終了 (またはタイムアウト) を待ち、プロセス群を後始末して終了コードを返す."""
+    try:
+        code = _normalize_returncode(proc.wait(timeout=timeout))
+    except subprocess.TimeoutExpired:
+        _log(f"タイムアウト ({timeout} 秒) のためプロセス群 {proc.pid} を停止します")
+        code = EXIT_TIMEOUT
+    # 正常終了・失敗・タイムアウトのいずれでも、群に残ったプロセスを後始末する
+    _terminate_group(proc, kill_after)
+    return code
 
-    ラッパーが SIGINT / SIGTERM を受けた場合もプロセス群を後始末し、128+signum を返す。
+
+def _supervise(
+    proc: subprocess.Popen[bytes] | None,
+    downstream: subprocess.Popen[bytes] | None,
+    timeout: float,
+    kill_after: float,
+) -> tuple[int, int]:
+    """対象と下流の終了を待ち、両方のプロセス群を後始末する.
+
+    ラッパーが SIGINT / SIGTERM を受けた場合も両方のプロセス群を後始末してから
+    _WrapperInterruptedError を送出し直す。
+
+    Returns:
+        (対象の終了コード, 下流の終了コード)。対象や下流が無い場合は 0。
     """
     previous = _set_wrapper_signal_handlers(_raise_interrupted)
     try:
-        try:
-            code = _normalize_returncode(proc.wait(timeout=timeout))
-        except subprocess.TimeoutExpired:
-            _log(f"タイムアウト ({timeout} 秒) のためプロセス群 {proc.pid} を停止します")
-            code = EXIT_TIMEOUT
-        # 正常終了・失敗・タイムアウトのいずれでも、群に残ったプロセスを後始末する
-        _terminate_group(proc, kill_after)
+        target_code = _wait_target(proc, timeout, kill_after) if proc is not None else 0
+        downstream_code = _finish_downstream(downstream, kill_after) if downstream is not None else 0
     except _WrapperInterruptedError as e:
         # 後始末の途中で再度シグナルを受けて中断されないよう、以降は無視する
         _set_wrapper_signal_handlers(signal.SIG_IGN)
-        _log(f"シグナル {e.signum} を受けたためプロセス群 {proc.pid} を停止します")
-        _terminate_group(proc, kill_after)
-        code = 128 + e.signum
+        _log(f"シグナル {e.signum} を受けたため対象と下流のプロセス群を停止します")
+        if proc is not None:
+            _terminate_group(proc, kill_after)
+        if downstream is not None:
+            _finish_downstream(downstream, kill_after)
+        raise
     finally:
         _restore_signal_handlers(previous)
-    return code
+    return target_code, downstream_code
 
 
 def run_bounded(
@@ -262,15 +295,15 @@ def run_bounded(
             return started
         downstream = started
 
-    proc = _start_target(command, preexec, downstream)
-    if isinstance(proc, int):
-        target_code = proc
-    else:
-        target_code = _wait_target(proc, timeout, kill_after)
-
-    if downstream is None:
-        return target_code
-    downstream_code = _finish_downstream(downstream, kill_after)
+    started_target = _start_target(command, preexec, downstream)
+    proc = None if isinstance(started_target, int) else started_target
+    try:
+        target_code, downstream_code = _supervise(proc, downstream, timeout, kill_after)
+    except _WrapperInterruptedError as e:
+        return 128 + e.signum
+    if isinstance(started_target, int):
+        # 対象を起動できなかった場合は起動失敗の終了コードを返す
+        target_code = started_target
     # 対象の失敗を優先する。対象が成功したときだけ下流の失敗を返す
     return target_code if target_code != 0 else downstream_code
 
