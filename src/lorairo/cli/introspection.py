@@ -2194,19 +2194,19 @@ TOOL_SPECS: dict[str, ToolSpec] = {
                     _f(
                         "crop_children_of",
                         "int?",
-                        description="Parent image ID; review only its crop children from crop_relations (parent excluded). Exclusive with other selections. Unknown parent fails with NOT_FOUND; zero children succeeds with image_count=0 (対象 0 件). Over 500 children fails with RESULT_SET_TOO_LARGE.",
+                        description="Parent image ID; review only its crop children from crop_relations (parent excluded). Exclusive with other selections. Unknown parent fails with NOT_FOUND; zero children succeeds with image_count=0 (対象 0 件). Over 500 children fails with RESULT_SET_TOO_LARGE. Crop children are resolved inside the opened project, so the 500 cap is checked after opening it but before any Clef request or result save. With save_results the project is opened for writing even when 0 or over 500 children match: an old DB is migrated and missing standard project directories are created, but no review results are saved.",
                     ),
                     _f(
                         "crop_children",
                         "bool",
                         default=False,
-                        description="Review every crop child image in crop_relations. Exclusive with other selections. Zero children succeeds with image_count=0; over 500 fails with RESULT_SET_TOO_LARGE.",
+                        description="Review every crop child image in crop_relations. Exclusive with other selections. Zero children succeeds with image_count=0; over 500 fails with RESULT_SET_TOO_LARGE. Crop children are resolved inside the opened project, so the 500 cap is checked after opening it but before any Clef request or result save. With save_results the project is opened for writing even when 0 or over 500 children match: an old DB is migrated and missing standard project directories are created, but no review results are saved.",
                     ),
                     _f(
                         "save_results",
                         "bool",
                         default=False,
-                        description="Save each image result to annotation_review_results like the GUI (fingerprint, newer result kept). Default false: no DB writes. Rejected with root --read-only (INVALID_INPUT). A per-image save failure continues the run and returns exit 3 (or 1 if nothing was saved).",
+                        description="Save each image result to annotation_review_results like the GUI (fingerprint, newer result kept). Default false: no DB writes. When true, the project is opened like other write commands (old DB migrated, missing standard directories created), including crop-child resolution. Rejected with root --read-only (INVALID_INPUT). A per-image save failure continues the run and returns exit 3 (or 1 if nothing was saved).",
                     ),
                 ),
             ),

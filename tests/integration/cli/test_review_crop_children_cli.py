@@ -361,3 +361,148 @@ def test_saving_explicit_ids_on_old_database_also_migrates(old_crop_project):
     assert _revision(db_path) == _head_revision(db_path)
     assert sorted(set(requested)) == [CHILD_A, CHILD_B]
     assert _stored_review_ids(db_path) == [CHILD_A, CHILD_B]
+
+
+# --- 1 回だけ開く実装での 0 件 / 上限超過と --save-results (#1603) ---
+
+
+def _project_files(db_path: Path) -> dict[str, bytes]:
+    """プロジェクト配下の全ファイル (WAL/SHM を除く) の内容。"""
+    project_dir = db_path.parent
+    return {
+        str(path.relative_to(project_dir)): path.read_bytes()
+        for path in project_dir.rglob("*")
+        if path.is_file() and not path.name.endswith(("-wal", "-shm"))
+    }
+
+
+def _project_dirs(db_path: Path) -> set[str]:
+    project_dir = db_path.parent
+    return {str(path.relative_to(project_dir)) for path in project_dir.rglob("*") if path.is_dir()}
+
+
+def _assert_only_standard_directories_created(db_path: Path, before_dirs: set[str]) -> None:
+    """書き込み可能な開き方は、無いプロジェクト標準ディレクトリだけを作る (describe の directory_create)。"""
+    from lorairo.filesystem import FileSystemManager
+
+    reference = db_path.parent.parent / "reference-layout"
+    FileSystemManager().initialize(reference)
+    standard = {str(path.relative_to(reference)) for path in reference.rglob("*") if path.is_dir()}
+    assert _project_dirs(db_path) - before_dirs <= standard
+
+
+def _add_crop_children(db_path: Path, parent_id: int, count: int) -> None:
+    """親 parent_id に count 枚の子画像 (注釈なし) を追加する。"""
+    from sqlalchemy import create_engine
+
+    from lorairo.database.schema import CropRelation, Image
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with Session(engine) as session:
+            children = [
+                Image(
+                    id=1000 + index,
+                    uuid=f"crop-many-{index}",
+                    phash=f"crop-many-{index}",
+                    original_image_path="unused.png",
+                    stored_image_path="unused.png",
+                    width=8,
+                    height=8,
+                    format="PNG",
+                    extension=".png",
+                )
+                for index in range(count)
+            ]
+            session.add_all(children)
+            session.flush()
+            session.add_all(
+                CropRelation(
+                    parent_image_id=parent_id, child_image_id=child.id, x=0, y=0, width=8, height=8
+                )
+                for child in children
+            )
+            session.commit()
+    finally:
+        engine.dispose()
+
+
+def test_zero_children_with_save_on_current_database_writes_nothing(crop_project):
+    """現行 schema の DB では、0 件 + --save-results でも DB を含むファイルは変わらない (標準ディレクトリの作成のみ)。"""
+    _workspace, _config, db_path, requested = crop_project
+    before = _project_files(db_path)
+    before_dirs = _project_dirs(db_path)
+
+    result = _invoke(
+        crop_project,
+        "review",
+        "run",
+        "--project",
+        "crops",
+        "--crop-children-of",
+        str(LONELY_PARENT),
+        "--save-results",
+    )
+
+    assert result.exit_code == 0, result.output
+    rows = _rows(result)
+    assert len(rows) == 1 and rows[0]["message"].startswith("対象 0 件")
+    assert rows[0]["save_results"] is True and rows[0]["saved"] == 0
+    assert requested == []
+    assert _project_files(db_path) == before
+    _assert_only_standard_directories_created(db_path, before_dirs)
+
+
+def test_zero_children_with_save_on_old_database_migrates_before_resolution(old_crop_project):
+    """古い DB では、解決のために書き込み可能なモードで開くため 0 件でも migration が走る (文書化した挙動)。"""
+    _workspace, _config, db_path, requested = old_crop_project
+    assert _revision(db_path) != _head_revision(db_path)
+
+    result = _invoke(
+        old_crop_project,
+        "review",
+        "run",
+        "--project",
+        "crops",
+        "--crop-children-of",
+        str(LONELY_PARENT),
+        "--save-results",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _rows(result)[-1]["message"].startswith("対象 0 件")
+    assert _revision(db_path) == _head_revision(db_path)
+    assert requested == [] and _stored_review_ids(db_path) == []
+
+
+@pytest.mark.parametrize("save_results", [False, True])
+def test_more_than_500_children_are_rejected_before_requests_and_saves(crop_project, save_results):
+    _workspace, _config, db_path, requested = crop_project
+    _add_crop_children(db_path, LONELY_PARENT, 501)
+    before = _project_files(db_path)
+    before_dirs = _project_dirs(db_path)
+    extra = ("--save-results",) if save_results else ()
+
+    result = _invoke(
+        crop_project,
+        "review",
+        "run",
+        "--project",
+        "crops",
+        "--crop-children-of",
+        str(LONELY_PARENT),
+        *extra,
+    )
+
+    assert result.exit_code == 2, result.output
+    rows = _rows(result)
+    assert len(rows) == 1 and rows[0]["code"] == "RESULT_SET_TOO_LARGE"
+    assert rows[0]["details"] == {"limit": 500, "matched": 501}
+    # Clef への問い合わせも結果の保存も行わず、現行 schema の DB はファイルも変わらない。
+    assert requested == []
+    assert _stored_review_ids(db_path) == []
+    assert _project_files(db_path) == before
+    if save_results:
+        _assert_only_standard_directories_created(db_path, before_dirs)
+    else:
+        assert _project_dirs(db_path) == before_dirs
