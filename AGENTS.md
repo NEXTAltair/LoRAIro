@@ -68,13 +68,15 @@ inventory, overlap resolution rules, workflow-by-workflow minimal checklists, an
 - **GUI workflow order**: Follow `interface-design` (intent/tokens) → `lorairo-design-capture` (render-time prototype state) → `lorairo-qt-widget` (PySide6 implementation). Do not apply React/Vercel external skills (`vercel-*`, `deploy-to-vercel`) to Python/Qt code; `web-design-guidelines` applies only to the `site/` Starlight web guide.
 
 ## Agent Git Workflow
-- Issue resolution, feature work, PR preparation, and any multi-file implementation must start from a dedicated git worktree under `.agents/worktree/`.
+- Issue resolution, feature work, PR preparation, and any multi-file implementation must start from a dedicated git worktree under `.worktrees/`.
+- Use `.worktrees/` for new checkouts when shared kit guidance shows a different path.
+  Existing `.agents/worktree/` checkouts can finish in place and use the same cleanup command.
 - Do not edit, stage, commit, rebase, or push from the shared main checkout at `/workspaces/LoRAIro` for implementation work.
-- Create worktrees from the current remote base, for example: `git fetch origin && git worktree add .agents/worktree/issue-123 -b fix/issue-123 origin/main`.
+- Create worktrees from the current remote base, for example: `git fetch origin && git worktree add .worktrees/issue-123 -b fix/issue-123 origin/main`.
 - For issue resolution or feature implementation, completion means: implement, validate, commit, push, open a ready-for-review PR, run PR maintenance automation through CI/review, and merge when safe, unless the user explicitly asks to stop before publishing or keep the PR as draft.
 - Do not end issue or multi-file feature work after local implementation only. Report the PR URL and final monitored state as the outcome.
 - If PR creation is blocked by auth, network, failing validation, or unclear scope, report the blocker explicitly instead of silently stopping at local changes.
-- When running `uv` from a `.agents/worktree/` checkout, use this OS checkout's Git common root `.venv`.
+- When running `uv` from a `.worktrees/` checkout, use this OS checkout's Git common root `.venv`.
   Windows uses the host checkout `.venv`; the Dev Container bind-mounts the same host checkout
   read-write at `/workspaces/LoRAIro` and uses `/workspaces/LoRAIro/.venv` (the existing
   `lorairo-venv` named volume mounted over the host `.venv`).
@@ -108,9 +110,9 @@ inventory, overlap resolution rules, workflow-by-workflow minimal checklists, an
 ## Codex Parallel Agent Workflow
 - For large, multi-issue, multi-PR, or broad refactoring work, Codex should proactively use sub-agents instead of serializing all work in one session.
 - Use parallel workers when tasks can be split by issue, module, ownership boundary, or test/verification responsibility.
-- Each worker must use its own dedicated git worktree under `.agents/worktree/`; do not let multiple workers edit the same worktree.
+- Each worker must use its own dedicated git worktree under `.worktrees/`; do not let multiple workers edit the same worktree.
 - Assign each worker a clear branch name and file/module ownership before implementation starts, for example:
-  `git worktree add .agents/worktree/issue-304 -b fix/issue-304-thumbnail origin/main`.
+  `git worktree add .worktrees/issue-304 -b fix/issue-304-thumbnail origin/main`.
 - Keep worker write scopes disjoint whenever possible. If two workers must touch the same file, the lead agent should sequence those changes or handle that integration directly.
 - The lead Codex session is responsible for coordination: defining worker scope, checking for overlapping edits, reviewing diffs, running or confirming tests, creating PRs, and updating parent issue checklists after merge.
 - Prefer worker agents for implementation, explorer agents for codebase investigation, test-runner agents for verification, and code-reviewer agents for PR review when those roles can run independently.
@@ -121,7 +123,7 @@ inventory, overlap resolution rules, workflow-by-workflow minimal checklists, an
 - For large parallel work, Codex may create a `tmux` session to monitor worker progress in split panes.
 - Prefer one pane per worker worktree when practical, plus one lead pane for coordination.
 - Each worker pane should show the worker name, worktree path, branch, git status, latest commit, and current validation command or log.
-- `tmux` monitoring is observational; it does not replace the rule that each worker must use a dedicated `.agents/worktree/` checkout.
+- `tmux` monitoring is observational; it does not replace the rule that each worker must use a dedicated `.worktrees/` checkout.
 - Use stable session names tied to the parent issue or branch, for example `codex-308` or `codex-agent-rules`.
 - Do not leave required long-running `tmux` sessions active without reporting the session name, active panes, and commands to the user.
 

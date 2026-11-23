@@ -129,7 +129,10 @@ class DocValidator:
         # dataset_version_diff adds one module for comparing Kohya dataset versions (#1455).
         # image_comparison adds the read-only two-image tag/caption comparison (#1399 / #1484).
         # generation_metadata_parser adds generation metadata reading/parsing (#1481 / ADR 0105).
-        expected_business_count = 61
+        # annotation_execution_policy controls local model admission (#1612).
+        # crop_detect_provider runs bulk crop detection (#1613).
+        # crop_review_targets selects crop children for CLI review (#1633).
+        expected_business_count = 64
         expected_gui_count = 9
         expected_count = expected_business_count + expected_gui_count
 

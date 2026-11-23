@@ -9,6 +9,7 @@ from unittest.mock import Mock
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
+import cleanup_merged_worktrees
 import dev_tasks
 import safe_cleanup
 
@@ -39,6 +40,7 @@ def test_clean_is_bounded_and_preview_does_not_delete(tmp_path):
         tmp_path / path
         for path in (
             ".venv/lib/__pycache__/keep.pyc",
+            ".worktrees/demo/src/__pycache__/keep.pyc",
             ".agents/worktree/demo/src/__pycache__/keep.pyc",
             "local_packages/example/__pycache__/keep.pyc",
             "lorairo_data/keep.pyc",
@@ -58,6 +60,30 @@ def test_clean_is_bounded_and_preview_does_not_delete(tmp_path):
     safe_cleanup.clean(tmp_path, dry_run=False)
     assert not disposable.exists()
     assert all(path.exists() for path in preserved)
+
+
+@pytest.mark.parametrize(
+    ("relative", "expected"),
+    [
+        (".worktrees/new", "HEAD is ancestor of main"),
+        (".agents/worktree/legacy", "HEAD is ancestor of main"),
+        (".worktrees", None),
+        (".worktrees-other/new", None),
+    ],
+)
+def test_merged_worktree_cleanup_respects_current_and_legacy_roots(
+    tmp_path, monkeypatch, relative, expected
+):
+    target = tmp_path / relative
+    target.mkdir(parents=True)
+    roots = tuple(tmp_path / directory for directory in cleanup_merged_worktrees.WORKTREE_DIRECTORIES)
+    worktree = cleanup_merged_worktrees.Worktree(target, "abcdef", None)
+    monkeypatch.setattr(cleanup_merged_worktrees, "has_local_changes", lambda _: False)
+    monkeypatch.setattr(cleanup_merged_worktrees, "head_is_merged", lambda *args, **kwargs: True)
+    assert (
+        cleanup_merged_worktrees.removable_reason(worktree, repo=tmp_path, base="main", roots=roots)
+        == expected
+    )
 
 
 def test_clean_does_not_follow_symlinks(tmp_path):

@@ -73,7 +73,7 @@ uv run pytest --cov=src --cov-report=html
 ### Native Dependency Smoke Tests
 
 LoRAIro shares one canonical `.venv` at `/workspaces/LoRAIro/.venv`, including when commands run from
-`.agents/worktree/` checkouts. Treat default-sync `uv run`, `uv sync`, dependency upgrades, and torch/NVIDIA
+`.worktrees/` checkouts. Treat default-sync `uv run`, `uv sync`, dependency upgrades, and torch/NVIDIA
 wheel repairs as shared environment mutations; do not run them concurrently across workers.
 
 Run a torch/CUDA smoke test after dependency updates, after failures involving local annotators, or when errors
