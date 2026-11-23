@@ -252,3 +252,112 @@ def test_unknown_parent_fails_with_not_found(crop_project):
     assert result.exit_code == 1, result.output
     assert _rows(result)[-1]["code"] == "NOT_FOUND"
     assert requested == []
+
+
+# --- migration が必要な古い DB での --save-results (#1603 P3-5) ---
+
+
+@pytest.fixture
+def old_crop_project(crop_project):
+    """crop_project の DB を実際の 1 つ前の revision へ downgrade する (head への migration が必要)。"""
+    from alembic import command
+
+    from lorairo.database import db_core
+
+    _workspace, _config, db_path, _requested = crop_project
+    command.downgrade(db_core._make_alembic_config(db_path), "-1")
+    return crop_project
+
+
+def _revision(db_path: Path) -> str:
+    from sqlalchemy import create_engine, text
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with engine.connect() as connection:
+            return connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+    finally:
+        engine.dispose()
+
+
+def _head_revision(db_path: Path) -> str:
+    from alembic.script import ScriptDirectory
+
+    from lorairo.database import db_core
+
+    return ScriptDirectory.from_config(db_core._make_alembic_config(db_path)).get_current_head()
+
+
+def _annotation_texts(db_path: Path) -> list[tuple]:
+    from sqlalchemy import create_engine, text
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with engine.connect() as connection:
+            tags = connection.execute(text("SELECT id, image_id, tag FROM tags ORDER BY id")).all()
+            captions = connection.execute(
+                text("SELECT id, image_id, caption FROM captions ORDER BY id")
+            ).all()
+            return [tuple(row) for row in [*tags, *captions]]
+    finally:
+        engine.dispose()
+
+
+def test_saving_crop_children_migrates_old_database_and_saves_only_children(old_crop_project):
+    _workspace, _config, db_path, requested = old_crop_project
+    assert _revision(db_path) != _head_revision(db_path)
+    before = _annotation_texts(db_path)
+
+    result = _invoke(
+        old_crop_project, "review", "run", "--project", "crops", "--crop-children-of", "1", "--save-results"
+    )
+
+    assert result.exit_code == 0, result.output
+    outcomes = [row for row in _rows(result) if row.get("type") == "annotation_review_outcome"]
+    assert [(row["image_id"], row["save_status"]) for row in outcomes] == [
+        (CHILD_A, "saved"),
+        (CHILD_B, "saved"),
+    ]
+    assert _revision(db_path) == _head_revision(db_path)
+    assert sorted(set(requested)) == [CHILD_A, CHILD_B]
+    assert _stored_review_ids(db_path) == [CHILD_A, CHILD_B]
+    assert _annotation_texts(db_path) == before
+
+
+def test_crop_children_without_save_stay_read_only_on_old_database(old_crop_project):
+    _workspace, _config, db_path, requested = old_crop_project
+    old_revision = _revision(db_path)
+    project_dir = db_path.parent
+
+    def snapshot():
+        return {
+            str(path.relative_to(project_dir)): path.read_bytes()
+            for path in project_dir.rglob("*")
+            if path.is_file() and not path.name.endswith(("-wal", "-shm"))
+        }
+
+    before = snapshot()
+
+    result = _invoke(old_crop_project, "review", "run", "--project", "crops", "--crop-children-of", "1")
+
+    assert result.exit_code == 1, result.output
+    error = _rows(result)[-1]
+    assert error["code"] == "PRECONDITION_FAILED"
+    assert error["details"]["reason"] == "schema_upgrade_required"
+    assert requested == []
+    assert _revision(db_path) == old_revision
+    assert snapshot() == before
+
+
+def test_saving_explicit_ids_on_old_database_also_migrates(old_crop_project):
+    """対照: --image-ids + --save-results は同じ古い DB を migration して保存する。"""
+    _workspace, _config, db_path, requested = old_crop_project
+
+    result = _invoke(
+        old_crop_project, "review", "run", "--project", "crops", "--image-ids", "2,3", "--save-results"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _revision(db_path) == _head_revision(db_path)
+    assert sorted(set(requested)) == [CHILD_A, CHILD_B]
+    assert _stored_review_ids(db_path) == [CHILD_A, CHILD_B]

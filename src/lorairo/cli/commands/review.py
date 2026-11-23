@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import typer
@@ -12,7 +13,7 @@ from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._errors import result_exit_code
 from lorairo.cli._image_ids import MAX_IMAGE_IDS_FILE, parse_image_ids, parse_image_ids_file
 from lorairo.cli._output_mode import is_json_mode
-from lorairo.public_api.review import ReviewSaveOutcome, resolve_crop_child_image_ids, review_annotations
+from lorairo.public_api.review import ReviewSaveOutcome, review_annotations, review_crop_children
 
 if TYPE_CHECKING:
     from lorairo.services.annotation_review_service import AnnotationReviewResult
@@ -24,18 +25,20 @@ _SELECTION_ERROR = "--image-ids / --image-ids-file / --crop-children-of / --crop
 
 
 def _resolve_review_image_ids(
-    project: str,
     image_ids: str | None,
     image_ids_file: str | None,
     crop_children_of: int | None = None,
     crop_children: bool = False,
-) -> list[int]:
-    """Parse explicit input or resolve crop children; the review API caps the deduplicated selection."""
+) -> list[int] | None:
+    """Parse explicit input; ``None`` means crop children are resolved inside the review run.
+
+    The review API caps the deduplicated selection.
+    """
     selections = [bool(image_ids), bool(image_ids_file), crop_children_of is not None, crop_children]
     if sum(selections) != 1:
         raise typer.BadParameter(_SELECTION_ERROR)
     if crop_children_of is not None or crop_children:
-        return resolve_crop_child_image_ids(project, crop_children_of)
+        return None
     if image_ids_file:
         return parse_image_ids_file(image_ids_file)
     selected = parse_image_ids(image_ids or "")
@@ -44,6 +47,35 @@ def _resolve_review_image_ids(
     if len(selected) > MAX_IMAGE_IDS_FILE:
         raise typer.BadParameter(f"--image-ids は最大 {MAX_IMAGE_IDS_FILE} 件まで。")
     return selected
+
+
+def _execute_review(
+    project: str,
+    selected: list[int] | None,
+    crop_children_of: int | None,
+    save_results: bool,
+    on_result: Callable[[AnnotationReviewResult], None],
+    on_saved: Callable[[ReviewSaveOutcome], None],
+) -> bool:
+    """Run the review; return False when crop resolution found no target images."""
+    if selected is None:
+        # 子画像の解決と review を同じ開き方 (保存時は書き込み可・migration あり) で 1 回に行う。
+        reviewed = review_crop_children(
+            project, crop_children_of, on_result=on_result, save_results=save_results, on_saved=on_saved
+        )
+        return bool(reviewed)
+    if save_results:
+        review_annotations(
+            project,
+            selected,
+            on_result=on_result,
+            collect_results=False,
+            save_results=True,
+            on_saved=on_saved,
+        )
+    else:
+        review_annotations(project, selected, on_result=on_result, collect_results=False)
+    return True
 
 
 def _emit_review(result: AnnotationReviewResult, saved: ReviewSaveOutcome | None = None) -> None:
@@ -201,12 +233,7 @@ def run(
     """
     with command_boundary():
         _reject_save_under_read_only(save_results)
-        selected = _resolve_review_image_ids(
-            project, image_ids, image_ids_file, crop_children_of, crop_children
-        )
-        if not selected:
-            _emit_no_targets(project, save_results)
-            return
+        selected = _resolve_review_image_ids(image_ids, image_ids_file, crop_children_of, crop_children)
         counts = dict.fromkeys(("successful", "partial", "failed", "cancelled", "stale", "unevaluated"), 0)
         save_counts = dict.fromkeys(("saved", "save_skipped", "save_failed"), 0)
         save_outcomes: dict[int, ReviewSaveOutcome] = {}
@@ -233,17 +260,9 @@ def run(
             item_count += len(result.items)
             warnings += sum(item.status == "warning" for item in result.items)
 
-        if save_results:
-            review_annotations(
-                project,
-                selected,
-                on_result=on_result,
-                collect_results=False,
-                save_results=True,
-                on_saved=on_saved,
-            )
-        else:
-            review_annotations(project, selected, on_result=on_result, collect_results=False)
+        if not _execute_review(project, selected, crop_children_of, save_results, on_result, on_saved):
+            _emit_no_targets(project, save_results)
+            return
         # 保存失敗は画像単位の運用上の失敗として数える (評価済みでも結果が残らないため)。
         operational_failures = (
             blocked

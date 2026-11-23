@@ -355,27 +355,72 @@ def test_invalid_crop_parent_fails_before_opening_project(monkeypatch, parent):
     context = Mock(side_effect=AssertionError("Invalid input must not open a project"))
     monkeypatch.setattr(review, "_project_context", context)
     with pytest.raises(InvalidInputError):
-        review.resolve_crop_child_image_ids("project", parent)
+        review.review_crop_children("project", parent)
     context.assert_not_called()
 
 
+@pytest.mark.parametrize("save_results", [False, True])
 @pytest.mark.parametrize("parent", [None, 5])
-def test_crop_children_are_resolved_read_only_through_the_service(monkeypatch, parent):
-    container = Mock()
-    observed = []
-
-    @contextmanager
-    def context(project_name):
-        observed.append((project_name, is_read_only()))
-        yield container
-
-    monkeypatch.setattr(review, "_project_context", context)
-    resolver = Mock(return_value=[3, 4])
+def test_crop_children_are_resolved_and_reviewed_in_one_project_open(
+    saving_services, monkeypatch, parent, save_results
+):
+    container, service, _store, store_factory, contexts = saving_services
+    resolver = Mock(return_value=[4, 3])
     monkeypatch.setattr("lorairo.services.crop_review_targets.resolve_crop_child_image_ids", resolver)
+    observed = []
+    saved = []
 
-    assert review.resolve_crop_child_image_ids("project", parent) == [3, 4]
+    reviewed = review.review_crop_children(
+        "project",
+        parent,
+        on_result=lambda result: observed.append(result.image_id),
+        save_results=save_results,
+        on_saved=saved.append,
+    )
+
+    assert reviewed == [4, 3]
+    # 1 回だけ開き、保存時は書き込み可能 (migration を含む) な開き方、既定は読み取り専用。
+    assert contexts == [not save_results]
     resolver.assert_called_once_with(container.db_manager, parent)
-    assert observed == [("project", False)]  # read-only 化は _project_context 側 (別テストで固定)
+    assert [call.args[0] for call in service.prepare_review.call_args_list] == [4, 3]
+    assert observed == [4, 3]
+    if save_results:
+        store_factory.assert_called_once_with(container.db_manager)
+        assert [(outcome.image_id, outcome.status) for outcome in saved] == [(4, "saved"), (3, "saved")]
+    else:
+        store_factory.assert_not_called()
+        assert saved == []
+
+
+def test_zero_crop_children_return_empty_without_review(saving_services, monkeypatch):
+    _container, service, _store, store_factory, contexts = saving_services
+    monkeypatch.setattr(
+        "lorairo.services.crop_review_targets.resolve_crop_child_image_ids", Mock(return_value=[])
+    )
+    factory = Mock(side_effect=AssertionError("No targets must not create a review service"))
+    monkeypatch.setattr(annotation_review_service, "AnnotationReviewService", factory)
+
+    assert review.review_crop_children("project", 5, save_results=True) == []
+    assert contexts == [False]
+    store_factory.assert_not_called()
+    service.review.assert_not_called()
+
+
+def test_more_than_500_crop_children_fail_before_review(saving_services, monkeypatch):
+    _container, service, _store, _store_factory, contexts = saving_services
+    monkeypatch.setattr(
+        "lorairo.services.crop_review_targets.resolve_crop_child_image_ids",
+        Mock(return_value=list(range(1, 502))),
+    )
+    factory = Mock(side_effect=AssertionError("Oversized selection must not create a review service"))
+    monkeypatch.setattr(annotation_review_service, "AnnotationReviewService", factory)
+
+    with pytest.raises(ResultSetTooLargeError) as error:
+        review.review_crop_children("project")
+
+    assert error.value.details == {"limit": 500, "matched": 501}
+    assert contexts == [True]
+    service.review.assert_not_called()
 
 
 def test_project_context_without_read_only_allows_writes(monkeypatch):

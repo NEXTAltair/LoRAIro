@@ -351,10 +351,20 @@ def test_describe_publishes_read_only_network_and_nullable_probabilities():
 
 @pytest.fixture
 def crop_children(monkeypatch):
-    """crop_relations の解決結果を差し替える (解決ロジック自体は統合テストで実 DB を使う)."""
+    """crop 子画像の review API を差し替える (解決と開き方は public API / 統合テストで実 DB を使う)."""
+    from lorairo.public_api.review import ReviewSaveOutcome
+
     resolved: dict[int | None, list[int]] = {5: [12, 11], None: [11, 12, 21]}
-    resolver = Mock(side_effect=lambda project, parent=None: resolved[parent])
-    monkeypatch.setattr(review, "resolve_crop_child_image_ids", resolver)
+
+    def execute(project, parent=None, *, on_result, save_results, on_saved):
+        for image_id in resolved[parent]:
+            if save_results:
+                on_saved(ReviewSaveOutcome(image_id, "saved"))
+            on_result(_result(image_id))
+        return list(resolved[parent])
+
+    resolver = Mock(side_effect=execute)
+    monkeypatch.setattr(review, "review_crop_children", resolver)
     return resolver, resolved
 
 
@@ -380,24 +390,39 @@ def test_crop_selection_is_exclusive_with_other_selections(api, crop_children, a
     "args, parent, expected",
     [(("--crop-children-of", "5"), 5, [12, 11]), (("--crop-children",), None, [11, 12, 21])],
 )
-def test_resolved_crop_children_are_passed_unchanged_to_review(api, crop_children, args, parent, expected):
+def test_resolved_crop_children_are_reviewed_in_one_crop_run(api, crop_children, args, parent, expected):
     resolver, _ = crop_children
     result = _invoke(*args)
 
     assert result.exit_code == 0, result.output
-    resolver.assert_called_once_with("test-project", parent)
-    assert api.call_args.args == ("test-project", expected)
-    assert "save_results" not in api.call_args.kwargs
+    resolver.assert_called_once()
+    assert resolver.call_args.args == ("test-project", parent)
+    assert resolver.call_args.kwargs["save_results"] is False
+    api.assert_not_called()
     outcomes = [row for row in _rows(result) if row.get("type") == "annotation_review_outcome"]
     assert [row["image_id"] for row in outcomes] == expected
     assert all(row["save_status"] is None and row["save_error"] is None for row in outcomes)
     summary = _rows(result)[-1]
+    assert summary["image_count"] == len(expected)
     assert summary["save_results"] is False and summary["saved"] == 0
+
+
+def test_saved_crop_children_report_each_save(api, crop_children):
+    resolver, _ = crop_children
+    result = _invoke("--crop-children-of", "5", "--save-results")
+
+    assert result.exit_code == 0, result.output
+    assert resolver.call_args.kwargs["save_results"] is True
+    api.assert_not_called()
+    outcomes = [row for row in _rows(result) if row.get("type") == "annotation_review_outcome"]
+    assert [(row["image_id"], row["save_status"]) for row in outcomes] == [(12, "saved"), (11, "saved")]
+    summary = _rows(result)[-1]
+    assert summary["save_results"] is True and summary["saved"] == 2 and summary["save_failed"] == 0
 
 
 @pytest.mark.parametrize("json_mode", [True, False])
 def test_zero_crop_children_succeeds_with_explicit_zero_targets(api, crop_children, json_mode):
-    _, resolved = crop_children
+    resolver, resolved = crop_children
     resolved[5] = []
     mode = "--json" if json_mode else "--no-json"
     result = runner.invoke(
@@ -405,6 +430,7 @@ def test_zero_crop_children_succeeds_with_explicit_zero_targets(api, crop_childr
     )
 
     assert result.exit_code == 0, result.output
+    resolver.assert_called_once()
     api.assert_not_called()
     if json_mode:
         rows = _rows(result)
@@ -422,20 +448,22 @@ def test_crop_children_use_the_existing_500_image_working_set_cap(
 ):
     context, factory, service, network = real_review_api
     monkeypatch.setattr(
-        review, "resolve_crop_child_image_ids", Mock(return_value=list(range(1, count + 1)))
+        "lorairo.services.crop_review_targets.resolve_crop_child_image_ids",
+        Mock(return_value=list(range(1, count + 1))),
     )
 
     result = _invoke("--crop-children")
 
     assert result.exit_code == expected_exit, result.output
     rows = _rows(result)
+    # 解決と review は 1 回の開き方で行う (保存なしは読み取り専用の既定の開き方)。
+    context.assert_called_once_with("test-project")
     if count == 500:
         assert rows[-1]["image_count"] == 500
         assert service.review.call_count == 500
     else:
         assert len(rows) == 1 and rows[0]["code"] == "RESULT_SET_TOO_LARGE"
         assert rows[0]["details"] == {"limit": 500, "matched": 501}
-        context.assert_not_called()
         factory.assert_not_called()
         service.review.assert_not_called()
     network.assert_not_called()
