@@ -11,11 +11,16 @@
 ルート conftest では genai-tag-db-tools モックと Qt 設定が済みです。
 """
 
+import shutil
+from collections.abc import Callable, Iterator
+from pathlib import Path
+from typing import Any
 from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest
 from PIL import Image
+from sqlalchemy.engine import Engine
 
 # ===== External API Mocks =====
 
@@ -137,6 +142,80 @@ def sample_annotation():
         "tags": ["dog", "running", "field"],
         "model": "gpt-4",
     }
+
+
+# ===== Alembic =====
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _reuse_alembic_script_directory() -> Iterator[None]:
+    """同じ migration 設定の ``ScriptDirectory`` をセッション内で使い回す。
+
+    Alembic は command 実行や head 照会のたびに versions を全件読み込み直し、9p 上では
+    1 回 1.2 秒前後かかる (大半が stat)。revision ファイルはテスト中に変わらないので、
+    DB URL 以外の設定が同じなら読み込み済みのものを返す。upgrade / downgrade / stamp の
+    実行と env.py の実行は毎回行われる。
+    """
+    from alembic.script import ScriptDirectory
+
+    original = ScriptDirectory.from_config.__func__  # classmethod の実体
+    cache: dict[tuple[object, ...], ScriptDirectory] = {}
+
+    def from_config(cls: type[ScriptDirectory], config: Any) -> ScriptDirectory:
+        options = config.get_section(config.config_ini_section) or {}
+        key = (
+            cls,
+            tuple(sorted((name, value) for name, value in options.items() if name != "sqlalchemy.url")),
+            config.messaging_opts.get("quiet"),
+        )
+        if key not in cache:
+            cache[key] = original(cls, config)
+        return cache[key]
+
+    patcher = pytest.MonkeyPatch()
+    patcher.setattr(ScriptDirectory, "from_config", classmethod(from_config))
+    try:
+        yield
+    finally:
+        patcher.undo()
+
+
+# ===== Prepared Project DB =====
+
+
+@pytest.fixture(scope="session")
+def prepared_project_db_template(tmp_path_factory) -> Path:
+    """``_prepare_project_database`` で新規作成した DB を 1 回だけ作る。
+
+    新規作成は create_all + model_types seed + Alembic head への stamp で、stamp が
+    versions 全件を読み込むため 1 回 1.3 秒前後かかる。中身は毎回同じなので複製で足りる。
+    """
+    from lorairo.database import db_core
+
+    path = tmp_path_factory.mktemp("prepared_project_db") / "image_database.db"
+    db_core._prepare_project_database(path).dispose()
+    # dispose で WAL が checkpoint され、本体ファイルだけで完結していることを確かめる
+    assert not path.with_name(path.name + "-wal").exists()
+    return path
+
+
+@pytest.fixture
+def prepare_project_db(prepared_project_db_template: Path) -> Callable[[Path], Engine]:
+    """``db_core._prepare_project_database(path)`` の新規作成結果を複製で再現する。
+
+    戻り値の関数は template を ``path`` に複製し、``_prepare_project_database`` と同じ URL で
+    Engine を返す。既存 DB の upgrade 経路を検証するテストでは使わない。
+    """
+    from lorairo.database import db_core
+
+    def prepare(path: Path) -> Engine:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        for suffix in ("-wal", "-shm"):
+            path.with_name(path.name + suffix).unlink(missing_ok=True)
+        shutil.copyfile(prepared_project_db_template, path)
+        return db_core.create_db_engine(f"sqlite:///{path.resolve()}?check_same_thread=False")
+
+    return prepare
 
 
 # ===== Scope Helpers =====

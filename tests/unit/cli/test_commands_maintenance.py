@@ -107,14 +107,16 @@ def _snapshot(workspace):
 
 
 @pytest.mark.parametrize("database_state", ["current", "missing"])
-def test_check_uses_real_read_only_database_without_side_effects(tmp_path, monkeypatch, database_state):
+def test_check_uses_real_read_only_database_without_side_effects(
+    tmp_path, monkeypatch, database_state, prepare_project_db
+):
     workspace = tmp_path / "maintenance-workspace"
     monkeypatch.setenv("LORAIRO_CLI_LOG_PATH", str(tmp_path / "cli.log"))
     configuration = resolve_runtime_configuration(workspace, None)
     with runtime_configuration_scope(configuration):
         info = ProjectManagementService().create_project("project")
     db = info.path / "image_database.db"
-    engine = db_core._prepare_project_database(db)
+    engine = prepare_project_db(db)
     (info.path / "image_dataset").mkdir(exist_ok=True)
     (info.path / "image_dataset" / "1.png").write_bytes(b"x")
     with Session(engine) as session:
@@ -181,14 +183,16 @@ def test_check_uses_real_read_only_database_without_side_effects(tmp_path, monke
     assert _snapshot(workspace) == before
 
 
-def test_check_provider_scope_reports_mismatches_in_read_only_mode(tmp_path, monkeypatch):
+def test_check_provider_scope_reports_mismatches_in_read_only_mode(
+    tmp_path, monkeypatch, prepare_project_db
+):
     workspace = tmp_path / "provider-check-workspace"
     monkeypatch.setenv("LORAIRO_CLI_LOG_PATH", str(tmp_path / "cli.log"))
     configuration = resolve_runtime_configuration(workspace, None)
     with runtime_configuration_scope(configuration):
         info = ProjectManagementService().create_project("project")
     db = info.path / "image_database.db"
-    engine = db_core._prepare_project_database(db)
+    engine = prepare_project_db(db)
     with Session(engine) as session:
         session.add_all(
             [

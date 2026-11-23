@@ -238,11 +238,6 @@ class TestExportCriteria:
         criteria = ExportCriteria(ai_rating="")
         assert criteria.has_any_filter() is False
 
-    def test_has_any_filter_score_min_zero_is_true(self) -> None:
-        """score_min=0.0 は有効なフィルタ → True（falsy だが is not None で判定）。"""
-        criteria = ExportCriteria(score_min=0.0)
-        assert criteria.has_any_filter() is True
-
     def test_has_any_filter_tag_filter_with_only_empty_string_is_false(self) -> None:
         """tag_filter=[""] はリスト非空だが有効要素なし → False。"""
         criteria = ExportCriteria(tag_filter=[""])

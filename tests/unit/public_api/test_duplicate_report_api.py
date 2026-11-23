@@ -27,14 +27,16 @@ def snapshot(workspace):
 
 
 @pytest.mark.parametrize("state", ["current", "missing", "empty", "old", "incompatible"])
-def test_duplicate_report_is_strictly_read_only_for_real_project(tmp_path, monkeypatch, state):
+def test_duplicate_report_is_strictly_read_only_for_real_project(
+    tmp_path, monkeypatch, state, prepare_project_db
+):
     workspace = tmp_path / "duplicate-workspace"
     configuration = resolve_runtime_configuration(workspace, None)
     with runtime_configuration_scope(configuration):
         project = ProjectManagementService().create_project("synthetic")
     database = project.path / "image_database.db"
     if state != "empty":
-        engine = db_core._prepare_project_database(database)
+        engine = prepare_project_db(database)
         with Session(engine) as session:
             session.add_all(
                 Image(

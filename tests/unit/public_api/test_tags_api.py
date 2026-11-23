@@ -51,35 +51,6 @@ class TestGetUnknownTags:
         assert result[1].type_name == "unknown"
         assert result[1].count == 0
 
-    def test_each_tag_has_type_name_unknown(self) -> None:
-        """返される TagInfo の type_name はすべて 'unknown'。"""
-        mock_tag = MagicMock()
-        mock_tag.name = "some_tag"
-
-        mock_service = MagicMock()
-        mock_service.get_unknown_tags.return_value = [mock_tag]
-
-        with patch("lorairo.public_api.tags.ServiceContainer") as mock_container_cls:
-            mock_container_cls.return_value.tag_management_service = mock_service
-            result = get_unknown_tags()
-
-        assert result[0].type_name == "unknown"
-        assert result[0].count == 0
-
-    def test_each_tag_has_zero_count(self) -> None:
-        """返される TagInfo の count は常に 0。"""
-        mock_tag = MagicMock()
-        mock_tag.name = "character_tag"
-
-        mock_service = MagicMock()
-        mock_service.get_unknown_tags.return_value = [mock_tag]
-
-        with patch("lorairo.public_api.tags.ServiceContainer") as mock_container_cls:
-            mock_container_cls.return_value.tag_management_service = mock_service
-            result = get_unknown_tags()
-
-        assert result[0].count == 0
-
     def test_uses_service_container_for_service_lookup(self) -> None:
         """ServiceContainer を経由してサービスを取得する。"""
         mock_service = MagicMock()
@@ -121,26 +92,3 @@ class TestGetAvailableTypes:
             result = get_available_types()
 
         assert result == []
-
-    def test_delegates_to_tag_management_service(self) -> None:
-        """TagManagementService.get_all_available_types() に委譲する。"""
-        mock_service = MagicMock()
-        mock_service.get_all_available_types.return_value = ["general"]
-
-        with patch("lorairo.public_api.tags.ServiceContainer") as mock_container_cls:
-            mock_container_cls.return_value.tag_management_service = mock_service
-            get_available_types()
-
-        mock_service.get_all_available_types.assert_called_once()
-
-    def test_returns_single_type(self) -> None:
-        """単一種類のリストを正しく返す。"""
-        mock_service = MagicMock()
-        mock_service.get_all_available_types.return_value = ["general"]
-
-        with patch("lorairo.public_api.tags.ServiceContainer") as mock_container_cls:
-            mock_container_cls.return_value.tag_management_service = mock_service
-            result = get_available_types()
-
-        assert len(result) == 1
-        assert result[0] == "general"

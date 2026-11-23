@@ -52,13 +52,13 @@ def snapshot(path):
 
 @pytest.mark.parametrize("state", ["missing", "empty", "old", "current"])
 @pytest.mark.parametrize("command", READ_COMMANDS)
-def test_read_commands_never_prepare_database(project, state, command, monkeypatch):
+def test_read_commands_never_prepare_database(project, state, command, monkeypatch, prepare_project_db):
     workspace, path = project
     db = path / "image_database.db"
     if state == "missing":
         db.unlink()
     elif state in {"old", "current"}:
-        engine = db_core._prepare_project_database(db)
+        engine = prepare_project_db(db)
         if state == "old":
             with engine.begin() as connection:
                 connection.execute(text("UPDATE alembic_version SET version_num='synthetic_old_revision'"))
@@ -166,10 +166,10 @@ def test_strict_metadata_inventory_and_config_read_preservation(tmp_path, monkey
     assert "schema_migration" in tool["conditional_side_effects"]
 
 
-def test_missing_model_seed_is_a_precondition(project):
+def test_missing_model_seed_is_a_precondition(project, prepare_project_db):
     _, path = project
     db = path / "image_database.db"
-    engine = db_core._prepare_project_database(db)
+    engine = prepare_project_db(db)
     with engine.begin() as connection:
         connection.execute(text("DELETE FROM model_types"))
     engine.dispose()
@@ -179,7 +179,7 @@ def test_missing_model_seed_is_a_precondition(project):
 
 
 @pytest.fixture
-def offline_tag_databases(project, tmp_path, monkeypatch):
+def offline_tag_databases(project, tmp_path, monkeypatch, prepare_project_db):
     import genai_tag_db_tools
     from genai_tag_db_tools import core_api, database_runtime_scope
     from genai_tag_db_tools.db import runtime
@@ -187,7 +187,7 @@ def offline_tag_databases(project, tmp_path, monkeypatch):
     from sqlalchemy import create_engine
 
     workspace, path = project
-    db_core._prepare_project_database(path / "image_database.db").dispose()
+    prepare_project_db(path / "image_database.db").dispose()
     base = tmp_path / "base.sqlite"
     engine = create_engine(f"sqlite:///{base}")
     Base.metadata.create_all(engine)
@@ -230,12 +230,12 @@ def test_translation_reads_use_offline_protected_tag_runtime(
     assert snapshot(workspace) == before
 
 
-def test_explicit_prepare_upgrades_real_old_revision(project):
+def test_explicit_prepare_upgrades_real_old_revision(project, prepare_project_db):
     from alembic import command
 
     workspace, path = project
     db = path / "image_database.db"
-    db_core._prepare_project_database(db).dispose()
+    prepare_project_db(db).dispose()
     command.downgrade(db_core._make_alembic_config(db), "-1")
     before = snapshot(path)
     result = invoke(workspace, ["images", "list"])
@@ -347,7 +347,9 @@ def test_readonly_alone_isolates_existing_writable_factories(project, tmp_path, 
 
 
 @pytest.mark.parametrize("state", ["untracked", "incompatible", "unreadable"])
-def test_legacy_or_damaged_database_guidance_does_not_promise_prepare_repair(project, state):
+def test_legacy_or_damaged_database_guidance_does_not_promise_prepare_repair(
+    project, state, prepare_project_db
+):
     from sqlalchemy import create_engine
 
     from lorairo.database.schema import Base
@@ -361,7 +363,7 @@ def test_legacy_or_damaged_database_guidance_does_not_promise_prepare_repair(pro
         Base.metadata.create_all(engine)
         engine.dispose()
     else:
-        engine = db_core._prepare_project_database(db)
+        engine = prepare_project_db(db)
         with engine.begin() as connection:
             connection.execute(text("DROP TABLE score_labels"))
         engine.dispose()
@@ -385,13 +387,13 @@ def test_legacy_or_damaged_database_guidance_does_not_promise_prepare_repair(pro
     assert snapshot(path) == before
 
 
-def test_strict_exclusive_lock_is_retryable_and_uses_configured_timeout(project):
+def test_strict_exclusive_lock_is_retryable_and_uses_configured_timeout(project, prepare_project_db):
     import sqlite3
     import time
 
     workspace, path = project
     db = path / "image_database.db"
-    db_core._prepare_project_database(db).dispose()
+    prepare_project_db(db).dispose()
     config = workspace / "lock-config.toml"
     config.write_text("[directories]\n[database]\nbusy_timeout_ms = 30\n")
     with sqlite3.connect(db) as writer:
@@ -427,12 +429,12 @@ def test_strict_exclusive_lock_is_retryable_and_uses_configured_timeout(project)
     assert retry.exit_code == 0, retry.output
 
 
-def test_strict_connection_preserves_configured_busy_timeout(project):
+def test_strict_connection_preserves_configured_busy_timeout(project, prepare_project_db):
     from lorairo.utils.config import RuntimeConfiguration, runtime_configuration_scope
 
     workspace, path = project
     db = path / "image_database.db"
-    db_core._prepare_project_database(db).dispose()
+    prepare_project_db(db).dispose()
     runtime = RuntimeConfiguration(
         workspace, workspace / "synthetic.toml", {"database": {"busy_timeout_ms": 47}}
     )

@@ -19,7 +19,9 @@ pytestmark = pytest.mark.unit
 
 @pytest.mark.parametrize("state", ["missing", "empty", "old", "current", "tags_missing"])
 @pytest.mark.parametrize("explicit_workspace", [True, False])
-def test_export_dry_run_never_prepares_project_database(tmp_path, monkeypatch, state, explicit_workspace):
+def test_export_dry_run_never_prepares_project_database(
+    tmp_path, monkeypatch, state, explicit_workspace, prepare_project_db
+):
     workspace = tmp_path / "workspace"
     monkeypatch.setenv("LORAIRO_CLI_LOG_PATH", str(tmp_path / "cli.log"))
     created = runner.invoke(
@@ -33,7 +35,7 @@ def test_export_dry_run_never_prepares_project_database(tmp_path, monkeypatch, s
     if state == "missing":
         database.unlink()
     elif state in {"old", "current", "tags_missing"}:
-        engine = db_core._prepare_project_database(database)
+        engine = prepare_project_db(database)
         if state == "old":
             with engine.begin() as connection:
                 connection.execute(text("UPDATE alembic_version SET version_num='synthetic_old_revision'"))

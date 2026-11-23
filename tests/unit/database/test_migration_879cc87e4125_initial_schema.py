@@ -158,13 +158,23 @@ def _create_pre_879_schema(db_path: Path) -> None:
     engine.dispose()
 
 
-@pytest.mark.unit
-def test_879cc87e4125_creates_ratings_table(tmp_path: Path) -> None:
-    """upgrade() 後に ratings テーブルが作成される。"""
-    db_path = tmp_path / "initial-schema.db"
-    _create_pre_879_schema(db_path)
+@pytest.fixture(scope="module")
+def upgraded_db_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """_create_pre_879_schema の DB を 879cc87e4125 まで upgrade した DB を module で 1 回だけ作る。
 
+    これを使うテストは同じ seed・同じ upgrade の結果を読むだけなので共有する。
+    DB を変更するテストは従来どおり個別に作る。
+    """
+    db_path = tmp_path_factory.mktemp("initial-schema") / "initial-schema.db"
+    _create_pre_879_schema(db_path)
     command.upgrade(_make_alembic_config(db_path), "879cc87e4125")
+    return db_path
+
+
+@pytest.mark.unit
+def test_879cc87e4125_creates_ratings_table(upgraded_db_path: Path) -> None:
+    """upgrade() 後に ratings テーブルが作成される。"""
+    db_path = upgraded_db_path
 
     engine = create_engine(f"sqlite:///{db_path}")
     insp = inspect(engine)
@@ -173,12 +183,9 @@ def test_879cc87e4125_creates_ratings_table(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_879cc87e4125_ratings_table_has_expected_columns(tmp_path: Path) -> None:
+def test_879cc87e4125_ratings_table_has_expected_columns(upgraded_db_path: Path) -> None:
     """ratings テーブルの必須カラムが存在する。"""
-    db_path = tmp_path / "initial-schema.db"
-    _create_pre_879_schema(db_path)
-
-    command.upgrade(_make_alembic_config(db_path), "879cc87e4125")
+    db_path = upgraded_db_path
 
     engine = create_engine(f"sqlite:///{db_path}")
     insp = inspect(engine)
@@ -195,12 +202,9 @@ def test_879cc87e4125_ratings_table_has_expected_columns(tmp_path: Path) -> None
 
 
 @pytest.mark.unit
-def test_879cc87e4125_images_gets_manual_rating_column(tmp_path: Path) -> None:
+def test_879cc87e4125_images_gets_manual_rating_column(upgraded_db_path: Path) -> None:
     """upgrade() 後に images テーブルに manual_rating カラムが追加される。"""
-    db_path = tmp_path / "initial-schema.db"
-    _create_pre_879_schema(db_path)
-
-    command.upgrade(_make_alembic_config(db_path), "879cc87e4125")
+    db_path = upgraded_db_path
 
     engine = create_engine(f"sqlite:///{db_path}")
     insp = inspect(engine)
@@ -211,12 +215,9 @@ def test_879cc87e4125_images_gets_manual_rating_column(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_879cc87e4125_version_is_set(tmp_path: Path) -> None:
+def test_879cc87e4125_version_is_set(upgraded_db_path: Path) -> None:
     """upgrade() 後に alembic_version が 879cc87e4125 になる。"""
-    db_path = tmp_path / "initial-schema.db"
-    _create_pre_879_schema(db_path)
-
-    command.upgrade(_make_alembic_config(db_path), "879cc87e4125")
+    db_path = upgraded_db_path
 
     engine = create_engine(f"sqlite:///{db_path}")
     with engine.connect() as conn:

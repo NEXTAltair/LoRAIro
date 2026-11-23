@@ -129,14 +129,24 @@ def _create_schema_at_e1(db_path: Path) -> None:
     engine.dispose()
 
 
-@pytest.mark.unit
-def test_display_score_column_added(tmp_path: Path) -> None:
-    """upgrade 後に display_score カラムが追加されること。"""
-    db_path = tmp_path / "display-score.db"
+@pytest.fixture(scope="module")
+def upgraded_db(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Config]:
+    """e1f2a3b4c5d6 の seed を head まで upgrade した DB (読み取り専用で共有する)。
+
+    下の読み取りテストは同じ seed・同じ upgrade の結果から別々の行を SELECT するだけなので、
+    upgrade は module で 1 回にする。DB を変更するテスト (downgrade) は個別に作る。
+    """
+    db_path = tmp_path_factory.mktemp("display-score") / "display-score.db"
     _create_schema_at_e1(db_path)
     cfg = _make_alembic_config(db_path)
-
     command.upgrade(cfg, "head")
+    return db_path, cfg
+
+
+@pytest.mark.unit
+def test_display_score_column_added(upgraded_db: tuple[Path, Config]) -> None:
+    """upgrade 後に display_score カラムが追加されること。"""
+    db_path, cfg = upgraded_db
 
     engine = create_engine(f"sqlite:///{db_path}")
     with engine.connect() as conn:
@@ -149,13 +159,9 @@ def test_display_score_column_added(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_display_score_backfill_aesthetic_shadow(tmp_path: Path) -> None:
+def test_display_score_backfill_aesthetic_shadow(upgraded_db: tuple[Path, Config]) -> None:
     """aesthetic_shadow_v2 の raw=0.45 は区分線形補間で display_score=8.0 になること。"""
-    db_path = tmp_path / "display-score.db"
-    _create_schema_at_e1(db_path)
-    cfg = _make_alembic_config(db_path)
-
-    command.upgrade(cfg, "head")
+    db_path, _ = upgraded_db
 
     engine = create_engine(f"sqlite:///{db_path}")
     with engine.connect() as conn:
@@ -166,13 +172,9 @@ def test_display_score_backfill_aesthetic_shadow(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_display_score_backfill_webapi(tmp_path: Path) -> None:
+def test_display_score_backfill_webapi(upgraded_db: tuple[Path, Config]) -> None:
     """WebAPI モデル (name に '/' 含む) の raw=7.5 は identity → display_score=7.5 になること。"""
-    db_path = tmp_path / "display-score.db"
-    _create_schema_at_e1(db_path)
-    cfg = _make_alembic_config(db_path)
-
-    command.upgrade(cfg, "head")
+    db_path, _ = upgraded_db
 
     engine = create_engine(f"sqlite:///{db_path}")
     with engine.connect() as conn:
@@ -183,13 +185,9 @@ def test_display_score_backfill_webapi(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_display_score_backfill_manual_edit(tmp_path: Path) -> None:
+def test_display_score_backfill_manual_edit(upgraded_db: tuple[Path, Config]) -> None:
     """is_edited_manually=True の行は raw をそのまま display_score に使うこと。"""
-    db_path = tmp_path / "display-score.db"
-    _create_schema_at_e1(db_path)
-    cfg = _make_alembic_config(db_path)
-
-    command.upgrade(cfg, "head")
+    db_path, _ = upgraded_db
 
     engine = create_engine(f"sqlite:///{db_path}")
     with engine.connect() as conn:
@@ -200,13 +198,9 @@ def test_display_score_backfill_manual_edit(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_display_score_backfill_unknown_model(tmp_path: Path) -> None:
+def test_display_score_backfill_unknown_model(upgraded_db: tuple[Path, Config]) -> None:
     """未知モデルは raw * 10 fallback で display_score が計算されること。"""
-    db_path = tmp_path / "display-score.db"
-    _create_schema_at_e1(db_path)
-    cfg = _make_alembic_config(db_path)
-
-    command.upgrade(cfg, "head")
+    db_path, _ = upgraded_db
 
     engine = create_engine(f"sqlite:///{db_path}")
     with engine.connect() as conn:

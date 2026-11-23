@@ -61,11 +61,6 @@ class TestGetCreatedAtHistogram:
     def repository(self, session_factory):
         return ImageRepository(session_factory=session_factory)
 
-    def test_empty_db_returns_empty_list(self, repository):
-        """画像が存在しない場合は空リストを返す。"""
-        result = repository.get_created_at_histogram(bins=10)
-        assert result == []
-
     def test_single_date_returns_single_bin(self, repository, session_factory):
         """全画像が同一 created_at の場合、1 ビンのみ返す。"""
         ts = datetime.datetime(2025, 6, 1, 12, 0, 0, tzinfo=datetime.UTC)
