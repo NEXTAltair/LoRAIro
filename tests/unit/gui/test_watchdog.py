@@ -77,8 +77,10 @@ def test_on_tick_uses_elapsed_restart(watchdog, monkeypatch):
     assert checked == [4200]
 
 
-def test_started_watchdog_ticks_on_event_loop(watchdog, monkeypatch, qtbot):
+def test_started_watchdog_ticks_on_event_loop(monkeypatch, qtbot):
     """start 後はイベントループ上で tick し _check が呼ばれる (#1596)。"""
+    # 既定 tick (250ms) を 2 回待つと実時間が掛かるため、tick だけ短くした watchdog で確かめる
+    watchdog = MainThreadWatchdog(interval_ms=10)
     checked: list[int] = []
     monkeypatch.setattr(watchdog, "_check", checked.append)
 

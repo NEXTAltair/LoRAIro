@@ -62,9 +62,6 @@ class TestModelSelectionWidgetInit:
         assert widget is not None
         mock_model_service.load_models.assert_called_once()
 
-    def test_has_model_selection_changed_signal(self, widget):
-        assert hasattr(widget, "model_selection_changed")
-
     def test_has_selection_count_changed_signal(self, widget):
         assert hasattr(widget, "selection_count_changed")
 
@@ -325,14 +322,24 @@ class TestModelSelectionWidgetRefreshThread:
 
         started = threading.Event()
         release = threading.Event()
+        run_thread_ids: list[int] = []
 
-        def _blocking_run(self):
+        # run 自体は差し替えず、run が呼ぶ registry 更新をブロックさせる。
+        # run を素の関数へ monkeypatch すると PySide は started を GUI スレッドの受け手へ配送し、
+        # run が GUI スレッドで走る (release.wait(5) で 5 秒止まり、worker スレッドでの実行中という
+        # 前提も再現できない)。
+        def _blocking_refresh():
+            run_thread_ids.append(threading.get_ident())
             started.set()
             release.wait(5)
-            self.succeeded.emit(0, "ok")
-            self.finished.emit()
+            return []
 
-        monkeypatch.setattr(msw_module._ModelRefreshWorker, "run", _blocking_run)
+        container = Mock()
+        container.annotator_library.refresh_available_models.side_effect = _blocking_refresh
+        container.model_sync_service.sync_available_models.return_value = SimpleNamespace(
+            errors=[], summary="ok"
+        )
+        monkeypatch.setattr(msw_module, "get_service_container", lambda: container)
         monkeypatch.setattr(msw_module, "show_information", Mock())
 
         destroyed_thread_ids: list[int] = []
@@ -353,6 +360,8 @@ class TestModelSelectionWidgetRefreshThread:
         qtbot.waitUntil(lambda: bool(destroyed_thread_ids), timeout=5000)
         assert destroyed_thread_ids == [threading.get_ident()]
         assert widget._refresh_worker is None
+        # run は worker スレッドで実行されていた (GUI スレッドで走ると前提の再現にならない)
+        assert run_thread_ids and run_thread_ids[0] != threading.get_ident()
 
 
 class TestModelSelectionWidgetLitellmIdKeying:

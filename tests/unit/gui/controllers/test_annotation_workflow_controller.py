@@ -114,6 +114,22 @@ class TestAnnotationWorkflowControllerInit:
 class TestStartAnnotationWorkflow:
     """start_annotation_workflow()テスト"""
 
+    @pytest.fixture(autouse=True)
+    def _stub_service_container(self):
+        """廃止判定と API key 検証が実 ServiceContainer (annotator lib と project DB) を構築しないようにする。
+
+        両者は例外を握りつぶして続行するため、実体を構築しても assert には効かず時間だけが掛かる。
+        廃止判定を見るテストは自身の ``@patch`` でこの stub を上書きする。
+        """
+        container = Mock()
+        container.annotator_library.is_model_deprecated.return_value = False
+        container.db_manager.model_repo.get_model_by_litellm_id.return_value = None
+        with patch(
+            "lorairo.gui.controllers.annotation_workflow_controller.get_service_container",
+            return_value=container,
+        ):
+            yield
+
     def test_start_annotation_workflow_success(
         self,
         controller,
@@ -184,24 +200,6 @@ class TestStartAnnotationWorkflow:
 
         # Assert - WorkerServiceは呼ばれない
         mock_worker_service.start_enhanced_batch_annotation.assert_not_called()
-
-    def test_start_annotation_workflow_no_api_keys(
-        self, controller, mock_config_service, mock_worker_service
-    ):
-        """APIキー未設定の場合でもデフォルトモデルで実行"""
-        # Setup
-        mock_config_service.get_api_keys.return_value = {}
-
-        def model_selection_callback(available_models: list[str]) -> str:
-            # デフォルトモデルリストが渡される
-            assert "gpt-4o-mini" in available_models
-            return "gpt-4o-mini"
-
-        # Execute
-        controller.start_annotation_workflow(model_selection_callback=model_selection_callback)
-
-        # Assert - デフォルトモデルで実行される
-        mock_worker_service.start_enhanced_batch_annotation.assert_called_once()
 
     def test_start_annotation_workflow_worker_service_failure(
         self,
@@ -293,27 +291,6 @@ class TestStartAnnotationWorkflow:
         # Assert - callbackは呼ばれるが、start_enhanced_batch_annotationは呼ばれない
         assert callback_called
         mock_worker_service.start_enhanced_batch_annotation.assert_not_called()
-
-    def test_start_annotation_workflow_with_available_providers(self, controller, mock_config_service):
-        """利用可能なプロバイダーに基づくモデル選択"""
-        # Setup
-        mock_config_service.get_api_keys.return_value = {
-            "openai_key": "test-key",
-            "claude_key": "test-key",
-            "google_key": "test-key",
-        }
-
-        available_models_captured = []
-
-        def model_selection_callback(available_models: list[str]) -> str:
-            available_models_captured.extend(available_models)
-            return available_models[0]
-
-        # Execute
-        controller.start_annotation_workflow(model_selection_callback=model_selection_callback)
-
-        # Assert - 全プロバイダーのモデルが利用可能
-        assert len(available_models_captured) >= 3  # OpenAI, Anthropic, Google models
 
     def test_start_annotation_workflow_with_selected_models(
         self,

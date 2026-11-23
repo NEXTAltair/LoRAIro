@@ -40,9 +40,6 @@ class TestErrorNotificationWidgetInit:
         assert widget_with_db.db_manager is mock_db_manager
         assert "0 件" in widget_with_db.text()
 
-    def test_has_clicked_signal(self, widget_no_db):
-        assert hasattr(widget_no_db, "clicked")
-
 
 class TestErrorNotificationWidgetUpdateCount:
     def test_zero_errors_shows_green(self, widget_with_db, mock_db_manager):

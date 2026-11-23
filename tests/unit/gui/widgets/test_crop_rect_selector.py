@@ -332,14 +332,19 @@ class TestClamping:
 class TestLargeImageProxy:
     """巨大画像は縮小プロキシでデコードし、座標は元寸法のまま扱う (#1353)。"""
 
-    @pytest.fixture
-    def large_selector(self, qtbot, tmp_path: Path) -> CropRectSelectorWidget:
-        path = tmp_path / "large.png"
+    @pytest.fixture(scope="class")
+    def large_image_path(self, tmp_path_factory: pytest.TempPathFactory) -> Path:
+        """12000x8000 の画像ファイル。生成と保存が重いので class で 1 回だけ作り、読み取り専用で共有する。"""
+        path = tmp_path_factory.mktemp("large_crop") / "large.png"
         Image.new("L", (12000, 8000), 128).save(path)
+        return path
+
+    @pytest.fixture
+    def large_selector(self, qtbot, large_image_path: Path) -> CropRectSelectorWidget:
         widget = CropRectSelectorWidget()
         qtbot.addWidget(widget)
         widget.resize(800, 600)
-        widget.set_image(path)
+        widget.set_image(large_image_path)
         return widget
 
     def test_decoded_pixmap_is_bounded_and_size_is_original(self, large_selector) -> None:

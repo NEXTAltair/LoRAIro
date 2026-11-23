@@ -1,8 +1,6 @@
 # tests/unit/gui/cache/test_thumbnail_page_cache.py
 """ThumbnailPageCache のユニットテスト"""
 
-from unittest.mock import MagicMock
-
 import pytest
 
 from lorairo.gui.cache.thumbnail_page_cache import ThumbnailPageCache
@@ -16,13 +14,13 @@ def cache():
 
 @pytest.fixture
 def mock_pixmap():
-    """QPixmap のモック"""
-    return MagicMock()
+    """QPixmap の代役 (キャッシュは中身を見ず同一性だけを保つため、軽い object で足りる)"""
+    return object()
 
 
-def make_thumbnails(start_id: int, count: int) -> list[tuple[int, MagicMock]]:
+def make_thumbnails(start_id: int, count: int) -> list[tuple[int, object]]:
     """テスト用サムネイルリストを生成"""
-    return [(start_id + i, MagicMock()) for i in range(count)]
+    return [(start_id + i, object()) for i in range(count)]
 
 
 class TestThumbnailPageCacheInit:
@@ -188,7 +186,7 @@ class TestGetThumbnailById:
 
     def test_find_thumbnail_in_page(self, cache, mock_pixmap):
         """ページ内のサムネイルを検索できる"""
-        thumbnails = [(1, mock_pixmap), (2, MagicMock()), (3, MagicMock())]
+        thumbnails = [(1, mock_pixmap), (2, object()), (3, object())]
         cache.set_page(1, thumbnails)
 
         result = cache.get_thumbnail_by_id(1)
@@ -197,8 +195,8 @@ class TestGetThumbnailById:
 
     def test_find_thumbnail_across_pages(self, cache, mock_pixmap):
         """複数ページにまたがって検索できる"""
-        cache.set_page(1, [(1, MagicMock()), (2, MagicMock())])
-        cache.set_page(2, [(3, mock_pixmap), (4, MagicMock())])
+        cache.set_page(1, [(1, object()), (2, object())])
+        cache.set_page(2, [(3, mock_pixmap), (4, object())])
 
         result = cache.get_thumbnail_by_id(3)
 
@@ -206,7 +204,7 @@ class TestGetThumbnailById:
 
     def test_thumbnail_not_found(self, cache):
         """見つからない場合は None"""
-        cache.set_page(1, [(1, MagicMock()), (2, MagicMock())])
+        cache.set_page(1, [(1, object()), (2, object())])
 
         result = cache.get_thumbnail_by_id(999)
 

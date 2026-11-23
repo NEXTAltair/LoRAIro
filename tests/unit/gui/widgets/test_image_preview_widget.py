@@ -174,19 +174,6 @@ class TestImagePreviewWidget:
                 assert widget._current_image_path == test_path
                 assert widget._current_pixmap is mock_pixmap
 
-    def test_load_image_clears_before_loading(self, widget):
-        """新しい画像読み込み前に既存をクリアするテスト"""
-        test_path = Path("/test/image.jpg")
-        mock_pixmap = Mock()
-        mock_pixmap.isNull.return_value = False
-
-        with patch.object(widget, "_clear_preview") as mock_clear:
-            with patch("lorairo.gui.widgets.image_preview.QPixmap", return_value=mock_pixmap):
-                widget.load_image(test_path)
-
-                # クリアが呼ばれる
-                mock_clear.assert_called()
-
     def test_load_image_null_pixmap_keeps_copy_disabled(self, widget):
         """読み込み結果がnull pixmapならコピー可能状態にしない"""
         test_path = Path("/test/corrupt.jpg")

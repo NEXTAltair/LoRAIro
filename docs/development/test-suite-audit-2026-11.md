@@ -81,6 +81,11 @@ S1〜S3 の coverage データを `coverage combine` した合算は 92.0%。
 
 | ファイル::テスト名 | 分類 | 根拠 | 統合先 |
 |---|---|---|---|
+| `tests/unit/gui/controllers/test_annotation_workflow_controller.py::TestStartAnnotationWorkflow::test_start_annotation_workflow_no_api_keys` | 陳腐化 | `get_api_keys` の戻り値を空にしているが、`AnnotationWorkflowController` は `get_api_keys` を呼ばない (`git grep get_api_keys src/lorairo/gui/controllers` が 0 件)。設定は効かず、経路は success テストと同じ | 同ファイル `TestStartAnnotationWorkflow::test_start_annotation_workflow_success` |
+| `tests/unit/gui/controllers/test_annotation_workflow_controller.py::TestStartAnnotationWorkflow::test_start_annotation_workflow_with_available_providers` | 陳腐化 | 上と同じく `get_api_keys` の設定は効かない。`len(available_models) >= 3` は fixture が返す固定 6 件の長さを見ているだけ (`_get_available_models` は config の戻り値をそのまま返す) | 同ファイル `TestStartAnnotationWorkflow::test_start_annotation_workflow_success` |
+| `tests/unit/gui/widgets/test_error_notification_widget.py::TestErrorNotificationWidgetInit::test_has_clicked_signal` | 実装詳細の検証 | `hasattr(widget, "clicked")` のみ。同ファイルのテストが `qtbot.waitSignal(widget_no_db.clicked)` で実際の発火を確かめている | 同ファイル `TestErrorNotificationWidgetClickSignal::test_click_emits_signal` |
+| `tests/unit/gui/widgets/test_model_selection_widget.py::TestModelSelectionWidgetInit::test_has_model_selection_changed_signal` | 実装詳細の検証 | `hasattr` のみ。発火は別テストが `qtbot.waitSignal(w.model_selection_changed)` で確かめている | 同ファイル `TestModelSelectionWidgetModelSelectionChanged::test_on_model_selection_changed_emits_signal` |
+| `tests/unit/gui/widgets/test_image_preview_widget.py::TestImagePreviewWidget::test_load_image_clears_before_loading` | 陳腐化 | 実装は `QImageReader` で読む (#1221/#1554) のに `QPixmap` を patch し、存在しないパスで null になった結果 patch 済み `QPixmap()` が mock を返す偶然で成立している。検証は `_clear_preview` が呼ばれたことだけ | 同ファイルの実画像で `load_image` を繰り返すテスト (`test_load_image_error_after_valid_image_resets_scene_rect_and_centers` ほか) |
 
 ### 本体 integration + bdd
 

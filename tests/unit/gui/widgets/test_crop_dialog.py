@@ -9,6 +9,7 @@ autouse mock を個別に上書きする)。
 from __future__ import annotations
 
 import threading
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -56,10 +57,13 @@ def _wait_save_finished(qtbot, dialog: CropDialog) -> None:
     qtbot.waitUntil(lambda: not dialog._save_in_progress, timeout=WAIT_MS)
 
 
-@pytest.fixture
-def image_path(tmp_path: Path) -> Path:
-    """1024px 境界を試せる 2000x1500 の親画像。"""
-    path = tmp_path / "parent.png"
+@pytest.fixture(scope="module")
+def image_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """1024px 境界を試せる 2000x1500 の親画像。
+
+    どのテストも読むだけなので、生成と保存はモジュールで 1 回にする。
+    """
+    path = tmp_path_factory.mktemp("crop_dialog") / "parent.png"
     Image.new("RGB", (2000, 1500), (200, 180, 160)).save(path)
     return path
 
@@ -75,7 +79,7 @@ def candidates() -> list[str]:
 
 
 @pytest.fixture
-def dialog(qtbot, image_path: Path, recorder: SaveRecorder, candidates: list[str]) -> CropDialog:
+def dialog(qtbot, image_path: Path, recorder: SaveRecorder, candidates: list[str]) -> Iterator[CropDialog]:
     """表示済みの CropDialog (親レーティング R)。"""
     widget = CropDialog(
         image_path=image_path,
@@ -87,7 +91,12 @@ def dialog(qtbot, image_path: Path, recorder: SaveRecorder, candidates: list[str
     qtbot.addWidget(widget)
     widget.show()
     qtbot.waitExposed(widget)
-    return widget
+    yield widget
+    # ダイアログは参照循環のためモジュール終端の gc まで解放されず、2000x1500 の QPixmap を
+    # テストごとに抱えたまま積み上がる (1 件約 10MB、S2 のピーク RSS の主因)。保持している
+    # pixmap だけを手放して、積み上がりを止める
+    widget._selector.clear_image()
+    widget._preview.set_preview(None, None)
 
 
 def _click_tag(qtbot, tag_list: ClickableTagListWidget, tag: str) -> None:
