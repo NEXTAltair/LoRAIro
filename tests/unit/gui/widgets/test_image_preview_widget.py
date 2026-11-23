@@ -221,6 +221,11 @@ class TestImagePreviewWidget:
         assert len(text_items) == 1
         assert widget.preview_scene.sceneRect() == text_items[0].boundingRect()
         mock_center.assert_called_once_with(text_items[0])
+        # 読み込み前のクリアで、前の画像の表示と参照が残らない (シーンにはエラーテキストだけが残る)
+        assert widget.preview_scene.items() == text_items
+        assert widget.pixmap_item is None
+        assert widget._current_pixmap is None
+        assert widget._current_image_path is None
 
     def test_copy_current_image_to_clipboard_no_image_noops(self, widget):
         """画像未表示時はクリップボードへコピーしない"""

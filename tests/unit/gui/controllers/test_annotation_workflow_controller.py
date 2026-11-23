@@ -140,11 +140,17 @@ class TestStartAnnotationWorkflow:
         """正常なアノテーション開始"""
 
         # Setup - モデル選択callback
+        offered_models: list[list[str]] = []
+
         def model_selection_callback(available_models: list[str]) -> str:
+            offered_models.append(available_models)
             return "gpt-4o-mini"
 
         # Execute
         controller.start_annotation_workflow(model_selection_callback=model_selection_callback)
+
+        # Assert - callback には設定から得た利用可能モデルの一覧が渡る
+        assert offered_models == [mock_config_service.get_available_annotation_models.return_value]
 
         # Assert - SelectionStateService呼び出し確認
         mock_selection_state_service.get_selected_image_paths.assert_called_once()
