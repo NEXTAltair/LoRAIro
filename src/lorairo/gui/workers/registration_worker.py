@@ -8,10 +8,11 @@ from typing import TYPE_CHECKING, ClassVar
 from sqlalchemy.exc import SQLAlchemyError
 
 from ...annotation.sidecar_reader import SidecarAnnotationReader
+from ...database.db_errors import is_sqlite_interrupt_error, propagate_sqlite_interrupts
 from ...database.db_manager import RegistrationOutcome
 from ...services.folder_common_tags import FolderCommonTags
 from ...utils.log import logger
-from .base import LoRAIroWorkerBase
+from .base import CancellationError, LoRAIroWorkerBase
 from .progress_helper import ProgressHelper
 
 if TYPE_CHECKING:
@@ -44,6 +45,11 @@ class DatabaseRegistrationResult:
     ADR 0061 §4 (#633): pHash 分類結果を全経路統一の統計値に対応させる。
     ``variant_count`` は同一 pHash でも属性差で別版として新規登録された件数。
     ``directory`` / ``detail`` は Wireframes v11 Frame 1「登録完了サマリ」用。
+
+    #1621: キャンセルで止めた場合も結果を返す。``cancelled`` が True のとき、件数と
+    ``detail`` は確定済み (完了済み) の画像だけを表す。``interrupted_file`` は処理の途中で
+    止めた画像 (元画像・画像行は確定済みのことがあり、関連タグはロールバック済み)。
+    それ以降の画像は未着手。どちらも同じフォルダの再登録で補える (docs/registration-cancel.md)。
     """
 
     registered_count: int
@@ -55,6 +61,9 @@ class DatabaseRegistrationResult:
     directory: Path | None = None
     detail: list[RegistrationDetailItem] = field(default_factory=list)
     folder_tag_added_count: int = 0
+    cancelled: bool = False
+    total_count: int = 0
+    interrupted_file: str | None = None
 
 
 class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
@@ -88,16 +97,29 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         }
 
     def execute(self) -> DatabaseRegistrationResult:
-        """データベース登録処理を実行
+        """データベース登録処理を実行する。
+
+        タグ DB 境界の縮退処理がキャンセル由来の SQL 中断を伝播するのは、この登録の
+        文脈の中だけにする (#1621)。他の処理 (アノテーション保存等) は従来どおり縮退する。
+
+        Returns:
+            DatabaseRegistrationResult: 登録結果。
+        """
+        with propagate_sqlite_interrupts():
+            return self._execute_registration()
+
+    def _execute_registration(self) -> DatabaseRegistrationResult:
+        """データベース登録処理の本体
 
         指定ディレクトリ内の画像ファイルを検索し、重複チェックを行った後に
         データベースへの登録を実行する。進捗状況は定期的に報告される。
 
-        Returns:
-            DatabaseRegistrationResult: 登録結果（成功数、スキップ数、エラー数、処理時間）
+        キャンセルは関連ファイルの先読み中・画像と画像の間・タグ DB の検索中 (progress
+        handler による SQL 中断) で受け付け、例外にせず中断状態の結果を返す (#1621)。
+        画像ごとに確定するため、完了済みの件数を呼び出し元へ届ける必要がある。
 
-        Raises:
-            CancellationError: 処理がキャンセルされた場合
+        Returns:
+            DatabaseRegistrationResult: 登録結果（成功数、スキップ数、エラー数、処理時間、中断状態）
         """
         import time
 
@@ -116,39 +138,67 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
 
         logger.info(f"登録対象画像: {total_count}件")
 
-        # 関連ファイル(.txt/.caption)を事前読み込みし、タグIDを一括解決（N+1回避）
-        self._report_progress(8, "関連アノテーションを解析中...")
-        annotations_by_path = self._preload_associated_annotations(image_files)
-        tag_id_cache = self._build_tag_id_cache(annotations_by_path)
-
         # 統計情報初期化 (#633: variant を追加し全経路統一)
         stats = {"registered": 0, "variant": 0, "skipped": 0, "errors": 0}
         processed_paths: list[Path] = []
         detail: list[RegistrationDetailItem] = []
         # Issue #1409: 共通タグ対象サブフォルダ → 画像 ID (重複画像は既存 ID)
         folder_image_ids: dict[Path, list[int]] = {}
+        current_path: Path | None = None
 
-        # バッチ処理開始
-        self._report_progress(10, f"バッチ登録開始: {total_count}件")
+        try:
+            # 関連ファイル(.txt/.caption)を事前読み込みし、タグIDを一括解決（N+1回避）
+            self._report_progress(8, "関連アノテーションを解析中...")
+            annotations_by_path = self._preload_associated_annotations(image_files)
+            tag_id_cache = self._build_tag_id_cache(annotations_by_path)
 
-        for i, image_path in enumerate(image_files):
-            # キャンセルチェック
-            self._check_cancellation()
+            # バッチ処理開始
+            self._report_progress(10, f"バッチ登録開始: {total_count}件")
 
-            # 単一画像の登録と統計更新
-            image_id = self._process_single_image_in_batch(
-                image_path,
-                i,
-                total_count,
-                stats,
-                processed_paths,
-                detail,
-                annotations=annotations_by_path.get(image_path),
-                tag_id_cache=tag_id_cache,
+            for i, image_path in enumerate(image_files):
+                # 画像と画像の間のキャンセルチェック
+                self._check_cancellation()
+
+                # 単一画像の登録と統計更新
+                current_path = image_path
+                image_id = self._process_single_image_in_batch(
+                    image_path,
+                    i,
+                    total_count,
+                    stats,
+                    processed_paths,
+                    detail,
+                    annotations=annotations_by_path.get(image_path),
+                    tag_id_cache=tag_id_cache,
+                )
+                current_path = None
+                folder = self._folder_tag_key(image_path)
+                if image_id is not None and folder is not None:
+                    folder_image_ids.setdefault(folder, []).append(image_id)
+        except (CancellationError, SQLAlchemyError, ValueError) as e:
+            # タグ DB の SQL 中断は SQLAlchemy の OperationalError、tag-db が包むと ValueError で届く
+            if not self._is_cancel_stop(e):
+                raise
+            result = DatabaseRegistrationResult(
+                registered_count=stats["registered"],
+                skipped_count=stats["skipped"],
+                error_count=stats["errors"],
+                processed_paths=processed_paths,
+                total_processing_time=time.time() - start_time,
+                variant_count=stats["variant"],
+                directory=self.directory,
+                detail=detail,
+                cancelled=True,
+                total_count=total_count,
+                interrupted_file=current_path.name if current_path is not None else None,
             )
-            folder = self._folder_tag_key(image_path)
-            if image_id is not None and folder is not None:
-                folder_image_ids.setdefault(folder, []).append(image_id)
+            # サブフォルダ共通タグは全画像の登録後にまとめて付けるため、中断時は付けない。
+            # 同じフォルダの再登録で付く (既に同じタグを持つ画像は skip される)。
+            logger.info(
+                f"データベース登録を中断: 処理済み={len(detail)}/{total_count}件, "
+                f"中断対象={result.interrupted_file or 'なし'}"
+            )
+            return result
 
         folder_tag_added_count = self._apply_folder_common_tags(folder_image_ids)
 
@@ -156,7 +206,18 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
         self._report_progress(100, "データベース登録完了")
         result = self._build_registration_result(stats, processed_paths, detail, start_time)
         result.folder_tag_added_count = folder_tag_added_count
+        result.total_count = total_count
         return result
+
+    def _is_cancel_stop(self, error: BaseException) -> bool:
+        """キャンセル要求による停止 (チェックポイント or タグ DB の SQL 中断) かを判定する。"""
+        if isinstance(error, CancellationError):
+            return True
+        return self.cancellation.is_canceled() and is_sqlite_interrupt_error(error)
+
+    def _should_cancel_completed_result(self) -> bool:
+        """登録は画像ごとに確定するため、遅れて届いたキャンセルでも結果を捨てない (#1621)。"""
+        return False
 
     def _folder_tag_key(self, image_path: Path) -> Path | None:
         """画像が共通タグ対象のサブフォルダ直下にあれば、そのサブフォルダの相対パスを返す。
@@ -267,6 +328,9 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             return resolved_id
 
         except Exception as e:
+            if self._is_cancel_stop(e):
+                # キャンセルによる停止は画像エラーとして記録せず、ループごと止める (#1621)
+                raise
             stats["errors"] += 1
             detail.append(RegistrationDetailItem(image_path.name, RegistrationOutcome.FAILED, None))
             logger.error(f"画像登録エラー: {image_path}, {e}")
@@ -440,5 +504,7 @@ class DatabaseRegistrationWorker(LoRAIroWorkerBase[DatabaseRegistrationResult]):
             )
             return cache
         except Exception as e:
+            if self._is_cancel_stop(e):
+                raise  # キャンセルによる SQL 中断で個別解決へフォールバックしない (#1621)
             logger.warning(f"タグID一括解決に失敗、個別解決へフォールバック: {e}")
             return {}

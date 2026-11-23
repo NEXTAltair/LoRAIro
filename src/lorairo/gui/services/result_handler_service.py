@@ -12,6 +12,30 @@ from PySide6.QtWidgets import QWidget
 
 from ..message_box import show_critical, show_information, show_warning
 
+_REGISTRATION_DONE_MESSAGE = "画像の登録が完了しました（検索タブで一覧を確認・ステージングできます）"
+
+
+def registration_status_message(result: object) -> str:
+    """登録終了時のステータスバー文言を返す。中断時は完了と案内しない (#1621)。
+
+    Args:
+        result: 登録ワーカーの結果 (``DatabaseRegistrationResult`` 以外は完了扱い)。
+
+    Returns:
+        ステータスバーへ表示する文言。
+    """
+    from ..workers.registration_worker import DatabaseRegistrationResult
+
+    if isinstance(result, DatabaseRegistrationResult) and result.cancelled:
+        processed = (
+            result.registered_count + result.variant_count + result.skipped_count + result.error_count
+        )
+        return (
+            f"画像の登録を中断しました（{processed}/{result.total_count} 件処理済み。"
+            "同じフォルダを再登録すると残りを登録できます）"
+        )
+    return _REGISTRATION_DONE_MESSAGE
+
 
 class ResultHandlerService:
     """結果処理サービス

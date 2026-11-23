@@ -49,7 +49,7 @@ from ..controllers.settings_controller import SettingsController
 from ..message_box import show_critical, show_information, show_warning
 from ..services.pipeline_control_service import PipelineControlService
 from ..services.progress_state_service import ProgressStateService
-from ..services.result_handler_service import ResultHandlerService
+from ..services.result_handler_service import ResultHandlerService, registration_status_message
 from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
 from ..state.model_selection_state import ModelSelectionStateManager
@@ -1943,9 +1943,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             # Fallback: Service未初期化時は簡易通知のみ
             logger.info(f"バッチ登録完了: result={type(result)}")
-        self.statusBar().showMessage(
-            "画像の登録が完了しました（検索タブで一覧を確認・ステージングできます）", 8000
-        )
+        self.statusBar().showMessage(registration_status_message(result), 8000)
 
     def _on_batch_registration_error(self, error_message: str) -> None:
         """Batch registration error signal handler（ProgressStateServiceに委譲 + QMessageBox）"""
@@ -1969,7 +1967,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         Args:
             worker_id: 開始したワーカーID。進捗・キャンセルはジョブタブで扱う。
         """
-        self.statusBar().showMessage("処理を開始しました（進捗はジョブタブで確認できます）", 8000)
+        self.statusBar().showMessage(
+            "処理を開始しました（進捗の確認とキャンセルはジョブタブで行えます）", 8000
+        )
         logger.debug(f"同期ジョブ開始通知: {worker_id}")
 
     def _on_worker_progress_updated(self, worker_id: str, progress: Any) -> None:

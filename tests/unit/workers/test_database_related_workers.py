@@ -186,12 +186,25 @@ class TestDatabaseRegistrationWorker:
             assert tag_data[0]["tag"] == "tag1"
 
     def test_cancellation_behavior(self, temp_dir, real_db_manager, mock_fsm):
-        """キャンセル動作テスト"""
+        """開始前にキャンセル済みなら何も登録せず、中断状態の結果を返す (#1621)。
+
+        登録は画像ごとに確定するため、キャンセル時も CancellationError で結果を捨てず、
+        処理済み件数 (ここでは 0) と中断状態を呼び出し元へ返す。
+        """
         worker = DatabaseRegistrationWorker(temp_dir, real_db_manager, mock_fsm)
         worker.cancel()
 
-        with pytest.raises(CancellationError, match="処理がキャンセルされました"):
-            worker.execute()
+        with patch.object(real_db_manager, "register_image_with_side_effects") as register:
+            result = worker.execute()
+
+        assert result.cancelled is True
+        assert result.total_count == 3
+        assert (result.registered_count, result.skipped_count, result.error_count) == (0, 0, 0)
+        assert result.detail == []
+        assert result.interrupted_file is None
+        register.assert_not_called()
+        # 確定済みの処理がありうるため、遅れたキャンセルでも結果を捨てない
+        assert worker._should_cancel_completed_result() is False
 
     def test_empty_directory_handling(self, temp_dir, real_db_manager):
         """空ディレクトリ処理テスト"""
@@ -788,12 +801,14 @@ class TestRegistrationErrorHandling:
         return worker, real_db_manager, mock_fsm
 
     def test_cancellation_during_execution(self, worker_setup):
-        """キャンセル実行時にCancellationErrorが発生することを確認"""
+        """キャンセル済みなら execute は例外でなく中断状態の結果を返す (#1621)。"""
         worker, _, _ = worker_setup
         worker.cancel()
 
-        with pytest.raises(CancellationError, match="処理がキャンセルされました"):
-            worker.execute()
+        result = worker.execute()
+
+        assert result.cancelled is True
+        assert result.registered_count + result.skipped_count + result.error_count == 0
 
     def test_cancellation_mid_loop(self, temp_dir, real_db_manager, mock_fsm):
         """2件処理後のキャンセル確認"""
@@ -821,8 +836,13 @@ class TestRegistrationErrorHandling:
 
             mock_cancel.side_effect = cancel_on_second_call
 
-            with pytest.raises(CancellationError, match="処理がキャンセルされました"):
-                worker.execute()
+            result = worker.execute()
+
+            # 先読み 2 件目でキャンセル → 画像の登録に進まず、中断状態の結果を返す (#1621)
+            assert result.cancelled is True
+            assert mock_cancel.call_count == 2
+            assert (result.registered_count, result.error_count, result.total_count) == (0, 0, 3)
+            mock_register.assert_not_called()
 
     def test_exception_in_db_registration(self, temp_dir, real_db_manager, mock_fsm):
         """register_original_imageが例外を発生した場合の処理確認 (#633: 統一エントリ経由)"""

@@ -25,6 +25,7 @@ from ..filesystem import FileSystemManager
 from ..utils.log import logger
 from ..utils.tools import calculate_phash
 from .db_core import resolve_stored_path
+from .db_errors import is_sqlite_interrupt_error
 from .filter_criteria import ImageFilterCriteria
 from .repository.annotation_record import AnnotationRepository, ManualRatingBatchResult
 from .repository.crop_relation import CropRelationRepository
@@ -894,6 +895,10 @@ class ImageDatabaseManager:
             self.annotation_repo.save_annotations(image_id, annotations_to_save)
             logger.debug(f"画像 ID {image_id} のタグ {len(tags_data)} 件を保存しました。")
         except (SQLAlchemyError, ValueError) as e:
+            if is_sqlite_interrupt_error(e):
+                # キャンセルによる SQL 中断は失敗として記録しない (#1621)
+                logger.debug(f"画像 ID {image_id} のタグ保存をキャンセルで中断しました")
+                raise
             logger.opt(exception=True).error(f"画像 ID {image_id} のタグ保存中にエラー: {e}")
             raise
 
