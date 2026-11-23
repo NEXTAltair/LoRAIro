@@ -2126,11 +2126,11 @@ Structured error payload emitted as kind=error by the CLI boundary.
 
 ### `review run`
 
-Evaluate existing tags/captions with local Clef; explicit IDs required, no DB changes.
+Evaluate existing tags/captions with local Clef; explicit IDs or crop children required. No DB changes unless --save-results stores per-image results (db_write; not with --read-only).
 
 - Read only: `true`
 - Strict read only: `true` (root `--read-only`; see [contract](cli-read-only.md))
-- Conditional initialization: `[]`
+- Conditional initialization: `['db_write', 'schema_migration', 'directory_create']`
 - Side effects: `db_read`, `file_read`, `network`
 
 #### Compact Introspection
@@ -2144,8 +2144,11 @@ lorairo-cli --json describe "review run"
 **Input `ReviewRunInput`**
 
 - `project`: `str` (required) - Existing project to review. (CLI: `--project`, `-p`)
-- `image_ids`: `str?` (optional, default `None`) - Explicit positive image IDs in CSV; one of image_ids/image_ids_file is required. Review max 500 unique images per run; larger selections fail with RESULT_SET_TOO_LARGE before opening the project or sending requests. CSV reader accepts up to 100,000 IDs; duplicates evaluated once. No implicit all-image review. (CLI: `--image-ids`)
+- `image_ids`: `str?` (optional, default `None`) - Explicit positive image IDs in CSV; exactly one of image_ids/image_ids_file/crop_children_of/crop_children is required. Review max 500 unique images per run; larger selections fail with RESULT_SET_TOO_LARGE before opening the project or sending requests. CSV reader accepts up to 100,000 IDs; duplicates evaluated once. No implicit all-image review. (CLI: `--image-ids`)
 - `image_ids_file`: `str?` (optional, default `None`) - UTF-8 newline/comma IDs, exclusive with image_ids. Review max 500 unique images per run; larger selections fail with RESULT_SET_TOO_LARGE before opening the project or sending requests. File reader accepts up to 100,000 IDs; duplicates evaluated once. (CLI: `--image-ids-file`)
+- `crop_children_of`: `int?` (optional, default `None`) - Parent image ID; review only its crop children from crop_relations (parent excluded). Exclusive with other selections. Unknown parent fails with NOT_FOUND; zero children succeeds with image_count=0 (対象 0 件). Over 500 children fails with RESULT_SET_TOO_LARGE. Crop children are resolved inside the opened project, so the 500 cap is checked after opening it but before any Clef request or result save. With save_results the project is opened for writing even when 0 or over 500 children match: an old DB is migrated and missing standard project directories are created, but no review results are saved. (CLI: `--crop-children-of`)
+- `crop_children`: `bool` (optional, default `False`) - Review every crop child image in crop_relations. Exclusive with other selections. Zero children succeeds with image_count=0; over 500 fails with RESULT_SET_TOO_LARGE. Crop children are resolved inside the opened project, so the 500 cap is checked after opening it but before any Clef request or result save. With save_results the project is opened for writing even when 0 or over 500 children match: an old DB is migrated and missing standard project directories are created, but no review results are saved. (CLI: `--crop-children`)
+- `save_results`: `bool` (optional, default `False`) - Save each image result to annotation_review_results like the GUI (fingerprint, newer result kept). Default false: no DB writes. When true, the project is opened like other write commands (old DB migrated, missing standard directories created), including crop-child resolution. Rejected with root --read-only (INVALID_INPUT). A per-image save failure continues the run and returns exit 3 (or 1 if nothing was saved). (CLI: `--save-results`)
 
 **Output `ReviewRunItem`**
 
@@ -2171,6 +2174,8 @@ lorairo-cli --json describe "review run"
 - `status`: `completed | partial | failed | cancelled | stale | unevaluated` (required)
 - `item_count`: `int` (required)
 - `error`: `str?` (required)
+- `save_status`: `saved | skipped | failed?` (optional, default `None`) - Null without --save-results; skipped means a newer stored result was kept.
+- `save_error`: `str?` (optional, default `None`)
 
 **Output `ReviewRunResult`**
 
@@ -2188,6 +2193,10 @@ lorairo-cli --json describe "review run"
 - `stale`: `int` (required)
 - `unevaluated`: `int` (required)
 - `warnings`: `int` (required)
+- `save_results`: `bool` (optional, default `False`)
+- `saved`: `int` (optional, default `0`)
+- `save_skipped`: `int` (optional, default `0`)
+- `save_failed`: `int` (optional, default `0`)
 
 **Error `CliErrorResponse`**
 

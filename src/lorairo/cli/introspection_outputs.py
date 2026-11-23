@@ -182,6 +182,11 @@ class ReviewRunOutcome(BaseModel):
     status: Literal["completed", "partial", "failed", "cancelled", "stale", "unevaluated"]
     item_count: int
     error: str | None
+    save_status: Literal["saved", "skipped", "failed"] | None = Field(
+        default=None,
+        description="Null without --save-results; skipped means a newer stored result was kept.",
+    )
+    save_error: str | None = None
 
 
 class ReviewRunResult(ResultRow):
@@ -196,6 +201,10 @@ class ReviewRunResult(ResultRow):
     stale: int
     unevaluated: int
     warnings: int
+    save_results: bool = False
+    saved: int = 0
+    save_skipped: int = 0
+    save_failed: int = 0
 
 
 # Keep registry lookup explicit and limited to wire models; no arbitrary import by name.

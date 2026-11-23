@@ -147,4 +147,4 @@ A representative's Clef result is a **reference only**. There is no ground-truth
 showing that pHash neighbors share the same annotation errors, so the result must not be
 used as evidence about other images in the cluster. Nothing is copied from a
 representative to its cluster members, and no tag, caption or image is changed or deleted:
-the command is read-only and `review run` does not save results ([ADR 0095](decisions/0095-clef-review-batch-results.md)).
+the command is read-only and `review run` does not save results by default (only with `--save-results`) ([ADR 0095](decisions/0095-clef-review-batch-results.md)).

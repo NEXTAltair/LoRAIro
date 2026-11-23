@@ -345,3 +345,183 @@ def test_real_project_review_never_prepares_or_changes_database(tmp_path, monkey
         sql.lstrip().upper().startswith(("CREATE", "INSERT", "UPDATE", "DELETE", "ALTER"))
         for sql in statements
     )
+
+
+# --- #1603: クロップ子画像の解決と --save-results 保存 ---
+
+
+@pytest.mark.parametrize("parent", [0, -1, True, "1", 1.0])
+def test_invalid_crop_parent_fails_before_opening_project(monkeypatch, parent):
+    context = Mock(side_effect=AssertionError("Invalid input must not open a project"))
+    monkeypatch.setattr(review, "_project_context", context)
+    with pytest.raises(InvalidInputError):
+        review.review_crop_children("project", parent)
+    context.assert_not_called()
+
+
+@pytest.mark.parametrize("save_results", [False, True])
+@pytest.mark.parametrize("parent", [None, 5])
+def test_crop_children_are_resolved_and_reviewed_in_one_project_open(
+    saving_services, monkeypatch, parent, save_results
+):
+    container, service, _store, store_factory, contexts = saving_services
+    resolver = Mock(return_value=[4, 3])
+    monkeypatch.setattr("lorairo.services.crop_review_targets.resolve_crop_child_image_ids", resolver)
+    observed = []
+    saved = []
+
+    reviewed = review.review_crop_children(
+        "project",
+        parent,
+        on_result=lambda result: observed.append(result.image_id),
+        save_results=save_results,
+        on_saved=saved.append,
+    )
+
+    assert reviewed == [4, 3]
+    # 1 回だけ開き、保存時は書き込み可能 (migration を含む) な開き方、既定は読み取り専用。
+    assert contexts == [not save_results]
+    resolver.assert_called_once_with(container.db_manager, parent)
+    assert [call.args[0] for call in service.prepare_review.call_args_list] == [4, 3]
+    assert observed == [4, 3]
+    if save_results:
+        store_factory.assert_called_once_with(container.db_manager)
+        assert [(outcome.image_id, outcome.status) for outcome in saved] == [(4, "saved"), (3, "saved")]
+    else:
+        store_factory.assert_not_called()
+        assert saved == []
+
+
+def test_zero_crop_children_return_empty_without_review(saving_services, monkeypatch):
+    _container, service, _store, store_factory, contexts = saving_services
+    monkeypatch.setattr(
+        "lorairo.services.crop_review_targets.resolve_crop_child_image_ids", Mock(return_value=[])
+    )
+    factory = Mock(side_effect=AssertionError("No targets must not create a review service"))
+    monkeypatch.setattr(annotation_review_service, "AnnotationReviewService", factory)
+
+    assert review.review_crop_children("project", 5, save_results=True) == []
+    assert contexts == [False]
+    store_factory.assert_not_called()
+    service.review.assert_not_called()
+
+
+def test_more_than_500_crop_children_fail_before_review(saving_services, monkeypatch):
+    _container, service, _store, _store_factory, contexts = saving_services
+    monkeypatch.setattr(
+        "lorairo.services.crop_review_targets.resolve_crop_child_image_ids",
+        Mock(return_value=list(range(1, 502))),
+    )
+    factory = Mock(side_effect=AssertionError("Oversized selection must not create a review service"))
+    monkeypatch.setattr(annotation_review_service, "AnnotationReviewService", factory)
+
+    with pytest.raises(ResultSetTooLargeError) as error:
+        review.review_crop_children("project")
+
+    assert error.value.details == {"limit": 500, "matched": 501}
+    assert contexts == [True]
+    service.review.assert_not_called()
+
+
+def test_project_context_without_read_only_allows_writes(monkeypatch):
+    container = Mock()
+
+    @contextmanager
+    def scope():
+        assert not is_read_only()
+        yield container
+
+    monkeypatch.setattr("lorairo.services.service_container.service_container_scope", scope)
+    with review._project_context("project", read_only=False) as actual:
+        assert actual is container and not is_read_only()
+        container.set_active_project.assert_called_once_with("project")
+
+
+@pytest.fixture
+def saving_services(services, monkeypatch):
+    container, service, _factory = services
+    contexts = []
+
+    @contextmanager
+    def context(project_name, *, read_only=True):
+        contexts.append(read_only)
+        yield container
+
+    monkeypatch.setattr(review, "_project_context", context)
+    service.warning_threshold = 0.25
+    store = Mock()
+    store.save.return_value = True
+    store_factory = Mock(return_value=store)
+    monkeypatch.setattr("lorairo.services.annotation_review_store.AnnotationReviewStore", store_factory)
+    return container, service, store, store_factory, contexts
+
+
+def test_default_review_never_creates_a_store(saving_services):
+    _container, _service, store, store_factory, contexts = saving_services
+    review.review_annotations("project", [1, 2])
+    assert contexts == [True]
+    store_factory.assert_not_called()
+    store.save.assert_not_called()
+
+
+def test_save_results_saves_each_image_before_reporting_it(saving_services):
+    container, _service, store, store_factory, contexts = saving_services
+    events = []
+    store.save.side_effect = [True, False]
+
+    review.review_annotations(
+        "project",
+        [1, 2],
+        on_result=lambda result: events.append(("result", result.image_id)),
+        on_saved=lambda outcome: events.append(("saved", outcome.image_id, outcome.status, outcome.error)),
+        save_results=True,
+    )
+
+    assert contexts == [False]
+    store_factory.assert_called_once_with(container.db_manager)
+    assert events == [
+        ("saved", 1, "saved", None),
+        ("result", 1),
+        ("saved", 2, "skipped", None),
+        ("result", 2),
+    ]
+    thresholds = {call.args[1] for call in store.save.call_args_list}
+    requested = {call.kwargs["requested_at"] for call in store.save.call_args_list}
+    assert thresholds == {0.25} and len(requested) == 1 and None not in requested
+
+
+@pytest.mark.parametrize(
+    "error, message",
+    [
+        (
+            OperationalError("INSERT secret", {}, Exception("database is locked")),
+            "Could not save the review result (OperationalError).",
+        ),
+        (OSError("secret path"), "Could not save the review result (OSError)."),
+    ],
+)
+def test_save_failure_is_image_scoped_and_hides_details(saving_services, error, message):
+    _container, service, store, _factory, _contexts = saving_services
+    store.save.side_effect = [error, True]
+    outcomes = []
+
+    results = review.review_annotations("project", [1, 2], save_results=True, on_saved=outcomes.append)
+
+    assert [result.image_id for result in results] == [1, 2]
+    assert service.review.call_count == 2
+    assert [(outcome.image_id, outcome.status, outcome.error) for outcome in outcomes] == [
+        (1, "failed", message),
+        (2, "saved", None),
+    ]
+    assert "secret" not in outcomes[0].error
+
+
+def test_save_failure_for_removed_image_is_reported(saving_services):
+    from lorairo.services.annotation_review_store import AnnotationReviewImageMissingError
+
+    _container, _service, store, _factory, _contexts = saving_services
+    store.save.side_effect = AnnotationReviewImageMissingError("gone")
+    outcomes = []
+    review.review_annotations("project", [1], save_results=True, on_saved=outcomes.append)
+    assert outcomes[0].status == "failed"
+    assert outcomes[0].error == "The image was removed before its review result could be saved."
