@@ -86,7 +86,8 @@ def invoke(*args):
 @pytest.mark.integration
 @pytest.mark.cli
 @pytest.mark.e2e
-def test_cli_register_process_annotate_batch_export(tmp_path, monkeypatch):
+def test_cli_register_process_annotate_batch_export(tmp_path, monkeypatch, skip_alembic_upgrade_at_head):
+    # Alembic の実経路は test_cli_workflow.py が検証する。ここでは head の DB への upgrade を省く。
     projects = tmp_path / "projects"
     original_init = ProjectManagementService.__init__
     monkeypatch.setattr(

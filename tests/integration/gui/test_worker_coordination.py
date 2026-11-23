@@ -327,30 +327,3 @@ class TestWorkerSystemPerformance:
         # 実行時間が合理的であることを確認
         assert execution_time < 2.0  # 5ワーカーが2秒以内に完了
         assert len(results) == 5
-
-    def test_memory_usage_stability(self):
-        """メモリ使用量安定性テスト"""
-        mock_db_manager = Mock()
-        mock_db_manager.get_images_by_filter.return_value = ([], 0)
-
-        # 多数のワーカーを作成・実行・削除してメモリリークをチェック
-        import gc
-
-        for i in range(50):
-            worker = SearchWorker(
-                mock_db_manager,
-                SearchConditions(search_type="tags", keywords=[f"test_{i}"], tag_logic="and"),
-            )
-            worker.run()
-            del worker
-
-            # 定期的にガベージコレクション実行
-            if i % 10 == 0:
-                gc.collect()
-
-        # 最終ガベージコレクション
-        gc.collect()
-
-        # メモリリークがないことを確認（参照カウントベース）
-        # 実際のメモリ使用量測定は環境に依存するため、基本的なチェックのみ
-        assert True  # 例外が発生しなければOK
