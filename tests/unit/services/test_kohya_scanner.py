@@ -101,6 +101,15 @@ def test_discover_returns_parent_itself_when_it_is_a_root(tmp_path: Path) -> Non
     assert discover_kohya_roots(tmp_path) == [tmp_path]
 
 
+def test_discover_does_not_treat_symlinked_repeat_folder_as_root(tmp_path: Path) -> None:
+    """Codex P2 (PR #1652): `10_link` のシンボリックリンクで親を誤ってルートと判定しない。"""
+    v1 = _make_version(tmp_path, "raikou_v01", "train_dir")
+    v2 = _make_version(tmp_path, "raikou_v02", "train_dir")
+    (tmp_path / "10_link").symlink_to(v1 / "10_a", target_is_directory=True)
+
+    assert discover_kohya_roots(tmp_path) == [v1, v2]
+
+
 def test_discover_does_not_go_below_a_found_root(tmp_path: Path) -> None:
     root = _make_version(tmp_path, "v1")
     _make_version(root, "nested")

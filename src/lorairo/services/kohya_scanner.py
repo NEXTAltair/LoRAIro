@@ -89,10 +89,23 @@ def _is_excluded(dir_name: str, exclude_patterns: tuple[str, ...]) -> bool:
     return any(fnmatch(dir_name, pattern) for pattern in exclude_patterns)
 
 
-def _has_kohya_folder(directory: Path, exclude_patterns: tuple[str, ...]) -> bool:
-    """`directory` 直下に、除外されない `<数字>_<名前>` フォルダがあるか。"""
+def has_kohya_folder(
+    directory: Path, exclude_patterns: tuple[str, ...], *, include_symlinks: bool = False
+) -> bool:
+    """`directory` 直下に、除外されない `<数字>_<名前>` フォルダがあるか。
+
+    Args:
+        directory: 調べるディレクトリ。
+        exclude_patterns: 除外するフォルダ名の fnmatch パターン。
+        include_symlinks: True ならディレクトリへのシンボリックリンクも数える
+            (`scan_kohya_directory` はリンク先も走査するため、従来の単一ルート判定と揃える)。
+            探索では False にし、リンクで親フォルダをルートと誤判定しないようにする。
+    """
     return any(
-        child.is_dir() and not _is_excluded(child.name, exclude_patterns) and parse_folder_name(child.name)
+        child.is_dir()
+        and (include_symlinks or not child.is_symlink())
+        and not _is_excluded(child.name, exclude_patterns)
+        and parse_folder_name(child.name)
         for child in directory.iterdir()
     )
 
@@ -122,7 +135,7 @@ def discover_kohya_roots(
     pending: list[tuple[Path, int]] = [(parent, 0)]
     while pending:
         directory, depth = pending.pop()
-        if _has_kohya_folder(directory, exclude_patterns):
+        if has_kohya_folder(directory, exclude_patterns):
             roots.append(directory)
             continue
         if depth >= max_depth:

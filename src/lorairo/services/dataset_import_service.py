@@ -35,6 +35,7 @@ from lorairo.services.kohya_scanner import (
     DEFAULT_EXCLUDE_PATTERNS,
     ScannedFolder,
     discover_kohya_roots,
+    has_kohya_folder,
     scan_kohya_directory,
 )
 from lorairo.utils.log import logger
@@ -557,6 +558,9 @@ class DatasetImportService:
         if discover_kohya_roots(parent, DEFAULT_EXCLUDE_PATTERNS, max_depth=0):
             return []
         roots = discover_kohya_roots(parent, DEFAULT_EXCLUDE_PATTERNS + exclude_patterns, max_depth)
+        # 学習フォルダがシンボリックリンクだけのルートは、版が見つからなければ従来の取り込みとする
+        if not roots and has_kohya_folder(parent, DEFAULT_EXCLUDE_PATTERNS, include_symlinks=True):
+            return []
         candidates: list[VersionCandidate] = []
         for root, name in zip(roots, _version_names(parent, roots), strict=True):
             version_dir = parent / root.relative_to(parent).parts[0]

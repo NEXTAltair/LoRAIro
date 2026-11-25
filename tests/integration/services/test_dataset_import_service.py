@@ -508,6 +508,31 @@ def test_discover_versions_returns_empty_for_a_single_root(
     assert service.discover_versions(kohya_root, "ds") == []
 
 
+def test_discover_versions_ignores_symlinked_repeat_folder_beside_versions(
+    service: DatasetImportService, tmp_path: Path
+) -> None:
+    """Codex P2 (PR #1652): 親フォルダの `10_link` のリンクで、本物の版の探索を止めない。"""
+    parent = _make_versions(tmp_path / "ライコウLoRA")
+    (parent / "10_link").symlink_to(parent / "raikou_v01" / "10_raikou", target_is_directory=True)
+
+    names = [c.version_name for c in service.discover_versions(parent, "raikou")]
+
+    assert names == ["raikou_v01", "raikou_v2", "raikou_v10ps"]
+
+
+def test_discover_versions_keeps_single_root_made_only_of_symlinked_folders(
+    service: DatasetImportService, kohya_root: Path, tmp_path: Path
+) -> None:
+    """学習フォルダがリンクだけのルートは、従来どおり単一ルートの取り込みとする。"""
+    linked = tmp_path / "linked_train_dir"
+    linked.mkdir()
+    for child in kohya_root.iterdir():
+        if child.is_dir():
+            (linked / child.name).symlink_to(child, target_is_directory=True)
+
+    assert service.discover_versions(linked, "ds") == []
+
+
 def test_discover_versions_names_two_roots_in_one_top_folder_by_relative_path(
     service: DatasetImportService, tmp_path: Path
 ) -> None:
