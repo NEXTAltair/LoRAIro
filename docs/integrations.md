@@ -10,25 +10,24 @@ depends_on: [transformers, litellm, pydanticai]
 
 ## 概要
 
-LoRAIroは2つのローカルパッケージと統合し、タグ管理とAIアノテーション機能を提供します。
+LoRAIro は 2 つのローカルパッケージを統合し、タグ管理と AI アノテーションの機能を提供する。
 
-**Local Packages:**
-- `local_packages/genai-tag-db-tools` - Tag database management
-- `local_packages/image-annotator-lib` - Multi-provider AI annotation
+- `local_packages/genai-tag-db-tools` — タグデータベース管理
+- `local_packages/image-annotator-lib` — マルチプロバイダー AI アノテーション
 
-両パッケージは `uv.sources` でeditable installされ、プロジェクトルートの `.venv` を共有します。
+両パッケージは `uv.sources` で editable インストールされ、プロジェクトルートの `.venv` を共有する。
 
-## genai-tag-db-tools統合
+## genai-tag-db-tools 統合
 
 ### 目的
 
-画像タグの正規化、検索、登録を外部タグデータベース（User DB + Base DB）で管理。
+画像タグの正規化、検索、登録を外部タグデータベース(User DB と Base DB)で管理する。
 
 ### 統合ポイント
 
 #### 主要エントリーポイント
 
-**File**: `src/lorairo/database/repository/annotation_record.py`
+**対象ファイル**: `src/lorairo/database/repository/annotation_record.py`
 
 ```python
 from genai_tag_db_tools import search_tags
@@ -38,35 +37,34 @@ from genai_tag_db_tools.services.tag_register import TagRegisterService
 from genai_tag_db_tools.utils.cleanup_str import TagCleaner
 ```
 
-**Usage:**
-- Tag search: `search_tags(TagSearchRequest(...))`
-- Tag registration: `TagRegisterService.register_tag(TagRegisterRequest(...))`
-- Tag reader: `MergedTagReader` for user+base DB queries
+- タグ検索: `search_tags(TagSearchRequest(...))`
+- タグ登録: `TagRegisterService.register_tag(TagRegisterRequest(...))`
+- タグ読み込み: User DB と Base DB を統合検索する `MergedTagReader`
 
-#### Service Layer
+#### サービス層
 
-**File**: `src/lorairo/services/tag_management_service.py`
+**対象ファイル**: `src/lorairo/services/tag_management_service.py`
 
 ```python
 from genai_tag_db_tools.db.repository import TagReader  # User DB only
 from genai_tag_db_tools.models import TagTypeUpdate
 ```
 
-**Responsibility:**
-- User DB専用タグ管理（Base DBは対象外）
-- Unknown typeタグの検索と一括更新
-- Type name一覧取得
+**責務**:
+- User DB 専用のタグ管理(Base DB は対象外)
+- `unknown` タイプタグの検索と一括更新
+- タイプ名一覧の取得
 
-#### GUI層
+#### GUI 層
 
-**File**: `src/lorairo/gui/widgets/tag_management_widget.py`
+**対象ファイル**: `src/lorairo/gui/widgets/tag_management_widget.py`
 
-**Features:**
-- Unknown typeタグの一覧表示
-- Type選択UI
-- 一括type更新
+**主な機能**:
+- `unknown` タイプタグの一覧表示
+- タイプ選択 UI
+- 一括タイプ更新
 
-### 公開API使用方法
+### 公開 API の使用方法
 
 #### タグ検索
 
@@ -82,7 +80,7 @@ request = TagSearchRequest(
 results = search_tags(request)
 ```
 
-**Returns:** `TagSearchResponse` with matched tags
+一致したタグを含む `TagSearchResponse` を返す。
 
 #### タグ登録
 
@@ -99,41 +97,38 @@ request = TagRegisterRequest(
 result = service.register_tag(request)
 ```
 
-**Pattern:** Search → Register → Retry on conflict
+基本フローは「検索 → 登録 → 競合時リトライ」である。競合時は以下のように扱う。
 
-**Conflict Handling:**
-- format_id collision: Auto-increment within format scope
-- Duplicate tag: Return existing tag_id
+- `format_id` の衝突: フォーマットスコープ内で自動インクリメントする
+- 重複タグ: 既存の `tag_id` を返す
 
 ### データベースアーキテクチャ
 
-#### User DB（主）
+#### User DB(主)
 
-**Location:** `HF_HOME/.cache/genai-tag-db-tools/user_db.sqlite` (default)
+既定の配置先は `HF_HOME/.cache/genai-tag-db-tools/user_db.sqlite` である。
 
-**Initialization:**
 ```python
 from genai_tag_db_tools.db.core import init_user_db
 
 init_user_db(user_db_dir="path/to/user_db")  # Auto-created if not exists
 ```
 
-**Strategy:**
-- **Auto-creation**: LoRAIro auto-initializes at startup
-- **format_id**: 1000+ range (reserved for user DB)
-- **type_name**: Defaults to "unknown" placeholder
-- **Isolation**: User-registered tags only
+**運用方針**:
+- **自動生成**: LoRAIro 起動時に自動で初期化する
+- **`format_id` 範囲**: 1000 以上を User DB 専用として予約する
+- **`type_name` 既定値**: プレースホルダーとして `"unknown"` を設定する
+- **分離**: ユーザーが登録したタグのみを格納する
 
-#### Base DB（オプション）
+#### Base DB(オプション)
 
-**Location:** 3 DB files downloaded from HuggingFace
+HuggingFace からダウンロードする 3 つの DB ファイルで構成される。
 
-**Contents:**
-- Curated tag taxonomy
-- Pre-registered tags from multiple formats
-- Read-only for LoRAIro
+- 整備済みのタグ分類体系と複数フォーマットの事前登録タグを含む
+- LoRAIro からは読み取り専用として扱う
 
-**Merged Reader:**
+User DB と Base DB を横断検索する場合は `MergedTagReader` を使用する。
+
 ```python
 from genai_tag_db_tools.db.repository import MergedTagReader
 
@@ -141,13 +136,10 @@ reader = MergedTagReader()  # Combines User DB + Base DB
 tags = reader.search_tags("blue eyes")  # Searches both DBs
 ```
 
-### format_id衝突回避
+### format_id の衝突回避
 
-**Problem:** User DB and Base DB may have overlapping format_ids (1-999)
+User DB と Base DB の間で `format_id`(1–999)が重複する恐れがあるため、User DB には 1000 以上を予約している。
 
-**Solution:** 1000+ reservation for User DB
-
-**Implementation:**
 ```python
 # In genai-tag-db-tools/services/tag_register.py
 def _get_or_create_format_id(format_name: str) -> int:
@@ -160,30 +152,26 @@ def _get_or_create_format_id(format_name: str) -> int:
     return max(max_id + 1, 1000)
 ```
 
-**Benefits:**
-- No collision between User DB (1000+) and Base DB (1-999)
-- format_id auto-increment scoped per format
-- Safe concurrent registration
+これにより、User DB(1000 以上)と Base DB(1–999)の衝突を防ぎ、フォーマット単位の自動採番と安全な並行登録を実現している。
 
 ### タグタイプ管理
 
 #### タイプ選択戦略
 
-**Default:** `type_name="unknown"`
+既定値は `type_name="unknown"` である。ユーザーによる分類は以下の手順で行う。
 
-**User Assignment:**
-1. List unknown tags: `TagManagementService.get_unknown_tags()`
-2. List available types: `TagManagementService.get_all_available_types()`
-3. Batch update: `TagManagementService.update_tag_types(tag_ids, new_type)`
+1. `TagManagementService.get_unknown_tags()` で未分類タグを一覧取得する
+2. `TagManagementService.get_all_available_types()` で利用可能なタイプ一覧を取得する
+3. `TagManagementService.update_tag_types(tag_ids, new_type)` で一括更新する
 
-**Type Names (examples):**
-- `character` - Character names
-- `copyright` - Series/game titles
-- `general` - General descriptive tags
-- `meta` - Metadata tags
-- `unknown` - Unclassified (placeholder)
+**主なタイプ名の例**:
+- `character`: キャラクター名
+- `copyright`: 作品名・シリーズ名
+- `general`: 一般的な描写タグ
+- `meta`: メタデータタグ
+- `unknown`: 未分類(プレースホルダー)
 
-#### 一括更新API
+#### 一括更新 API
 
 ```python
 from genai_tag_db_tools.models import TagTypeUpdate
@@ -196,13 +184,12 @@ updates = [
 service.update_tags_type_batch(updates, format_name="Lorairo")
 ```
 
-**Atomicity:** All updates succeed or rollback
+更新はアトミックに実行され、全件成功するかロールバックされる。
 
 ### 統合テスト
 
-**Coverage:** 75%+ for tag integration code
+タグ統合コードのカバレッジ目標は 75% 以上とする。
 
-**Test Patterns:**
 ```python
 def test_tag_registration(tmp_path):
     # Initialize User DB in temp location
@@ -222,65 +209,65 @@ def test_tag_registration(tmp_path):
     assert result.format_id >= 1000  # User DB range
 ```
 
-## image-annotator-lib統合
+## image-annotator-lib 統合
 
 ### 目的
 
-Multi-provider AI annotation for image captioning and tagging (OpenAI, Anthropic, Google, Local models).
+OpenAI、Anthropic、Google、およびローカルモデルによるマルチプロバイダーの画像キャプション生成とタグ付けを提供する。
 
 ### 統合ポイント
 
 #### 主要アダプター
 
-**File**: `src/lorairo/annotation/annotator_adapter.py`
+**対象ファイル**: `src/lorairo/annotation/annotator_adapter.py`
 
 ```python
 from image_annotator_lib import get_available_annotators, create_annotator
 from image_annotator_lib.types import AnnotationResult, AnnotatorConfig
 ```
 
-**Responsibility:**
-- Provider selection and configuration
-- Annotator instance creation
-- Result type conversion
+**責務**:
+- プロバイダーの選択と設定
+- アノテーターインスタンスの生成
+- 結果型の変換
 
 #### アノテーションロジック
 
-**File**: `src/lorairo/annotation/annotation_runner.py`
+**対象ファイル**: `src/lorairo/annotation/annotation_runner.py`
 
 ```python
 from image_annotator_lib import annotate
 from image_annotator_lib.types import AnnotationRequest
 ```
 
-**Responsibility:**
-- Annotation request construction
-- Batch processing coordination
-- Error handling and retry logic
+**責務**:
+- アノテーションリクエストの構築
+- バッチ処理の調整
+- エラーハンドリングとリトライ制御
 
-#### Service Layer
+#### サービス層
 
-**File**: `src/lorairo/annotation/annotator_adapter.py`
+**対象ファイル**: `src/lorairo/annotation/annotator_adapter.py`
 
-**Responsibility:**
-- Business logic wrapper for annotation
-- Configuration service integration
-- Result aggregation
+**責務**:
+- アノテーション用ビジネスロジックのラップ
+- 設定サービスとの連携
+- 結果の集約
 
-#### Worker層
+#### ワーカー層
 
-**File**: `src/lorairo/gui/workers/annotation_worker.py`
+**対象ファイル**: `src/lorairo/gui/workers/annotation_worker.py`
 
-**Responsibility:**
-- Qt-based asynchronous annotation execution
-- Progress reporting via Signals
-- Result delivery to GUI
+**責務**:
+- Qt ベースの非同期アノテーション実行
+- Signal を介した進捗報告
+- GUI への結果引き渡し
 
 ### プロバイダー設定
 
 #### 設定ファイル
 
-**File**: `config/lorairo.toml`
+**対象ファイル**: `config/lorairo.toml`
 
 ```toml
 [api]
@@ -331,8 +318,7 @@ result = annotate(request)
 
 #### バッチアノテーション
 
-複数画像・複数モデルの同期アノテーションは `annotate()` に画像リストとモデルリストをまとめて渡す
-(pHash をキーとする結果辞書 `PHashAnnotationResults` を返す)。
+複数画像および複数モデルの同期アノテーションでは、`annotate()` に画像リストとモデルリストをまとめて渡す。戻り値は pHash をキーとする辞書 `PHashAnnotationResults` である。
 
 ```python
 from lorairo.annotation.annotator_adapter import AnnotatorLibraryAdapter
@@ -347,30 +333,22 @@ results = adapter.annotate(
 
 #### Provider Batch API
 
-Provider Batch API は同期 `annotate_batch()` とは別の非同期 job lifecycle です。OpenAI / Anthropic
-direct route の provider-specific payload 作成、submit、retrieve、cancel、result fetch、parse、
-normalized result 生成は `image-annotator-lib` が担当します。
+Provider Batch API は、同期 `annotate_batch()` とは独立した非同期ジョブライフサイクルである。OpenAI と Anthropic の direct 経路におけるプロバイダー固有ペイロードの作成、送信、取得、キャンセル、結果取得、解析、正規化結果の生成は `image-annotator-lib` が担う。
 
-LoRAIro は `provider_batch_jobs` / `provider_batch_items` / `provider_batch_artifacts` の 3 テーブルに
-job / item / artifact state を保存し、library から返る `BatchFetchResult` を既存 annotation save path
-へ import します。`custom_id = img-{image_id}` を結果照合の SSoT とします。
+LoRAIro は `provider_batch_jobs`、`provider_batch_items`、`provider_batch_artifacts` の 3 テーブルでジョブ・アイテム・成果物の状態を管理する。ライブラリから返る `BatchFetchResult` は既存のアノテーション保存経路へ取り込み、結果照合の SSoT には `custom_id = img-{image_id}` を用いる。
 
-実装ステータス (2026-05-27 時点):
+**実装ステータス(2026-05-27 時点)**:
+- **Anthropic direct 経路**: 完全実装(ライブラリ側 `webapi/batch/adapters/anthropic.py` と LoRAIro の CLI・GUI・サービス・DB)
+- **OpenAI direct 経路**: `/v1/moderations` による rating preflight batch のみ実装。通常のアノテーション生成バッチは未対応
+- **Google Vertex AI**: ADR 0038 Phase 3 の対象であり、CLI・GUI ともに送信を拒否する
+- **OpenRouter 経路**: ADR 0038 の対象外(non-goal)であり、CLI・GUI ともに送信を拒否する
 
-- **Anthropic direct route**: 完全実装 (lib `webapi/batch/adapters/anthropic.py` + LoRAIro CLI/GUI/Service/DB)
-- **OpenAI direct route**: `/v1/moderations` の rating preflight batch のみ実装。通常 annotation
-  generation batch は未対応
-- **Google Vertex AI**: ADR 0038 Phase 3、CLI/GUI とも submit を reject
-- **OpenRouter route**: ADR 0038 non-goal、CLI/GUI とも submit を reject
-
-ユーザー向けの利用条件、CLI / GUI 運用手順、Status mapping、Privacy 警告、ADR と実装の差分は
-[Provider Batch API 利用条件と運用ガイド](provider-batch-api.md) を参照してください。
+利用条件、CLI・GUI の運用手順、ステータスマッピング、プライバシー警告、ADR と実装の差分は [Provider Batch API 利用条件と運用ガイド](provider-batch-api.md) を参照する。
 
 ### データ型
 
 #### PHashAnnotationResults
 
-**Structure:**
 ```python
 {
     "image_path": "path/to/image.jpg",
@@ -384,21 +362,18 @@ job / item / artifact state を保存し、library から返る `BatchFetchResul
 }
 ```
 
-**Usage:**
-- Store in database with phash as key
-- Detect duplicate images via phash matching
-- Version annotations per model/provider
+**用途**:
+- pHash をキーとしてデータベースへ保存する
+- pHash の照合により重複画像を検出する
+- モデル・プロバイダーごとにアノテーション結果を管理する
 
 ### エラーハンドリング
 
-#### エラートリアージ (自動retryなし、ADR 0033)
+#### エラートリアージ(自動リトライなし、ADR 0033)
 
-LoRAIro はアノテーションエラーを自動 retry しない設計 (ADR 0033) を採用している。
-`annotate()` の結果に含まれる `retryable` フラグはエラーレコードとして保存され、
-`ErrorTriageService` (`src/lorairo/services/error_triage_service.py`) が
-`(operation_type, error_type, model_name)` 単位で同一原因グルーピング・サマリ・
-フィルタリングを提供する。ユーザーは Errors タブでエラーを確認し、必要なら
-条件を修正した上で別ジョブとして再送信する。アクションは resolve / bulk resolve のみ。
+LoRAIro はアノテーションエラーを自動リトライしない設計を採用している(ADR 0033)。`annotate()` の結果に含まれる `retryable` フラグはエラーレコードへ保存する。
+
+`ErrorTriageService`(`src/lorairo/services/error_triage_service.py`)は `(operation_type, error_type, model_name)` 単位で同一原因をグルーピングし、サマリとフィルタリングを提供する。ユーザーは Errors タブでエラーを確認し、必要に応じて条件を修正して別ジョブとして再送信する。タブ上の操作は resolve と bulk resolve に限定している。
 
 ```python
 from lorairo.services.error_triage_service import ErrorTriageService
@@ -421,7 +396,7 @@ for provider in providers:
 
 ### テスト戦略
 
-#### 外部APIのモック
+#### 外部 API のモック
 
 ```python
 import pytest
@@ -443,7 +418,8 @@ def test_annotation_service(mock_annotate):
 
 #### 統合テスト
 
-**Real API calls** (marked with `@pytest.mark.integration`):
+実際の API を呼び出すテストには `@pytest.mark.integration` を付与する。
+
 ```python
 @pytest.mark.integration
 def test_openai_annotation_real():
@@ -460,38 +436,34 @@ def test_openai_annotation_real():
 
 ### バージョン互換性
 
-**genai-tag-db-tools:**
-- Minimum: 0.3.0 (public API support)
-- Recommended: Latest (improved performance)
+- **genai-tag-db-tools**: 最小バージョン 0.3.0(公開 API 対応)、推奨は最新版(性能改善)
+- **image-annotator-lib**: 最小バージョン 0.2.0(マルチプロバイダー対応)、推奨は最新版(新規プロバイダー対応)
 
-**image-annotator-lib:**
-- Minimum: 0.2.0 (multi-provider support)
-- Recommended: Latest (new provider support)
+### 更新手順
 
-### 更新プロセス
-
-1. Update `pyproject.toml`:
+1. `pyproject.toml` を更新する。
    ```toml
    [tool.uv.sources]
    genai-tag-db-tools = { path = "local_packages/genai-tag-db-tools", editable = true }
    image-annotator-lib = { path = "local_packages/image-annotator-lib", editable = true }
    ```
 
-2. Sync dependencies:
+2. 依存関係を同期する。
    ```bash
    uv sync --dev
    ```
 
-3. Run integration tests:
+3. 統合テストを実行する。
    ```bash
    uv run pytest -m integration
    ```
 
-4. Update integration code if API changed
+4. API に変更がある場合は統合コードを更新する。
 
-### 非推奨処理
+### 非推奨 API の移行
 
-**Old API (deprecated):**
+**旧 API(非推奨)**:
+
 ```python
 # DEPRECATED: Direct TagRepository usage
 from genai_tag_db_tools.db.repository import TagRepository
@@ -499,7 +471,8 @@ repo = TagRepository()
 tags = repo.search("blue eyes")  # ❌ Avoid
 ```
 
-**New API (current):**
+**新 API(推奨)**:
+
 ```python
 # RECOMMENDED: Public API
 from genai_tag_db_tools import search_tags
@@ -511,8 +484,8 @@ results = search_tags(request)  # ✅ Use this
 
 ## 関連ドキュメント
 
-- [CLAUDE.md](../CLAUDE.md) - Development overview
-- [docs/services.md](services.md) - Service layer architecture
-- [docs/testing.md](testing.md) - Testing strategies
-- [genai-tag-db-tools README](../local_packages/genai-tag-db-tools/README.md) - Package documentation
-- [image-annotator-lib README](../local_packages/image-annotator-lib/README.md) - Package documentation
+- [CLAUDE.md](../CLAUDE.md) — 開発概要
+- [docs/services.md](services.md) — サービス層アーキテクチャ
+- [docs/testing.md](testing.md) — テスト戦略
+- [genai-tag-db-tools README](../local_packages/genai-tag-db-tools/README.md) — パッケージドキュメント
+- [image-annotator-lib README](../local_packages/image-annotator-lib/README.md) — パッケージドキュメント

@@ -14,24 +14,20 @@ tags:
 
 ## Context
 
-ExportTab の 3 ペイン再構成で、旧 DatasetExportWidget が持っていた changed-since フィルタが
-一時的に失われた。増分エクスポートでは、ステージング集合のうち指定日時以降にタグ変更が
-あった画像だけを書き出す必要がある。
+`ExportTab` を 3 ペイン構成へ再設計した際、旧 `DatasetExportWidget` が備えていた changed-since フィルタが一時的に失われた。増分エクスポートでは、ステージング集合のうち指定日時以降にタグが変更された画像だけを抽出して書き出す必要がある。
 
 ## Decision
 
-ExportOverlayBar に再利用可能な `ChangedSinceFilterWidget` を組み込み、ExportTab は
-validate/export のたびに `DatasetExportService.filter_changed_since(staged_ids, since)` で
-実対象を再計算する。overlay は changed-since で絞った実対象に対して適用する。
+`ExportOverlayBar` に再利用可能な `ChangedSinceFilterWidget` を組み込む。`ExportTab` は検証(validate)およびエクスポート(export)の実行ごとに `DatasetExportService.filter_changed_since(staged_ids, since)` を呼び出し、実際の対象画像を再計算する。出力オーバーレイは、changed-since フィルタで絞り込んだ実対象に対して適用する。
 
 ## Rationale
 
-日時 UI を `widgets/` の小さなコンポーネントに分けることで、検索パネル系の日付入力と同じ
-Qt ウィジェット境界で再利用できる。旧実装のように絞り込み済み ID を保持する方法は、
-日時変更後に stale な対象で書き出す危険があるため、ボタン押下時の再計算を正準にする。
+日時入力 UI を `widgets/` 配下の独立した小さなコンポーネントに分離することで、検索パネル系の日付入力と同じ Qt ウィジェット境界で再利用できる。
+
+旧実装のように絞り込み済みの ID リストを状態として保持する方式では、日時変更後に古い対象のまま書き出してしまう危険がある。そのため、ボタン押下時に都度再計算する方式を正準とする。
 
 ## Consequences
 
-ExportTab の実エクスポート対象は `current_export_ids()` ではなく `_effective_export_ids()` で
-解決する。changed-since 結果が空の場合は出力先選択へ進まない。将来 SearchPanel 側の日付 UI
-を単一日時入力へ寄せる場合も、`ChangedSinceFilterWidget` を直接再利用する。
+- `ExportTab` における実際のエクスポート対象は、`current_export_ids()` ではなく `_effective_export_ids()` で解決する。
+- changed-since フィルタによる絞り込み結果が空の場合は、出力先選択のステップへ進まない。
+- 将来 `SearchPanel` 側の日付 UI を単一日時入力へ統一する際にも、`ChangedSinceFilterWidget` をそのまま再利用できる。

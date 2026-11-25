@@ -1,48 +1,37 @@
 ---
 type: ADR
-title: Japanese-first multilingual user guide on GitHub Pages
+title: GitHub Pages における日本語原本の多言語ユーザーガイド
 status: Accepted
 timestamp: 2026-09-05
 tags: [documentation, maintenance]
 ---
-# ADR 0091: Japanese-first multilingual user guide
+# ADR 0091: GitHub Pages における日本語原本の多言語ユーザーガイド
 
-## Context
+## 背景
 
-The user no longer uses Sphinx, but still needs a detailed public user guide on GitHub Pages.
-Japanese, English, Traditional Chinese and Simplified Chinese must cover the same instructions.
-The maintainer writes Japanese; coding agents assist translation. Developer ADRs remain repository documents.
+ユーザーは Sphinx の利用を終了した一方で、GitHub Pages 上に詳細な公開ユーザーガイドを引き続き必要としている。日本語、英語、繁体字中国語、簡体字中国語の 4 言語で同一の手順を網羅しなければならない。メンテナが日本語を執筆し、コーディングエージェントが翻訳を補助する。開発者向け ADR は引き続きリポジトリ内のドキュメントとして管理する。
 
-## Decision
+## 決定
 
-- Maintain the static user guide in `site/` with Astro + Starlight, separate from the Python application.
-- Use Japanese source pages and equivalent `en`, `zh-tw`, `zh-cn` files. Clearly identify AI-assisted translations.
-- Keep the current `/LoRAIro/` Pages URL. Publish built artifacts with GitHub Actions, not a generated branch.
-- Validate builds on Windows and Linux. Use Node.js 24 in CI and the Dev Container.
-- Fail builds for missing translations, stale normalized source hashes, copied Japanese bodies or changed code
-  examples. Hash recording is an explicit post-translation action, never an automatic build step.
-- Validate local output links and the complete locale page set. Review semantic translation quality separately;
-  a matching source hash cannot prove a translation is correct.
-- Keep API keys, project data and the application runtime out of the documentation build. No paid translation
-  API is invoked by CI. Preserve the existing developer documentation/OKF architecture.
-- Retire `gh-pages` only after the replacement main deployment succeeds and public locale routes are verified.
+- 静的ユーザーガイドは Python アプリケーションから分離し、`site/` 配下で Astro + Starlight を用いて保守する。
+- 日本語ページを原本とし、対応する `en`、`zh-tw`、`zh-cn` ファイルを配置する。AI 補助による翻訳であることを明示する。
+- 現行の `/LoRAIro/` Pages URL を維持する。ビルド成果物の公開には生成ブランチではなく GitHub Actions を使用する。
+- Windows と Linux の双方でビルドを検証する。CI と Dev Container では Node.js 24 を使用する。
+- 翻訳の欠落、正規化済みソースハッシュの陳腐化、日本語本文のそのままコピー、コード例の変更が検出された場合はビルドを失敗させる。ハッシュの記録は翻訳後に明示的に行う操作とし、ビルド時の自動処理にはしない。
+- ローカルの出力リンクおよび全ロケールのページ集合の網羅性を検証する。翻訳の意味的な品質レビューは別途行う。ソースハッシュの一致は翻訳の正しさを保証しないためである。
+- ドキュメントのビルドには API キー、プロジェクトデータ、アプリケーションランタイムを持ち込まない。CI から有料の翻訳 API は呼び出さない。既存の開発者ドキュメントおよび OKF アーキテクチャはそのまま維持する。
+- `gh-pages` ブランチの廃止は、置き換え先のメインデプロイが成功し、公開ロケールルートが検証された後にのみ実施する。
 
-## Alternatives and rationale
+## 代替案と根拠
 
-Keeping Sphinx contradicts the requested retirement and preserves an obsolete generated API catalogue.
-Writing a custom site would duplicate navigation, localized controls and search. Starlight provides those
-features directly, including locale routing; the only project-specific tooling is translation freshness and
-output-link validation. MkDocs is viable, but changing the already selected Starlight approach provides no
-required capability that justifies introducing another documentation design.
+Sphinx を維持する案は、要望された廃止方針に反し、古くなった自動生成 API カタログを残すことになる。カスタムサイトを自作する案は、ナビゲーション、多言語 UI コントロール、検索機能を重複実装することになる。Starlight はロケールルーティングを含めてこれらの機能を標準で備えており、プロジェクト固有のツールとして必要なのは翻訳の鮮度検査と出力リンク検証だけである。MkDocs も有力な選択肢だが、すでに選定済みの Starlight 方式から乗り換えて別のドキュメント設計を導入するだけの必須要件上の利点がない。
 
-## Consequences
+## 影響
 
-Node is required to author/build documentation, not to run the Python application. All four translations
-must accompany a Japanese change before publication. The public guide documents supported behavior, not
-every internal class. Guide languages are distinct from application UI languages and exported tag languages.
+Node はドキュメントの執筆とビルドにのみ必要であり、Python アプリケーションの実行には不要である。日本語ページを変更した場合は、公開前に 4 言語すべての翻訳を揃える必要がある。公開ガイドはサポート対象の仕様を記述する場であり、すべての内部クラスを網羅するものではない。ガイドの表示言語は、アプリケーションの UI 言語やエクスポートされるタグ言語とは別個のものとして扱う。
 
-## References
+## 参考資料
 
-- [Authoring and deployment](../../site/README.md)
-- [Starlight internationalization](https://starlight.astro.build/guides/i18n/)
-- [Astro GitHub Pages deployment](https://docs.astro.build/en/guides/deploy/github/)
+- [執筆とデプロイ手順](../../site/README.md)
+- [Starlight の国際化 (i18n)](https://starlight.astro.build/guides/i18n/)
+- [Astro の GitHub Pages デプロイ](https://docs.astro.build/en/guides/deploy/github/)

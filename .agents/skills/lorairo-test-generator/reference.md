@@ -1,69 +1,72 @@
-# pytest and pytest-qt Reference
+# `pytest` および `pytest-qt` リファレンス
 
-Complete reference for pytest and pytest-qt testing in LoRAIro.
+LoRAIro における `pytest` と `pytest-qt` を使ったテスト開発の完全リファレンスである。
 
-## pytest Core API
+## `pytest` コア API
 
-### Test Discovery
+### テストの自動検出
 
-**pytest automatically discovers tests following these rules:**
+`pytest` は次の命名規則に従ってテストを自動検出する。
 
 ```python
-# File names
+# ファイル名
 test_*.py           # test_repository.py
 *_test.py           # repository_test.py
 
-# Function names
+# 関数名
 def test_*():      # test_add_image()
-def *_test():      # Not recommended
+def *_test():      # 非推奨
 
-# Class names
+# クラス名
 class Test*:       # TestImageRepository
 ```
 
-**Explicit test marking:**
+**明示的なテストマーカー付与:**
+
 ```python
-# Mark as test (not usually needed)
+# テストとして明示する (通常は不要)
 @pytest.mark.test
 def my_test_function():
     pass
 ```
 
-### Test Execution
+### テストの実行
 
-**Command-line options:**
+**コマンドラインオプション:**
+
 ```bash
-# Run all tests
+# 全テストを実行
 pytest
 
-# Run specific file
+# 指定ファイルを実行
 pytest tests/test_repository.py
 
-# Run specific test
+# 指定テスト関数を実行
 pytest tests/test_repository.py::test_add_image
 
-# Run tests matching pattern
+# 名前パターンに一致するテストを実行
 pytest -k "test_add"
 
-# Run with verbose output
+# 詳細出力
 pytest -v
 
-# Stop on first failure
+# 最初の失敗で停止
 pytest -x
 
-# Run last failed tests
+# 前回失敗したテストのみ再実行
 pytest --lf
 
-# Show local variables on failure
+# 失敗時にローカル変数を表示
 pytest -l
 
-# Parallel execution
-pytest -n auto    # Requires pytest-xdist
+# 並列実行
+pytest -n auto    # pytest-xdist が必要
 ```
 
-### Markers
+### マーカー
 
-**Built-in markers:**
+**組み込みマーカー:**
+
 ```python
 @pytest.mark.skip(reason="Not implemented yet")
 def test_feature():
@@ -82,70 +85,73 @@ def test_double(input, expected):
     assert input * 2 == expected
 ```
 
-**Custom markers (LoRAIro):**
+**カスタムマーカー(LoRAIro):**
+
 ```python
-# Define in pytest.ini or pyproject.toml
+# pytest.ini または pyproject.toml に定義する
 markers =
     unit: Unit tests
     integration: Integration tests
     gui: GUI tests
     slow: Slow running tests
 
-# Usage
+# 使用例
 @pytest.mark.unit
 def test_calculation():
     pass
 
-# Run specific markers
+# マーカーを指定して実行
 pytest -m unit
 pytest -m "unit and not slow"
 pytest -m "integration or gui"
 ```
 
-### Fixtures
+### フィクスチャ
 
-**Fixture scopes:**
+**フィクスチャのスコープ:**
+
 ```python
-# Function scope (default) - Run for each test
+# function スコープ (既定) - テスト関数ごとに実行
 @pytest.fixture
 def temp_data():
     return {"key": "value"}
 
-# Class scope - Run once per test class
+# class スコープ - テストクラスごとに 1 回実行
 @pytest.fixture(scope="class")
 def database():
     db = Database()
     yield db
     db.close()
 
-# Module scope - Run once per module
+# module スコープ - モジュールごとに 1 回実行
 @pytest.fixture(scope="module")
 def app_config():
     return load_config()
 
-# Session scope - Run once per test session
+# session スコープ - テストセッション全体で 1 回実行
 @pytest.fixture(scope="session")
 def test_data_dir():
     return Path(__file__).parent / "resources"
 ```
 
-**Fixture patterns:**
+**フィクスチャパターン:**
+
 ```python
-# Setup/teardown
+# セットアップと後片付け
 @pytest.fixture
 def resource():
-    # Setup
+    # セットアップ
     r = acquire_resource()
     yield r
-    # Teardown
+    # 後片付け
     r.cleanup()
 
-# Parameterized fixture
+# パラメーター化フィクスチャ
 @pytest.fixture(params=[1, 2, 3])
 def number(request):
     return request.param
 
-# Fixture dependency
+# フィクスチャ間の依存
 @pytest.fixture
 def db_connection():
     return DatabaseConnection()
@@ -154,77 +160,81 @@ def db_connection():
 def repository(db_connection):
     return Repository(db_connection)
 
-# Auto-use fixture
+# 自動適用フィクスチャ
 @pytest.fixture(autouse=True)
 def reset_state():
     global_state.reset()
 ```
 
-### Assertions
+### アサーション
 
-**Basic assertions:**
+**基本アサーション:**
+
 ```python
-# Equality
+# 等価比較
 assert x == y
 assert x != y
 
-# Identity
+# 同一性比較
 assert x is y
 assert x is not None
 
-# Comparison
+# 大小比較
 assert x > y
 assert x >= y
 assert x < y
 assert x <= y
 
-# Membership
+# 所属判定
 assert x in collection
 assert x not in collection
 
-# Boolean
+# 真偽判定
 assert condition
 assert not condition
 
-# Type checking
+# 型チェック
 assert isinstance(x, MyClass)
 ```
 
-**Exception assertions:**
+**例外アサーション:**
+
 ```python
-# Assert raises specific exception
+# 特定の例外が送出されることを検証
 with pytest.raises(ValueError):
     function_that_raises()
 
-# Check exception message
+# 例外メッセージを正規表現で検証
 with pytest.raises(ValueError, match="invalid value"):
     function_that_raises()
 
-# Access exception object
+# 例外オブジェクトを取得して検証
 with pytest.raises(ValueError) as exc_info:
     function_that_raises()
 
 assert "invalid" in str(exc_info.value)
 ```
 
-**Approximate comparisons:**
+**近似比較:**
+
 ```python
 from pytest import approx
 
-# Float comparison
+# 浮動小数点数の比較
 assert 0.1 + 0.2 == approx(0.3)
 
-# With tolerance
+# 許容誤差を指定した比較
 assert 10.0 == approx(10.1, abs=0.2)
-assert 10.0 == approx(10.1, rel=0.01)  # 1% relative
+assert 10.0 == approx(10.1, rel=0.01)  # 相対誤差 1%
 
-# Sequences
+# シーケンスの比較
 assert [1.0, 2.0] == approx([1.001, 2.001], abs=0.01)
 ```
 
-### Parametrization
+### パラメーター化
 
-**Basic parametrization:**
+**基本のパラメーター化:**
+
 ```python
 @pytest.mark.parametrize("test_input,expected", [
     (1, 2),
@@ -235,28 +245,31 @@ def test_multiply_by_two(test_input, expected):
     assert test_input * 2 == expected
 ```
 
-**Multiple parameters:**
+**複数パラメーターの組み合わせ:**
+
 ```python
 @pytest.mark.parametrize("x", [1, 2])
 @pytest.mark.parametrize("y", [3, 4])
 def test_combinations(x, y):
-    # Creates 4 tests: (1,3), (1,4), (2,3), (2,4)
+    # (1,3), (1,4), (2,3), (2,4) の 4 パターンが生成される
     assert x < y
 ```
 
-**Parametrized fixtures:**
+**パラメーター化フィクスチャ:**
+
 ```python
 @pytest.fixture(params=["sqlite", "postgresql"])
 def database_type(request):
     return request.param
 
 def test_database_operations(database_type):
-    # Runs once for each database type
+    # 各データベース種別ごとに 1 回ずつ実行される
     db = create_database(database_type)
     assert db.connect()
 ```
 
-**ID customization:**
+**テスト ID のカスタマイズ:**
+
 ```python
 @pytest.mark.parametrize("input,expected", [
     (1, 2),
@@ -265,147 +278,156 @@ def test_database_operations(database_type):
 def test_values(input, expected):
     pass
 
-# Output: test_values[single], test_values[double]
+# 出力例: test_values[single], test_values[double]
 ```
 
-## pytest-qt API
+## `pytest-qt` API
 
-### qtbot Fixture
+### `qtbot` フィクスチャ
 
-**Widget management:**
+**ウィジェット管理:**
+
 ```python
 def test_widget(qtbot):
     widget = MyWidget()
 
-    # Add widget (ensures proper cleanup)
+    # qtbot に登録して確実に後片付けする
     qtbot.addWidget(widget)
 
-    # Widget is now managed by qtbot
+    # ウィジェットが qtbot の管理下に入る
     assert widget.isVisible()
 ```
 
-### Signal Testing
+### シグナルテスト
 
-**Wait for signal:**
+**シグナル待機:**
+
 ```python
 def test_signal_emission(qtbot, widget):
-    # Wait for specific signal
+    # 特定シグナルの発火を待機する
     with qtbot.waitSignal(widget.data_changed, timeout=1000) as blocker:
         widget.update_data("new value")
 
-    # Check signal was emitted
+    # シグナルが発火されたことを確認する
     assert blocker.signal_triggered
 
-    # Access signal arguments
+    # シグナル引数を検証する
     assert blocker.args == ("new value",)
 ```
 
-**Wait for multiple signals:**
+**複数シグナルの待機:**
+
 ```python
 def test_multiple_signals(qtbot, widget):
-    # Wait for all signals
+    # すべてのシグナルが発火するまで待機する
     with qtbot.waitSignals([widget.signal1, widget.signal2], timeout=2000):
         widget.trigger_both()
 
-    # Wait for any signal
+    # いずれかのシグナルが発火するまで待機する
     with qtbot.waitSignal([widget.signal1, widget.signal2], timeout=2000):
         widget.trigger_either()
 ```
 
-**Signal blocking:**
+**シグナル未発火の検証:**
+
 ```python
 def test_no_signal_emitted(qtbot, widget):
-    # Ensure signal is NOT emitted
+    # シグナルが発火しないことを検証する
     with qtbot.assertNotEmitted(widget.data_changed, wait=100):
         widget.no_op_action()
 ```
 
-### User Interaction Simulation
+### ユーザー操作のシミュレーション
 
-**Mouse events:**
+**マウスイベント:**
+
 ```python
 def test_button_click(qtbot, widget):
     from PySide6.QtCore import Qt
 
-    # Simple click
+    # クリック
     qtbot.mouseClick(widget.button, Qt.LeftButton)
 
-    # Double click
+    # ダブルクリック
     qtbot.mouseDClick(widget.button, Qt.LeftButton)
 
-    # Click at specific position
+    # 座標指定クリック
     qtbot.mouseClick(
         widget.button,
         Qt.LeftButton,
         pos=QPoint(10, 10)
     )
 
-    # Mouse press/release
+    # 押下と解放
     qtbot.mousePress(widget.button, Qt.LeftButton)
     qtbot.mouseRelease(widget.button, Qt.LeftButton)
 
-    # Mouse move
+    # マウス移動
     qtbot.mouseMove(widget, pos=QPoint(50, 50))
 ```
 
-**Keyboard events:**
+**キーボードイベント:**
+
 ```python
 def test_keyboard_input(qtbot, widget):
     from PySide6.QtCore import Qt
 
-    # Type text
+    # 文字列入力
     qtbot.keyClicks(widget.text_input, "Hello World")
 
-    # Single key press
+    # 単一キー押下
     qtbot.keyClick(widget, Qt.Key_Return)
 
-    # Key press with modifiers
+    # 修飾キー付き押下
     qtbot.keyClick(widget, Qt.Key_C, Qt.ControlModifier)
 
-    # Multiple keys
+    # 修飾キー付き文字列入力
     qtbot.keyClicks(widget, "Test", Qt.ControlModifier)
 
-    # Key press/release
+    # キー押下と解放
     qtbot.keyPress(widget, Qt.Key_Shift)
     qtbot.keyRelease(widget, Qt.Key_Shift)
 ```
 
-**Wait functions:**
+**待機関数:**
+
 ```python
 def test_with_delays(qtbot, widget):
-    # Wait for condition
+    # 条件を満たすまで待機
     def check_state():
         return widget.is_ready()
 
     qtbot.waitUntil(check_state, timeout=5000)
 
-    # Wait fixed time
-    qtbot.wait(100)  # milliseconds
+    # 固定時間待機
+    qtbot.wait(100)  # ミリ秒
 
-    # Wait for window shown
+    # ウィンドウ表示まで待機
     qtbot.waitForWindowShown(widget)
 
-    # Wait for window exposed
+    # ウィンドウ描画完了まで待機
     qtbot.waitExposed(widget)
 ```
 
-### Exception Handling
+### 例外ハンドリング
 
-**Exception capturing:**
+**スロット内例外の捕捉:**
+
 ```python
 def test_exception_in_slot(qtbot, widget):
-    # Capture exceptions from slots
+    # スロット内で送出された例外を捕捉する
     with qtbot.captureExceptions() as exceptions:
         widget.trigger_buggy_slot()
 
-    # Check exceptions
+    # 捕捉した例外を検証する
     assert len(exceptions) == 1
     assert isinstance(exceptions[0][1], ValueError)
 ```
 
-## Coverage Configuration
+## カバレッジ設定
 
-**pyproject.toml configuration:**
+**`pyproject.toml` の設定例:**
+
 ```toml
 [tool.coverage.run]
 source = ["src/lorairo"]
@@ -432,34 +454,36 @@ show_missing = true
 directory = "htmlcov"
 ```
 
-**Command-line coverage:**
+**コマンドラインでのカバレッジ計測:**
+
 ```bash
-# Generate HTML report
+# HTML レポートを生成
 pytest --cov=src/lorairo --cov-report=html
 
-# Generate XML (for CI)
+# XML レポートを生成 (CI 用)
 pytest --cov=src/lorairo --cov-report=xml
 
-# Terminal output with missing lines
+# 未カバー行を端末へ出力
 pytest --cov=src/lorairo --cov-report=term-missing
 
-# Combine reports
+# 複数レポートを同時出力
 pytest --cov=src/lorairo --cov-report=html --cov-report=xml
 
-# Fail if coverage below threshold
+# 基準値を下回った場合に失敗させる
 pytest --cov=src/lorairo --cov-fail-under=75
 ```
 
-## conftest.py Patterns
+## `conftest.py` パターン
 
-**Project root conftest.py:**
+**プロジェクトルートの `conftest.py`:**
+
 ```python
 # /workspaces/LoRAIro/tests/conftest.py
 import pytest
 from pathlib import Path
 from PySide6.QtWidgets import QApplication
 
-# Session-scoped fixtures
+# セッションスコープのフィクスチャ
 @pytest.fixture(scope="session")
 def test_resources_dir():
     """Path to test resources directory."""
@@ -472,25 +496,26 @@ def qapp():
     if app is None:
         app = QApplication([])
     yield app
-    # app.quit() not needed - handled by Qt
+    # app.quit() は Qt 側で処理されるため不要
 
-# Markers registration
+# マーカー登録
 def pytest_configure(config):
     config.addinivalue_line("markers", "unit: Unit tests")
     config.addinivalue_line("markers", "integration: Integration tests")
     config.addinivalue_line("markers", "gui: GUI tests")
     config.addinivalue_line("markers", "slow: Slow running tests")
 
-# Custom hooks
+# カスタムフック
 def pytest_collection_modifyitems(items):
     """Modify test collection."""
     for item in items:
-        # Auto-mark GUI tests
+        # GUI テストへ自動的に gui マーカーを付与する
         if "qtbot" in item.fixturenames:
             item.add_marker(pytest.mark.gui)
 ```
 
-**Module-specific conftest.py:**
+**モジュール固有の `conftest.py`:**
+
 ```python
 # tests/database/conftest.py
 import pytest
@@ -517,11 +542,12 @@ def db_session(test_db_engine):
     Session.remove()
 ```
 
-## LoRAIro Test Utilities
+## LoRAIro のテストユーティリティ
 
-**Common test fixtures:**
+**共通テストフィクスチャ:**
+
 ```python
-# tests/conftest.py (LoRAIro specific)
+# tests/conftest.py (LoRAIro 固有)
 
 @pytest.fixture
 def sample_image(test_resources_dir):
@@ -555,7 +581,8 @@ def reset_loguru():
     logger.remove()
 ```
 
-**Helper functions:**
+**ヘルパー関数:**
+
 ```python
 # tests/helpers.py
 
@@ -582,38 +609,40 @@ def assert_image_equal(img1: Image, img2: Image, ignore_id: bool = True):
     assert img1.caption == img2.caption
 ```
 
-## Running Tests in LoRAIro
+## LoRAIro でのテスト実行
 
-**Standard test commands:**
+**標準テストコマンド:**
+
 ```bash
-# All tests
+# 全テスト実行
 uv run pytest
 
-# By category
+# カテゴリ別に実行
 uv run pytest -m unit
 uv run pytest -m integration
 uv run pytest -m gui
 
-# Specific module
+# モジュール別に実行
 uv run pytest tests/database/
 uv run pytest tests/gui/widgets/
 
-# With coverage
+# カバレッジ付きで実行
 uv run pytest --cov=src/lorairo --cov-report=html
 
-# Verbose output
+# 詳細出力
 uv run pytest -v
 
-# Show print statements
+# print 出力を表示
 uv run pytest -s
 
-# Parallel execution (requires pytest-xdist)
+# 並列実行 (pytest-xdist が必要)
 uv run pytest -n auto
 ```
 
-**CI/CD integration:**
+**CI/CD 連携:**
+
 ```bash
-# CI pipeline test command
+# CI パイプライン用テストコマンド
 uv run pytest \
     -m "unit or integration" \
     --cov=src/lorairo \
@@ -624,38 +653,40 @@ uv run pytest \
     -v
 ```
 
-## Environment Variables
+## 環境変数
 
-**pytest environment variables:**
+**`pytest` 関連の環境変数:**
+
 ```bash
-# Set Qt platform for headless testing
+# ヘッドレステスト向けに Qt プラットフォームを指定
 export QT_QPA_PLATFORM=offscreen
 
-# Disable Qt debug output
+# Qt のデバッグ出力を抑制
 export QT_LOGGING_RULES="*.debug=false"
 
-# pytest options
+# pytest オプションの既定値
 export PYTEST_ADDOPTS="--strict-markers --tb=short"
 
-# Coverage options
+# カバレッジ計測コアの設定
 export COVERAGE_CORE=sysmon
 ```
 
-**LoRAIro test environment:**
+**LoRAIro テスト用の環境変数:**
+
 ```bash
-# Test database location
+# テストデータベースの配置先
 export LORAIRO_TEST_DB_DIR=/tmp/lorairo_test_db
 
-# Disable external API calls
+# 外部 API 呼び出しを無効化
 export LORAIRO_MOCK_APIS=true
 
-# Test data directory
+# テストデータディレクトリ
 export LORAIRO_TEST_DATA_DIR=tests/resources
 ```
 
-## Additional Resources
+## 参考資料
 
-- **pytest docs**: https://docs.pytest.org/
-- **pytest-qt docs**: https://pytest-qt.readthedocs.io/
-- **PySide6 testing**: https://doc.qt.io/qtforpython/tutorials/pretutorial/testing.html
+- **pytest 公式ドキュメント**: https://docs.pytest.org/
+- **pytest-qt ドキュメント**: https://pytest-qt.readthedocs.io/
+- **PySide6 テストガイド**: https://doc.qt.io/qtforpython/tutorials/pretutorial/testing.html
 - **Coverage.py**: https://coverage.readthedocs.io/

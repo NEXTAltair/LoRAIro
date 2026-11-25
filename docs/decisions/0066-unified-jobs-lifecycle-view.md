@@ -7,62 +7,66 @@ tags: []
 ---
 # ADR 0066: Unified Jobs Lifecycle View
 
-- **関連**: ADR 0034 (Worker / Operation / Pipeline Lifecycle Boundary), ADR 0038 (Provider Batch API Integration), ADR 0041 (Provider Batch 実行 UI 統一), ADR 0044 (Provider Batch Submit Threading)
-- **追補**: ADR 0076 — Jobs は作成 (submit) 入口を持たない純粋な監視台帳とし、submit 面の所在を Annotate の dispatch 射影へ確定する。lifecycle / recovery 操作 (状態を確認・キャンセル・fetch・import)・キューの実セマンティクスは不変。
+- **関連**: ADR 0034(Worker / Operation / Pipeline Lifecycle Boundary)、ADR 0038(Provider Batch API Integration)、ADR 0041(Provider Batch 実行 UI 統一)、ADR 0044(Provider Batch Submit Threading)
+- **追補**: ADR 0076 — Jobs は投入(submit)入口を持たない純粋な監視台帳とし、投入 UI の所在は Annotate のディスパッチ射影へ確定した。ライフサイクル操作・リカバリ操作(状態確認、キャンセル、fetch、import)およびキューの実行セマンティクスは不変である。
 
 ## Context
 
-実行状況の表示が分断されている: 同期実行 (AnnotationWorker 等) は進捗ポップアップ（廃止予定の暫定実装）、Provider Batch はジョブタブ (`ProviderBatchJobWidget`)。Wireframes v11 Frame 3 と Epic #731 で「B 案: 独立 Jobs タブ」が確定済みであり、本 ADR は統一 Jobs lifecycle ビューの設計を形式化する。
+現在、実行状況の表示が分断されている。同期実行(`AnnotationWorker` 等)は廃止予定の暫定実装である進捗ポップアップに表示され、Provider Batch は専用のジョブタブ(`ProviderBatchJobWidget`)に表示される。
+
+Wireframes v11 Frame 3 と Epic #731 において「B 案: 独立した Jobs タブ」を採用することが確定済みである。本 ADR は、統一 Jobs ライフサイクルビューの設計を形式化する。
 
 ## Decision
 
-### 1. Jobs タブを統一 lifecycle ビューにする
+### 1. Jobs タブを統一ライフサイクルビューにする
 
-「実行中 / キュー / 履歴」の 3 状態で同期ジョブと Provider Batch を 1 つのビューに統合する。空状態でも履歴テーブルの枠は消さない（Jobs の半分は台帳 — Frame 3）。
+「実行中」「キュー」「履歴」の 3 状態で、同期ジョブと Provider Batch を 1 つのビューに統合する。ジョブが存在しない空状態であっても、履歴テーブルの枠は消さない(Jobs の役割の半分は台帳であるため — Frame 3)。
 
-### 2. 同期ジョブの履歴はセッションスコープ (in-memory) — DB 永続化しない
+### 2. 同期ジョブの履歴はセッションスコープ(メモリ内)とし、DB 永続化しない
 
-同期ジョブの履歴に新規テーブルは作らない。永続化は重いだけで利点がなく、元来「個別実行をログに残さない」運用である（2026-06-12 ユーザー判断）。診断には loguru ログが既に存在する。
+同期ジョブの履歴用に新規テーブルは作成しない。永続化は負荷が高いわりに利点が薄く、元来「個別実行をログとして DB に残さない」運用であるためである(2026-06-12 ユーザー判断)。なお、診断用途には `loguru` ログがすでに存在する。
 
-- 同期ジョブ: in-memory 台帳（アプリ再起動で消える）
-- Provider Batch: 既存 `provider_batch_jobs` テーブルのまま。**非同期で再起動を跨ぐ必然がある**ため永続が正当化される非対称を意図的に許容する
+- **同期ジョブ**: メモリ内台帳で管理し、アプリ再起動で消去する。
+- **Provider Batch**: 既存の `provider_batch_jobs` テーブルをそのまま用いる。非同期処理のため再起動をまたいで追跡する必然性があり、永続化の非対称性は意図的に許容する。
 
-### 3. ジョブ粒度 = Pipeline / Operation レベル (ADR 0034)
+### 3. ジョブ粒度は Pipeline / Operation レベルとする(ADR 0034)
 
-Jobs に載せるのは: アノテーションパイプライン実行・Provider Batch（rating preflight 含む。preflight は親 Operation の子として表示）・DB 登録バッチ・model install（枠のみ、§5）。
-**載せない**: 検索 / サムネイル等の UI 応答系 Worker（ジョブではなく操作の一部。載せると firehose 化する）。
+Jobs に載せる対象と載せない対象を次のように区別する。
 
-### 4. 進捗ポップアップは Phase 7 で廃止
+- **載せる対象**: アノテーションパイプライン実行、Provider Batch(`rating preflight` を含む。preflight は親 Operation の子として表示する)、DB 登録バッチ、モデルインストール(型枠のみ、§5)。
+- **載せない対象**: 検索やサムネイル生成などの UI 応答系 Worker。これらはジョブではなく操作の一部であり、台帳に載せると履歴が大量に流れて視認性を損なう。
 
-- 並存期間は置かない（暫定実装の役目を終える）
-- 実行開始時に Jobs タブへの自動遷移は**しない**（statusbar 通知のみ。完了時は既存の Results 自動着地 — Frame 5）
-- キャンセル操作は Jobs 行のアクションへ移設する
+### 4. 進捗ポップアップは Phase 7 で廃止する
 
-### 5. Model installer は job_type の枠のみ定義
+- 並存期間は設けず、暫定実装の役目を終えて廃止する。
+- 実行開始時に Jobs タブへ自動遷移はしない。ステータスバー通知のみとし、完了時は既存の Results 自動着地を維持する(Frame 5)。
+- キャンセル操作は Jobs 行のアクションへ移設する。
 
-「暗黙 HuggingFace DL の明示 install ジョブ化」(Epic 確定済み判断) は iam-lib 側のバックエンド新規を伴うため、本 ADR では Jobs ビューに installer 用 job_type を予約するに留め、DL の job 化実装は別 Phase に分離する。
+### 5. モデルインストーラは `job_type` の枠のみ定義する
 
-### 6. キューは実セマンティクスを持つ
+暗黙の HuggingFace ダウンロードを明示的なインストールジョブへ切り替える方針は Epic で確定済みだが、`iam-lib` 側の新規バックエンド実装を伴う。そのため本 ADR では Jobs ビューにインストーラ用の `job_type` を予約するに留め、ダウンロードのジョブ化実装は別 Phase に分離する。
 
-表示上の状態だけでなく実行制御を導入する:
+### 6. キューに実際の実行制御を持たせる
 
-- **ローカル GPU 推論ジョブ: 同時 1 件**（直列キュー。VRAM 競合を構造的に防ぐ）
-- API 系ジョブ: 並列許容（プロバイダ rate limit は lib 側 retry で吸収、ADR 0023 Phase 1.8）
+表示上の状態管理だけでなく、次の実行制御を導入する。
+
+- **ローカル GPU 推論ジョブ**: 同時実行数を 1 件に制限する(直列キュー)。これにより VRAM 競合を構造的に防ぐ。
+- **API 系ジョブ**: 並列実行を許容する。プロバイダのレート制限はライブラリ側のリトライで吸収する(ADR 0023 Phase 1.8)。
 
 ## Consequences
 
 ### 良い点
 
-- 実行状況の確認場所が 1 箇所になり、ポップアップの暫定実装を返却できる
-- スキーマ変更ゼロ（同期履歴 in-memory + 既存 provider_batch_jobs）で導入が軽い
-- GPU 直列化で VRAM 競合由来の失敗が構造的に消える
+- 実行状況の確認場所が 1 箇所に集約され、進捗ポップアップという暫定実装を廃止できる。
+- 同期履歴のメモリ内管理と既存 `provider_batch_jobs` の活用により、スキーマ変更ゼロで軽量に導入できる。
+- ローカル GPU 推論の直列化により、VRAM 競合に起因する失敗が構造的に解消される。
 
 ### トレードオフ
 
-- 同期ジョブ履歴は再起動で消える（意図的。台帳の永続性が必要なのは Provider Batch のみ）
-- 「直近の実行サマリ」表示はセッション内に限定される
+- 同期ジョブの履歴はアプリ再起動で消える。ただし永続性が必要なのは Provider Batch のみであり、意図した仕様である。
+- 「直近の実行サマリ」の表示対象は現在のセッション内に限定される。
 
-## 実装メモ (Phase 7)
+## 実装メモ(Phase 7)
 
-- 既存 `ProviderBatchJobWidget` を拡張するか統一ビューへ置換するかは実装時に判断
-- in-memory 台帳は Qt-free サービス（`JobLedgerService` 等）として実装し、WorkerService のライフサイクルイベント (ADR 0034) を購読する
+- 既存の `ProviderBatchJobWidget` を拡張するか、統一ビューへ置換するかは実装時に判断する。
+- メモリ内台帳は Qt 非依存のサービス(`JobLedgerService` 等)として実装し、`WorkerService` のライフサイクルイベント(ADR 0034)を購読する。

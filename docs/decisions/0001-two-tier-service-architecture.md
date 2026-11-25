@@ -9,11 +9,11 @@ tags: []
 
 ## Context
 
-`SearchFilterService` が 1,182 行に膨張し、GUI ロジック・ビジネスロジック・データアクセスが密結合していた。単一責任原則違反によりテスト困難・保守困難な状態。
+`SearchFilterService` が 1,182 行まで膨張し、GUI ロジック、ビジネスロジック、データアクセスが密結合していた。単一責任原則に違反した状態であり、テストと保守の双方で大きな負担が生じていた。
 
 ## Decision
 
-GUI Services と Business Logic Services の 2 層アーキテクチャを実装する。
+GUI Services と Business Logic Services の 2 層アーキテクチャを導入する。
 
 ```
 GUI Services Layer
@@ -29,20 +29,23 @@ Data Layer
 
 ## Rationale
 
-- **完全書き換え案（却下）**: 既存機能破壊リスクが高く段階的検証が困難
-- **小サービス多数分割案（却下）**: サービス境界が不明確・循環依存リスク
-- **モノリス内部構造改善案（却下）**: 根本的なアーキテクチャ問題を解決できない
+検討した代替案と却下理由は次のとおりである。
 
-段階的な抽出アプローチで既存機能を保ちながら各段階を独立検証できる本案を選択。
+- **完全書き換え案(却下)**: 既存機能を破壊するリスクが高く、段階的な検証が難しい。
+- **小サービス多数分割案(却下)**: サービス間の境界が曖昧になり、循環依存が発生するリスクがある。
+- **モノリス内部構造改善案(却下)**: 根本的なアーキテクチャ上の課題を解決できない。
+
+既存機能を維持しながら段階的に責務を抽出し、各段階を独立して検証できる本案を採用した。
 
 ## Consequences
 
-- SearchFilterService: 1,182 → 150 行（87% 削減）
-- ビジネスロジックが GUI 依存なしでテスト可能
-- 新フィルタタイプの追加が SearchCriteriaProcessor に局所化
-- DIパターンにより各層が独立して進化可能
+- `SearchFilterService` の行数を 1,182 行から 150 行へ削減した(87% 削減)。
+- ビジネスロジックを GUI への依存なしでテストできるようになった。
+- 新しいフィルタ種別の追加を `SearchCriteriaProcessor` に局所化できる。
+- 依存性注入(DI)パターンにより、各層を独立して発展させられる。
 
 **実装ファイル:**
+
 - `src/lorairo/services/search_criteria_processor.py`
 - `src/lorairo/services/model_filter_service.py`
 - `src/lorairo/gui/services/search_filter_service.py`

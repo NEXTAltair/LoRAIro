@@ -1,12 +1,12 @@
-# Test Implementation Examples
+# テスト実装例
 
-Detailed examples for common LoRAIro test scenarios.
+LoRAIro で頻出するテストシナリオの具体的な実装例をまとめる。
 
-## Example 1: Repository Unit Test
+## 例 1: リポジトリのユニットテスト
 
-**Scenario:** Test database repository with SQLite test database.
+**シナリオ:** テスト用 SQLite データベースを使ってリポジトリ層をテストする。
 
-### Implementation
+### 実装
 
 ```python
 import pytest
@@ -98,11 +98,11 @@ def test_batch_add(test_repository):
     assert [img.path for img in results] == [f"/test/img{i}.jpg" for i in range(10)]
 ```
 
-## Example 2: Service Unit Test with Mocks
+## 例 2: モックを使ったサービス層のユニットテスト
 
-**Scenario:** Test service layer with mocked dependencies.
+**シナリオ:** 依存先をモック化してサービス層を単体テストする。
 
-### Implementation
+### 実装
 
 ```python
 from unittest.mock import Mock, MagicMock, patch
@@ -114,7 +114,7 @@ def mock_repository():
     """Create mock repository."""
     repo = Mock(spec=ImageRepository)
 
-    # Setup return values
+    # 戻り値を設定する
     repo.get_all.return_value = [
         Image(id=1, path="/img1.jpg", phash="hash1"),
         Image(id=2, path="/img2.jpg", phash="hash2"),
@@ -150,7 +150,7 @@ def test_process_batch(mock_repository, mock_config):
     assert len(results) == 3
     assert mock_repository.add.call_count == 3
 
-    # Verify correct arguments
+    # 呼び出し引数を検証する
     calls = mock_repository.add.call_args_list
     assert calls[0][0][0].path == "/img1.jpg"
 
@@ -180,11 +180,11 @@ def test_processing_logs_progress(mock_logger, mock_repository, mock_config):
     assert "Processing batch" in str(mock_logger.info.call_args)
 ```
 
-## Example 3: Integration Test
+## 例 3: 統合テスト
 
-**Scenario:** Test complete workflow across multiple components.
+**シナリオ:** 複数コンポーネントをまたぐ一連のワークフローを検証する。
 
-### Implementation
+### 実装
 
 ```python
 @pytest.fixture(scope="function")
@@ -212,7 +212,7 @@ def test_full_image_workflow(integration_repository, integration_service):
     4. Update image metadata
     5. Verify final state
     """
-    # Step 1: Add images
+    # 手順 1: 画像を登録する
     images = [
         Image(path=f"/test/img{i}.jpg", phash=f"hash{i}")
         for i in range(5)
@@ -220,24 +220,24 @@ def test_full_image_workflow(integration_repository, integration_service):
     added = integration_repository.batch_add(images)
     assert len(added) == 5
 
-    # Step 2: Process images
+    # 手順 2: サービスでバッチ処理を実行する
     results = integration_service.process_batch([img.path for img in added])
     assert len(results) == 5
 
-    # Step 3: Search
+    # 手順 3: 処理済み画像を検索する
     from src.lorairo.database.search_criteria import SearchCriteria
     criteria = SearchCriteria(min_score=0.0)
     search_results = integration_repository.search(criteria)
     assert len(search_results) >= 5
 
-    # Step 4: Update
+    # 手順 4: メタデータを更新する
     search_results[0].score = 0.95
     search_results[0].caption = "Updated caption"
     updated = integration_repository.update(search_results[0])
     assert updated.score == 0.95
     assert updated.caption == "Updated caption"
 
-    # Step 5: Verify final state
+    # 手順 5: 最終状態を検証する
     final_image = integration_repository.get_by_id(search_results[0].id)
     assert final_image.score == 0.95
     assert final_image.caption == "Updated caption"
@@ -249,23 +249,23 @@ def test_transaction_rollback(integration_repository):
     image = Image(path="/test/img.jpg", phash="hash")
     added = integration_repository.add(image)
 
-    # Act - Force error during update
+    # Act - 更新時にエラーを発生させる
     try:
-        added.path = None  # Invalid value
+        added.path = None  # 不正な値
         integration_repository.update(added)
     except Exception:
         pass
 
-    # Assert - Original data unchanged
+    # Assert - 元のデータが維持されていることを検証する
     original = integration_repository.get_by_id(added.id)
     assert original.path == "/test/img.jpg"
 ```
 
-## Example 4: GUI Widget Test
+## 例 4: GUI ウィジェットのテスト
 
-**Scenario:** Test PySide6 widget with user interactions.
+**シナリオ:** ユーザー操作を含む PySide6 ウィジェットの振る舞いをテストする。
 
-### Implementation
+### 実装
 
 ```python
 from PySide6.QtWidgets import QApplication
@@ -332,7 +332,7 @@ def test_button_click_interaction(qtbot, thumbnail_widget):
     qtbot.mouseClick(thumbnail_widget._ui.refreshButton, Qt.LeftButton)
 
     # Assert
-    # Button click should trigger refresh
+    # ボタンクリックでリフレッシュ処理が実行されることを検証する
     assert thumbnail_widget._refresh_count == 1
 
 @pytest.mark.gui
@@ -342,7 +342,7 @@ def test_keyboard_navigation(qtbot, thumbnail_widget):
     thumbnail_widget.load_images(["/img1.jpg", "/img2.jpg", "/img3.jpg"])
     thumbnail_widget.select_image(0)
 
-    # Act - Press Down arrow
+    # Act - 下矢印キーを押下する
     qtbot.keyClick(thumbnail_widget, Qt.Key_Down)
 
     # Assert
@@ -354,7 +354,7 @@ def test_context_menu(qtbot, thumbnail_widget):
     # Arrange
     thumbnail_widget.load_images(["/img1.jpg"])
 
-    # Act - Right click on thumbnail
+    # Act - サムネイル上で右クリックする
     thumbnail_item = thumbnail_widget._ui.thumbnailList.item(0)
     qtbot.mouseClick(
         thumbnail_widget._ui.thumbnailList.viewport(),
@@ -363,15 +363,15 @@ def test_context_menu(qtbot, thumbnail_widget):
     )
 
     # Assert
-    # Context menu should appear
+    # コンテキストメニューが表示されることを検証する
     assert thumbnail_widget._context_menu.isVisible()
 ```
 
-## Example 5: Widget Communication Test
+## 例 5: ウィジェット間通信のテスト
 
-**Scenario:** Test direct widget-to-widget communication.
+**シナリオ:** ウィジェット同士の直接通信をテストする。
 
-### Implementation
+### 実装
 
 ```python
 from src.lorairo.gui.widgets.thumbnail_widget import ThumbnailWidget
@@ -387,10 +387,10 @@ def test_thumbnail_to_details_communication(qtbot):
     qtbot.addWidget(thumbnail)
     qtbot.addWidget(details)
 
-    # Connect widgets
+    # ウィジェット同士を接続する
     details.connect_to_thumbnail_widget(thumbnail)
 
-    # Load test data
+    # テストデータを読み込む
     test_metadata = {
         "id": 1,
         "path": "/test/img1.jpg",
@@ -399,11 +399,11 @@ def test_thumbnail_to_details_communication(qtbot):
     }
     thumbnail.load_metadata([test_metadata])
 
-    # Act - Select thumbnail
+    # Act - サムネイルを選択する
     with qtbot.waitSignal(thumbnail.image_metadata_selected, timeout=1000):
         thumbnail.select_image(0)
 
-    # Assert - Details widget received data
+    # Assert - Details ウィジェットがデータを受け取ったことを検証する
     assert details._current_metadata is not None
     assert details._current_metadata["path"] == "/test/img1.jpg"
     assert details._ui.captionLabel.text() == "Test caption"
@@ -418,29 +418,29 @@ def test_bidirectional_widget_communication(qtbot):
     qtbot.addWidget(filter_widget)
     qtbot.addWidget(result_widget)
 
-    # Connect: Filter → Results
+    # 接続: Filter -> Results
     result_widget.connect_to_filter(filter_widget)
 
-    # Act - Change filter
+    # Act - フィルターを変更する
     with qtbot.waitSignal(filter_widget.filter_changed, timeout=1000):
         filter_widget._ui.queryInput.setText("test query")
 
-    # Assert - Results widget updated
+    # Assert - 結果ウィジェットが更新されたことを検証する
     assert result_widget._current_filter["query"] == "test query"
 
-    # Act - Results widget requests filter update
+    # Act - 結果ウィジェットからフィルター更新を要求する
     with qtbot.waitSignal(result_widget.filter_update_requested, timeout=1000):
         result_widget.request_filter_change({"min_score": 0.8})
 
-    # Assert - Filter widget updated
+    # Assert - フィルターウィジェットが更新されたことを検証する
     assert filter_widget._ui.scoreInput.value() == 0.8
 ```
 
-## Example 6: Async Worker Test
+## 例 6: 非同期ワーカーのテスト
 
-**Scenario:** Test async worker execution with QThreadPool.
+**シナリオ:** `QThreadPool` を使った非同期ワーカーの実行とシグナル発火をテストする。
 
-### Implementation
+### 実装
 
 ```python
 from src.lorairo.gui.workers.annotation_worker import AnnotationWorker
@@ -453,12 +453,12 @@ def test_annotation_worker_success(qtbot):
     worker = AnnotationWorker(image_id=1, model="gpt-4o")
     thread_pool = QThreadPool.globalInstance()
 
-    # Act & Assert - Wait for signals
+    # Act & Assert - シグナル発火を待機する
     with qtbot.waitSignal(worker.signals.started, timeout=1000):
         with qtbot.waitSignal(worker.signals.finished, timeout=10000) as blocker:
             thread_pool.start(worker)
 
-    # Verify result
+    # 結果を検証する
     results = blocker.args[0]
     assert results is not None
     assert "caption" in results
@@ -471,11 +471,11 @@ def test_annotation_worker_error(qtbot):
     worker = AnnotationWorker(image_id=999, model="invalid-model")
     thread_pool = QThreadPool.globalInstance()
 
-    # Act & Assert - Wait for error signal
+    # Act & Assert - エラーシグナルを待機する
     with qtbot.waitSignal(worker.signals.error, timeout=10000) as blocker:
         thread_pool.start(worker)
 
-    # Verify error message
+    # エラーメッセージを検証する
     error_msg = blocker.args[0]
     assert "invalid-model" in error_msg.lower() or "not found" in error_msg.lower()
 
@@ -501,11 +501,11 @@ def test_worker_progress_updates(qtbot):
     assert all(current <= total for current, total in progress_values)
 ```
 
-## Example 7: Parameterized Tests
+## 例 7: パラメーター化テスト
 
-**Scenario:** Test same logic with multiple input variations.
+**シナリオ:** 同一ロジックを複数の入力バリエーションで検証する。
 
-### Implementation
+### 実装
 
 ```python
 @pytest.mark.parametrize("score,expected", [
@@ -554,29 +554,32 @@ def test_path_validation_rejects_invalid(invalid_input):
         validate_image_path(invalid_input)
 ```
 
-## Coverage Best Practices
+## カバレッジのベストプラクティス
 
-**Run coverage:**
+**カバレッジの計測コマンド:**
+
 ```bash
-# Generate HTML report
+# HTML レポートを生成する
 uv run pytest --cov=src/lorairo --cov-report=html
 
-# Generate XML for CI
+# CI 向け XML レポートを生成する
 uv run pytest --cov=src/lorairo --cov-report=xml
 
-# Show missing lines
+# 未カバー行を端末に表示する
 uv run pytest --cov=src/lorairo --cov-report=term-missing
 ```
 
-**Interpret results:**
+**レポートの読み取り例:**
+
 ```
 src/lorairo/database/db_repository.py    95%   12-15
 src/lorairo/services/image_service.py     87%   45, 78-82
 src/lorairo/gui/widgets/thumbnail.py      72%   BELOW TARGET
 ```
 
-**Improve coverage:**
-1. Identify uncovered lines from report
-2. Add tests for edge cases
-3. Test error handling paths
-4. Cover all code branches (if/else, try/except)
+**カバレッジ改善の手順:**
+
+1. レポートから未カバー行を特定する
+2. エッジケースのテストを追加する
+3. エラーハンドリング経路をテストする
+4. すべてのコード分岐(`if`/`else`、`try`/`except`)を網羅する

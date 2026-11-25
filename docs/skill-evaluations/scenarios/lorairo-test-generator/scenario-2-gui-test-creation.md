@@ -1,34 +1,36 @@
-# Scenario: GUI Test Creation with pytest-qt
+# シナリオ: pytest-qt による GUI テスト作成
 
-## Input
-**User request:** "Create GUI tests for the FilterPanelWidget. Test signal emissions, user interactions, and widget state. Use pytest-qt for headless execution."
+## 入力
 
-**Context:**
-- LoRAIro GUI testing requirements:
-  - pytest-qt framework
-  - Headless execution (QT_QPA_PLATFORM=offscreen)
-  - AAA pattern
-  - Signal/slot testing
-  - User interaction simulation (clicks, input)
-- Target widget: FilterPanelWidget in `src/lorairo/gui/widgets/filter_panel_widget.py`
-- Test location: `tests/integration/gui/widgets/`
-- pytest marker: @pytest.mark.gui
+**ユーザー依頼:** "Create GUI tests for the FilterPanelWidget. Test signal emissions, user interactions, and widget state. Use pytest-qt for headless execution."
 
-## Expected Behavior
-1. Skill `lorairo-test-generator` should be invoked automatically
-2. Should guide GUI test creation:
+**前提条件:**
+- LoRAIro の GUI テスト要件は以下の通りである。
+  - pytest-qt フレームワーク
+  - ヘッドレス実行 (`QT_QPA_PLATFORM=offscreen`)
+  - AAA パターン
+  - シグナル/スロットのテスト
+  - ユーザー操作シミュレーション (クリック、入力)
+- 対象ウィジェット: `src/lorairo/gui/widgets/filter_panel_widget.py` の `FilterPanelWidget`
+- テスト配置場所: `tests/integration/gui/widgets/`
+- pytest マーカー: `@pytest.mark.gui`
 
-   **Phase 1: Pattern Research**
-   - Examine existing GUI tests
-   - Check memory for pytest-qt patterns
-   - Review FilterPanelWidget signals and methods
+## 期待される動作
 
-   **Phase 2: Fixture Creation**
-   - Create qtbot fixture (provided by pytest-qt)
-   - Create widget instance fixture
+1. スキル `lorairo-test-generator` が自動的に呼び出される。
+2. 以下の手順に沿って GUI テスト作成を案内する。
 
-   **Phase 3: Test Implementation**
-   - Signal emission tests:
+   **フェーズ 1: パターン調査**
+   - 既存の GUI テストを調べる。
+   - メモリから pytest-qt のパターンを確認する。
+   - `FilterPanelWidget` のシグナルとメソッドを確認する。
+
+   **フェーズ 2: フィクスチャの作成**
+   - `qtbot` フィクスチャ (pytest-qt 提供) を利用する。
+   - ウィジェットインスタンス用のフィクスチャを作成する。
+
+   **フェーズ 3: テスト実装**
+   - シグナル送出のテスト:
      ```python
      @pytest.mark.gui
      def test_filter_changed_signal_emitted(filter_panel_widget, qtbot):
@@ -40,7 +42,7 @@
          # Assert (signal was emitted, verified by waitSignal)
      ```
 
-   - User interaction tests:
+   - ユーザー操作のテスト:
      ```python
      @pytest.mark.gui
      def test_apply_button_click(filter_panel_widget, qtbot):
@@ -56,7 +58,7 @@
          assert len(signals) == 1
      ```
 
-   - Widget state tests:
+   - ウィジェット状態のテスト:
      ```python
      @pytest.mark.gui
      def test_reset_button_clears_filters(filter_panel_widget, qtbot):
@@ -70,72 +72,77 @@
          assert filter_panel_widget.tag_combo.currentText() == ""
      ```
 
-   **Phase 4: Headless Execution**
-   - Mention QT_QPA_PLATFORM=offscreen
-   - Suggest running with: `uv run pytest -m gui`
+   **フェーズ 4: ヘッドレス実行**
+   - `QT_QPA_PLATFORM=offscreen` に言及する。
+   - `uv run pytest -m gui` での実行を提案する。
 
-3. Should produce:
-   - Complete GUI test suite
-   - pytest-qt usage (qtbot)
-   - Signal/slot testing
-   - User interaction simulation
-   - Widget state verification
-   - Headless-compatible
+3. 以下の成果物を生成する。
+   - 完全な GUI テストスイート
+   - pytest-qt (`qtbot`) の適切な使用
+   - シグナル/スロットのテスト
+   - ユーザー操作のシミュレーション
+   - ウィジェット状態の検証
+   - ヘッドレス環境での実行互換性
 
-4. Should NOT:
-   - Require GUI display (must run headless)
-   - Skip signal testing
-   - Forget qtbot fixture
-   - Mix unit and GUI tests
+4. 以下を行わない。
+   - GUI ディスプレイを必須とする (ヘッドレスで実行できなければならない)。
+   - シグナルのテストを省略する。
+   - `qtbot` フィクスチャを使い忘れる。
+   - ユニットテストと GUI テストを混在させる。
 
-## Success Criteria
-- [x] Correct skill invoked (lorairo-test-generator)
-- [x] Pattern research done (existing GUI tests)
-- [x] qtbot fixture used correctly
-- [x] Signals tested (waitSignal or manual connection)
-- [x] User interactions simulated (mouseClick, keyPress)
-- [x] Widget state verified
-- [x] @pytest.mark.gui marker present
-- [x] Tests run headless successfully
-- [x] Completes without errors
+## 成功基準
 
-## Model Variations
-- **Haiku:** Should create basic GUI tests; may need guidance on pytest-qt API and signal testing
-- **Sonnet:** Should create comprehensive GUI test suite; good qtbot usage and interaction simulation
-- **Opus:** May suggest advanced patterns (async signal testing, complex interactions); excellent state verification strategies
+- [x] 正しいスキル (`lorairo-test-generator`) が呼び出された
+- [x] パターン調査 (既存 GUI テストの確認) を行った
+- [x] `qtbot` フィクスチャが正しく使用されている
+- [x] シグナルがテストされている (`waitSignal` または手動接続)
+- [x] ユーザー操作がシミュレートされている (`mouseClick`、`keyPress`)
+- [x] ウィジェット状態が検証されている
+- [x] `@pytest.mark.gui` マーカーが付与されている
+- [x] ヘッドレス環境でテストが正常に実行できる
+- [x] エラーなく完了する
 
-## Test Validation
-After running this scenario:
-1. Verify skill invoked: Check `lorairo-test-generator` in metadata
-2. Check pytest-qt usage:
-   - qtbot fixture used in all tests
-   - `qtbot.waitSignal()` for signal testing
-   - `qtbot.mouseClick()` / `qtbot.keyPress()` for interactions
-3. Verify signal testing:
-   - Signals tested with waitSignal or manual connection
-   - Timeout specified (e.g., 1000ms)
-   - Signal data verified if applicable
-4. Check user interaction tests:
-   - Button clicks simulated
-   - Input field changes tested
-   - Combo box selections tested
-5. Verify widget state:
-   - Initial state checked
-   - State after interactions verified
-   - Reset/clear functionality tested
-6. Check pytest marker:
-   - `@pytest.mark.gui` on all GUI tests
-7. Run tests headless:
+## モデル別の傾向
+
+- **Haiku:** 基本的な GUI テストを作成できる。pytest-qt の API やシグナルテストには補足指示が必要な場合がある。
+- **Sonnet:** 包括的な GUI テストスイートを作成できる。`qtbot` の使い方と操作シミュレーションの品質が高い。
+- **Opus:** 非同期シグナルテストや複雑な操作パターンを提案する場合がある。状態検証の戦略にも優れる。
+
+## テスト検証
+
+このシナリオの実行後、以下の項目を確認する。
+
+1. スキル呼び出しの確認: メタデータに `lorairo-test-generator` が含まれていることを確認する。
+2. pytest-qt の使用確認:
+   - すべてのテストで `qtbot` フィクスチャを使用している。
+   - シグナル検証に `qtbot.waitSignal()` を使用している。
+   - 操作シミュレーションに `qtbot.mouseClick()` / `qtbot.keyPress()` を使用している。
+3. シグナルテストの確認:
+   - `waitSignal` または手動接続でシグナルをテストしている。
+   - タイムアウト (例: 1000ms) を指定している。
+   - 該当する場合はシグナルのデータ内容も検証している。
+4. ユーザー操作テストの確認:
+   - ボタンクリックをシミュレートしている。
+   - 入力フィールドの変更をテストしている。
+   - コンボボックスの選択をテストしている。
+5. ウィジェット状態の確認:
+   - 初期状態を確認している。
+   - 操作後の状態を検証している。
+   - リセット/クリア機能をテストしている。
+6. pytest マーカーの確認:
+   - すべての GUI テストに `@pytest.mark.gui` が付与されている。
+7. ヘッドレスでのテスト実行:
    ```bash
    QT_QPA_PLATFORM=offscreen uv run pytest tests/integration/gui/widgets/test_filter_panel_widget.py -m gui
    ```
-8. Verify execution:
-   - Tests run without display
-   - All tests pass
-   - No GUI windows opened
+8. 実行結果の確認:
+   - ディスプレイなしでテストが実行できる。
+   - すべてのテストがパスする。
+   - GUI ウィンドウが開かない。
 
-## Edge Cases to Test
-- Signal emitted multiple times (debouncing)
-- Rapid user interactions (double-click prevention)
-- Widget disabled state (interactions ignored)
-- Invalid input handling (validation)
+## 検証すべきエッジケース
+
+- シグナルが複数回送出された場合 (デバウンス処理)
+- ユーザーが素早く連続操作した場合 (ダブルクリック防止)
+- ウィジェットが無効化されている状態 (操作が無視されること)
+- 不正な入力値の処理 (バリデーション)

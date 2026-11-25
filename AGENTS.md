@@ -1,133 +1,156 @@
-# Repository Guidelines
+# リポジトリガイドライン(AGENTS.md)
 
-## Project Structure & Module Organization
-- `src/lorairo/` holds the main Python package (entry point: `lorairo.main:main`).
-- Key subpackages: `config/` (settings), `database/` (SQLAlchemy + Alembic), `gui/` (PySide6 UI), `image/` (image processing), `utils/` (shared helpers).
-- `tests/` contains pytest suites and fixtures; `tests/resources/` stores test assets.
-- `local_packages/` includes editable submodules used by the app (e.g., `genai-tag-db-tools/`, `image-annotator-lib/`).
-- `docs/` contains developer references and ADRs; `site/` contains the multilingual Starlight user guide.
-- `scripts/` contains portable dev utilities (GUI launcher, UI generation, tests).
+## プロジェクト構成とモジュール配置
 
-## Build, Test, and Development Commands
-- `uv sync` (or `make install`) installs runtime dependencies.
-- `make install-dev` installs dev dependencies and editable package setup.
-- `uv run --no-sync lorairo` or `make run-gui` starts the GUI on Windows; container tests are headless.
-- `make test` runs pytest with repo defaults.
-- `make mypy` runs strict type checks against the `lorairo` package.
-- `make format` applies Ruff formatting and fixes.
-- From `site/`, `npm ci` installs documentation dependencies, `npm run build` validates translations and builds
-  the user guide, and `npm run preview` serves the build. See `site/README.md` for Japanese-first authoring.
+- `src/lorairo/` — メインの Python パッケージ(エントリーポイント: `lorairo.main:main`)
+  - `config/`: 設定管理
+  - `database/`: SQLAlchemy と Alembic によるデータベース層
+  - `gui/`: PySide6 による GUI
+  - `image/`: 画像処理
+  - `utils/`: 共通ヘルパー
+- `tests/` — pytest テストスイートとフィクスチャ(`tests/resources/` にテスト用アセットを配置)
+- `local_packages/` — アプリから利用する editable インストールのサブモジュール(`genai-tag-db-tools/`、`image-annotator-lib/` など)
+- `docs/` — 開発者向けリファレンスおよび ADR
+- `site/` — 多言語対応の Starlight ユーザーガイド
+- `scripts/` — 開発用ユーティリティ(GUI 起動、UI 生成、テスト実行など)
 
-## Coding Style & Naming Conventions
-- Python 3.12; 4-space indentation; line length 108.
-- Ruff is the formatter and linter. Use double quotes and let Ruff handle imports.
-- Generated Qt Designer code lives under `*/gui/designer/` and is excluded from linting; avoid manual edits unless necessary.
+## ビルド・テスト・開発コマンド
 
-## Testing Guidelines
-- Frameworks: `pytest`, `pytest-qt`, and `pytest-bdd`.
-- Naming: files `test_*.py`, classes `Test*`, functions `test_*`.
-- Coverage: fails under 75% (`coverage` config in `pyproject.toml`).
-- Example: `uv run pytest -m "fast"` to run quick unit tests.
+- 実行依存のインストール: `uv sync`(または `make install`)
+- 開発依存と editable セットアップ: `make install-dev`
+- GUI の起動(Windows): `uv run --no-sync lorairo` または `make run-gui`(コンテナ内のテストはヘッドレス実行)
+- テスト実行: `make test`(リポジトリ既定の pytest 設定で実行)
+- 型チェック: `make mypy`(`lorairo` パッケージに対して厳格チェックを実行)
+- フォーマット・Lint 修正: `make format`(Ruff を適用)
+- ユーザーガイド(`site/` 配下):
+  - `npm ci`: ドキュメント依存のインストール
+  - `npm run build`: 翻訳の整合性検証とサイトビルド
+  - `npm run preview`: ビルド結果のプレビュー
+  - 日本語を原本とする執筆ルールは `site/README.md` を参照
 
-## Diagnostic Log Context
-- `src/lorairo/utils/config.py` sets `DEFAULT_LOG_PATH = user_log_path("LoRAIro", appauthor=False) / "lorairo.log"` via `platformdirs`:
-  - Windows: `%LOCALAPPDATA%\LoRAIro\Logs\lorairo.log`
-  - Linux / Dev Container: `~/.local/state/LoRAIro/log/lorairo.log` (alongside gitignored workspace `logs/lorairo.log` and `logs/image-annotator-lib.log`).
-- These logs are first-class debugging context. When investigating runtime errors, failed GUI flows, annotation/model issues, worker failures, or test failures that may involve app behavior, inspect these logs proactively even if the user did not attach or mention them.
-- Prefer bounded reads such as `tail -200 ~/.local/state/LoRAIro/log/lorairo.log`, `tail -200 logs/lorairo.log`, and `tail -200 logs/image-annotator-lib.log`; if a file is missing, note that and continue.
-- Do not add these logs to git or include large log dumps in responses; summarize only the relevant lines.
+## コーディング規約と命名規則
 
-## Commit & Pull Request Guidelines
-- Commit messages follow Conventional Commits: `feat: ...`, `refactor: ...`, `docs: ...`, `test: ...`, `chore: ...`.
-- PRs should include a clear description, test results, and screenshots for GUI changes.
-- Link related issues and note any migration or config changes.
+- Python 3.12、インデントはスペース 4 つ、最大行長は 108 文字とする。
+- フォーマッター・リンターには Ruff を使う。文字列はダブルクォートで統一し、インポート順は Ruff に任せる。
+- `*/gui/designer/` 配下のコードは Qt Designer からの自動生成物であり、Lint 対象外とする。特別な理由がない限り手で編集しない。
 
-## LoRAIro Skills
-Repository-specific skills live in `.agents/skills/` (tracked); `.claude/skills/<name>` links to them.
-External skills (kit / third-party, e.g. `check-existing`, `pr-maintainer`, `pr-autoloop`) are untracked
-and restored from `skills-lock.json` by `make setup` / `make skills-install`. Read the skill's `SKILL.md`
-before starting the matching task; the skill holds the steps, safety constraints and verification.
-See [`docs/development/agent-skills-guide.md`](docs/development/agent-skills-guide.md) for the full 32-skill
-inventory, overlap resolution rules, workflow-by-workflow minimal checklists, and verified walkthroughs.
+## テスト方針
 
-| Task | Skill | Key constraint |
+- 使用フレームワーク: `pytest`、`pytest-qt`、`pytest-bdd`
+- 命名規則: ファイルは `test_*.py`、クラスは `Test*`、関数は `test_*`
+- カバレッジ基準: 75% 未満で失敗(`pyproject.toml` の `coverage` 設定に従う)
+- 高速なユニットテストの実行例: `uv run pytest -m "fast"`
+
+## 診断ログの活用
+
+`src/lorairo/utils/config.py` では、`platformdirs` を用いて既定のログ出力先 `DEFAULT_LOG_PATH = user_log_path("LoRAIro", appauthor=False) / "lorairo.log"` を定義している。
+
+- Windows: `%LOCALAPPDATA%\LoRAIro\Logs\lorairo.log`
+- Linux / Dev Container: `~/.local/state/LoRAIro/log/lorairo.log`(あわせて git 管理外のワークスペースログ `logs/lorairo.log` と `logs/image-annotator-lib.log` も出力される)
+
+これらのログは最優先のデバッグ情報源として扱う。実行時エラー、GUI 操作の失敗、アノテーションやモデル周りの不具合、ワーカー失敗、アプリ挙動に関わるテスト失敗を調査する際は、ユーザーから指示や添付がなくても自ら確認する。
+
+ログの読み込みは行数を制限して行う。
+
+- `tail -200 ~/.local/state/LoRAIro/log/lorairo.log`
+- `tail -200 logs/lorairo.log`
+- `tail -200 logs/image-annotator-lib.log`
+
+対象ファイルが存在しない場合はその旨を記録して先へ進む。ログファイルを git に追加したり、応答へ大量のログをそのまま貼り付けたりせず、関連する行だけを要約して報告する。
+
+## コミットとプルリクエストの規約
+
+- コミットメッセージは Conventional Commits に従う(例: `feat: ...`、`refactor: ...`、`docs: ...`、`test: ...`、`chore: ...`)。
+- PR には変更内容の明確な説明、テスト結果、GUI 変更がある場合はスクリーンショットを含める。
+- 関連する Issue をリンクし、マイグレーションや設定変更がある場合は必ず明記する。
+
+## LoRAIro のスキル運用
+
+リポジトリ固有のスキルは `.agents/skills/` に配置して git で管理しており、`.claude/skills/<name>` からリンクしている。外部スキル(kit やサードパーティ由来の `check-existing`、`pr-maintainer`、`pr-autoloop` など)は git 追跡対象外であり、`make setup` または `make skills-install` で `skills-lock.json` から復元する。
+
+該当する作業を始める前に、必ず対象スキルの `SKILL.md` を読むこと。手順・安全制約・検証方法がそこに記載されている。全 32 スキルの一覧、重複時の優先ルール、作業別の最小チェックリスト、検証済みウォークスルーは [`docs/development/agent-skills-guide.md`](docs/development/agent-skills-guide.md) を参照する。
+
+| 作業内容 | スキル | 主な制約 |
 |---|---|---|
-| Read or edit the image DB (images, tags, annotations, errors) | `lorairo-cli-db-access` | Use `lorairo-cli`, never raw `sqlite3` against `lorairo_data/*` (9p mount + WAL) |
-| New repository / persistence code | `lorairo-repository-pattern` | Typed transactions via `src/lorairo/database/repository/` (`BaseRepository`) |
-| New or slow queries, N+1 review | `sqlalchemy-query-patterns` | Batch lookups (`selectinload`); check with EXPLAIN |
-| PySide6 widget / worker / Qt Designer work | `lorairo-qt-widget` | `LoRAIroWorkerBase` (QObject + `moveToThread`); regenerate UI with `scripts/generate_ui.py` |
-| UI design intent before Qt work | `interface-design` | Define intent/tokens (`src/lorairo/gui/theme.py`), then implement with `lorairo-qt-widget` |
-| Sync app layout with the wireframes / claude.ai design | `lorairo-design-capture` | Capture the render-time state, not static HTML |
-| Write tests | `lorairo-test-generator` | Mock `QMessageBox`; `qtbot.waitUntil`, no fixed waits |
-| Add or edit ADRs / concept docs | `okf-bundle` | Frontmatter is the SSoT; regenerate the index (`make adr-index`) |
-| Scope a feature (reuse vs build) | `check-existing` (external) | Check `local_packages/` first |
-| Maintain an agent-created PR | `pr-maintainer` / `pr-autoloop` (external) | See "Agent Git Workflow" below |
+| 画像 DB の参照・編集(画像・タグ・アノテーション・エラー) | `lorairo-cli-db-access` | `lorairo_data/*` へ `sqlite3` を直接使わず、`lorairo-cli` を経由する(9p マウントと WAL の保護) |
+| リポジトリ・永続化コードの新規実装 | `lorairo-repository-pattern` | `src/lorairo/database/repository/`(`BaseRepository`)経由で型安全なトランザクションを使う |
+| 新規クエリ・遅いクエリ・N+1 の調査 | `sqlalchemy-query-patterns` | `selectinload` などで一括取得し、`EXPLAIN` で実行計画を確認する |
+| PySide6 ウィジェット・ワーカー・Qt Designer 作業 | `lorairo-qt-widget` | `LoRAIroWorkerBase`(`QObject` + `moveToThread`)を使い、`.ui` 変更後は `scripts/generate_ui.py` で再生成する |
+| Qt 実装前の UI 設計意図の整理 | `interface-design` | 先に設計意図とトークン(`src/lorairo/gui/theme.py`)を決め、その後に `lorairo-qt-widget` で実装する |
+| ワイヤーフレームや claude.ai デザインとのレイアウト同期 | `lorairo-design-capture` | 静的 HTML ではなく、描画時の実行状態を取得する |
+| テスト作成 | `lorairo-test-generator` | `QMessageBox` はモック化し、固定時間待機ではなく `qtbot.waitUntil` を使う |
+| ADR や概念ドキュメントの追加・編集 | `okf-bundle` | frontmatter を単一の情報源(SSoT)とし、索引は `make adr-index` で再生成する |
+| 機能のスコープ検討(再利用か新規実装か) | `check-existing`(外部) | まず `local_packages/` を確認する |
+| エージェント作成 PR の保守 | `pr-maintainer` / `pr-autoloop`(外部) | 下記の「エージェントの Git ワークフロー」に従う |
 
-**Skill Priority & Overlap Rules:**
-- **Tracked LoRAIro skills first**: When a tracked skill in `.agents/skills/` overlaps with a generic external skill in `skills-lock.json`, always follow the LoRAIro skill (`lorairo-repository-pattern` + `sqlalchemy-query-patterns` over `sql-optimization-patterns` / `database-migration`; `lorairo-test-generator` over `python-testing-patterns` / `qa-expert`).
-- **GUI workflow order**: Follow `interface-design` (intent/tokens) → `lorairo-design-capture` (render-time prototype state) → `lorairo-qt-widget` (PySide6 implementation). Do not apply React/Vercel external skills (`vercel-*`, `deploy-to-vercel`) to Python/Qt code; `web-design-guidelines` applies only to the `site/` Starlight web guide.
+### スキルの優先順位と重複時のルール
 
-## Agent Git Workflow
-- Issue resolution, feature work, PR preparation, and any multi-file implementation must start from a dedicated git worktree under `.agents/worktree/`.
-- Do not edit, stage, commit, rebase, or push from the shared main checkout at `/workspaces/LoRAIro` for implementation work.
-- Create worktrees from the current remote base, for example: `git fetch origin && git worktree add .agents/worktree/issue-123 -b fix/issue-123 origin/main`.
-- For issue resolution or feature implementation, completion means: implement, validate, commit, push, open a ready-for-review PR, run PR maintenance automation through CI/review, and merge when safe, unless the user explicitly asks to stop before publishing or keep the PR as draft.
-- Do not end issue or multi-file feature work after local implementation only. Report the PR URL and final monitored state as the outcome.
-- If PR creation is blocked by auth, network, failing validation, or unclear scope, report the blocker explicitly instead of silently stopping at local changes.
-- When running `uv` from a `.agents/worktree/` checkout, use this OS checkout's Git common root `.venv`.
-  Windows uses the host checkout `.venv`; the Dev Container bind-mounts the same host checkout
-  read-write at `/workspaces/LoRAIro` and uses `/workspaces/LoRAIro/.venv` (the existing
-  `lorairo-venv` named volume mounted over the host `.venv`).
-  Run `python scripts/configure_agent_environment.py` to set `UV_PROJECT_ENVIRONMENT` in the current
-  OS **user** Codex config and Claude settings. Do not put OS-specific absolute paths in shared
-  `.codex/config.toml`, `.claude/settings.json`, or `.claude/settings.local.json`. Project settings
-  override user settings, so changing `CODEX_HOME` or adding a home volume alone does not fix them.
-  This repository overrides kit guidance examples that place venv paths in project settings.
-  If the shared environment is missing, stop and configure the actual OS environment rather than
-  letting `uv` create a new one at a stale path.
-  Do not prefix every Codex command with `UV_PROJECT_ENVIRONMENT=...`; it creates unnecessary command-approval friction and hides the normal command shape.
-  In shells where that environment is not configured, explicitly set `UV_PROJECT_ENVIRONMENT` to
-  this OS checkout's shared `.venv` for the command. This inline argument is the only fallback.
-  Do not create a worktree-local `.venv`, and do not symlink a worktree `.venv` to the shared one. A worktree `.venv` (real or symlinked) only adds risk: `uv` can delete-and-recreate it on a Python-version mismatch and corrupt the shared environment, and it leaves residue to clean up. If the shared environment cannot be used, only a bare `uv` help/inspection command is allowed without `UV_PROJECT_ENVIRONMENT`.
-  Run verification commands from the target worktree. For CLI smoke tests, read-only checks, or parallel worker verification, use `uv run --no-sync` plus an explicit `PYTHONPATH` pointing at the target worktree `src` and local package `src` directories when editable-install ambiguity matters.
-  Treat default-sync `uv run`, `uv sync`, dependency updates, and other environment-mutating `uv` operations as shared `.venv` writes; do not run them concurrently across workers, and sequence them deliberately.
-- Agent-created PRs should normally be created ready for review, not draft. When a draft PR exists because the user explicitly asked to keep it draft, mark it ready for review as soon as the user allows review, then immediately start or resume PR maintenance automation: poll CI, watch bot review artifacts/comments, repair actionable findings in the PR worktree, reply in Japanese, merge when safe, and report the final monitored state.
-- After creating an agent PR, explicitly verify `gh pr view "$PR" --json isDraft -q .isDraft`. If it is
-  `true`, run `gh pr ready "$PR"` and re-check. Do not set up `gh pr merge --auto` while the PR is still draft.
-- After an agent-created PR is merged, immediately remove the clean worktree with `git worktree remove <path>` or run `make worktree-cleanup-merged` from the shared checkout. Do not leave merged worktrees behind.
-- **`pr-autoloop` の Codex 実装 (wait mechanism override):** the shared PR maintenance loop is described by the `pr-autoloop` skill (policy in `pr-maintainer`, decision in ADR 0039). Codex runs that loop **inline in the same session**: after creating the PR, poll `gh pr view` / `gh pr checks` about every 3 minutes for up to 20 minutes, classify each cycle into continue / repair / escalate / merge / timeout, repair actionable findings in the PR worktree, reply in Japanese, and squash merge when safe. Codex does not use Claude Code's `ScheduleWakeup`; it polls within the session and reports the final monitored state, escalating instead of looping past the 4-repair limit.
-- Keep agent-specific rules as references to this file and `.claude/rules/git-workflow.md` rather than duplicating conflicting workflow text.
-- Windows and the Dev Container share one checkout, so worktrees created on one OS are registered
-  with absolute paths the other OS cannot resolve (`git worktree list` shows them as `prunable`).
-  Never prune/repair/remove another OS's worktree because its absolute path appears missing.
-  Clean up only on its originating OS after checking local changes.
-- Setup restores common hooks, rules, agents and skills in both checkouts. Skills are portable
-  directory copies; `core.hooksPath=.githooks` selects shared hooks with the current OS interpreter.
-  Do not run `pre-commit install` to generate a hook with one OS's Python path.
+- **追跡済みの LoRAIro スキルを最優先する**: `.agents/skills/` の LoRAIro 固有スキルと `skills-lock.json` の汎用外部スキルが重複する場合は、常に LoRAIro スキルに従う(例: `sql-optimization-patterns` や `database-migration` より `lorairo-repository-pattern` + `sqlalchemy-query-patterns` を優先し、`python-testing-patterns` や `qa-expert` より `lorairo-test-generator` を優先する)。
+- **GUI 作業の順序**: `interface-design`(設計意図・トークン)→ `lorairo-design-capture`(描画時のプロトタイプ状態)→ `lorairo-qt-widget`(PySide6 実装)の順に進める。React/Vercel 向けの外部スキル(`vercel-*`、`deploy-to-vercel`)は Python/Qt コードへ適用しない。`web-design-guidelines` は `site/` の Starlight ユーザーガイドにのみ適用する。
 
-## Codex Parallel Agent Workflow
-- For large, multi-issue, multi-PR, or broad refactoring work, Codex should proactively use sub-agents instead of serializing all work in one session.
-- Use parallel workers when tasks can be split by issue, module, ownership boundary, or test/verification responsibility.
-- Each worker must use its own dedicated git worktree under `.agents/worktree/`; do not let multiple workers edit the same worktree.
-- Assign each worker a clear branch name and file/module ownership before implementation starts, for example:
-  `git worktree add .agents/worktree/issue-304 -b fix/issue-304-thumbnail origin/main`.
-- Keep worker write scopes disjoint whenever possible. If two workers must touch the same file, the lead agent should sequence those changes or handle that integration directly.
-- The lead Codex session is responsible for coordination: defining worker scope, checking for overlapping edits, reviewing diffs, running or confirming tests, creating PRs, and updating parent issue checklists after merge.
-- Prefer worker agents for implementation, explorer agents for codebase investigation, test-runner agents for verification, and code-reviewer agents for PR review when those roles can run independently.
-- Do not spawn sub-agents for trivial single-file fixes, one-command tasks, or changes where coordination overhead is larger than the work.
-- When a parent issue has a checklist of independent sub-issues, treat it as a default candidate for parallel workers and one PR per sub-issue unless the issue text explicitly requests a combined PR.
+## エージェントの Git ワークフロー
 
-## Codex tmux Monitoring Workflow
-- For large parallel work, Codex may create a `tmux` session to monitor worker progress in split panes.
-- Prefer one pane per worker worktree when practical, plus one lead pane for coordination.
-- Each worker pane should show the worker name, worktree path, branch, git status, latest commit, and current validation command or log.
-- `tmux` monitoring is observational; it does not replace the rule that each worker must use a dedicated `.agents/worktree/` checkout.
-- Use stable session names tied to the parent issue or branch, for example `codex-308` or `codex-agent-rules`.
-- Do not leave required long-running `tmux` sessions active without reporting the session name, active panes, and commands to the user.
+### ワークツリーの作成と完了基準
 
-## Security & Configuration Tips
-- Store API keys in a local `.env` (see `.env.example`). Never commit secrets.
-- Keep local data and logs out of version control (`logs/`, `lorairo_data/`).
+- Issue 解決、機能開発、PR 準備、複数ファイルにわたる実装作業は、必ず `.agents/worktree/` 配下の専用ワークツリーから開始する。
+- 共有メインチェックアウト(`/workspaces/LoRAIro`)で実装作業の編集・ステージ・コミット・リベース・プッシュを行わない。
+- ワークツリーは最新のリモートベースから作成する。
+  - 例: `git fetch origin && git worktree add .agents/worktree/issue-123 -b fix/issue-123 origin/main`
+- ユーザーが明示的に「公開前で止める」「ドラフトのままにする」と指示しない限り、Issue 解決や機能実装の完了は「実装 → 検証 → コミット → プッシュ → レビュー可能な PR の作成 → CI・レビューの保守自走 → 安全確認後のマージ」までを一連のゴールとする。
+- ローカル実装だけで作業を終えず、PR URL と最終的な監視状態を成果として報告する。認証・ネットワーク・検証失敗・スコープ不明などで PR 作成がブロックされた場合は、黙って止めずにブロッカーを明示して報告する。
+
+### ワークツリー内での `uv` と共有 `.venv` の運用
+
+- `.agents/worktree/` 配下で `uv` を実行するときは、現在の OS チェックアウトの Git 共通ルートにある共有 `.venv` を使う。
+  - Windows ではホスト側チェックアウトの `.venv` を使う。
+  - Dev Container ではホスト側チェックアウトを `/workspaces/LoRAIro` に読み書きマウントし、`/workspaces/LoRAIro/.venv`(ホスト `.venv` 上にマウントされた名前付きボリューム `lorairo-venv`)を使う。
+- `python scripts/configure_agent_environment.py` を実行し、現在の OS の**ユーザーレベル**の Codex 設定および Claude 設定に `UV_PROJECT_ENVIRONMENT` を設定する。
+- OS 固有の絶対パスを共有の `.codex/config.toml`、`.claude/settings.json`、`.claude/settings.local.json` に書き込まない。プロジェクト設定はユーザー設定を上書きするため、`CODEX_HOME` の変更やホームボリューム追加だけでは解決しない(本リポジトリでは、プロジェクト設定に仮想環境パスを置く kit 側の案内例を上書きしている)。
+- 共有環境が見当たらない場合は、`uv` に誤ったパスへ新規環境を作らせず、作業を止めて実際の OS 環境を正しく構成する。
+- Codex のコマンドに毎回 `UV_PROJECT_ENVIRONMENT=...` を付けない。コマンド承認の妨げになり、通常のコマンド形状が隠れてしまう。環境設定が効いていないシェルでのみ、インラインでの `UV_PROJECT_ENVIRONMENT` 指定をフォールバックとして使う。
+- ワークツリー内に専用の `.venv` を作成したり、共有 `.venv` へのシンボリックリンクを張ったりしない。Python バージョン不一致時に `uv` が環境を削除・再作成して共有環境を壊す恐れがあり、掃除の残骸も増える。共有環境を使えない場合は、`uv` 単体のヘルプや確認コマンドだけを実行できる。
+- 検証コマンドは対象のワークツリー内から実行する。CLI のスモークテスト、読み取り専用チェック、並列ワーカーでの検証において editable インストールの解決先が曖昧になり得る場合は、`uv run --no-sync` に加えて、対象ワークツリーの `src` とローカルパッケージの `src` を指す `PYTHONPATH` を明示する。
+- 既定で同期が走る `uv run` や `uv sync`、依存更新などの環境書き換え操作は、共有 `.venv` への書き込みとして扱う。複数ワーカーで並列実行せず、必ず直列に実行する。
+
+### PR の公開状態・保守自走・マージ後の片付け
+
+- エージェントが作成する PR は、原則としてドラフトではなくレビュー可能な状態(ready for review)で作成する。ユーザー指示でドラフト作成した PR も、レビュー許可が出たらすぐに ready へ切り替え、PR 保守自走(CI ポーリング、bot レビュー確認、ワークツリー内での修正、日本語での返信、安全なマージ、最終状態の報告)を開始・再開する。
+- PR 作成直後に `gh pr view "$PR" --json isDraft -q .isDraft` を確認する。`true` の場合は `gh pr ready "$PR"` を実行して再確認する。ドラフト状態の PR に `gh pr merge --auto` を設定しない。
+- PR のマージが完了したら、変更の残っていないワークツリーを即座に `git worktree remove <path>` または共有チェックアウトからの `make worktree-cleanup-merged` で削除する。マージ済みワークツリーを放置しない。
+- **`pr-autoloop` の Codex 実装(待機方式の上書き)**: PR 保守ループの共通仕様は `pr-autoloop` スキル(ポリシーは `pr-maintainer`、判断根拠は ADR 0039)で定義されている。Codex はこのループを**同一セッション内でインライン実行**する。PR 作成後、約 3 分間隔で最大 20 分間 `gh pr view` と `gh pr checks` をポーリングし、各サイクルを `continue` / `repair` / `escalate` / `merge` / `timeout` に分類する。対応可能な指摘は PR ワークツリーで修正して日本語で返信し、安全ならスカッシュマージする。Codex では Claude Code の `ScheduleWakeup` を使わず、セッション内でポーリングして最終監視状態を報告する。修正回数が上限(4 回)を超える場合はループを続けずエスカレーションする。
+- エージェント固有のルールは本ファイルおよび `.claude/rules/git-workflow.md` への参照にとどめ、矛盾するワークフロー記述を重複させない。
+
+### クロス OS 環境(Windows / Dev Container)の注意点
+
+- Windows と Dev Container は同じチェックアウトを共有しているため、片方の OS で作成したワークツリーは、もう片方の OS から解決できない絶対パスとして登録される(`git worktree list` で `prunable` と表示される)。パスが見つからないからといって別 OS のワークツリーを prune・修復・削除してはならない。片付けは必ず作成元の OS 上でローカル変更を確認してから行う。
+- セットアップ処理は両チェックアウトに共通フック・ルール・エージェント・スキルを復元する。スキルはポータブルなディレクトリコピーであり、`core.hooksPath=.githooks` が現在の OS の Python を使って共通フックを実行する。片方の OS の Python パスを埋め込む `pre-commit install` は実行しない。
+
+## Codex の並列エージェント運用
+
+- 大規模なタスク、複数 Issue・複数 PR にまたがる作業、広範囲のリファクタリングでは、1 セッションで直列処理せず積極的にサブエージェントを活用する。
+- Issue・モジュール・責務境界・テストや検証の役割ごとに分割できる場合は並列ワーカーを使う。
+- 各ワーカーには必ず `.agents/worktree/` 配下の専用ワークツリーを割り当て、複数ワーカーに同じワークツリーを編集させない。
+- 実装開始前に、各ワーカーへ明確なブランチ名と担当ファイル・モジュールを割り当てる。
+  - 例: `git worktree add .agents/worktree/issue-304 -b fix/issue-304-thumbnail origin/main`
+- ワーカー間の書き込み範囲は可能な限り重複させない。2 つのワーカーが同一ファイルを編集する必要がある場合は、リード側で実行順を制御するか統合を直接担当する。
+- リードとなる Codex セッションは、ワーカーの担当範囲定義、編集の競合確認、差分レビュー、テスト実行または確認、PR 作成、マージ後の親 Issue チェックリスト更新を担う。
+- 独立して動かせる役割は、実装ワーカー、調査用エクスプローラー、検証用 `test-runner`、PR レビュー用 `code-reviewer` へ適切に振り分ける。
+- 1 ファイルの軽微な修正や 1 コマンドで終わる作業など、調整コストが作業量を上回る場合はサブエージェントを起動しない。
+- 親 Issue に独立したサブ Issue のチェックリストがある場合は、まとめ PR の明示的な指示がない限り、並列ワーカーで 1 サブ Issue につき 1 PR とする構成を既定とする。
+
+## Codex の tmux 監視運用
+
+- 大規模な並列作業では、分割ペインでワーカーの進捗を監視するために `tmux` セッションを作成してよい。
+- 実用的な範囲で「ワーカーのワークツリーごとに 1 ペイン+リード調整用 1 ペイン」の構成を推奨する。
+- 各ワーカーペインには、ワーカー名、ワークツリーパス、ブランチ名、git ステータス、最新コミット、実行中の検証コマンドまたはログを表示する。
+- `tmux` による監視は観測目的であり、各ワーカーに専用の `.agents/worktree/` を割り当てる原則に代わるものではない。
+- セッション名は親 Issue やブランチに紐づく分かりやすい名前を付ける(例: `codex-308`、`codex-agent-rules`)。
+- 必要な長時間 `tmux` セッションを残す場合は、セッション名・稼働中ペイン・実行コマンドをユーザーへ報告する。
+
+## セキュリティと設定の注意点
+
+- API キーはローカルの `.env` に保存し(`.env.example` を参照)、秘密情報をコミットしない。
+- ローカルデータとログ(`logs/`、`lorairo_data/`)はバージョン管理に含めない。
 
 <!-- agent-kit:begin -->
 ## Agent kit rules

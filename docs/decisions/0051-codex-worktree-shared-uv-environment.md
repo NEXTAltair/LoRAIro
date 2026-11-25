@@ -1,87 +1,52 @@
 ---
 type: ADR
-title: Codex Worktree Shared uv Environment
+title: Codex ワークツリーにおける共有 uv 環境の運用
 status: Accepted (amended 2026-10-11: OS user settings; amended 2026-11-08: independent Linux checkout withdrawn)
 timestamp: 2026-06-01
 tags: []
 ---
-# ADR 0051: Codex Worktree Shared uv Environment
+# ADR 0051: Codex ワークツリーにおける共有 uv 環境の運用
 
-## Context
+## 背景
 
-LoRAIro agents implement issue work in dedicated git worktrees under `.agents/worktree/`.
-Creating a separate `.venv` in each worktree is too expensive for this repository because
-dependency installation and model/cache downloads can consume substantial time and disk space.
+LoRAIro のエージェントは、`.agents/worktree/` 配下の専用 git ワークツリーで Issue 対応を実装する。ワークツリーごとに独立した `.venv` を作成すると、依存パッケージのインストールやモデル/キャッシュのダウンロードに多大な時間とディスク容量を消費するため現実的ではない。
 
-The repository already standardizes on reusing `/workspaces/LoRAIro/.venv` from worktrees via
-`UV_PROJECT_ENVIRONMENT`. However, passing
-`UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv ...` in every Codex command changes the command
-shape that Codex approval rules see, which creates avoidable approval friction. A shared virtual
-environment also remains mutable state, so verification must avoid accidentally using the wrong
-checkout's editable install.
+本リポジトリではすでに、`UV_PROJECT_ENVIRONMENT` を通じて各ワークツリーから `/workspaces/LoRAIro/.venv` を再利用する方針を採用している。しかし、Codex のコマンドごとに `UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv ...` を前置すると、Codex の承認ルールが認識するコマンド形状が変わってしまい、不要な承認の手間が生じる。また、共有仮想環境は可変な状態であるため、検証時に誤ったチェックアウトの editable インストールを参照しないよう注意が必要である。
 
-Claude Code behavior is being validated separately. This decision records the Codex-side rule only.
+Claude Code の挙動は別途検証中であり、本決定は Codex 側のルールのみを記録する。
 
-## Decision
+## 決定
 
-Codex sessions set `UV_PROJECT_ENVIRONMENT` once in the **current OS user** Codex shell environment
-policy, then run normal commands such as `uv run pytest ...` from the target worktree. Shared project
-config must not contain OS-specific values because it overrides user config. The setup helper
-removes legacy project overrides and merges the selected venv into OS user settings.
-Codex should not prefix every command with `UV_PROJECT_ENVIRONMENT=...` unless the shell environment
-policy is unavailable. Because default `uv run` may sync the shared environment, it is only the
-normal shape for single-agent commands where environment mutation is acceptable or intentionally
-serialized.
+Codex セッションでは、**現在の OS ユーザー**の Codex シェル環境ポリシーに `UV_PROJECT_ENVIRONMENT` を一度だけ設定し、対象ワークツリーから `uv run pytest ...` のような通常のコマンドを実行する。共有プロジェクト設定はユーザー設定を上書きしてしまうため、OS 固有の値を書いてはならない。セットアップ補助スクリプトは古いプロジェクト側の上書き設定を削除し、選択された仮想環境を OS ユーザー設定へ統合する。
 
-`/workspaces/LoRAIro-linux/.venv` is the canonical independent Linux checkout path. It mounts the
-existing `lorairo-venv` volume; the old `/workspaces/LoRAIro/.venv` mount remains a compatibility
-alias. Windows uses its host checkout `.venv`. If a different runtime
-mounts the repository elsewhere, the Codex environment must point at that runtime's existing shared
-LoRAIro `.venv`; it must not let `uv` create a new virtual environment at a stale or nonexistent
-path.
+シェル環境ポリシーが利用できない場合を除き、Codex はコマンドごとに `UV_PROJECT_ENVIRONMENT=...` を前置しない。既定の `uv run` は共有環境を同期する可能性があるため、環境変更を許容できる単独エージェント実行、または意図的に直列化した実行でのみ通常形状として使用する。
 
-Worktree-local `.venv` directories and symlinks must not be created. Configure the environment
-explicitly; a package-manager Python-version mismatch can delete/recreate a symlink target.
+独立した Linux チェックアウトの正規パスは `/workspaces/LoRAIro-linux/.venv` とする。既存の `lorairo-venv` ボリュームをマウントし、旧来の `/workspaces/LoRAIro/.venv` マウントは互換用エイリアスとして残す。Windows ではホストチェックアウトの `.venv` を使用する。別のランタイムがリポジトリを異なる場所へマウントする場合、Codex の環境設定はそのランタイム上の既存の共有 LoRAIro `.venv` を指すようにし、古いパスや存在しないパスへ `uv` に新規仮想環境を作らせてはならない。
 
-For read-only verification or CLI smoke tests where the executed checkout must be unambiguous,
-Codex must run from the target worktree with `uv run --no-sync` and set an explicit `PYTHONPATH`
-that points at that worktree's `src` and local package `src` directories. `uv run --no-sync`
-prevents environment syncing, while `PYTHONPATH` pins imports to the target worktree.
+ワークツリー固有の `.venv` ディレクトリやシンボリックリンクを作成してはならない。環境変数は明示的に構成すること。パッケージマネージャで Python バージョンの不一致が起きると、シンボリックリンク先の環境が削除や再作成される恐れがある。
 
-Environment-mutating `uv` operations such as `uv sync`, dependency updates, and lockfile changes
-must not run concurrently against the shared `.venv`. Default-sync `uv run` is also treated as an
-environment-mutating operation for parallel worker coordination.
+実行対象のチェックアウトを一意に固定したい読み取り専用検証や CLI スモークテストでは、Codex は対象ワークツリー内で `uv run --no-sync` を実行し、そのワークツリーの `src` とローカルパッケージの `src` を指す `PYTHONPATH` を明示する。`uv run --no-sync` は環境の同期を防ぎ、`PYTHONPATH` はインポート先を対象ワークツリーに固定する。
 
-## Consequences
+`uv sync`、依存関係の更新、ロックファイルの変更など環境を書き換える `uv` 操作は、共有 `.venv` に対して並列実行してはならない。並列ワーカーの調整においては、既定の同期が走る `uv run` も環境書き換え操作として扱う。
 
-- Codex commands keep their normal shape (`uv run ...`), reducing repeated approval friction.
-- Worktrees avoid duplicate virtual environments and duplicate heavy dependency/model downloads.
-- The shared `.venv` remains mutable state, so smoke tests that prove a worktree change may need
-  `PYTHONPATH` to pin the executed code and `--no-sync` to avoid changing the environment.
-- Parallel Codex workers can still share the `.venv`, but default-sync `uv run` and `uv sync`
-  operations must be serialized.
-- Worktree-local `.venv` symlinks are prohibited.
-- Linux Git metadata/source/generated files live in an independent named-volume checkout. The
-  host bind mount is read-only. Home volumes alone would leave branch/index/worktree conflicts.
-- Claude Code-specific behavior can be documented separately without coupling it to Codex policy.
+## 影響
 
-## Amendment (2026-11-08): independent Linux checkout withdrawn
+- Codex のコマンドが通常の形状(`uv run ...`)を維持できるため、繰り返しの承認負荷を軽減できる。
+- ワークツリーごとに仮想環境を複製せずに済み、重い依存関係やモデルの重複ダウンロードを回避できる。
+- 共有 `.venv` は可変状態のまま残るため、ワークツリーの変更を証明するスモークテストでは、実行コードを固定する `PYTHONPATH` と環境変更を防ぐ `--no-sync` の併用が必要になる場合がある。
+- 並列 Codex ワーカーでも `.venv` を共有できるが、既定同期の `uv run` や `uv sync` の操作は直列化する必要がある。
+- ワークツリー固有の `.venv` シンボリックリンクは禁止される。
+- Linux の Git メタデータ、ソース、生成ファイルは独立した名前付きボリュームのチェックアウト上に配置される。ホストのバインドマウントは読み取り専用となる。ホームボリュームだけではブランチ、インデックス、ワークツリーの競合が残る。
+- Claude Code 固有の挙動は Codex ポリシーと切り離して別途文書化できる。
 
-The 2026-10-11 amendment (PR #1395) made `/workspaces/LoRAIro-linux/.venv` the canonical Linux
-path, mounted the host read-only, and placed Linux Git metadata in a separate named-volume checkout
-(`lorairo-linux-checkout`). That was a documentation mistake: the repository already isolates
-implementation work in worktrees under `.agents/worktree/`, and the container actually in use
-bind-mounts the host checkout read-write.
+## 改訂 (2026-11-08): 独立 Linux チェックアウトの撤回
 
-The Decision paragraph naming `/workspaces/LoRAIro-linux/.venv` and the Consequences bullet about the
-independent named-volume checkout are withdrawn. In their place:
+2026-10-11 の改訂(PR #1395)では、`/workspaces/LoRAIro-linux/.venv` を Linux の正規パスとし、ホストを読み取り専用マウントしたうえで、Linux の Git メタデータを別の名前付きボリュームチェックアウト(`lorairo-linux-checkout`)へ置く方針とした。しかしこれはドキュメント上の誤りであった。実際にはリポジトリは `.agents/worktree/` 配下のワークツリーで実装作業をすでに分離しており、使用中のコンテナもホストチェックアウトを読み書き可能でバインドマウントしている。
 
-- The Dev Container bind-mounts the host checkout read-write at `/workspaces/LoRAIro` and creates its
-  worktrees under `.agents/worktree/`.
-- The Linux shared environment is `/workspaces/LoRAIro/.venv`, backed by the existing `lorairo-venv`
-  volume mounted over the host `.venv`; Windows keeps using its host checkout `.venv`.
-- Worktrees registered from one OS have absolute paths the other OS cannot resolve; they must never be
-  pruned, repaired or removed from the other OS.
+`/workspaces/LoRAIro-linux/.venv` を規定した「決定」の段落、および独立した名前付きボリュームチェックアウトに関する「影響」の箇条書きを撤回する。代わりに以下を適用する。
 
-The OS user settings part of the 2026-10-11 amendment (no OS-specific absolute paths in shared project
-config, `configure_agent_environment.py` writing the current OS user settings) remains in force.
+- Dev Container はホストチェックアウトを `/workspaces/LoRAIro` に読み書き可能でバインドマウントし、`.agents/worktree/` 配下にワークツリーを作成する。
+- Linux の共有環境は `/workspaces/LoRAIro/.venv` とし、ホストの `.venv` 上にマウントされた既存の `lorairo-venv` ボリュームで運用する。Windows は引き続きホストチェックアウトの `.venv` を使用する。
+- 片方の OS で登録されたワークツリーは、もう片方の OS から解決できない絶対パスを持つ。別 OS 側からこれらを prune、修復、削除してはならない。
+
+2026-10-11 改訂のうち OS ユーザー設定に関する部分(共有プロジェクト設定に OS 固有の絶対パスを書かないこと、`configure_agent_environment.py` が現在の OS ユーザー設定へ書き込むこと)は引き続き有効である。

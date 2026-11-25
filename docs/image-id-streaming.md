@@ -3,31 +3,14 @@ type: reference
 title: CLI image ID streaming
 ---
 
-# CLI image ID streaming
+# CLI 画像 ID ストリーミング
 
-`images search` with `emit_ids=true` keeps the existing ID item/result JSONL contract,
-input ordering for exact sets, sort behavior, and 100,000-ID output ceiling. Ordinary
-metadata search is unchanged. Bulk ID output continues to ignore query offset/limit.
+`emit_ids=true` を指定した `images search` は、既存の ID アイテム / 結果の JSONL 契約、厳密 ID セットにおける入力順、ソート挙動、および 100,000 ID の出力上限を維持する。通常のメタデータ検索に変更はない。一括 ID 出力では引き続きクエリの offset / limit を無視する。
 
-For ordinary SQL filters, one count query precedes one ID-only SELECT cursor. Python
-consumes at most 500 IDs per page; output metadata and annotations are not loaded.
-Existing filter setup may look up model rows (for example NSFW/manual filters), but
-is performed once per operation rather than once per page. No permanent cache is used.
+通常の SQL フィルタでは、1 回の件数クエリのあとに ID のみを取得する単一の SELECT カーソルを実行する。Python 側は 1 ページあたり最大 500 ID のみを消費し、出力メタデータやアノテーションは読み込まない。既存のフィルタ準備処理でモデル行を参照する場合 (NSFW や手動フィルタなど) はあるが、ページごとではなく操作全体で 1 回のみ実行する。永続キャッシュは使用しない。
 
-The count is sampled before opening the cursor. The session does not promise a
-database-wide snapshot between those two statements: concurrent writes can make
-observed total differ from emitted count. Pages share one cursor, avoiding repeated
-OFFSET query drift. `truncated` remains `emitted < total` and reports incomplete
-output under that existing contract, including the 100,000 ceiling.
+総件数はカーソルを開く前にサンプリングする。セッションはこの 2 つの文の間でデータベース全体のスナップショットを保証しないため、並行書き込みがあると観測された総件数と出力件数が異なる場合がある。各ページは単一のカーソルを共有するため、OFFSET クエリの繰り返しによるずれを回避できる。`truncated` は引き続き `emitted < total` であり、100,000 件の上限を含め既存契約のもとで不完全な出力を報告する。
 
-Exact sets retain their 500-unique-ID input ceiling, preserve first-occurrence order,
-and bypass other filters except processed resolution, as ordinary exact-set lookup does.
+厳密 ID セットは 500 件の一意 ID という入力上限を維持し、初回出現順を保持する。通常の厳密 ID セット検索と同様に、処理済み解像度以外のフィルタはバイパスする。
 
-Score ranges retain the existing representative-score calculation (manual priority,
-otherwise calibrated AI aggregation). Candidate IDs and matched IDs are retained for
-this post-filter; **there is no candidate-count bound** before the 100,000 output cap.
-Image/score/model records are loaded in existing 500-ID batches. This work runs once
-per output operation, not once for count plus each page. Thus score filtering has
-O(candidate IDs) ID memory and extra score/model reads; it does not claim the ordinary
-SQL path's ID-only memory or zero annotation reads. Large score-filter redesign is
-outside this change.
+スコア範囲フィルタは既存の代表スコア計算 (手動スコア優先、それ以外は校正済み AI 集計) を維持する。この後段フィルタのために候補 ID と一致 ID を保持するため、100,000 件の出力上限より前の段階に **候補件数の上限はない**。画像・スコア・モデルの各レコードは既存の 500 ID バッチで読み込む。この処理は件数取得と各ページごとに繰り返すのではなく、出力操作全体で 1 回のみ実行する。したがってスコアフィルタリングには `O(candidate IDs)` の ID メモリと追加のスコア / モデル読み込みが発生し、通常 SQL 経路の ID 専用メモリやアノテーション読み込みゼロは保証しない。大規模なスコアフィルタの再設計は本変更の対象外である。

@@ -5,7 +5,7 @@ LoRAIro の重要な設計判断を記録するドキュメント群。
 ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR の正準メタデータは
 ファイル冒頭の YAML frontmatter (`type` / `title` / `status` / `timestamp` / `tags`) が
 **唯一のソース (SSoT)**。下の一覧と `index.md` は frontmatter から自動生成されるので
-**手で編集しない**（`make adr-index` で再生成）。詳細は ADR 0069 を参照。
+**手で編集しない**(`make adr-index` で再生成)。詳細は ADR 0069 を参照。
 
 <!-- OKF-TABLE:START -->
 | ADR | タイトル | 日付 | ステータス |
@@ -58,12 +58,12 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0046](0046-loguru-placeholder-format.md) | Loguru Placeholder Format | 2026-05-31 | Accepted |
 | [0047](0047-trace-level-for-per-item-diagnostics.md) | TRACE Level for Per-Item Diagnostics | 2026-05-31 | Accepted |
 | [0048](0048-webapi-annotation-candidate-filtering.md) | WebAPI Annotation Candidate Filtering (Endpoint / Capability / Suitability) | 2026-05-31 | Accepted |
-| [0049](0049-cli-images-list-db-limit.md) | Apply CLI Image List Limit in the Repository Query | 2026-06-01 | Accepted |
-| [0050](0050-cli-tag-db-lazy-initialization.md) | CLI Tag DB Lazy Initialization | 2026-06-01 | Accepted |
-| [0051](0051-codex-worktree-shared-uv-environment.md) | Codex Worktree Shared uv Environment | 2026-06-01 | Accepted (amended 2026-10-11: OS user settings; amended 2026-11-08: independent Linux checkout withdrawn) |
+| [0049](0049-cli-images-list-db-limit.md) | CLI 画像一覧の取得件数制限をリポジトリクエリへ適用する | 2026-06-01 | Accepted |
+| [0050](0050-cli-tag-db-lazy-initialization.md) | CLI におけるタグ DB の遅延初期化 | 2026-06-01 | Accepted |
+| [0051](0051-codex-worktree-shared-uv-environment.md) | Codex ワークツリーにおける共有 uv 環境の運用 | 2026-06-01 | Accepted (amended 2026-10-11: OS user settings; amended 2026-11-08: independent Linux checkout withdrawn) |
 | [0052](0052-model-selection-auto-reconcile.md) | ModelSelectionWidget 初回表示時の model reconcile | 2026-06-01 | Accepted |
 | [0053](0053-cli-streaming-annotation-memory-bounded-contract.md) | CLI Streaming Annotation Memory-Bounded Execution Contract | 2026-05-29 | Accepted (1 回の呼び出しの処理総数上限は ADR 0057 で 500 に改定) |
-| [0054](0054-gui-tag-language-reader-initialization.md) | GUI tag language reader initialization | 2026-06-03 | Accepted |
+| [0054](0054-gui-tag-language-reader-initialization.md) | GUI におけるタグ言語リーダーの初期化 | 2026-06-03 | Accepted |
 | [0055](0055-workspace-export-target-staging-unification.md) | Workspace Export Target = Staging Set / Selection-Source Unification | 2026-06-04 | Accepted |
 | [0056](0056-exact-set-selector-id-count-guard.md) | exact-set selector の大量ID集合ガード / count-only 軽量化方針 | 2026-06-05 | Accepted |
 | [0057](0057-cli-jsonl-output-and-error-contract.md) | CLI Machine-Readable (JSONL) Output and Error Contract | 2026-06-05 | Accepted (§2/§3/§4/§6 を ADR 0060 で amend) |
@@ -73,15 +73,15 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0061](0061-phash-duplicate-variant-classification.md) | 登録パイプライン再設計 — pHash 候補の重複/別版分類 | 2026-06-05 | Accepted |
 | [0062](0062-batch-custom-id-phash-long-edge.md) | Provider Batch custom_id を pHash + 長辺解像度基準へ統一 | 2026-06-05 | Accepted |
 | [0063](0063-cli-batch-submit-image-ids-csv.md) | CLI Batch Submit Image IDs CSV Contract | 2026-06-07 | Accepted |
-| [0064](0064-cli-original-image-annotation-guard.md) | CLI Original Image Annotation Guard | 2026-06-07 | Accepted |
-| [0065](0065-tag-caption-soft-reject.md) | Tag/Caption Soft-Reject And Export Resolution | 2026-06-11 | Accepted |
+| [0064](0064-cli-original-image-annotation-guard.md) | CLI におけるオリジナル画像へのアノテーション防止ガード | 2026-06-07 | Accepted |
+| [0065](0065-tag-caption-soft-reject.md) | タグ/キャプションのソフトリジェクトとエクスポート解決 | 2026-06-11 | Accepted |
 | [0066](0066-unified-jobs-lifecycle-view.md) | Unified Jobs Lifecycle View | 2026-06-12 | Accepted (2026-06-12) |
 | [0067](0067-sqlite-concurrency-busy-timeout.md) | SQLite Concurrency: busy_timeout + Lock Error Classification | 2026-06-15 | Accepted (2026-06-15) |
 | [0068](0068-tag-normalization-tagdb-delegation.md) | タグ正規化責任の genai-tag-db-tools への集約 | 2026-06-16 | Accepted (Revised: 2026-06-16 — 解決タイミングを表示時から保存時へ変更) |
 | [0069](0069-adr-okf-frontmatter-bundle.md) | ADR を OKF バンドル化し frontmatter を SSoT にする | 2026-06-19 | Accepted |
-| [0070](0070-openai-moderation-webapi-preflight.md) | OpenAI Moderation WebAPI Preflight | 2026-05-30 | Accepted |
-| [0071](0071-provider-batch-submit-button-busy.md) | Provider Batch Submit Button Busy State | 2026-05-30 | Accepted |
-| [0072](0072-workspace-stage-selection-source.md) | Workspace stage button selection source | 2026-05-31 | Accepted |
+| [0070](0070-openai-moderation-webapi-preflight.md) | WebAPI アノテーションにおける OpenAI モデレーションのプリフライト | 2026-05-30 | Accepted |
+| [0071](0071-provider-batch-submit-button-busy.md) | Provider Batch 送信ボタンのビジー状態表示 | 2026-05-30 | Accepted |
+| [0072](0072-workspace-stage-selection-source.md) | ワークスペースのステージングボタンにおける選択状態の参照元 | 2026-05-31 | Accepted |
 | [0073](0073-missing-ds-parts-qt-strategy.md) | Qt implementation strategy for DS parts without Qt equivalents | 2026-06-20 | Accepted |
 | [0074](0074-staging-state-manager-hoist.md) | ステージング集合の SSoT を StagingStateManager へ hoist | 2026-06-22 | Accepted |
 | [0075](0075-annotation-pipeline-composition-domain-model.md) | アノテーションパイプライン構成 (選択モデル × アノテーション種類) のドメインモデル | 2026-06-23 | Accepted |
@@ -96,11 +96,11 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0084](0084-annotation-cache-explicit-invalidation.md) | GUI アノテーションキャッシュの明示無効化 (再読込操作 + 対象指定 API) | 2026-07-05 | Accepted |
 | [0085](0085-translation-cli-interface.md) | 翻訳 CLI インターフェース (tags translations show/add + tags alias) | 2026-07-05 | Accepted |
 | [0086](0086-image-scan-filesystem-manager-ssot.md) | 画像登録スキャンを FileSystemManager に集約 | 2026-07-07 | Accepted |
-| [0087](0087-tag-chip-caption-move-menu.md) | タグ chip 右クリックをキャプション移動の操作ハブにする | 2026-07-09 | Accepted |
-| [0088](0088-export-tag-language-directories.md) | Export tag language directories for Kohya-compatible datasets | 2026-07-09 | Accepted |
+| [0087](0087-tag-chip-caption-move-menu.md) | タグチップ右クリックをキャプション移動の操作ハブにする | 2026-07-09 | Accepted |
+| [0088](0088-export-tag-language-directories.md) | Kohya 互換データセット向けにタグ言語別ディレクトリを出力する | 2026-07-09 | Accepted |
 | [0089](0089-pillow-security-lock-update.md) | Pillow セキュリティ修正版を uv.lock の正準バージョンとする | 2026-07-22 | Accepted |
-| [0090](0090-transitive-security-update-boundary.md) | transitive依存のセキュリティ更新と環境別torch境界 | 2026-07-22 | Accepted |
-| [0091](0091-multilingual-user-guide.md) | Japanese-first multilingual user guide on GitHub Pages | 2026-09-05 | Accepted |
+| [0090](0090-transitive-security-update-boundary.md) | 推移的依存のセキュリティ更新と環境別 torch 境界 | 2026-07-22 | Accepted |
+| [0091](0091-multilingual-user-guide.md) | GitHub Pages における日本語原本の多言語ユーザーガイド | 2026-09-05 | Accepted |
 | [0092](0092-crop-parent-child-relation.md) | クロップ画像の親子関係を専用テーブル crop_relations で保持する | 2026-09-07 | Accepted |
 | [0093](0093-batch-failure-image-id-recovery.md) | Provider Batch 失敗 image_id の CLI 復旧経路 | 2026-09-07 | Accepted |
 | [0094](0094-clef-annotation-review.md) | Clef annotation review の独立 API と一時的な個別警告 | 2026-10-06 | Accepted (結果保持・GUI バッチ実行は ADR 0095 で改定) |
@@ -153,6 +153,6 @@ tags: []
 備考:
 
 - `status` は上記の語で始め、必要なら ` (詳細)` を付けてよい
-  （例: `Accepted (amended by 0060)`, `Superseded by 0023 (partial)`）。
+  (例: `Accepted (amended by 0060)`, `Superseded by 0023 (partial)`)。
 - 別 ADR に取って代わられた場合は `superseded_by: ["NNNN"]` を frontmatter に足す。
 - 番号 (`NNNN`) はファイル名から導出する概念 ID。frontmatter には持たない。

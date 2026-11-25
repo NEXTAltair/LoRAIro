@@ -1,42 +1,41 @@
-# images show CLI Implementation Plan
+# `images show` CLI 実装計画
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a read-only `lorairo-cli images show` command that returns an image's current tags, captions, scores, and ratings, so an agent has the material it needs to decide a tag-fix diff before calling the existing `tags add/remove/replace` commands.
+**Goal:** 画像の現行タグ、キャプション、スコア、レーティングを返す読み取り専用の `lorairo-cli images show` コマンドを追加する。これにより、エージェントが既存の `tags add/remove/replace` コマンドを呼ぶ前に、タグ修正の差分を判断するための材料を取得できるようにする。
 
-**Architecture:** Extract the CSV `image_ids` parsing/validation logic that `tags.py` already has into a shared `_image_ids.py` helper module (removes duplication before adding a third caller). Add `images show` to `src/lorairo/cli/commands/images.py`, reusing the existing `ImageRepository.get_image_annotations()` method unchanged. Register the new command in `src/lorairo/cli/introspection.py` so `list-commands` / `describe` pick it up. Regenerate `docs/cli.md`.
+**Architecture:** `tags.py` がすでに持つ CSV 形式 `image_ids` のパース・検証ロジックを共有ヘルパーモジュール `_image_ids.py` へ抽出し、3 箇所目の呼び出し元を増やす前に重複を解消する。続いて `src/lorairo/cli/commands/images.py` に `images show` を追加し、既存の `ImageRepository.get_image_annotations()` を無変更で再利用する。さらに `src/lorairo/cli/introspection.py` に新コマンドを登録して `list-commands` と `describe` へ反映し、`docs/cli.md` を再生成する。
 
-**Tech Stack:** Python 3.13, Typer/Click CLI, Pydantic (introspection schemas), pytest + `typer.testing.CliRunner`.
+**Tech Stack:** Python 3.13、Typer/Click CLI、Pydantic(イントロスペクション用スキーマ)、pytest および `typer.testing.CliRunner`
 
-## Global Constraints
+## 全体制約
 
-- Implementation touches `src/` and `tests/` — per `.claude/rules/git-workflow.md` this MUST happen in a dedicated worktree (`.agents/worktree/<name>`) on a feature branch (`feat/images-show-cli`), not in the shared checkout on `main`.
-- Design doc: `docs/superpowers/specs/2026-07-03-images-show-cli-design.md` — read it before starting; this plan implements it exactly (CSV batch input, no model-name resolution, reuse `get_image_annotations()` unchanged).
-- Follow `.claude/rules/coding-style.md`: modern type hints (`list[int]`, `X | None`), Google-style docstrings, no `# type: ignore` / `# noqa`.
-- Run `make format` and `uv run mypy -p lorairo` before each commit that touches `src/`.
-- Before opening a PR, run the CI-equivalent filter from `.claude/rules/testing.md`:
-  `uv run pytest -m "not gui_show and not calls_real_webapi and not downloads_and_runs_model and not slow"`.
+- 本実装は `src/` と `tests/` を変更するため、`.claude/rules/git-workflow.md` に従い `main` の共有チェックアウトではなく専用ワークツリー(`.agents/worktree/<name>`)のフィーチャーブランチ(`feat/images-show-cli`)で作業する。
+- 着手前に設計書 `docs/superpowers/specs/2026-07-03-images-show-cli-design.md` を読む。本計画は設計書どおり(CSV バッチ入力、モデル名解決なし、`get_image_annotations()` を無変更で再利用)に実装する。
+- `.claude/rules/coding-style.md` に従い、モダンな型ヒント(`list[int]`、`X | None`)と Google スタイルの docstring を用い、`# type: ignore` および `# noqa` は禁止する。
+- `src/` を変更したコミットの前に、必ず `make format` と `uv run mypy -p lorairo` を実行する。
+- PR 作成前に、`.claude/rules/testing.md` の CI 相当フィルタ `uv run pytest -m "not gui_show and not calls_real_webapi and not downloads_and_runs_model and not slow"` を実行する。
 
 ---
 
-### Task 1: Extract shared `_image_ids` helper and refactor `tags.py` to use it
+### Task 1: 共有ヘルパー `_image_ids` を抽出し、`tags.py` をリファクタリングする
 
 **Files:**
 - Create: `src/lorairo/cli/_image_ids.py`
 - Create: `tests/unit/cli/test_image_ids_helper.py`
-- Modify: `src/lorairo/cli/commands/tags.py` (remove duplicated `MAX_IMAGE_IDS` / `_parse_image_ids` / `_validate_image_ids_exist`, import from the new module instead)
+- Modify: `src/lorairo/cli/commands/tags.py`(重複する `MAX_IMAGE_IDS`、`_parse_image_ids`、`_validate_image_ids_exist` を削除し、新モジュールからインポートする)
 
 **Interfaces:**
-- Produces (used by Task 2 and by the refactored `tags.py`):
-  - `MAX_IMAGE_IDS: int` (value `500`)
-  - `parse_image_ids(image_ids_csv: str) -> list[int]` — raises `click.UsageError` on non-integer input
-  - `validate_image_ids_exist(container: ServiceContainer, image_ids: list[int]) -> None` — raises `lorairo.public_api.exceptions.ImageNotFoundError` if any id is missing
+- 提供(Produces、Task 2 およびリファクタ後の `tags.py` が利用):
+  - `MAX_IMAGE_IDS: int`(値は `500`)
+  - `parse_image_ids(image_ids_csv: str) -> list[int]`(整数以外の入力で `click.UsageError` を送出)
+  - `validate_image_ids_exist(container: ServiceContainer, image_ids: list[int]) -> None`(存在しない ID があれば `lorairo.public_api.exceptions.ImageNotFoundError` を送出)
 
-This is a pure extraction (no behavior change): `tags.py` currently defines `MAX_IMAGE_IDS = 500` plus `_parse_image_ids` and `_validate_image_ids_exist` at `src/lorairo/cli/commands/tags.py:28-64`. `images.py` will need the identical logic for the new `show` command in Task 2, so the duplication is removed now rather than copy-pasted a third time.
+本タスクは振る舞いを変えない純粋な抽出である。現在 `tags.py`(`src/lorairo/cli/commands/tags.py:28-64`)が `MAX_IMAGE_IDS = 500`、`_parse_image_ids`、`_validate_image_ids_exist` を定義している。Task 2 の `images show` でも同一ロジックが必要になるため、コピーペーストせずこの段階で共通化する。
 
-- [ ] **Step 1: Write the failing test for the new helper module**
+- [ ] **Step 1: 新ヘルパーモジュールの失敗するテストを書く**
 
-Create `tests/unit/cli/test_image_ids_helper.py`:
+`tests/unit/cli/test_image_ids_helper.py` を作成する。
 
 ```python
 """_image_ids 共有ヘルパーのユニットテスト。"""
@@ -87,12 +86,12 @@ class TestValidateImageIdsExist:
         assert exc_info.value.image_id == 2
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 2: テストを実行して失敗を確認する**
 
-Run: `uv run pytest tests/unit/cli/test_image_ids_helper.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'lorairo.cli._image_ids'`
+実行コマンド: `uv run pytest tests/unit/cli/test_image_ids_helper.py -v`
+期待結果: `ModuleNotFoundError: No module named 'lorairo.cli._image_ids'` で失敗する。
 
-- [ ] **Step 3: Create `src/lorairo/cli/_image_ids.py`**
+- [ ] **Step 3: `src/lorairo/cli/_image_ids.py` を作成する**
 
 ```python
 """Shared image_id CSV parsing/validation for agent-facing CLI commands.
@@ -150,15 +149,16 @@ def validate_image_ids_exist(container: ServiceContainer, image_ids: list[int]) 
         raise ImageNotFoundError(missing[0])
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [ ] **Step 4: テストを実行して通ることを確認する**
 
-Run: `uv run pytest tests/unit/cli/test_image_ids_helper.py -v`
-Expected: PASS (6 tests)
+実行コマンド: `uv run pytest tests/unit/cli/test_image_ids_helper.py -v`
+期待結果: 6 件すべて通る。
 
-- [ ] **Step 5: Refactor `tags.py` to use the shared helper**
+- [ ] **Step 5: `tags.py` を共有ヘルパー利用へリファクタリングする**
 
-In `src/lorairo/cli/commands/tags.py`, replace the import block (currently lines 9-21):
+`src/lorairo/cli/commands/tags.py` のインポートブロック(現行 9–21 行目)を置き換える。
 
+変更前:
 ```python
 from __future__ import annotations
 
@@ -176,8 +176,7 @@ from lorairo.public_api.project import get_project as api_get_project
 from lorairo.services.service_container import ServiceContainer, get_service_container
 ```
 
-with:
-
+変更後:
 ```python
 from __future__ import annotations
 
@@ -194,7 +193,7 @@ from lorairo.public_api.project import get_project as api_get_project
 from lorairo.services.service_container import get_service_container
 ```
 
-Then delete the now-duplicated definitions (currently at `src/lorairo/cli/commands/tags.py:28-64`, right after `console = make_console()`):
+続いて、重複した定義(現行 `src/lorairo/cli/commands/tags.py:28-64`、`console = make_console()` の直後)を削除する。
 
 ```python
 MAX_IMAGE_IDS = 500
@@ -222,18 +221,18 @@ def _validate_image_ids_exist(container: ServiceContainer, image_ids: list[int])
         raise ImageNotFoundError(missing[0])
 ```
 
-Finally, in each of the three command functions (`add`, `remove`, `replace`), rename the two call sites each:
-- `_parse_image_ids(image_ids_csv)` → `parse_image_ids(image_ids_csv)` (3 occurrences)
-- `_validate_image_ids_exist(container, image_ids)` → `validate_image_ids_exist(container, image_ids)` (3 occurrences)
+最後に、3 つのコマンド関数(`add`、`remove`、`replace`)内の呼び出しをそれぞれ改名する。
+- `_parse_image_ids(image_ids_csv)` → `parse_image_ids(image_ids_csv)`(3 箇所)
+- `_validate_image_ids_exist(container, image_ids)` → `validate_image_ids_exist(container, image_ids)`(3 箇所)
 
-`MAX_IMAGE_IDS` is used as-is (same name, now imported instead of module-local).
+`MAX_IMAGE_IDS` は名称が変わらないためそのまま使用する。
 
-- [ ] **Step 6: Run the full existing tags test suite to confirm no regression**
+- [ ] **Step 6: 既存の `tags` テストスイートを実行してリグレッションがないことを確認する**
 
-Run: `uv run pytest tests/unit/cli/test_commands_tags.py -v`
-Expected: PASS (all 9 tests, same as before the refactor)
+実行コマンド: `uv run pytest tests/unit/cli/test_commands_tags.py -v`
+期待結果: リファクタ前と同様に 9 件すべて通る。
 
-- [ ] **Step 7: Format, type-check, commit**
+- [ ] **Step 7: フォーマット、型チェック、コミットを実行する**
 
 ```bash
 uv run ruff format src/lorairo/cli/_image_ids.py src/lorairo/cli/commands/tags.py tests/unit/cli/test_image_ids_helper.py
@@ -245,19 +244,19 @@ git commit -m "refactor(cli): extract shared image_ids CSV helper from tags.py"
 
 ---
 
-### Task 2: Add `images show` command
+### Task 2: `images show` コマンドを追加する
 
 **Files:**
 - Modify: `src/lorairo/cli/commands/images.py`
 - Create: `tests/unit/cli/test_commands_images_show.py`
 
 **Interfaces:**
-- Consumes: `parse_image_ids`, `validate_image_ids_exist`, `MAX_IMAGE_IDS` from `lorairo.cli._image_ids` (Task 1). `ImageRepository.get_image_annotations(image_id: int, *, include_rejected: bool = False) -> dict[str, Any]` (existing, unchanged, at `src/lorairo/database/repository/image.py:1217`) — returns a dict with keys `tags`, `captions`, `scores`, `score_labels`, `ratings`, `quality_summary`.
-- Produces: CLI command `images show`, reachable via `lorairo-cli images show --project <name> --image-ids <csv> [--include-rejected] [--json]`. No new Python symbols consumed by later tasks (Task 3 references the command name as a string).
+- 依存(Consumes): Task 1 の `lorairo.cli._image_ids`(`parse_image_ids`、`validate_image_ids_exist`、`MAX_IMAGE_IDS`)、および既存の `ImageRepository.get_image_annotations(image_id: int, *, include_rejected: bool = False) -> dict[str, Any]`(`src/lorairo/database/repository/image.py:1217`、無変更)。戻り値の辞書は `tags`、`captions`、`scores`、`score_labels`、`ratings`、`quality_summary` キーを持つ。
+- 提供(Produces): `lorairo-cli images show --project <name> --image-ids <csv> [--include-rejected] [--json]` で呼び出せる CLI コマンド。後続タスクから参照される新規 Python シンボルはない(Task 3 はコマンド名を文字列で参照する)。
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: 失敗するテストを書く**
 
-Create `tests/unit/cli/test_commands_images_show.py`:
+`tests/unit/cli/test_commands_images_show.py` を作成する。
 
 ```python
 """images show コマンドのユニットテスト。"""
@@ -387,20 +386,20 @@ class TestImagesShow:
         assert result.exit_code != 0
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 2: テストを実行して失敗を確認する**
 
-Run: `uv run pytest tests/unit/cli/test_commands_images_show.py -v`
-Expected: FAIL — `show` is not a registered command (Typer/Click "No such command 'show'")
+実行コマンド: `uv run pytest tests/unit/cli/test_commands_images_show.py -v`
+期待結果: `show` コマンドが未登録のため、Typer/Click の `No such command 'show'` で失敗する。
 
-- [ ] **Step 3: Implement `images show`**
+- [ ] **Step 3: `images show` を実装する**
 
-In `src/lorairo/cli/commands/images.py`, add the import (alongside the existing `from lorairo.database.filter_criteria import ImageFilterCriteria` line):
+`src/lorairo/cli/commands/images.py` の既存 `from lorairo.database.filter_criteria import ImageFilterCriteria` の近くにインポートを追加する。
 
 ```python
 from lorairo.cli._image_ids import MAX_IMAGE_IDS, parse_image_ids, validate_image_ids_exist
 ```
 
-Then add the new command at the end of the file, after the existing `search_images` command:
+続いて、ファイル末尾(既存の `search_images` コマンドの後)に新コマンドを追加する。
 
 ```python
 @app.command("show")
@@ -415,7 +414,7 @@ def show(
 ) -> None:
     """Show current tags, captions, scores, and ratings for images (read-only).
 
-    指定した image_ids の現行アノテーション（タグ/キャプション/スコア/レーティング）を
+    指定した image_ids の現行アノテーション(タグ/キャプション/スコア/レーティング)を
     表示します。タグ修正の判断材料として使うためのコマンドで、書き込みは行いません。
 
     Example:
@@ -466,17 +465,17 @@ def show(
                 )
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [ ] **Step 4: テストを実行して通ることを確認する**
 
-Run: `uv run pytest tests/unit/cli/test_commands_images_show.py -v`
-Expected: PASS (5 tests)
+実行コマンド: `uv run pytest tests/unit/cli/test_commands_images_show.py -v`
+期待結果: 5 件すべて通る。
 
-- [ ] **Step 5: Run the full images + tags CLI test suite to confirm no regression**
+- [ ] **Step 5: CLI テスト全体を実行してリグレッションがないことを確認する**
 
-Run: `uv run pytest tests/unit/cli/ -v`
-Expected: PASS (all tests, including the pre-existing `test_commands_images.py`, `test_commands_images_search.py`, `test_commands_tags.py`)
+実行コマンド: `uv run pytest tests/unit/cli/ -v`
+期待結果: 既存の `test_commands_images.py`、`test_commands_images_search.py`、`test_commands_tags.py` を含め、すべて通る。
 
-- [ ] **Step 6: Format, type-check, commit**
+- [ ] **Step 6: フォーマット、型チェック、コミットを実行する**
 
 ```bash
 uv run ruff format src/lorairo/cli/commands/images.py tests/unit/cli/test_commands_images_show.py
@@ -488,19 +487,19 @@ git commit -m "feat(cli): add images show command for reading current annotation
 
 ---
 
-### Task 3: Register `images show` in CLI introspection
+### Task 3: `images show` を CLI イントロスペクションへ登録する
 
 **Files:**
 - Modify: `src/lorairo/cli/introspection.py`
 - Modify: `tests/unit/cli/test_introspection.py`
 
 **Interfaces:**
-- Consumes: nothing from earlier tasks besides the command existing (Task 2). Uses existing `_input`, `_output`, `_f`, `ERROR_MODEL`, `ToolSpec`, `ModelSpec`, `FieldSpec`, `TOOL_SPECS` helpers already defined in `introspection.py`.
-- Produces: `ImagesShowInputSchema`, `ImagesShowItem`, `ImagesShowResult` Pydantic classes; a `"images show"` entry in `TOOL_SPECS`. These are internal to introspection and not consumed by later tasks.
+- 依存(Consumes): Task 2 で追加したコマンドの存在、および `introspection.py` に既存の `_input`、`_output`、`_f`、`ERROR_MODEL`、`ToolSpec`、`ModelSpec`、`FieldSpec`、`TOOL_SPECS`。
+- 提供(Produces): Pydantic クラス `ImagesShowInputSchema`、`ImagesShowItem`、`ImagesShowResult`、および `TOOL_SPECS` 内の `"images show"` エントリ(イントロスペクション内部向けであり、後続タスクから直接参照されない)。
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: 失敗するテストを書く**
 
-Append to `tests/unit/cli/test_introspection.py`:
+`tests/unit/cli/test_introspection.py` の末尾に以下を追記する。
 
 ```python
 def test_list_commands_includes_images_show() -> None:
@@ -551,14 +550,14 @@ def test_describe_images_show_json_schema_includes_item_and_result() -> None:
     )
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] **Step 2: テストを実行して失敗を確認する**
 
-Run: `uv run pytest tests/unit/cli/test_introspection.py -k images_show -v`
-Expected: FAIL — `"images show" in by_path` is `False`; `describe "images show"` raises `ValueError: Unknown command path`
+実行コマンド: `uv run pytest tests/unit/cli/test_introspection.py -k images_show -v`
+期待結果: `"images show" in by_path` が `False` となり、`describe "images show"` で `ValueError: Unknown command path` が発生して失敗する。
 
-- [ ] **Step 3: Add the Pydantic schema classes**
+- [ ] **Step 3: Pydantic スキーマクラスを追加する**
 
-In `src/lorairo/cli/introspection.py`, add after the `ImagesUpdateResult` class (which currently ends the `images update` section, just before `class ExportCreateInputSchema`):
+`src/lorairo/cli/introspection.py` の `ImagesUpdateResult` クラスの直後(`class ExportCreateInputSchema` の直前)に以下を追加する。
 
 ```python
 class ImagesShowInputSchema(BaseModel):
@@ -596,9 +595,9 @@ class ImagesShowResult(BaseModel):
     model_config = ConfigDict(title="ImagesShowResult")
 ```
 
-- [ ] **Step 4: Register the `ToolSpec` entry**
+- [ ] **Step 4: `ToolSpec` エントリを登録する**
 
-In `src/lorairo/cli/introspection.py`, add a new entry to the `TOOL_SPECS` dict, immediately after the `"images search"` entry and before `"tags add"`:
+`src/lorairo/cli/introspection.py` の `TOOL_SPECS` 辞書内で、`"images search"` の直後かつ `"tags add"` の直前に以下を追加する。
 
 ```python
     "images show": ToolSpec(
@@ -655,12 +654,12 @@ In `src/lorairo/cli/introspection.py`, add a new entry to the `TOOL_SPECS` dict,
     ),
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [ ] **Step 5: テストを実行して通ることを確認する**
 
-Run: `uv run pytest tests/unit/cli/test_introspection.py -v`
-Expected: PASS (all tests, including the 3 new ones)
+実行コマンド: `uv run pytest tests/unit/cli/test_introspection.py -v`
+期待結果: 新規 3 件を含めすべて通る。
 
-- [ ] **Step 6: Format, type-check, commit**
+- [ ] **Step 6: フォーマット、型チェック、コミットを実行する**
 
 ```bash
 uv run ruff format src/lorairo/cli/introspection.py tests/unit/cli/test_introspection.py
@@ -672,31 +671,31 @@ git commit -m "feat(cli): register images show in CLI introspection"
 
 ---
 
-### Task 4: Regenerate `docs/cli.md`
+### Task 4: `docs/cli.md` を再生成する
 
 **Files:**
-- Modify: `docs/cli.md` (generated, do not hand-edit)
+- Modify: `docs/cli.md`(自動生成物のため手編集しない)
 
 **Interfaces:**
-- Consumes: `TOOL_SPECS["images show"]` registered in Task 3.
-- Produces: nothing consumed by later tasks (documentation-only, terminal task).
+- 依存(Consumes): Task 3 で登録した `TOOL_SPECS["images show"]`。
+- 提供(Produces): なし(ドキュメント生成のみの最終タスク)。
 
-- [ ] **Step 1: Regenerate the docs**
+- [ ] **Step 1: ドキュメントを再生成する**
 
-Run: `uv run python scripts/generate_cli_docs.py`
-Expected: exits 0, `docs/cli.md` is rewritten with an `### images show` section (alphabetically between `images register` and `images update`, matching the sorted `TOOL_SPECS` iteration order).
+実行コマンド: `uv run python scripts/generate_cli_docs.py`
+期待結果: 終了コード 0 で完了し、`docs/cli.md` に `### images show` セクションが出力される(ソート済みの `TOOL_SPECS` 順に従い、`images register` と `images update` の間に配置される)。
 
-- [ ] **Step 2: Verify the new section is present**
+- [ ] **Step 2: 新セクションの出力を確認する**
 
-Run: `grep -A 5 '### \`images show\`' docs/cli.md`
-Expected output includes:
+実行コマンド: `grep -A 5 '### \`images show\`' docs/cli.md`
+期待される出力例:
 ```
 ### `images show`
 
 Show current tags, captions, scores, and ratings for images (read-only). Use as judgment material before tags add/remove/replace.
 ```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: コミットする**
 
 ```bash
 git add docs/cli.md
@@ -705,27 +704,27 @@ git commit -m "docs: regenerate CLI reference for images show"
 
 ---
 
-### Task 5: Full local verification
+### Task 5: ローカル全体検証
 
-**Files:** none (verification only)
+**Files:** なし(検証のみ)
 
-- [ ] **Step 1: Run the full CI-equivalent filter**
+- [ ] **Step 1: CI 相当フィルタで全テストを実行する**
 
-Run: `uv run pytest -m "not gui_show and not calls_real_webapi and not downloads_and_runs_model and not slow"`
-Expected: all tests PASS, 0 failures (this is the exact filter the CI "LoRAIro Unit Tests" / "Integration Tests" jobs use — see `.claude/rules/testing.md`)
+実行コマンド: `uv run pytest -m "not gui_show and not calls_real_webapi and not downloads_and_runs_model and not slow"`
+期待結果: 失敗ゼロで全テストが通る(CI の「LoRAIro Unit Tests」および「Integration Tests」ジョブと同一フィルタ。`.claude/rules/testing.md` を参照)。
 
-- [ ] **Step 2: Run mypy across the whole package**
+- [ ] **Step 2: パッケージ全体の mypy を実行する**
 
-Run: `uv run mypy -p lorairo`
-Expected: `Success: no issues found`
+実行コマンド: `uv run mypy -p lorairo`
+期待結果: `Success: no issues found` が出力される。
 
-- [ ] **Step 3: Manual smoke test against a real project**
+- [ ] **Step 3: 実プロジェクトで手動スモークテストを行う**
 
-Run (adjust `<project>` and `<image_id>` to a real project/image in `lorairo_data/`):
+`lorairo_data/` 内の実プロジェクト名と画像 ID に置き換えて以下を実行する。
 ```bash
 uv run lorairo-cli images show --project <project> --image-ids <image_id> --json
 uv run lorairo-cli images show --project <project> --image-ids <image_id>
 ```
-Expected: JSON mode emits one `kind:"item"` row with `tags`/`captions`/`scores`/`score_labels`/`ratings`/`quality_summary` matching what the GUI detail panel shows for that image, followed by a `kind:"result"` row with `ok:true`. Non-JSON mode prints a human-readable `Image <id>` block.
+期待結果: JSON モードでは、GUI 詳細パネルの表示内容と一致する `tags`、`captions`、`scores`、`score_labels`、`ratings`、`quality_summary` を持つ `kind:"item"` 行が 1 行出力され、続いて `ok:true` の `kind:"result"` 行が出力される。非 JSON モードでは人間可読な `Image <id>` ブロックが表示される。
 
-No commit for this task — it is the final gate before opening the PR (see `superpowers:finishing-a-development-branch` for PR creation, per `.claude/rules/git-workflow.md`).
+本タスクは PR 作成前の最終ゲートであるためコミットは行わない(PR 作成は `.claude/rules/git-workflow.md` に従い `superpowers:finishing-a-development-branch` を参照)。

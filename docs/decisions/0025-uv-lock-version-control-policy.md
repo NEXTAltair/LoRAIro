@@ -9,87 +9,87 @@ tags: []
 
 ## Context
 
-LoRAIro リポジトリの `.gitignore` は `uv.lock` を ignore していたため、CI checkout に lockfile が含まれず、各 CI job の `uv sync --dev` は毎回 fresh resolution を行っていた。
+LoRAIro リポジトリの `.gitignore` では `uv.lock` を除外対象にしていた。そのため、CI のチェックアウトにロックファイルが含まれず、各 CI ジョブの `uv sync --dev` が毎回依存関係を一から解決していた。
 
-PR #251 で発生した CI failure がこの構造の問題を顕在化させた:
+PR #251 で発生した CI 失敗により、この構造の問題が顕在化した。
 
-- `temporalio==1.27.2` リリース時に Linux x86_64 wheel の配布が後発だった
-- `astral-sh/setup-uv@v6` の cache (`cache-dependency-glob: "pyproject.toml"`) は pyproject.toml hash を key にしているため、lockfile 非追跡では cache が古い metadata (x86_64 wheel 未公開時のもの) を保持し続ける
-- 結果、`pyproject.toml` 未変更 / `uv.lock` 不在の状態で CI が同じ cache を使い続け、後から wheel が PyPI に追加されても install 失敗が継続
+- `temporalio==1.27.2` のリリース時、Linux x86_64 向け wheel の配布が後発になった。
+- `astral-sh/setup-uv@v6` のキャッシュ(`cache-dependency-glob: "pyproject.toml"`)は `pyproject.toml` のハッシュをキーとしている。ロックファイルが未追跡の状態では、キャッシュが古いメタデータ(x86_64 wheel 未公開時の情報)を保持し続ける。
+- 結果として、`pyproject.toml` が未変更かつ `uv.lock` が不在の状態で CI が同一キャッシュを使い続け、後から wheel が PyPI に追加されてもインストール失敗が解消しなかった。
 
-PyPI 上の実ファイル (`temporalio-1.27.2-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl`) は存在するが、CI 側の uv resolver はそれを参照できなかった。
+PyPI 上には実ファイル(`temporalio-1.27.2-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl`)が存在していたにもかかわらず、CI 側の uv リゾルバーはそれを参照できなかったのである。
 
-uv 公式ドキュメント (https://docs.astral.sh/uv/concepts/projects/layout/) は次のように明記している:
+uv 公式ドキュメント(https://docs.astral.sh/uv/concepts/projects/layout/)は次のように明記している。
 
 > "This file should be checked into version control, allowing for consistent and reproducible installations across machines."
 
-アプリケーション・ライブラリの区別なく `uv.lock` のコミットを推奨する記述である。LoRAIro はアプリケーション (GUI + CLI ツール) であり、uv 公式推奨の前提と一致する。
+アプリケーションとライブラリの区別なく `uv.lock` のコミットを推奨する記述である。LoRAIro は GUI と CLI を備えたアプリケーションであり、uv 公式推奨の前提と完全に一致する。
 
 ## Decision
 
-**`uv.lock` を version control に commit する** (uv 公式ベストプラクティスに従う)。
+**`uv.lock` をバージョン管理にコミットする**(uv 公式のベストプラクティスに従う)。
 
-具体的に固定する事項:
+具体的な固定事項は以下のとおりである。
 
-1. **`.gitignore` から `uv.lock` 行を削除する。**
-2. **現在の `uv.lock` を repository に commit する** (本 ADR の commit と同時)。
-3. **PR で依存更新を行う場合は `pyproject.toml` と `uv.lock` を同時 commit する。** `uv lock` / `uv sync` 実行後の lockfile 変更は必ず PR に含める。
-4. **CI の `uv sync --dev` 経路はそのまま使用する。** lockfile が repo に含まれる以上、uv は自動的に lock を尊重して install するため、`--frozen` フラグの追加は本 ADR では強制しない (Future enhancement)。
-5. **submodule pin 更新時は `uv lock` を再実行**して `uv.lock` を更新する。submodule の依存変動が lockfile に反映される。
+1. **`.gitignore` から `uv.lock` の行を削除する。**
+2. **現在の `uv.lock` をリポジトリにコミットする**(本 ADR のコミットと同時)。
+3. **PR で依存を更新する場合は、`pyproject.toml` と `uv.lock` を同時にコミットする。** `uv lock` や `uv sync` の実行後に生じたロックファイルの変更は、必ず PR に含める。
+4. **CI の `uv sync --dev` 経路はそのまま使用する。** ロックファイルがリポジトリに含まれる以上、uv は自動的にロックを尊重してインストールする。`--frozen` フラグの追加は本 ADR では強制せず、将来の拡張候補とする。
+5. **サブモジュールのピンを更新する際は `uv lock` を再実行して `uv.lock` を更新する。** これにより、サブモジュール側の依存変動がロックファイルへ確実に反映される。
 
 ## Rationale
 
-### なぜ commit するか
+### なぜコミットするか
 
-- **CI 安定性**: lockfile 非追跡では今回のような「upstream の wheel 配布タイミング × uv cache の古い metadata」による transient failure に晒される。lockfile 追跡で resolution を固定すれば、`pyproject.toml` が変わらない限り CI 結果は decidable。
-- **開発環境の再現性**: 全開発者 / CI runner が同一バージョンを install する。submodule pin と lockfile pin がセットになるため、submodule 切替時のバージョン差異も検知できる。
-- **公式推奨との整合**: uv 公式が明示的に推奨。outdated にする積極的理由がない。
-- **アプリケーション性**: LoRAIro は library ではなく end-user 向けアプリケーション。「下流が pin を選ぶ」前提が成立しない (LoRAIro 自体が end of dependency chain)。
+- **CI の安定性**: ロックファイルが未追跡のままだと、今回のような「上流の wheel 配布タイミングと uv キャッシュの古いメタデータの食い違い」による一時的失敗に晒される。ロックファイルを追跡して依存解決を固定すれば、`pyproject.toml` が変わらない限り CI 結果は決定的になる。
+- **開発環境の再現性**: 全開発者と CI ランナーが同一バージョンをインストールできる。サブモジュールのピンとロックファイルのピンが組になるため、サブモジュール切り替え時のバージョン差異も検知しやすくなる。
+- **公式推奨との整合**: uv 公式が明示的にコミットを推奨しており、追跡しない積極的な理由がない。
+- **アプリケーションとしての性質**: LoRAIro はライブラリではなくエンドユーザー向けアプリケーションであり、依存チェーンの末端に位置する。「下流パッケージがピンを選ぶ」という前提は成立しない。
 
 ### 却下した選択肢
 
 | 案 | 却下理由 |
 |---|---|
-| **A. 現状維持 (`uv.lock` を ignore)** | CI の transient failure が継続する。uv 公式推奨と逆方向。 |
-| **B. `astral-sh/setup-uv` の cache を無効化** | cache 復元によるセットアップ時間短縮の恩恵を失う。lockfile 追跡なしでは resolution 自体は毎回走るので根本解にならない。 |
-| **C. `--refresh-package <name>` を CI で明示** | 個別 package ごとの workaround で、再発時に対応が後手に回る。lockfile 追跡なしでは資源の無駄。 |
-| **D. `tool.uv.required-environments` で全環境列挙** | 環境追加ごとに pyproject.toml 修正が必要。uv 推奨は lockfile 追跡。 |
+| **A. 現状維持(`uv.lock` を除外)** | CI の一時的失敗が継続し、uv 公式推奨にも反する。 |
+| **B. `astral-sh/setup-uv` のキャッシュを無効化する** | キャッシュ復元によるセットアップ時間短縮の恩恵を失う。ロックファイル追跡なしでは毎回依存解決が走るため根本解にならない。 |
+| **C. `--refresh-package <name>` を CI で明示する** | 個別パッケージごとの対症療法であり、再発時の対応が後手に回る。ロックファイル追跡なしでは資源の無駄になる。 |
+| **D. `tool.uv.required-environments` で全環境を列挙する** | 環境追加のたびに `pyproject.toml` の修正が必要になる。uv の推奨はロックファイルの追跡である。 |
 
-### CI cache との関係
+### CI キャッシュとの関係
 
-`astral-sh/setup-uv@v6` の `cache-dependency-glob` は **キャッシュキーの再計算トリガー** に使われる。lockfile 追跡後は `cache-dependency-glob: "{pyproject.toml,uv.lock}"` に拡張すべきだが、本 ADR ではまず lockfile 追跡を成立させ、cache key の最適化は別 PR で扱う (lockfile が repo にあるだけで `uv sync` は lock を尊重するため、cache が古くても install 内容は変わらない)。
+`astral-sh/setup-uv@v6` の `cache-dependency-glob` は、キャッシュキーの再計算トリガーとして使われる。ロックファイル追跡後は `cache-dependency-glob: "{pyproject.toml,uv.lock}"` へ拡張すべきである。ただし本 ADR ではまずロックファイル追跡の成立を優先し、キャッシュキーの最適化は別 PR で扱う。ロックファイルがリポジトリにあれば `uv sync` はロックを尊重するため、キャッシュが古くてもインストール内容は変わらない。
 
 ## Consequences
 
 ### 良い点
 
-- CI failure の再発を構造的に防ぐ (lockfile 固定で resolution が decidable)
-- 全開発者と CI が同一バージョンを install する保証
-- submodule pin 変更時、`uv lock` を同 PR に含めることで依存変動が可視化される
-- uv 公式推奨との整合
+- ロックファイル固定により依存解決が決定的になり、CI 失敗の再発を構造的に防げる。
+- 全開発者と CI が同一バージョンをインストールする保証が得られる。
+- サブモジュールのピン変更時に `uv lock` を同 PR へ含めることで、依存変動が可視化される。
+- uv 公式の推奨運用と整合する。
 
 ### 悪い点・トレードオフ
 
-- **PR diff サイズが増大**: `uv.lock` (約 657KB の TOML) が repo に含まれる。依存更新 PR では大きな diff が乗る。
-- **merge conflict のリスク**: 並行 PR で依存追加した場合、`uv.lock` が衝突する。`uv lock` を rebase 後に再実行して解消する運用が必要。
-- **submodule pin と lock の同期義務**: submodule 更新時に `uv lock` を忘れると CI で fail する。PR template / 開発フローでガイドする。
+- **PR の差分サイズが増大する**: `uv.lock`(約 657KB の TOML)がリポジトリに含まれるため、依存更新 PR の差分が大きくなる。
+- **マージコンフリクトのリスク**: 並行する PR で依存を追加すると `uv.lock` が衝突する。リベース後に `uv lock` を再実行して解消する運用が必要になる。
+- **サブモジュールピンとロックの同期義務**: サブモジュール更新時に `uv lock` を忘れると CI が失敗する。PR テンプレートや開発フローで手順を案内する。
 
 ### 運用ルール
 
-- 依存追加 / 更新 / 削除を行う PR は **`pyproject.toml` と `uv.lock` を必ず同時 commit する**。
-- `uv lock` / `uv sync` で lockfile が自動更新された場合も commit に含める。
-- submodule pin (`git submodule update` 等) を更新する PR は `uv lock` を再実行する。
-- `uv.lock` を rebase / merge した結果不整合になった場合は `uv lock` を再実行して再生成する。
+- 依存の追加・更新・削除を行う PR では、**`pyproject.toml` と `uv.lock` を必ず同時にコミットする**。
+- `uv lock` や `uv sync` でロックファイルが自動更新された場合もコミットに含める。
+- サブモジュールのピン(`git submodule update` 等)を更新する PR では `uv lock` を再実行する。
+- リベースやマージで `uv.lock` が不整合になった場合は、`uv lock` を再実行して再生成する。
 
 ## Related
 
-- **Issue**: #247 (本 PR #251 で CI failure を契機に方針確立)
-- **影響を受ける ADR**: 0024 (pytest test responsibility separation) — lockfile 追跡前提の CI 設計と整合
+- **Issue**: #247(PR #251 の CI 失敗を契機に方針を確立)
+- **影響を受ける ADR**: 0024(pytest Test Responsibility Separation by Package)— ロックファイル追跡前提の CI 設計と整合
 - **uv 公式ドキュメント**: https://docs.astral.sh/uv/concepts/projects/layout/
 - **関連ファイル**:
-  - `.gitignore` (`uv.lock` 行を削除)
-  - `uv.lock` (新規 tracked)
-  - `.github/workflows/ci.yml` (将来 `cache-dependency-glob` 拡張候補)
-- **Future enhancement**:
-  - CI `cache-dependency-glob` を `{pyproject.toml,uv.lock}` に拡張
-  - 必要なら `uv sync --frozen --dev` への移行 (lockfile drift を厳密検知)
+  - `.gitignore`(`uv.lock` 行を削除)
+  - `uv.lock`(新規追跡対象)
+  - `.github/workflows/ci.yml`(将来 `cache-dependency-glob` 拡張候補)
+- **将来の拡張候補**:
+  - CI の `cache-dependency-glob` を `{pyproject.toml,uv.lock}` に拡張する
+  - 必要に応じて `uv sync --frozen --dev` へ移行し、ロックファイルの乖離を厳密に検知する

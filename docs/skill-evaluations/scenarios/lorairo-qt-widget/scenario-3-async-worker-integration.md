@@ -1,29 +1,31 @@
-# Scenario: Async Worker Integration with Widget
+# シナリオ: ウィジェットへの非同期ワーカー統合
 
-## Input
-**User request:** "My AnnotationWidget needs to run AI annotation in the background without freezing the UI. Show me how to integrate with WorkerManager and handle results."
+## 入力
 
-**Context:**
-- LoRAIro uses WorkerManager + QThreadPool for async operations
-- Widget should:
-  - Trigger worker via WorkerManager
-  - Show progress during execution
-  - Handle worker results in slot
-  - Handle worker errors
-- Existing pattern: DatabaseRegistrationWorker, AnnotationWorker
-- Location: `src/lorairo/gui/workers/`
+**ユーザー依頼:** "My AnnotationWidget needs to run AI annotation in the background without freezing the UI. Show me how to integrate with WorkerManager and handle results."
 
-## Expected Behavior
-1. Skill `lorairo-qt-widget` should be invoked automatically
-2. Should demonstrate async worker integration:
+**前提条件:**
+- LoRAIro は非同期処理に `WorkerManager` + `QThreadPool` を使用している。
+- ウィジェットには以下の動作が求められる。
+  - `WorkerManager` 経由でワーカーを起動する。
+  - 実行中に進捗を表示する。
+  - スロットでワーカーの結果を受け取る。
+  - ワーカーのエラーを処理する。
+- 既存の実装パターン: `DatabaseRegistrationWorker`、`AnnotationWorker`
+- 配置場所: `src/lorairo/gui/workers/`
 
-   **Phase 1: Worker Pattern Review**
-   - Examine existing workers (AnnotationWorker)
-   - Check WorkerManager usage
-   - Search memory for async patterns
+## 期待される動作
 
-   **Phase 2: Widget Implementation**
-   - Show widget with worker integration:
+1. スキル `lorairo-qt-widget` が自動的に呼び出される。
+2. 以下の手順に沿って非同期ワーカー統合パターンを提示する。
+
+   **フェーズ 1: ワーカーパターンの確認**
+   - 既存ワーカー (`AnnotationWorker`) を調べる。
+   - `WorkerManager` の使用法を確認する。
+   - メモリから非同期処理パターンを検索する。
+
+   **フェーズ 2: ウィジェットの実装**
+   - ワーカーを統合したウィジェットの例を示す。
      ```python
      class AnnotationWidget(QWidget):
          def __init__(self, parent: QWidget | None = None):
@@ -66,65 +68,70 @@
              self.progress_bar.setValue(percent)
      ```
 
-   **Phase 3: Best Practices**
-   - UI state management (disable/enable)
-   - Progress feedback
-   - Error handling
-   - Memory cleanup (worker signals disconnection)
+   **フェーズ 3: ベストプラクティス**
+   - UI 状態管理 (処理中の無効化と完了後の再有効化)
+   - 進捗フィードバックの表示
+   - エラー処理
+   - メモリ解放 (ワーカーシグナルの接続解除)
 
-3. Should produce:
-   - Complete async widget pattern
-   - WorkerManager integration
-   - Progress and error handling
-   - UI state management
-   - Type-safe slots for worker signals
+3. 以下の成果物を生成する。
+   - 完全な非同期ウィジェットパターン
+   - `WorkerManager` との統合実装
+   - 進捗表示とエラー処理
+   - UI 状態管理
+   - ワーカーシグナル向けの型安全なスロット
 
-4. Should NOT:
-   - Run long operations in main thread
-   - Forget to re-enable UI on error
-   - Skip progress feedback
-   - Leak memory (workers not cleaned up)
+4. 以下を行わない。
+   - 長時間処理をメインスレッドで実行する。
+   - エラー発生時に UI の再有効化を忘れる。
+   - 進捗フィードバックを省略する。
+   - ワーカーを解放せずメモリリークを起こす。
 
-## Success Criteria
-- [x] Correct skill invoked (lorairo-qt-widget)
-- [x] Pattern research done (existing workers, WorkerManager)
-- [x] Worker created and run via WorkerManager
-- [x] All worker signals connected (finished, error, progress)
-- [x] UI state managed (disable during, enable after)
-- [x] Progress feedback shown
-- [x] Error handling comprehensive
-- [x] Type-safe slots
-- [x] Completes without errors
+## 成功基準
 
-## Model Variations
-- **Haiku:** Should show basic worker integration; may need guidance on UI state management and error handling
-- **Sonnet:** Should demonstrate complete pattern with all signal connections; good state management and error handling
-- **Opus:** May suggest additional patterns (cancellation, worker pooling); may optimize UI responsiveness; excellent error recovery strategies
+- [x] 正しいスキル (`lorairo-qt-widget`) が呼び出された
+- [x] パターン調査 (既存ワーカーや `WorkerManager` の確認) を行った
+- [x] `WorkerManager` 経由でワーカーを作成および実行している
+- [x] すべてのワーカーシグナル (`finished`、`error`、`progress`) を接続している
+- [x] 処理中の無効化と処理後の有効化で UI 状態を管理している
+- [x] 進捗フィードバックを表示している
+- [x] 包括的なエラー処理がある
+- [x] 型安全なスロットを使用している
+- [x] エラーなく完了する
 
-## Test Validation
-After running this scenario:
-1. Verify skill invoked: Check `lorairo-qt-widget` in metadata
-2. Check worker creation:
-   - Uses existing worker class (AnnotationWorker)
-   - Proper initialization with required params
-3. Check signal connections:
-   - `worker.signals.finished.connect(...)` → updates UI with result
-   - `worker.signals.error.connect(...)` → shows error dialog
-   - `worker.signals.progress.connect(...)` → updates progress bar
-4. Verify UI state management:
-   - Before worker: Button disabled, progress shown
-   - After success: Button enabled, progress hidden, results displayed
-   - After error: Button enabled, progress hidden, error shown
-5. Check error handling:
-   - Error slot handles all error types
-   - User-friendly error messages
-   - UI returns to usable state
-6. Test memory management:
-   - Worker signals disconnected after completion (or auto-cleanup)
-   - No memory leaks from long-lived worker references
+## モデル別の傾向
 
-## Edge Cases to Test
-- User clicks button multiple times rapidly (prevent duplicate workers)
-- Worker is cancelled mid-execution (cleanup properly)
-- Widget destroyed while worker running (disconnect signals)
-- Worker fails with exception (error slot called, UI recovered)
+- **Haiku:** 基本的なワーカー統合を示せる。UI 状態管理やエラー処理には補足指示が必要な場合がある。
+- **Sonnet:** すべてのシグナル接続を含む完全なパターンを提示できる。状態管理とエラー処理の品質が高い。
+- **Opus:** キャンセル処理やワーカープーリングなどの追加パターンを提案する場合がある。UI 応答性の最適化やエラー復旧戦略にも優れる。
+
+## テスト検証
+
+このシナリオの実行後、以下の項目を確認する。
+
+1. スキル呼び出しの確認: メタデータに `lorairo-qt-widget` が含まれていることを確認する。
+2. ワーカー生成の確認:
+   - 既存ワーカークラス (`AnnotationWorker`) を使用している。
+   - 必須パラメータで適切に初期化している。
+3. シグナル接続の確認:
+   - `worker.signals.finished.connect(...)` -> 結果で UI を更新する。
+   - `worker.signals.error.connect(...)` -> エラーダイアログを表示する。
+   - `worker.signals.progress.connect(...)` -> プログレスバーを更新する。
+4. UI 状態管理の検証:
+   - 実行前: ボタンを無効化し、プログレスバーを表示する。
+   - 成功後: ボタンを有効化し、プログレスバーを非表示にして結果を表示する。
+   - エラー後: ボタンを有効化し、プログレスバーを非表示にしてエラーを表示する。
+5. エラー処理の確認:
+   - エラースロットがあらゆるエラー種別を処理できる。
+   - ユーザーに分かりやすいエラーメッセージを表示する。
+   - UI が操作可能な状態へ復帰する。
+6. メモリ管理の検証:
+   - 完了後にワーカーシグナルが切断される (または自動クリーンアップされる)。
+   - 長寿命のワーカー参照によるメモリリークが発生しない。
+
+## 検証すべきエッジケース
+
+- ユーザーがボタンを素早く連続クリックした場合 (重複ワーカーの起動防止)
+- 実行途中でワーカーがキャンセルされた場合 (適切なクリーンアップ)
+- ワーカー実行中にウィジェットが破棄された場合 (シグナルの切断)
+- ワーカーが例外で失敗した場合 (エラースロットの呼び出しと UI 復帰)

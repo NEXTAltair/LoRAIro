@@ -1,96 +1,96 @@
-# src/lorairo ディレクトリ/モジュール改名 — 設計仕様
+# `src/lorairo` ディレクトリ・モジュール改名 — 設計仕様
 
-**日付:** 2026-06-26
-**対象リポジトリ:** LoRAIro
-**ステータス:** Approved
+**日付:** 2026-06-26  
+**対象リポジトリ:** LoRAIro  
+**ステータス:** Approved  
 **関連 Issue:** [#717](https://github.com/NEXTAltair/LoRAIro/issues/717)
 
 ---
 
 ## 背景と目的
 
-`src/lorairo/` 配下のディレクトリ名の一部が役割を正確に表現しておらず、新規コントリビュータの誤解を招く。特に `api/` は HTTP/REST API と混同されやすい（実態は CLI/GUI/外部ツール向けの公開インターフェース層）。一部モジュール名も曖昧（`annotation_logic.py` の "logic" はノイズ語、`existing_file_reader.py` は何を読むか不明）。
+`src/lorairo/` 配下の一部のディレクトリ名が役割を正確に表しておらず、新規コントリビュータの誤解を招いている。特に `api/` は HTTP/REST API と混同されやすいが、実態は CLI、GUI、外部ツール向けの公開インターフェース層である。一部のモジュール名も曖昧であり、`annotation_logic.py` の「logic」はノイズ語、`existing_file_reader.py` は何を読むのかが分かりにくい。
 
-**目的:** ディレクトリ名・モジュール名を実態に即した説明的な名前へ機械的に改名し、リーダビリティとオンボーディング効率を上げる。ロジック変更は伴わない。
+**目的:** ディレクトリ名とモジュール名を実態に即した説明的な名前へ機械的に改名し、可読性とオンボーディング効率を高める。ロジック変更は一切行わない。
 
 ---
 
 ## 設計概要
 
-### メカニクス: ハードリネーム（deprecation shim なし）
+### メカニクス: ハードリネーム(deprecation shim なし)
 
-LoRAIro は配布ライブラリではなくアプリケーションで、`lorairo.api` 等を import する外部利用者は存在しない。よって旧パスを re-export で残す deprecation shim は cruft になるだけなので採用しない。
+LoRAIro は配布ライブラリではなくアプリケーションであり、`lorairo.api` などをインポートする外部利用者は存在しない。旧パスを再エクスポートで残す deprecation shim は不要な負債になるだけなので採用しない。
 
-- `git mv` でディレクトリ/ファイルを移動し blame 履歴を温存
-- 機械的に import 行を一括置換（`lorairo.<old>` → `lorairo.<new>`）
-- 移行期の二重パスを残さない
+- `git mv` でディレクトリ・ファイルを移動し、blame 履歴を温存する。
+- インポート行を機械的に一括置換する(`lorairo.<old>` → `lorairo.<new>`)。
+- 移行期の二重パスを残さない。
 
-### 分割: 1 ディレクトリ = 1 サブPR、優先度順に直列
+### 分割: 1 ディレクトリ = 1 サブ PR、優先度順に直列
 
-`utils/`・`domain/` は対象外（名前は適切）。改名対象4ディレクトリを優先度順に1本ずつ実装・検証・merge する。各サブPR後に `make mypy` + CI-equivalent filter で regression なしを確認 → merge → 次サブを `origin/main` に rebase。
+`utils/` と `domain/` は名前が適切であるため対象外とする。改名対象の 4 ディレクトリを優先度順に 1 本ずつ実装・検証・マージする。各サブ PR 完了後に `make mypy` と CI 相当フィルタでリグレッションがないことを確認してマージし、次のサブ PR を `origin/main` へリベースする。
 
-衝突面の実測: 対象2ディレクトリを跨いで import するファイルは約10個（最大2ディレクトリまで、3つ以上跨ぐファイルは無し）。`storage` が他と共起しやすいため**最後に回して** rebase 巻き込みを最小化する。
+衝突面を実測したところ、対象 2 ディレクトリを跨いでインポートするファイルは約 10 個であった(最大 2 ディレクトリまでで、3 つ以上を跨ぐファイルはない)。`storage` は他と共起しやすいため**最後に回し**、リベースの巻き込みを最小化する。
 
 ### 実行モデル: 直列・リード単独
 
-並列（Agent Teams）は採用しない。理由:
+並列実行(Agent Teams)は採用しない。理由は以下の 3 点である。
 
-1. **PR は main へ1本ずつしか merge できない**（CI/レビューが直列）ため、並列化で短縮できるのは「diff 生成」という機械作業のみでボトルネックは縮まらない。
-2. **editable install + 共有 venv で worktree 内のローカル検証が無効化される**（worktree から `mypy -p lorairo` / `pytest` を共有 venv で走らせると main checkout のコードを検証してしまう。真偽は push 後 CI が SSoT）。
-3. **並列 `uv sync` が共有 `.venv` を破壊する**（Issue #222）。
+1. **PR のマージは直列である:** `main` へのマージは CI とレビューを経て 1 本ずつ行うため、並列化で短縮できるのは差分生成という機械作業のみであり、ボトルネックは縮まらない。
+2. **共有 venv と editable install によるローカル検証の制約:** ワークツリーから共有 venv で `mypy -p lorairo` や `pytest` を実行するとメインチェックアウト側のコードを参照する場合があり、最終的な正否はプッシュ後の CI を信頼源(SSoT)とする必要がある。
+3. **共有 `.venv` 破壊のリスク:** 並列 `uv sync` は共有 `.venv` を破壊する恐れがある(Issue #222)。
 
-リード（実装者）が4サブPRを優先度順に順次処理する。
+以上の理由から、リード(実装者)が 4 本のサブ PR を優先度順に直列処理する。
 
 ---
 
 ## 改名内容
 
-| 順 | サブPR | 改名 | 影響 |
+| 順 | サブ PR | 改名内容 | 影響範囲 |
 |---|---|---|---|
-| 1 | `api/` → `public_api/` | ディレクトリのみ。内部 facade モジュール（`images.py`/`tags.py`/`project.py`/`export.py`/`batch_import.py`/`types.py`/`exceptions.py`/`annotations.py`）はリソース指向で既に説明的なので**据え置き**（網羅レビューの結果「適切」と判断） | 35 files |
-| 2 | `editor/` → `image_transforms/` | ディレクトリのみ。`autocrop.py`(AutoCrop) / `upscaler.py`(Upscaler) / `image_processor.py`(ImageProcessingManager, ImageProcessor) は**据え置き** | 7 files |
-| 3 | `annotations/` → `annotation/` | ディレクトリ単数化 + モジュール改名（下記） | 12 files |
-| 4 | `storage/` → `filesystem.py` | ディレクトリを廃して単一モジュールへ平坦化。`from lorairo.filesystem import FileSystemManager`（`FileSystemManager` クラス名は維持） | 24 files |
+| 1 | `api/` → `public_api/` | ディレクトリのみを改名する。内部ファサードモジュール(`images.py`、`tags.py`、`project.py`、`export.py`、`batch_import.py`、`types.py`、`exceptions.py`、`annotations.py`)はリソース指向で十分説明的であるため**据え置く**(網羅レビューで適切と判断) | 35 ファイル |
+| 2 | `editor/` → `image_transforms/` | ディレクトリのみを改名する。`autocrop.py`(`AutoCrop`)、`upscaler.py`(`Upscaler`)、`image_processor.py`(`ImageProcessingManager`、`ImageProcessor`)は**据え置く** | 7 ファイル |
+| 3 | `annotations/` → `annotation/` | ディレクトリを単数形へ改名し、内部モジュールも改名する(詳細は下表) | 12 ファイル |
+| 4 | `storage/` → `filesystem.py` | ディレクトリを廃して単一モジュールへ平坦化する。`from lorairo.filesystem import FileSystemManager` とし、`FileSystemManager` クラス名は維持する | 24 ファイル |
 
-### サブPR3 のモジュール改名詳細
+### サブ PR 3 のモジュール改名詳細
 
-| 現 | 新 | 理由 |
+| 現行 | 改名後 | 理由 |
 |---|---|---|
-| `annotation_logic.py` / `AnnotationLogic` | `annotation_runner.py` / `AnnotationRunner` | `execute_annotation` でアノテーション実行を統括するランナー。ノイズ語 "logic" を排除 |
-| `existing_file_reader.py` / `ExistingFileReader` | `sidecar_reader.py` / `SidecarAnnotationReader` | `.txt`/`.caption` サイドカーファイルからの既存アノテーション読取を明示 |
-| `annotator_adapter.py` / `AnnotatorLibraryAdapter` | 据え置き | 既に image-annotator-lib アダプタと読める |
+| `annotation_logic.py` / `AnnotationLogic` | `annotation_runner.py` / `AnnotationRunner` | `execute_annotation` でアノテーション実行を統括するランナーであるため、ノイズ語の「logic」を排除する |
+| `existing_file_reader.py` / `ExistingFileReader` | `sidecar_reader.py` / `SidecarAnnotationReader` | `.txt` や `.caption` のサイドカーファイルから既存アノテーションを読み取る責務を明示する |
+| `annotator_adapter.py` / `AnnotatorLibraryAdapter` | 据え置き | すでに `image-annotator-lib` のアダプタと明確に読み取れるため |
 
 ### 命名判断のメモ
 
-- `annotations/` → **`annotation/`**（単数）。当初「AI であることが読めない」が不満点だったが、当ディレクトリはサイドカー読取（非AI処理）も含むアノテーション処理全般であり、`ai_annotation/` は不正確。`database`/`domain` と整合する単数形が実態に合う。
-- `storage/` の `file_system.py` は1ファイルのみのため、ディレクトリを維持せず単一モジュール `filesystem.py` へ平坦化するのが最も正直。
+- `annotations/` → **`annotation/`(単数形):** 当初は「AI 処理であることが読み取れない」点が懸念だったが、同ディレクトリにはサイドカー読み取り(非 AI 処理)も含まれるため、`ai_annotation/` は不正確である。`database` や `domain` と整合する単数形が実態に最も合う。
+- `storage/` → **`filesystem.py`:** `storage/` 配下は `file_system.py` の 1 ファイルのみであるため、ディレクトリを維持せず単一モジュール `filesystem.py` へ平坦化するのが最も簡潔である。
 
 ---
 
-## 各サブPR の手順
+## 各サブ PR の手順
 
-各サブPR共通（[.claude/rules/git-workflow.md](../../../.claude/rules/git-workflow.md) / [testing.md](../../../.claude/rules/testing.md) 準拠）:
+各サブ PR は共通して以下の手順で進める([.claude/rules/git-workflow.md](../../../.claude/rules/git-workflow.md) および [testing.md](../../../.claude/rules/testing.md) 準拠)。
 
-1. `origin/main` から worktree を切る（`git worktree add .agents/worktree/issue-717-<dir> -b refactor/issue-717-<dir> origin/main`）
-2. `git mv` でディレクトリ/モジュールを移動
-3. import 行を一括置換（`src/` + `tests/` + `docs/`）。クラス名変更を伴うサブPR3 は対象シンボルも置換
-4. `make mypy` + CI-equivalent filter（`-m "not gui_show and not calls_real_webapi and not downloads_and_runs_model and not slow"`）で regression なし確認
-5. commit & push → PR 起票（`Closes #717` はサブPR4 のみ、1〜3 は `Refs #717`）
-6. CI green + bot レビュー safe を確認して squash merge
-7. 次サブPRの worktree を `origin/main` に rebase
-8. 全サブPR merge 後に worktree を削除
+1. `origin/main` からワークツリーを作成する(`git worktree add .agents/worktree/issue-717-<dir> -b refactor/issue-717-<dir> origin/main`)。
+2. `git mv` でディレクトリ・モジュールを移動する。
+3. `src/`、`tests/`、`docs/` のインポート行を一括置換する。クラス名変更を伴うサブ PR 3 では対象シンボルも置換する。
+4. `make mypy` と CI 相当フィルタ(`-m "not gui_show and not calls_real_webapi and not downloads_and_runs_model and not slow"`)でリグレッションがないことを確認する。
+5. コミット・プッシュして PR を起票する(`Closes #717` はサブ PR 4 のみとし、1〜3 は `Refs #717` とする)。
+6. CI が通り、bot レビューに問題がないことを確認してスカッシュマージする。
+7. 次のサブ PR のワークツリーを `origin/main` に合わせる。
+8. 全サブ PR のマージ後にワークツリーを削除する。
 
 ### 検証スコープ補足
 
-import 改名は GUI / services / cli / tests 横断に及ぶため、CI-equivalent filter に加えて改名ディレクトリを参照するテストモジュール（特にサブPR3 のアノテーション系、サブPR4 の FileSystemManager 利用テスト）が collection エラーを起こさないことを確認する。
+インポートの改名は GUI、services、cli、tests を横断する。そのため、CI 相当フィルタの実行に加え、改名ディレクトリを参照するテストモジュール(特にサブ PR 3 のアノテーション系、サブ PR 4 の `FileSystemManager` 利用テスト)でテスト収集エラーが起きないことを確認する。
 
 ---
 
 ## 影響範囲チェックリスト
 
-- `src/lorairo/` 配下の全 `import` 文
-- `tests/` の対応パス・mock パッチパス（`@patch("lorairo.<old>...")` の文字列も置換対象。実測で tests 配下に64箇所）
-- `docs/services.md` / `docs/integrations.md` 等のドキュメント参照
-- `pyproject.toml`: 実測の結果、対象ディレクトリ名への実パス参照は無し（マッチは無関係な pytest マーカー名・qt 設定のみ）。**更新不要**
+- `src/lorairo/` 配下のすべての `import` 文
+- `tests/` 配下の対応パスおよびモックパッチパス(`@patch("lorairo.<old>...")` の文字列も置換対象。実測で `tests/` 配下に 64 箇所ある)
+- `docs/services.md` や `docs/integrations.md` などのドキュメント参照
+- `pyproject.toml`: 実測の結果、対象ディレクトリ名への実パス参照は存在しない(一致するのは無関係な pytest マーカー名と Qt 設定のみ)ため**更新不要**である。
 
-ロジック変更ゼロ。差分は import パスとファイル位置のみ。
+ロジック変更はゼロであり、差分はインポートパスとファイル位置のみとなる。

@@ -1,17 +1,18 @@
-# Direct Widget Communication Pattern
+# ウィジェット間の直接通信パターン
 
-LoRAIro's Direct Widget Communication pattern eliminates intermediate state management layers for cleaner, more maintainable GUI architecture.
+LoRAIro のウィジェット間直接通信(Direct Widget Communication)パターンは、中間の状態管理層を省き、見通しが良く保守しやすい GUI アーキテクチャを実現する。
 
-## Core Principles
+## 基本原則
 
-### 1. No Intermediate State Layer
+### 1. 中間の状態管理層を置かない
 
-**Avoid:**
+**非推奨:**
+
 ```python
-# ❌ BAD: Using state manager as intermediary
+# 非推奨: 状態マネージャーを仲介役にする
 class ThumbnailWidget(QWidget):
     def _on_clicked(self, index: int) -> None:
-        # Indirect communication via state manager
+        # 状態マネージャー経由の間接通信
         self._state_manager.set_selected_image(index)
 
 class DetailsWidget(QWidget):
@@ -20,11 +21,12 @@ class DetailsWidget(QWidget):
         self._state_manager.image_changed.connect(self._update)
 ```
 
-**Prefer:**
+**推奨:**
+
 ```python
-# ✅ GOOD: Direct widget-to-widget signals
+# 推奨: ウィジェット同士をシグナルで直接接続する
 class ThumbnailWidget(QWidget):
-    image_selected = Signal(dict)  # Direct signal
+    image_selected = Signal(dict)  # 直接シグナル
 
     def _on_clicked(self, index: int) -> None:
         metadata = self._images[index]
@@ -35,49 +37,49 @@ class DetailsWidget(QWidget):
     def display_metadata(self, metadata: dict) -> None:
         self._update_ui(metadata)
 
-# MainWindow connects them
+# MainWindow で接続する
 class MainWindow(QMainWindow):
     def _connect_widgets(self) -> None:
         self.thumbnail.image_selected.connect(self.details.display_metadata)
 ```
 
-### 2. Centralized Connection Management
+### 2. 接続管理を `MainWindow` に集約する
 
-**All widget connections in MainWindow:**
+すべてのウィジェット間接続は `MainWindow` の 1 箇所にまとめる。
 
 ```python
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self._setup_widgets()
-        self._connect_widgets()  # Single connection point
+        self._connect_widgets()  # 接続を集約する単一の入口
 
     def _connect_widgets(self) -> None:
         """Centralize all widget connections here."""
-        # Thumbnail → Details
+        # Thumbnail -> Details
         self.thumbnail_widget.image_selected.connect(
             self.details_widget.display_metadata
         )
 
-        # Thumbnail → Metadata
+        # Thumbnail -> Metadata
         self.thumbnail_widget.image_selected.connect(
             self.metadata_widget.update_metadata
         )
 
-        # Search → Thumbnail
+        # Search -> Thumbnail
         self.search_widget.search_completed.connect(
             self.thumbnail_widget.display_results
         )
 
-        # Details → Annotation Worker
+        # Details -> Annotation Worker
         self.details_widget.annotation_requested.connect(
             self._handle_annotation_request
         )
 ```
 
-### 3. Connect-To Pattern
+### 3. `connect_to_*` パターン
 
-**Each widget provides connection methods:**
+各ウィジェットに接続専用メソッドを用意する。
 
 ```python
 class ImageDetailsWidget(QWidget):
@@ -107,33 +109,33 @@ class ImageDetailsWidget(QWidget):
         self._update_ui()
 ```
 
-**Usage in MainWindow:**
+**`MainWindow` での利用例:**
 
 ```python
 def _connect_widgets(self) -> None:
-    # Using connect_to_* methods
+    # connect_to_* メソッドで接続する
     self.details_widget.connect_to_thumbnail_widget(self.thumbnail_widget)
     self.details_widget.connect_to_annotation_service(self.annotation_service)
 ```
 
-## Signal Types and Payloads
+## シグナルの型とペイロード
 
-### Simple Data Types
+### 基本データ型
 
 ```python
 class FilterWidget(QWidget):
-    # Primitive types
-    filter_changed = Signal(str)      # Filter text
-    count_updated = Signal(int)       # Result count
-    score_threshold = Signal(float)   # Score value
-    enabled_changed = Signal(bool)    # Toggle state
+    # プリミティブ型
+    filter_changed = Signal(str)      # フィルター文字列
+    count_updated = Signal(int)       # 検索結果件数
+    score_threshold = Signal(float)   # スコア閾値
+    enabled_changed = Signal(bool)    # 有効/無効の切り替え状態
 ```
 
-### Complex Data Types
+### 複合データ型
 
 ```python
 class SearchWidget(QWidget):
-    # Dictionary for complex data
+    # 複合データには辞書を使う
     search_completed = Signal(dict)   # {"query": str, "results": list, "count": int}
 
     def _emit_results(self, results: list[dict]) -> None:
@@ -146,11 +148,11 @@ class SearchWidget(QWidget):
         self.search_completed.emit(payload)
 ```
 
-### Multiple Parameters
+### 複数パラメーター
 
 ```python
 class ThumbnailWidget(QWidget):
-    # Multiple typed parameters
+    # 型を明示した複数パラメーター
     item_selected = Signal(int, str, dict)  # (index, image_path, metadata)
 
     def _on_click(self, index: int) -> None:
@@ -159,9 +161,9 @@ class ThumbnailWidget(QWidget):
         self.item_selected.emit(index, path, metadata)
 ```
 
-## Practical Patterns
+## 実践パターン
 
-### Pattern 1: Master-Detail
+### パターン 1: マスター・ディテール
 
 ```python
 class MasterListWidget(QWidget):
@@ -188,7 +190,7 @@ class MainWindow(QMainWindow):
         self.detail_view.connect_to_master(self.master_list)
 ```
 
-### Pattern 2: Filter Chain
+### パターン 2: フィルターチェーン
 
 ```python
 class SearchFilterWidget(QWidget):
@@ -234,7 +236,7 @@ class MainWindow(QMainWindow):
         )
 ```
 
-### Pattern 3: Bidirectional Communication
+### パターン 3: 双方向通信
 
 ```python
 class EditorWidget(QWidget):
@@ -253,7 +255,7 @@ class StatusWidget(QWidget):
     """Status display."""
 
     def connect_to_editor(self, editor: EditorWidget) -> None:
-        # Editor → Status (one way)
+        # Editor -> Status (単方向)
         editor.content_changed.connect(self._update_status)
         editor.save_requested.connect(self._show_saving)
 
@@ -265,47 +267,52 @@ class StatusWidget(QWidget):
 # MainWindow
 class MainWindow(QMainWindow):
     def _connect_widgets(self) -> None:
-        # Bidirectional: Editor ↔ Status
+        # 双方向: Editor <-> Status
         self.status_widget.connect_to_editor(self.editor_widget)
 
-        # Editor also responds to external events
+        # Editor は外部イベントにも応答する
         self.load_button.clicked.connect(
             lambda: self.editor_widget.load_content(self._load_data())
         )
 ```
 
-## Advantages
+## 利点
 
-### 1. Clear Data Flow
+### 1. データフローの明確化
 
-**Before (with state manager):**
+**変更前(状態マネージャー経由):**
+
 ```
-ThumbnailWidget → StateManager → DetailsWidget
-                → StateManager → MetadataWidget
-                → StateManager → StatusWidget
+ThumbnailWidget -> StateManager -> DetailsWidget
+                -> StateManager -> MetadataWidget
+                -> StateManager -> StatusWidget
 ```
-Hard to trace signal flow, hidden dependencies.
 
-**After (direct communication):**
+シグナルの流れを追いにくく、隠れた依存関係が生まれる。
+
+**変更後(直接通信):**
+
 ```
-ThumbnailWidget → DetailsWidget
-                → MetadataWidget
-                → StatusWidget
+ThumbnailWidget -> DetailsWidget
+                -> MetadataWidget
+                -> StatusWidget
 ```
-Explicit connections visible in MainWindow `_connect_widgets()`.
 
-### 2. Reduced Coupling
+`MainWindow._connect_widgets()` を見れば、すべての接続関係を一目で把握できる。
 
-Widgets don't depend on StateManager implementation:
+### 2. 結合度の低減
+
+ウィジェットが `StateManager` の実装に依存しなくなる。
+
 ```python
-# Widgets are self-contained
+# ウィジェットが自己完結する
 class ThumbnailWidget(QWidget):
-    image_selected = Signal(dict)  # Only knows about its signals
+    image_selected = Signal(dict)  # 自身のシグナルだけを知っていればよい
 
-    # No dependency on StateManager
+    # StateManager への依存がない
 ```
 
-### 3. Easier Testing
+### 3. テストの容易さ
 
 ```python
 def test_thumbnail_selection(qtbot):
@@ -315,41 +322,41 @@ def test_thumbnail_selection(qtbot):
     with qtbot.waitSignal(thumbnail.image_selected) as blocker:
         qtbot.mouseClick(thumbnail._items[0], Qt.LeftButton)
 
-    # Verify signal payload
+    # シグナルのペイロードを検証する
     assert blocker.args[0]["id"] == 1
     assert "path" in blocker.args[0]
 ```
 
-### 4. Flexible Rewiring
+### 4. 配線の柔軟な変更
 
-Easy to change connections without modifying widgets:
+ウィジェット本体を修正せずに接続先を追加・変更できる。
 
 ```python
-# Before: Details widget connected
+# 変更前: Details ウィジェットのみ接続
 def _connect_widgets(self) -> None:
     self.thumbnail.image_selected.connect(self.details.display_metadata)
 
-# After: Add preview widget, no widget changes needed
+# 変更後: Preview ウィジェットを追加しても各ウィジェットの修正は不要
 def _connect_widgets(self) -> None:
     self.thumbnail.image_selected.connect(self.preview.show_image)
     self.thumbnail.image_selected.connect(self.details.display_metadata)
 ```
 
-## When to Use State Management
+## 状態管理を使うべき場面
 
-Direct communication is preferred, but use state management when:
+基本は直接通信を優先するが、次の用途では状態管理クラスを使う。
 
-### 1. Shared Application State
+### 1. アプリケーション全体の共有状態
 
 ```python
 class AppStateManager:
     """Global application state only."""
-    current_project = Signal(str)      # Project path
-    database_connected = Signal(bool)  # DB status
-    config_changed = Signal(dict)      # Config updates
+    current_project = Signal(str)      # プロジェクトパス
+    database_connected = Signal(bool)  # DB 接続状態
+    config_changed = Signal(dict)      # 設定変更
 ```
 
-### 2. Persistent Data
+### 2. 永続化が必要なデータ
 
 ```python
 class DatasetStateManager:
@@ -364,60 +371,60 @@ class DatasetStateManager:
         pass
 ```
 
-### 3. Complex Multi-Widget Coordination
+### 3. 多数ウィジェット間の複雑な調整
 
 ```python
-# Many widgets need same data → Use state manager
+# 多数のウィジェットが同一データを参照する場合は状態マネージャーを使う
 class SearchSessionManager:
     """Coordinate complex search session."""
     search_results = Signal(list)
 
     def execute_search(self, query: str) -> None:
-        # Coordinate multiple data sources
+        # 複数のデータソースを統合する
         results = self._search_database(query)
         results += self._search_tags(query)
         results += self._search_metadata(query)
         self.search_results.emit(results)
 ```
 
-## Anti-Patterns
+## アンチパターン
 
-### ❌ Circular Dependencies
+### 循環依存
 
 ```python
-# BAD: Circular signal connections
+# 非推奨: 循環するシグナル接続
 class WidgetA(QWidget):
     data_changed = Signal(str)
 
     def connect_to_b(self, b: 'WidgetB') -> None:
-        b.data_changed.connect(self._update)  # A → B
+        b.data_changed.connect(self._update)  # A -> B
 
 class WidgetB(QWidget):
     data_changed = Signal(str)
 
     def connect_to_a(self, a: WidgetA) -> None:
-        a.data_changed.connect(self._update)  # B → A
+        a.data_changed.connect(self._update)  # B -> A
 
-# Results in infinite signal loops!
+# シグナルの無限ループを引き起こす
 ```
 
-**Fix:** Use unidirectional flow or mediator pattern.
+**対処法:** 単方向データフローにするか、Mediator パターンを導入する。
 
-### ❌ Deep Signal Chains
+### 深すぎるシグナル連鎖
 
 ```python
-# BAD: Long signal chain
-WidgetA → WidgetB → WidgetC → WidgetD → WidgetE
+# 非推奨: 長いシグナルチェーン
+WidgetA -> WidgetB -> WidgetC -> WidgetD -> WidgetE
 
-# Hard to debug, brittle
+# デバッグが難しく、変更に弱い
 ```
 
-**Fix:** Use direct connections or introduce coordinator.
+**対処法:** 直接接続に切り替えるか、調整役のコーディネーターを導入する。
 
-### ❌ Signal Payload Mutation
+### シグナルペイロードの破壊的変更
 
 ```python
-# BAD: Mutating signal payload
+# 非推奨: 受け取ったペイロードを直接書き換える
 class SenderWidget(QWidget):
     data_sent = Signal(dict)
 
@@ -428,22 +435,24 @@ class SenderWidget(QWidget):
 class ReceiverWidget(QWidget):
     @Slot(dict)
     def receive_data(self, data: dict) -> None:
-        data["value"] = 20  # Mutates original dict!
+        data["value"] = 20  # 元の辞書を書き換えてしまう
 ```
 
-**Fix:** Send immutable data or make copies.
+**対処法:** イミュータブルなデータを渡すか、コピーを作成して扱う。
 
-## Summary
+## まとめ
 
-**Direct Widget Communication Benefits:**
-- Clear, explicit data flow
-- Reduced coupling between widgets
-- Easier testing and maintenance
-- Flexible connection rewiring
+**ウィジェット間直接通信の利点:**
 
-**Key Implementation Points:**
-1. Define typed signals in widgets
-2. Centralize connections in MainWindow
-3. Provide `connect_to_*` methods
-4. Avoid intermediate state layers
-5. Use state management only for global/persistent state
+- データフローが明示的で追いやすい
+- ウィジェット間の結合度を下げられる
+- テストと保守が容易になる
+- 接続の組み替えに柔軟に対応できる
+
+**実装の要点:**
+
+1. ウィジェットに型を明示したシグナルを定義する
+2. 接続処理は `MainWindow` に集約する
+3. `connect_to_*` メソッドを提供する
+4. 不要な中間状態層を避ける
+5. 状態管理はグローバル状態や永続データに限定する

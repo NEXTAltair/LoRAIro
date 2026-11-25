@@ -1,33 +1,34 @@
-# Repository Testing Patterns
+# リポジトリのテストパターン
 
-Test strategies and pytest patterns for LoRAIro repository layer.
+LoRAIro のリポジトリ層に向けたテスト戦略と `pytest` パターンをまとめる。
 
-## Test Strategy
+## テスト戦略
 
-### Testing Pyramid for Repositories
+### リポジトリ層のテストピラミッド
 
 ```
-        ╱──────────╲
-       ╱ Integration ╲      (10%) - Full workflow tests
-      ╱────────────────╲
-     ╱   Repository    ╲   (90%) - Repository unit tests
-    ╱────────────────────╲
+        /----------\
+       / Integration \      (10%) - 一連のワークフロー検証
+      /----------------\
+     /   Repository     \   (90%) - リポジトリのユニットテスト
+    /--------------------\
 ```
 
-**Focus:** Repository layer tests should be unit tests using in-memory SQLite.
+**方針:** リポジトリ層のテストは、インメモリ SQLite を使ったユニットテストを中心に構成する。
 
-### Coverage Goals
-- **Repository methods:** 100% coverage (all CRUD operations)
-- **Error paths:** Test all exception handling
-- **Edge cases:** Empty results, null values, constraint violations
-- **Transaction behavior:** Commit, rollback, savepoint
+### カバレッジ目標
 
-## Test Environment Setup
+- **リポジトリメソッド**: カバレッジ 100%(すべての CRUD 操作)
+- **エラーパス**: すべての例外ハンドリングを検証する
+- **エッジケース**: 空の結果、`None`/NULL 値、制約違反を検証する
+- **トランザクション挙動**: コミット、ロールバック、セーブポイントを検証する
 
-### conftest.py
+## テスト環境のセットアップ
+
+### `conftest.py`
 
 ```python
-# tests/conftest.py or tests/database/conftest.py
+# tests/conftest.py または tests/database/conftest.py
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker
@@ -101,9 +102,9 @@ def sample_images():
     ]
 ```
 
-## Basic CRUD Tests
+## 基本的な CRUD テスト
 
-### Test Add Operation
+### 追加操作のテスト
 
 ```python
 import pytest
@@ -126,9 +127,9 @@ def test_add_image_returns_detached_object(image_repository, sample_image):
     """Test that returned image is usable outside session"""
     result = image_repository.add(sample_image)
 
-    # Image should be detached and all fields accessible
+    # セッション外でもデタッチ済みオブジェクトの各属性を参照できることを確認する
     assert result.id is not None
-    assert result.path == "/test/sample.jpg"  # No lazy load error
+    assert result.path == "/test/sample.jpg"  # Lazy Load エラーが起きない
 
 @pytest.mark.unit
 def test_batch_add_images(image_repository, sample_images):
@@ -142,7 +143,7 @@ def test_batch_add_images(image_repository, sample_images):
     assert all(img.path for img in results)
 ```
 
-### Test Read Operations
+### 取得操作のテスト
 
 ```python
 @pytest.mark.unit
@@ -204,7 +205,7 @@ def test_exists(image_repository, sample_image):
     assert not_exists is False
 ```
 
-### Test Update Operation
+### 更新操作のテスト
 
 ```python
 @pytest.mark.unit
@@ -222,7 +223,7 @@ def test_update_image(image_repository, sample_image):
     assert updated.score == 0.95
     assert updated.score != original_score
 
-    # Verify in database
+    # DB 上の永続化結果も検証する
     retrieved = image_repository.get_by_id(added.id)
     assert retrieved.score == 0.95
 
@@ -230,17 +231,17 @@ def test_update_image(image_repository, sample_image):
 def test_update_nonexistent_creates_new(image_repository, sample_image):
     """Test update with non-existent ID creates new entry (merge behavior)"""
     # Arrange
-    sample_image.id = 99999  # Non-existent ID
+    sample_image.id = 99999  # 存在しない ID
 
     # Act
     result = image_repository.update(sample_image)
 
     # Assert
     assert result.id is not None
-    # Note: Depending on merge behavior, this might create new or fail
+    # merge の挙動により新規作成されるか失敗するかは実装に依存する
 ```
 
-### Test Delete Operation
+### 削除操作のテスト
 
 ```python
 @pytest.mark.unit
@@ -266,9 +267,9 @@ def test_delete_nonexistent(image_repository):
     assert deleted is False
 ```
 
-## Search and Query Tests
+## 検索・クエリのテスト
 
-### Test Type-Safe Search
+### 型安全な検索のテスト
 
 ```python
 from dataclasses import dataclass
@@ -334,9 +335,9 @@ def test_count_matching(image_repository, sample_images):
     assert count == len(results)
 ```
 
-## Error Handling Tests
+## エラーハンドリングのテスト
 
-### Test Constraint Violations
+### 制約違反のテスト
 
 ```python
 from sqlalchemy.exc import IntegrityError
@@ -366,34 +367,34 @@ def test_add_safe_handles_duplicate(image_repository, sample_image):
     assert result is None
 ```
 
-### Test Transaction Rollback
+### トランザクションロールバックのテスト
 
 ```python
 @pytest.mark.unit
 def test_transaction_rollback_on_error(image_repository, sample_images):
     """Test transaction rolls back entirely on error"""
     # Arrange
-    # Create one valid image
+    # 正常な画像データを 1 件用意する
     valid_image = sample_images[0]
 
-    # Create one invalid image (will violate constraint)
-    invalid_image = Image(path=None, phash="hash123")  # Null path may violate NOT NULL
+    # 制約違反を起こす不正な画像データを用意する
+    invalid_image = Image(path=None, phash="hash123")  # NULL の path で NOT NULL 制約に違反
 
     # Act & Assert
-    with pytest.raises(Exception):  # Some database error
+    with pytest.raises(Exception):  # 何らかの DB エラーが発生する
         with image_repository.session_factory() as session:
             session.add(valid_image)
             session.add(invalid_image)
             session.commit()
 
-    # Verify rollback - valid image should NOT be in database
+    # ロールバックにより正常な画像も保存されていないことを検証する
     all_images = image_repository.get_all()
     assert len(all_images) == 0, "Transaction should have rolled back"
 ```
 
-## Transaction Tests
+## トランザクションのテスト
 
-### Test Atomic Operations
+### アトミック操作のテスト
 
 ```python
 @pytest.mark.unit
@@ -406,24 +407,24 @@ def test_batch_add_is_atomic(image_repository, sample_images, monkeypatch):
     # Act & Assert
     with pytest.raises(Exception):
         with monkeypatch.context() as m:
-            # Simulate commit failure
+            # コミット失敗を再現する
             m.setattr("sqlalchemy.orm.Session.commit", mock_commit_fail)
             image_repository.batch_add(sample_images)
 
-    # Verify nothing was committed
+    # 1 件もコミットされていないことを検証する
     assert len(image_repository.get_all()) == 0
 
 @pytest.mark.unit
 def test_complex_operation_transactional(image_repository):
     """Test complex multi-step operation is transactional"""
-    # This test would verify that operations like moving images
-    # to another project are atomic (all succeed or all rollback)
-    pass  # Implement based on your complex operations
+    # 画像のプロジェクト間移動など、複数ステップの操作が
+    # アトミック(全成功または全ロールバック)であることを検証する
+    pass  # 対象の複合操作に合わせて実装する
 ```
 
-## Performance Tests
+## パフォーマンステスト
 
-### Test Bulk Operations
+### バルク操作のテスト
 
 ```python
 @pytest.mark.unit
@@ -439,7 +440,7 @@ def test_bulk_update_performance(image_repository, sample_images):
     # Assert
     assert updated_count == len(score_updates)
 
-    # Verify updates
+    # 更新結果を検証する
     for img in image_repository.get_all():
         assert img.score == 0.9
 
@@ -458,7 +459,7 @@ def test_bulk_delete(image_repository, sample_images):
     assert len(image_repository.get_all()) == 2
 ```
 
-### Test N+1 Query Prevention
+### N+1 クエリ防止のテスト
 
 ```python
 @pytest.mark.unit
@@ -467,15 +468,15 @@ def test_eager_loading_prevents_n_plus_1(image_repository, session_factory):
     from sqlalchemy import event
     from src.lorairo.database.schema import Image
 
-    # Arrange - Add images with annotations
+    # Arrange - アノテーション付き画像を登録する
     with session_factory() as session:
         for i in range(5):
             image = Image(path=f"/image_{i}.jpg", phash=f"hash{i}")
             session.add(image)
-            # Add related annotations if your schema has them
+            # スキーマに応じて関連アノテーションも追加する
         session.commit()
 
-    # Track query count
+    # 発行されたクエリ数を記録する
     query_count = []
 
     def before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
@@ -483,16 +484,16 @@ def test_eager_loading_prevents_n_plus_1(image_repository, session_factory):
 
     event.listen(test_engine, "before_cursor_execute", before_cursor_execute)
 
-    # Act - Get images with eager loading
+    # Act - Eager Loading 付きで画像を取得する
     images = image_repository.get_all_with_annotations()
 
-    # Assert - Should be 1 query (or 2 max with selectinload), not N+1
+    # Assert - N+1 ではなく 1 クエリ(selectinload でも最大 2 クエリ)に収まること
     assert len(query_count) <= 2, f"Too many queries: {len(query_count)}"
 ```
 
-## Test Fixtures and Helpers
+## テストフィクスチャとヘルパー
 
-### Factory Pattern for Test Data
+### テストデータ用ファクトリーパターン
 
 ```python
 # tests/factories.py
@@ -532,7 +533,7 @@ class ImageFactory:
         ]
 ```
 
-### Using Factories in Tests
+### テストでのファクトリー利用
 
 ```python
 from tests.factories import ImageFactory
@@ -563,16 +564,16 @@ def test_batch_with_factory(image_repository):
     assert all(img.score == 0.8 for img in results)
 ```
 
-## Parametrized Tests
+## パラメーター化テスト
 
-### Test Multiple Scenarios
+### 複数シナリオの検証
 
 ```python
 @pytest.mark.parametrize("score,expected_count", [
-    (0.0, 5),   # All images
-    (0.6, 4),   # Images with score >= 0.6
-    (0.8, 2),   # Images with score >= 0.8
-    (0.99, 0),  # No images
+    (0.0, 5),   # 全件
+    (0.6, 4),   # score >= 0.6 の画像
+    (0.8, 2),   # score >= 0.8 の画像
+    (0.99, 0),  # 該当なし
 ])
 @pytest.mark.unit
 def test_search_by_score_parametrized(image_repository, sample_images, score, expected_count):
@@ -588,10 +589,10 @@ def test_search_by_score_parametrized(image_repository, sample_images, score, ex
     assert len(results) == expected_count
 
 @pytest.mark.parametrize("field,value,should_raise", [
-    ("path", None, True),           # NULL path should raise
-    ("phash", None, True),          # NULL phash should raise
-    ("score", -1.0, False),         # Negative score allowed (no constraint)
-    ("width", -100, False),         # Negative width allowed (no constraint)
+    ("path", None, True),           # NULL の path は例外を送出
+    ("phash", None, True),          # NULL の phash は例外を送出
+    ("score", -1.0, False),         # 負のスコアは制約なしのため許容
+    ("width", -100, False),         # 負の幅は制約なしのため許容
 ])
 @pytest.mark.unit
 def test_field_constraints(image_repository, field, value, should_raise):
@@ -601,144 +602,151 @@ def test_field_constraints(image_repository, field, value, should_raise):
         "path": "/test/image.jpg",
         "phash": "hash123",
         "score": 0.75,
-        field: value  # Override specific field
+        field: value  # 指定フィールドのみ上書き
     }
     image = Image(**image_data)
 
     # Act & Assert
     if should_raise:
-        with pytest.raises(Exception):  # IntegrityError or other
+        with pytest.raises(Exception):  # IntegrityError など
             image_repository.add(image)
     else:
         result = image_repository.add(image)
         assert result is not None
 ```
 
-## Integration Tests
+## 統合テスト
 
-### Test Full Workflow
+### 一連のワークフロー検証
 
 ```python
 @pytest.mark.integration
 def test_full_image_lifecycle(image_repository):
     """Test complete CRUD lifecycle"""
-    # Create
+    # 作成
     image = Image(path="/test/lifecycle.jpg", phash="lifecycle_hash", score=0.5)
     created = image_repository.add(image)
     assert created.id is not None
 
-    # Read
+    # 取得
     retrieved = image_repository.get_by_id(created.id)
     assert retrieved.path == image.path
 
-    # Update
+    # 更新
     retrieved.score = 0.9
     updated = image_repository.update(retrieved)
     assert updated.score == 0.9
 
-    # Verify update persisted
+    # 更新が永続化されたことを検証する
     verify = image_repository.get_by_id(created.id)
     assert verify.score == 0.9
 
-    # Delete
+    # 削除
     deleted = image_repository.delete(created.id)
     assert deleted is True
 
-    # Verify deletion
+    # 削除されたことを検証する
     assert image_repository.get_by_id(created.id) is None
 ```
 
-## Coverage Best Practices
+## カバレッジのベストプラクティス
 
-### Measure Coverage
+### カバレッジ計測
 
 ```bash
-# Run tests with coverage
+# カバレッジ付きでテストを実行する
 uv run pytest tests/database/test_repository.py --cov=src/lorairo/database --cov-report=html
 
-# View coverage report
+# カバレッジレポートを開く
 open htmlcov/index.html
 ```
 
-### Coverage Goals
-- **Repository methods:** 100% (all methods tested)
-- **Error paths:** All exception handlers tested
-- **Branch coverage:** All if/else branches tested
-- **Overall:** 75%+ repository layer coverage
+### カバレッジ目標
 
-### Coverage Exclusions
+- **リポジトリメソッド**: 100%(すべてのメソッドをテストする)
+- **エラーパス**: すべての例外ハンドラーをテストする
+- **分岐カバレッジ**: すべての `if`/`else` 分岐をテストする
+- **全体**: リポジトリ層全体で 75% 以上を維持する
+
+### カバレッジ除外の指定
 
 ```python
-# Mark defensive code that shouldn't be covered
+# 到達しない防御的コードには除外マーカーを付ける
 def defensive_check(self, value):
     if not isinstance(value, int):  # pragma: no cover
         raise TypeError("Defensive check, should never reach")
 ```
 
-## Running Tests
+## テストの実行コマンド
 
 ```bash
-# All repository tests
+# リポジトリテスト全体を実行
 uv run pytest tests/database/test_repository.py -v
 
-# Single test
+# 単一テストを実行
 uv run pytest tests/database/test_repository.py::test_add_image -v
 
-# With coverage
+# カバレッジ付きで実行
 uv run pytest tests/database/ --cov=src/lorairo/database --cov-report=term-missing
 
-# Parallel execution
+# 並列実行
 uv run pytest tests/database/ -n auto
 ```
 
-## Common Pitfalls
+## よくある落とし穴
 
-### ❌ Sharing Sessions Between Tests
+### テスト間でセッションを共有する(非推奨)
+
 ```python
-# BAD: Session shared across tests
-@pytest.fixture(scope="module")  # Wrong scope!
+# 非推奨: 複数テストでセッションが共有される
+@pytest.fixture(scope="module")  # スコープが不適切
 def session_factory(test_engine):
     return scoped_session(sessionmaker(bind=test_engine))
 ```
 
-### ✅ Correct: Fresh Session Per Test
+### テストごとに新しいセッションを作る(推奨)
+
 ```python
-# GOOD: Fresh session for each test
+# 推奨: テスト関数ごとに独立したセッションを使う
 @pytest.fixture(scope="function")
 def session_factory(test_engine):
     factory = scoped_session(sessionmaker(bind=test_engine))
     yield factory
-    factory.remove()  # Clean up
+    factory.remove()  # 後片付け
 ```
 
-### ❌ Testing Against Production Database
+### 本番データベースに対してテストを実行する(非推奨)
+
 ```python
-# BAD: Using production database URL
+# 非推奨: 本番 DB の URL を使う
 @pytest.fixture
 def test_engine():
-    return create_engine("postgresql://prod_db")  # NEVER!
+    return create_engine("postgresql://prod_db")  # 厳禁
 ```
 
-### ✅ Correct: In-Memory Test Database
+### インメモリテストデータベースを使う(推奨)
+
 ```python
-# GOOD: In-memory SQLite
+# 推奨: インメモリ SQLite を使う
 @pytest.fixture
 def test_engine():
     return create_engine("sqlite:///:memory:")
 ```
 
-### ❌ Not Testing Error Paths
+### エラーパスをテストしない(非推奨)
+
 ```python
-# BAD: Only testing happy path
+# 非推奨: 正常系しかテストしていない
 def test_add_image(repository, image):
     result = repository.add(image)
     assert result.id is not None
-    # Missing: What if add fails?
+    # 追加失敗時の検証が欠けている
 ```
 
-### ✅ Correct: Test Error Cases
+### 正常系と異常系の両方をテストする(推奨)
+
 ```python
-# GOOD: Test both success and failure
+# 推奨: 成功ケースと失敗ケースの両方を検証する
 def test_add_image_success(repository, image):
     result = repository.add(image)
     assert result.id is not None
@@ -746,5 +754,5 @@ def test_add_image_success(repository, image):
 def test_add_image_duplicate_fails(repository, image):
     repository.add(image)
     with pytest.raises(IntegrityError):
-        repository.add(image)  # Duplicate phash
+        repository.add(image)  # 重複 phash
 ```

@@ -6,48 +6,53 @@ timestamp: 2026-06-23
 tags: [service-layer, worker]
 depends_on: [pyside6, sqlalchemy, sqlite]
 ---
-# LoRAIro Architecture Documentation
+# LoRAIro アーキテクチャドキュメント
 
-## System Overview
+## システム概要
 
-LoRAIro is an AI-powered image annotation and dataset management application built with a clean 3-layer architecture designed for machine learning dataset preparation. The system processes images through multiple AI providers and provides quality assessment tools for training data curation.
+LoRAIro は、機械学習用データセットの作成を支援する AI 画像アノテーションおよびデータセット管理アプリケーションである。責務を明確に分けた 3 層アーキテクチャで構成される。複数の AI プロバイダーによる画像処理に加え、学習データの品質評価と整備のための機能を備える。
 
-## Architectural Principles
+## アーキテクチャ原則
 
-### Clean Architecture
-The application follows clean architecture principles with clear separation of concerns:
+### クリーンアーキテクチャ
 
-- **Presentation Layer**: PySide6-based GUI components with QThread worker system
-- **Application Layer**: Business logic services and use cases
-- **Domain Layer**: Core business entities and rules
-- **Infrastructure Layer**: Database, file system, and external APIs
+本アプリケーションは、関心事の分離に基づくクリーンアーキテクチャを採用する。
 
-### PySide6 Worker Architecture (Updated: 2026-07-05)
-The system uses `QThread` + `QObject.moveToThread()` for asynchronous operations:
+- **プレゼンテーション層**: PySide6 ベースの GUI コンポーネントと QThread ワーカーシステム
+- **アプリケーション層**: ビジネスロジックサービスとユースケース
+- **ドメイン層**: 中核となるビジネスエンティティとルール
+- **インフラストラクチャ層**: データベース、ファイルシステム、外部 API
 
-- **WorkerManager**: creates a `QThread` per task and moves the worker onto it (`src/lorairo/gui/workers/manager.py`)
-- **LoRAIroWorkerBase**: standardized `QObject` + Signal based worker with progress reporting and cancellation (`src/lorairo/gui/workers/base.py`)
-- **Specialized Workers**: Database, annotation, search, and thumbnail workers in `src/lorairo/gui/workers/`
-- **WorkerService**: Qt service layer for worker coordination and GUI integration (`src/lorairo/gui/services/worker_service.py`)
-- **DatasetStateManager**: Centralized state management with Qt signals (`src/lorairo/gui/state/dataset_state.py`)
+### PySide6 ワーカーアーキテクチャ(更新: 2026-07-05)
 
-### Dependency Injection
-Services are injected into components to maintain loose coupling and enable testability.
+非同期処理には `QThread` と `QObject.moveToThread()` を使用する。
 
-### Configuration-Driven Development
-All system behavior is configurable through TOML files, enabling easy customization without code changes.
+- **WorkerManager**(`src/lorairo/gui/workers/manager.py`): タスクごとに `QThread` を生成し、ワーカーをそのスレッドへ移動する
+- **LoRAIroWorkerBase**(`src/lorairo/gui/workers/base.py`): 進捗通知とキャンセル機能を備えた、`QObject` と Signal ベースの標準ワーカー基底クラス
+- **専用ワーカー群**(`src/lorairo/gui/workers/`): データベース登録、アノテーション、検索、サムネイル生成などを担う各種ワーカー
+- **WorkerService**(`src/lorairo/gui/services/worker_service.py`): ワーカーの調整と GUI 統合を担う Qt サービス層
+- **DatasetStateManager**(`src/lorairo/gui/state/dataset_state.py`): Qt Signal を用いた集中状態管理
 
-### Event-Driven Architecture
-Components communicate through Qt signals/slots for loose coupling and responsive UI:
+### 依存性注入
 
-- **Qt Auto-connection**: Standardized signal naming (e.g., `on_buttonName_clicked`)
-- **Custom Signals**: Inter-component communication via DatasetStateManager
-- **Worker Signals**: Progress updates and result delivery from background threads
-- **State Synchronization**: Centralized state updates via signal/slot patterns
+コンポーネントへサービスを注入する構成により、疎結合とテスト容易性を確保する。
 
-## System Components
+### 設定駆動開発
 
-### High-Level Component Overview
+システム全体の挙動は TOML ファイルで設定できる。コードを変更せずに動作をカスタマイズできる設計である。
+
+### イベント駆動アーキテクチャ
+
+コンポーネント間は Qt の Signal/Slot で通信し、疎結合と応答性の高い UI を両立する。
+
+- **Qt 自動接続**: `on_buttonName_clicked` などの標準化されたシグナル命名規則を用いる
+- **カスタムシグナル**: `DatasetStateManager` を介してコンポーネント間を連携する
+- **ワーカーシグナル**: バックグラウンドスレッドから進捗更新と処理結果を通知する
+- **状態同期**: Signal/Slot パターンにより集中管理された状態を各画面へ同期する
+
+## システムコンポーネント
+
+### 高レベルコンポーネント構成
 
 ```mermaid
 graph TD
@@ -61,51 +66,47 @@ graph TD
     F --> I[Storage Systems]
 ```
 
-### Component Architecture Summary
+### コンポーネント構成の要約
 
-#### Core Layers
-- **Presentation Layer**: PySide6 GUI with Qt worker system
-- **Service Layer**: Business logic coordination (2-tier architecture)
-- **Data Layer**: SQLite database with repository pattern
-- **AI Integration**: Multi-provider annotation system
+- **プレゼンテーション層**: PySide6 GUI と Qt ワーカーシステム
+- **サービス層**: ビジネスロジックの調整(2 層構成)
+- **データ層**: リポジトリパターンを用いた SQLite データベース
+- **AI 統合**: マルチプロバイダー対応のアノテーションシステム
 
-See `docs/services.md` for the complete service catalog and `docs/decisions/` for design decision records.
+サービス一覧は `docs/services.md`、設計判断の記録は `docs/decisions/` を参照する。
 
-### Service Layer Architecture
+### サービス層アーキテクチャ
 
-The service layer encapsulates business logic with a 2-tier architecture.
-See `docs/services.md` for the full catalog.
+サービス層は 2 層構成でビジネスロジックをカプセル化する。詳細は `docs/services.md` を参照する。
 
-**Business Logic Services** (`src/lorairo/services/`):
-- SearchCriteriaProcessor, ModelFilterService, ImageProcessingService, ConfigurationService
-- **DatasetExportService**: `export_with_criteria()` メソッドにより GUI/CLI/API の 3 経路からのエクスポートを統一インターフェースで処理
+**ビジネスロジックサービス**(`src/lorairo/services/`):
+- `SearchCriteriaProcessor`、`ModelFilterService`、`ImageProcessingService`、`ConfigurationService` などの Qt 非依存サービス群
+- **`DatasetExportService`**: `export_with_criteria()` により、GUI・CLI・API の 3 経路からのエクスポートを統一インターフェースで処理する
 
-**GUI Services** (`src/lorairo/gui/services/`):
-- WorkerService, SearchFilterService
+**GUI サービス**(`src/lorairo/gui/services/`):
+- `WorkerService`、`SearchFilterService` など
 
-**Design decisions**: `docs/decisions/0001-two-tier-service-architecture.md`, `docs/decisions/0009-qt-decoupling-design.md`
+**設計判断**: `docs/decisions/0001-two-tier-service-architecture.md`、`docs/decisions/0009-qt-decoupling-design.md`
 
-### Data Layer Architecture
+### データ層アーキテクチャ
 
-The data layer provides persistent storage with:
+データ層は以下のコンポーネントで永続化を担う。
 
-**Core Components**:
-- DatabaseManager (`src/lorairo/database/db_manager.py`)
-- Repository Pattern (`src/lorairo/database/repository/`)
-- SQLAlchemy ORM with Schema Models (`src/lorairo/database/schema.py`)
-- SQLite Database with Alembic migrations
+**コアコンポーネント**:
+- `DatabaseManager`(`src/lorairo/database/db_manager.py`)
+- リポジトリパターン(`src/lorairo/database/repository/`)
+- SQLAlchemy ORM とスキーマモデル(`src/lorairo/database/schema.py`)
+- Alembic マイグレーションによる SQLite データベース管理
 
 **主要エンティティ**:
-- **Project** (`projects` テーブル): id, name, path, description, created_at — プロジェクト単位のデータセット管理
-- **Image** (`images` テーブル): `project_id` FK → `projects.id` (ON DELETE SET NULL) でプロジェクトに紐付け
+- **Project**(`projects` テーブル): `id`、`name`、`path`、`description`、`created_at` を持ち、プロジェクト単位でデータセットを管理する
+- **Image**(`images` テーブル): 外部キー `project_id` で `projects.id`(`ON DELETE SET NULL`)を参照し、画像をプロジェクトへ紐付ける
 
-**Design decisions**: `docs/decisions/0002-database-schema-decisions.md`, `docs/decisions/0012-batch-tag-atomic-transaction.md`
+**設計判断**: `docs/decisions/0002-database-schema-decisions.md`、`docs/decisions/0012-batch-tag-atomic-transaction.md`
 
-### GUI Architecture (Updated: Epic #867)
+### GUI アーキテクチャ(更新: Epic #867)
 
-The GUI follows a tab-centered design with PySide6 Worker System architecture. Each tab is a dedicated
-composed widget under `src/lorairo/gui/tab/` (`search_tab.py`, `annotate_tab.py`, `results_tab.py`,
-`export_tab.py`, `jobs_tab.py`, `errors_tab.py`, `map_tab.py`, `cli_tab.py`); `MainWindow` acts as glue.
+GUI はタブ中心の設計と PySide6 ワーカーシステムを採用する。各タブは `src/lorairo/gui/tab/` 配下の専用合成ウィジェット(`search_tab.py`、`annotate_tab.py`、`results_tab.py`、`export_tab.py`、`jobs_tab.py`、`errors_tab.py`、`map_tab.py`、`cli_tab.py`)として実装し、`MainWindow` はそれらの接着剤として振る舞う。
 
 ```mermaid
 graph TD
@@ -124,126 +125,118 @@ graph TD
     L --> M[State Signals]
 ```
 
-**Main Components**:
-- **MainWindow** (`src/lorairo/gui/window/main_window.py`): tab orchestration glue (Epic #867)
-- **Tab Widgets** (`src/lorairo/gui/tab/`): 1 tab = 1 composed widget, each owning its own layout/child widgets/signal wiring
-- **State Management** (`src/lorairo/gui/state/dataset_state.py`): DatasetStateManager
-- **Worker Integration**: `QThread` + `moveToThread()` based asynchronous processing
+**主要コンポーネント**:
+- **MainWindow**(`src/lorairo/gui/window/main_window.py`): タブ統合を担う接着剤(Epic #867)
+- **タブウィジェット群**(`src/lorairo/gui/tab/`): 1 タブにつき 1 つの合成ウィジェットとし、レイアウト・子ウィジェット・Signal 配線をそれぞれ所有する
+- **状態管理**(`src/lorairo/gui/state/dataset_state.py`): `DatasetStateManager`
+- **ワーカー統合**: `QThread` と `moveToThread()` による非同期処理
 
-**Widget composition principle (MUST)**:
-- **各タブ / 画面は専用の composed ウィジェットに分ける。** 1 タブ = 1 ウィジェット (例: 検索タブ / アノテタブ / 結果タブ …) が、自身のレイアウト・子ウィジェット・Signal 配線・そのタブ固有の振る舞いを所有する。
-- **MainWindow は「接着剤 (glue / orchestrator)」に徹する。** 役割は ① タブウィジェットを配置する ② サービスを注入する ③ トップレベル Signal を接続する、まで。**タブ/画面固有のロジック (ピッカー起動・preset 配線・run bar 構築・パイプライン構成等) を MainWindow に直接書かない** — それは各タブウィジェットの責務。
-- **再利用ウィジェットは `widgets/` に置く。複数画面で実際に共有されるものだけ切り出す** (YAGNI、role/layer 分離の最小形)。`ds/` のような部品ライブラリ・サブパッケージを事前に作らない。
-- design↔code の整合は `theme.py` token parity (#782) と `docs/design/lorairo-design-system/` (Claude Design ミラー) が担う。Qt ウィジェットの配置構成はこれと独立。
-- 根拠: MainWindow 肥大の再発防止、Qt のウィジェット分割 + composition は基本設計でコスト低 ([[feedback_qt_widget_extraction_cheap]])、`docs/lessons-learned.md` の「GUI オーケストレーターは接着剤に留める」。実装手順は `lorairo-qt-widget` skill 参照。
+**ウィジェット構成の原則(必須)**:
+- **各タブと画面は専用の合成ウィジェットへ分割する。** 検索タブ、アノテタブ、結果タブなどの 1 タブを 1 ウィジェットとし、自身のレイアウト・子ウィジェット・Signal 配線・固有の振る舞いを所有させる。
+- **`MainWindow` は接着剤(オーケストレーター)に徹する。** 責務は、タブウィジェットの配置、サービスの注入、トップレベル Signal の接続に限定する。ピッカー起動、プリセット配線、実行バー構築、パイプライン構成といったタブ固有のロジックを `MainWindow` へ直接書かない。
+- **再利用ウィジェットは `widgets/` に配置する。** 複数の画面で実際に共有されるものだけを切り出し(YAGNI)、`ds/` のような汎用部品ライブラリやサブパッケージを事前に作らない。
+- **デザインとコードの整合は独立して管理する。** 整合性の維持は `theme.py` のトークン一致(#782)と `docs/design/lorairo-design-system/`(Claude Design ミラー)が担う。Qt ウィジェットの配置構成はこれと独立させる。
+- **根拠**: `MainWindow` の肥大化再発を防ぎ、Qt のウィジェット分割と合成を低コストに保つためである([[feedback_qt_widget_extraction_cheap]]、`docs/lessons-learned.md` の「GUI オーケストレーターは接着剤に留める」)。実装手順は `lorairo-qt-widget` スキルを参照する。
 
-**Design decisions**: `docs/decisions/0011-mainwindow-ui-redesign.md`
+**設計判断**: `docs/decisions/0011-mainwindow-ui-redesign.md`
 
-### Worker Architecture (PySide6 QThread System)
+### ワーカーアーキテクチャ(PySide6 QThread システム)
 
-**Core Architecture**: `QThread` + `QObject.moveToThread()` based asynchronous processing.
-`QRunnable`/`QThreadPool` is not the main worker system — it appears only in two auxiliary
-widget-local debounce helpers (`widgets/count_estimate.py`, `widgets/tag_suggestion.py`).
+非同期処理の中核は `QThread` と `QObject.moveToThread()` である。`QRunnable` と `QThreadPool` は主系のワーカーシステムではなく、ウィジェット局所のデバウンス補助(`widgets/count_estimate.py`、`widgets/tag_suggestion.py`)の 2 箇所でのみ使用する。
 
-**Key Components**:
-- **WorkerService** (`src/lorairo/gui/services/worker_service.py`): High-level API
-- **WorkerManager** (`src/lorairo/gui/workers/manager.py`): QThread lifecycle coordination
-- **LoRAIroWorkerBase** (`src/lorairo/gui/workers/base.py`): Standardized `QObject` + Signal worker
-- **Specialized Workers**: Database, Annotation, Search, Thumbnail workers
+**主要コンポーネント**:
+- **WorkerService**(`src/lorairo/gui/services/worker_service.py`): 高レベル API
+- **WorkerManager**(`src/lorairo/gui/workers/manager.py`): `QThread` のライフサイクル管理
+- **LoRAIroWorkerBase**(`src/lorairo/gui/workers/base.py`): `QObject` と Signal ベースの標準ワーカー
+- **専用ワーカー群**: データベース登録、アノテーション、検索、サムネイルの各ワーカー
 
-**Features**: Progress reporting, cancellation support, error handling, state management integration
+**主な機能**: 進捗報告、キャンセル対応、エラーハンドリング、状態管理との統合
 
-### AI Integration Architecture
+### AI 統合アーキテクチャ
 
-**Multi-Provider Support**: OpenAI, Anthropic, Google, OpenRouter, Local ML models via `image-annotator-lib`
+`image-annotator-lib` を介して、OpenAI、Anthropic、Google、OpenRouter、およびローカル ML モデルに対応する。
 
-**Key Integration**:
-- **AnnotationWorker**: Primary AI coordination
-- **image-annotator-lib**: Unified provider interface
-- **Local Models**: CLIP, DeepDanbooru, ONNX/TensorFlow support
+**主要コンポーネント**:
+- **AnnotationWorker**: AI アノテーションの主要な調整役
+- **image-annotator-lib**: マルチプロバイダー統一インターフェース
+- **ローカルモデル**: CLIP、DeepDanbooru、ONNX、TensorFlow をサポート
 
-**WebAPI 推論経路の責務分離 (ADR 0023 Phase 1)**:
-- **discovery / capability metadata**: LiteLLM 同梱 DB を runtime SSoT (`available_api_models.toml` キャッシュ廃止)
-- **推論実行 / multimodal input / structured output / output retry**: PydanticAI native provider/model
-- **LiteLLM ID と PydanticAI 実行 descriptor mapping**: `image-annotator-lib/core/model_id.py`
-- **API key 注入**: provider object への明示注入のみ (`os.environ` mutate 全廃)
-- **Agent / Provider / Model**: 推論呼び出しごとに新規作成 (キャッシュなし)
-- **対応 provider**: OpenAI / Anthropic / Google / OpenRouter (Phase 1 スコープ)
+**WebAPI 推論経路の責務分離(ADR 0023 Phase 1)**:
+- **モデル検出と能力メタデータ**: LiteLLM 同梱データベースを実行時の SSoT とする(`available_api_models.toml` キャッシュは廃止)
+- **推論実行**: マルチモーダル入力、構造化出力、出力リトライは PydanticAI のネイティブなプロバイダー・モデルが担う
+- **識別子マッピング**: LiteLLM ID と PydanticAI 実行記述子の対応付けは `image-annotator-lib/core/model_id.py` で行う
+- **API キー注入**: プロバイダーオブジェクトへの明示注入のみとし、`os.environ` の書き換えは廃止した
+- **インスタンス生成**: Agent・Provider・Model は推論呼び出しごとに新規作成し、キャッシュしない
+- **対応プロバイダー**: OpenAI、Anthropic、Google、OpenRouter(Phase 1 スコープ)
 
-**Design decisions**: `docs/decisions/0003-annotator-config-management.md`, `docs/decisions/0004-annotator-lib-architecture.md`, `docs/decisions/0023-pydanticai-litellm-webapi-inference-boundary.md`
+**設計判断**: `docs/decisions/0003-annotator-config-management.md`、`docs/decisions/0004-annotator-lib-architecture.md`、`docs/decisions/0023-pydanticai-litellm-webapi-inference-boundary.md`
 
-### Storage Architecture
+### ストレージアーキテクチャ
 
-**Key Components**:
-- **FileSystemManager** (`src/lorairo/filesystem.py`): Directory and file management
-- **File Organization**: Images with metadata files (.txt/.caption)
-- **Project Structure**: `lorairo_data/project_name_YYYYMMDD_NNN/` format
+**主要コンポーネント**:
+- **FileSystemManager**(`src/lorairo/filesystem.py`): ディレクトリとファイルの管理
+- **ファイル構成**: 画像本体とメタデータファイル(`.txt`、`.caption`)の対で管理
+- **プロジェクト構成**: `lorairo_data/project_name_YYYYMMDD_NNN/` 形式
 
-**付属テキストの取り込み** (#1374):
-GUI 登録ワーカーと共通 DB 登録入口は `SidecarAnnotationReader` を共有する。
-`.txt` / `.caption` はそれぞれ通常ファイル・最大 1 MiB に限定し、リンクや特殊ファイル、
-読込前の置換、サイズ超過はファイル名と理由を記録して個別にスキップする。
-POSIX では `O_NOFOLLOW` / `O_NONBLOCK` と open 前後のファイル同一性検査を使い、
-Windows では reparse point と open 前後の同一性を検査する。親ディレクトリの隔離は対象外。
-実際の読込も 1 MiB と超過検出用 1 byte までに制限し、超過時は部分的な内容を保存しない。
-正常な兄弟ファイル・空ファイル・画像本体・後続画像は処理を継続し、文字コードフォールバックと
-タグ / caption の解釈を維持する。本文・未解決タグ全文は関連保存ログに出さず、件数・ID・例外型を記録する。
-汎用 `read_text_with_fallback` にはこのサイズ・ファイル種別制限を適用しない。
+**付属テキストの取り込み(#1374)**:
 
-**保存場所の統一** (Epic #166):
-GUI と CLI はともに `lorairo_data/` (config/lorairo.toml の `[directories] database_base_dir`) をプロジェクト保存場所として使用する。旧 CLI 保存場所 (`~/.lorairo/projects/`) は廃止され、`lorairo_data/` に統一済み。
+GUI の登録ワーカーと共通 DB 登録入口は `SidecarAnnotationReader` を共有する。セキュリティと安全性を確保するため、読み込みには以下の制約を設ける。
 
-## Local Package Integration
+- **ファイル種別とサイズ上限**: `.txt` と `.caption` はそれぞれ通常ファイルかつ最大 1 MiB に限定する。リンク、特殊ファイル、読み込み前の置換、サイズ超過を検知した場合は、ファイル名と理由を記録して個別にスキップする。
+- **OS ごとの同一性検証**: POSIX では `O_NOFOLLOW`・`O_NONBLOCK` とオープン前後のファイル同一性検査を行う。Windows では reparse point の検査とオープン前後の同一性検査を行う。親ディレクトリの隔離は対象外とする。
+- **読み込み量の制限**: 実際の読み込み量も 1 MiB と超過検出用の 1 byte までに制限する。超過時は部分的な内容を保存しない。
+- **継続処理とログ方針**: 正常な兄弟ファイル、空ファイル、画像本体、後続画像の処理は継続し、文字コードフォールバックとタグ・キャプションの解釈を維持する。本文や未解決タグの全文は保存ログへ出力せず、件数・ID・例外型のみを記録する。
+- **適用範囲**: 汎用の `read_text_with_fallback` には、上記のサイズおよびファイル種別制限を適用しない。
 
-**Local Packages (uv-managed submodules)**:
-- **genai-tag-db-tools**: Tag database management and cleaning utilities
-- **image-annotator-lib**: Multi-provider AI annotation core
+**保存場所の統一(Epic #166)**:
 
-**Integration**: Direct Python imports, editable installs via uv.sources
+GUI と CLI はともに `lorairo_data/`(`config/lorairo.toml` の `[directories] database_base_dir`)をプロジェクト保存場所として使用する。旧 CLI の保存場所(`~/.lorairo/projects/`)は廃止し、`lorairo_data/` へ統一済みである。
 
-See `docs/integrations.md` for detailed integration patterns.
+## ローカルパッケージ統合
 
-## Configuration Architecture
+uv で管理する以下のサブモジュールを、`uv.sources` 経由の editable インストールとして直接インポートする。
 
-**Hierarchical Configuration**: System defaults (`config/lorairo.toml`), environment variables, user overrides
+- **genai-tag-db-tools**: タグデータベースの管理とクリーニングユーティリティ
+- **image-annotator-lib**: マルチプロバイダー AI アノテーションのコアライブラリ
 
-**Key Features**: API key management, runtime updates, validation
+詳細な統合パターンは `docs/integrations.md` を参照する。
 
-## Security Architecture
+## 設定アーキテクチャ
 
-**Key Features**: API key management, file system security, error handling
+システム既定値(`config/lorairo.toml`)、環境変数、ユーザー上書きの階層構造で設定を管理する。API キー管理、実行時の設定更新、入力値の検証を備える。
 
-See `.claude/rules/security.md` for security guidelines.
+## セキュリティアーキテクチャ
 
-## Performance Architecture
+API キー管理、ファイルシステムの安全性確保、エラーハンドリングを柱とする。詳細なガイドラインは `.claude/rules/security.md` を参照する。
 
-**Key Features**:
-- **Batch Processing**: 100-image batches, 5min target for 1000 images
-- **Memory Management**: Lazy loading, resource cleanup automation
-- **Scalability**: Parallel processing, queue management
+## パフォーマンスアーキテクチャ
 
-**Design decisions**: `docs/decisions/0010-torch-import-design.md`
+- **バッチ処理**: 100 画像単位のバッチで処理し、1000 画像あたり 5 分を目標とする
+- **メモリ管理**: 遅延読み込みとリソース解放の自動化を行う
+- **スケーラビリティ**: 並列処理とキュー管理により負荷を分散する
 
-## AI Assistance Tooling
+**設計判断**: `docs/decisions/0010-torch-import-design.md`
 
-**Development Agents**: Claude Code / Codex (agent skills + subagents; see `.agents/skills/` and `docs/development-workflow.md`)
+## AI 開発支援ツール
 
-**Documentation**: `docs/decisions/` for design decisions, `docs/plans/` for planning records
-**Long-Term Memory**: `docs/decisions/` (ADR) + `docs/lessons-learned.md`
+開発時には Claude Code や Codex を活用する。エージェントスキルとサブエージェントの詳細は `.agents/skills/` および `docs/development-workflow.md` を参照する。
 
-**Development-only tools that do not affect runtime application.**
+- **ドキュメント**: 設計判断は `docs/decisions/`、計画記録は `docs/plans/` に保存する
+- **長期記憶**: `docs/decisions/`(ADR)と `docs/lessons-learned.md` を用いる
 
-## Testing Architecture
+これらは開発専用ツールであり、実行時のアプリケーションには影響しない。
 
-**Test Categories**:
-- **Unit Tests** (`pytest -m unit`): Service and business logic testing
-- **Integration Tests** (`pytest -m integration`): Database and service coordination
-- **GUI Tests** (`pytest -m gui`): pytest-qt framework with cross-platform support
+## テストアーキテクチャ
 
-See `docs/testing.md` for comprehensive testing patterns and best practices.
+テストは以下の 3 カテゴリに分類する。
 
-## Deployment & Future Architecture
+- **ユニットテスト**(`pytest -m unit`): サービスおよびビジネスロジックの検証
+- **統合テスト**(`pytest -m integration`): データベースとサービスの連携検証
+- **GUI テスト**(`pytest -m gui`): クロスプラットフォーム対応の pytest-qt テスト
 
-**Current**: Local development with uv virtual environment, SQLite database
+テストパターンとベストプラクティスは `docs/testing.md` を参照する。
 
-**Future Considerations**: Plugin architecture, microservice potential, framework evolution
+## デプロイと今後の展望
+
+- **現行構成**: uv 仮想環境と SQLite データベースによるローカル実行
+- **今後の検討事項**: プラグインアーキテクチャ、マイクロサービス化の可能性、フレームワークの継続的発展

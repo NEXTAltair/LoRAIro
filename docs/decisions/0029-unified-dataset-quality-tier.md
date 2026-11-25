@@ -7,73 +7,57 @@ tags: []
 ---
 # ADR 0029: Unified Dataset Quality Tier
 
-## 改訂 2 (2026-06-27): tier ラベルの GUI 表示を廃止
+## 改訂 2(2026-06-27): tier ラベルの GUI 表示を廃止
 
-改訂 1 で tier を補助フィルタに降格したが、さらに **GUI での tier ラベル表示（バッジ）を廃止する**。
+改訂 1 で tier を補助フィルタへ降格したが、さらに **GUI での tier ラベル表示(バッジ)を廃止する**。
 
-- **廃止**: `品質: best quality (2 scorer)` / `品質: masterpiece (全 scorer 一致)` のような tier 語彙を GUI に表示すること（§Export / GUI 節の badge 仕様）。
-- **残す**: スコア値による大まかな絞り込み。Search filter の品質軸は tier 語彙ではなく **数値スコア (`Score.score` 0–10) の範囲指定**として実装する。`QualityTierFilter.min_tier` のような tier 名指定ではなく、スライダー等の数値入力を interface とする。
-- **内部ロジックは維持**: `domain/quality_tier.py` の mapping と `QualityIssueDetectionService` が参照する tier 判定は引き続き使用する。外に見せる語彙（`masterpiece` 等）を UI から消すだけ。
+- **廃止**: `品質: best quality (2 scorer)` や `品質: masterpiece (全 scorer 一致)` のような tier 語彙を GUI に表示する仕様(§Export / GUI 節のバッジ仕様)。
+- **維持**: スコア値による大まかな絞り込み。検索フィルタの品質軸は tier 語彙ではなく、**数値スコア(`Score.score` 0–10)の範囲指定**として実装する。`QualityTierFilter.min_tier` のような tier 名指定ではなく、スライダーなどの数値入力をインターフェースとする。
+- **内部ロジックは維持**: `domain/quality_tier.py` のマッピングと、`QualityIssueDetectionService` が参照する tier 判定は引き続き使用する。外部に見せる語彙(`masterpiece` 等)を UI から取り除くにとどめる。
 
 ---
 
-## 改訂 (2026-06-18): 品質尺度は数値スコアをベース、tier は派生サマリ
+## 改訂(2026-06-18): 品質尺度は数値スコアをベース、tier は派生サマリ
 
-初版は **離散 tier (`masterpiece` … `worst quality`) を主 interface** とし、連続数値スコアを
-#626 の「追補」(従) として位置づけていた。実運用で主従が逆と判明したため反転する。
+初版では離散 tier(`masterpiece` 〜 `worst quality`)を主インターフェースとし、連続数値スコアを #626 の追補(従)として位置づけていた。実運用で主従が逆であると判明したため、方針を反転する。
 
-- **主 (ベース) = 数値スコア**: `Score.score` (0.00–10.00、scorer 別 raw 値、manual score)。
-  連続値を品質の第一尺度とする。表示・並び替え・filter はまず数値スコアで行う。
-- **従 (派生サマリ) = QualityTier / score_labels**: 数値・categorical から導く derived view。
-  「good quality 以上」のような大掴みの絞り込み・バッジとして**併記**する。
+- **主(ベース)= 数値スコア**: `Score.score`(0.00–10.00、scorer 別生値、手動スコア)。連続値を品質の第一尺度とし、表示・並び替え・フィルタはまず数値スコアで行う。
+- **従(派生サマリ)= `QualityTier` / `score_labels`**: 数値およびカテゴリ値から導く派生ビュー。「good quality 以上」のような大掴みの絞り込みやバッジとして併記する。
 
-この反転に伴い、本文中の以下は **現方針では従位置に降格**して読むこと:
-- 「Search filter behavior」の「tier を主 interface にする」→ **数値スコアが主、tier は補助 filter**。
-- 「Numeric aggregation を初期採用しない理由」→ **撤回**。数値スコアが主尺度。ただし
-  scorer 間の raw は scale が違うため**直接平均はしない**点は維持し、表示用 0–10 化は
-  `domain/score_scaler.py` の単調・区分線形補間で行う(#626 の規約を本体に昇格)。
-- 「Continuous display score (#626 追補)」→ **追補ではなく本体**(品質のベース尺度)。
+この反転に伴い、本文中の以下の記述は現方針では従位置に降格して読むこと。
 
-不変の原則(初版から維持):
-- **raw annotation (`scores` / `score_labels`) は書き換えない**。tier も数値表示も derived。
-- scorer 間の raw 値は scale が違うので**直接比較・単純平均はしない**(0–10 化を経る)。
-- `no score` / `unknown` は実 tier に丸めない sentinel のまま。
+- 「Search filter behavior」の「tier を主インターフェースにする」→ **数値スコアが主、tier は補助フィルタ**。
+- 「Numeric aggregation を初期採用しない理由」→ **撤回**。数値スコアを主尺度とする。ただし、scorer 間で生値のスケールが異なるため**直接平均しない**点は維持し、表示用の 0–10 化は `domain/score_scaler.py` の単調・区分線形補間で行う(#626 の規約を本体へ昇格)。
+- 「Continuous display score(#626 追補)」→ **追補ではなく本体**(品質のベース尺度)。
+
+初版から維持する不変の原則は以下のとおりである。
+
+- 生アノテーション(`scores` / `score_labels`)は書き換えない。tier も数値表示も派生値である。
+- scorer 間の生値はスケールが異なるため、直接比較や単純平均はしない(0–10 化を経由する)。
+- `no score` と `unknown` は実 tier に丸めない番兵値(sentinel)のまま維持する。
 
 ## Context
 
-ADR 0027 で scorer 由来の categorical label を `score_labels` テーブルに保存し、
-ADR 0028 で `{model, label}` の raw list を GUI / JSON export に表示する経路を追加した。
+ADR 0027 で scorer 由来のカテゴリラベルを `score_labels` テーブルに保存し、ADR 0028 で `{model, label}` の生リストを GUI および JSON エクスポートへ出力する経路を追加した。
 
-しかし LoRA 学習用データセット作成では、scorer ごとの raw value を直接指定する filter は
-使いにくい。
+しかし、LoRA 学習用データセットの作成では、scorer ごとの生値を直接指定するフィルタは使いにくい。
 
-- `aesthetic_shadow_v1/v2` は `very aesthetic` / `aesthetic` /
-  `displeasing` / `very displeasing` を返す
-- `cafe_aesthetic` は `aesthetic` / `not_aesthetic` を返す
-- 手動 score は 0.00-10.00 の DB float (UI は 0-1000)
-- regression scorer は model ごとに scale が異なる
+- `aesthetic_shadow_v1/v2` は `very aesthetic` / `aesthetic` / `displeasing` / `very displeasing` を返す。
+- `cafe_aesthetic` は `aesthetic` / `not_aesthetic` を返す。
+- 手動スコアは DB 上 0.00–10.00 の浮動小数点数(UI 上は 0–1000)である。
+- 回帰型 scorer(regression scorer)はモデルごとにスケールが異なる。
 
-ユーザーが dataset export/search で求めている操作は、個別 scorer の詳細条件ではなく
-「一定水準以上の画像」「低品質候補」「未採点画像」の抽出である。したがって LoRAIro 側に
-検索・表示用の統一品質 tier が必要。
+ユーザーがデータセットのエクスポートや検索で求めているのは、個別 scorer の細かな条件指定ではなく、「一定水準以上の画像」「低品質候補」「未採点画像」の抽出である。したがって、LoRAIro 側に検索・表示用の統一品質 tier が必要になる。
 
-なお、NovelAI / Danbooru / 現代 anime diffusion model 文化では
-`masterpiece`, `best quality`, `good quality`, `normal quality`, `low quality`,
-`worst quality` が広く使われている。例として Anima は
-`masterpiece ... worst quality` を human score based quality tags とし、別系統の
-`score_9 ... score_1` を aesthetic model based tags として併用している。NovelAI 公式も
-quality tags と aesthetic tags を分離しているが、prompt 実務では両者が品質表現として
-近接して使われる。
+なお、NovelAI・Danbooru・現代のアニメ向け拡散モデル文化では、`masterpiece`・`best quality`・`good quality`・`normal quality`・`low quality`・`worst quality` という語彙が広く使われている。たとえば Anima は `masterpiece ... worst quality` を人間スコア由来の品質タグとし、別系統の `score_9 ... score_1` を審美モデル由来のタグとして併用している。NovelAI 公式も品質タグと審美タグを分離しているが、プロンプト実務では両者が品質表現として近接して使われる。
 
-LoRAIro はこの慣れた語彙を UI / filter value に採用する。ただし外部モデル共通の客観基準
-としてではなく、LoRAIro 独自の **dataset quality tier** として定義する。
+LoRAIro はこの馴染みのある語彙を UI およびフィルタ値に採用する。ただし、外部モデル共通の客観基準としてではなく、LoRAIro 独自の **データセット品質 tier(dataset quality tier)** として定義する。
 
 ## Decision
 
-### Raw annotation は変更しない
+### 生アノテーションは変更しない
 
-`scores` / `score_labels` に保存済みの model raw output は変更しない。
-統一品質 tier は raw annotation の上に乗る derived view とする。
+`scores` や `score_labels` に保存済みのモデル生出力は変更しない。統一品質 tier は生アノテーションの上に乗る派生ビューとする。
 
 ```text
 raw scores / score_labels
@@ -82,12 +66,11 @@ raw scores / score_labels
   -> GUI badge / JSON export / search filter
 ```
 
-mapping を変更しても DB の raw annotation は書き換えない。検索結果と表示だけが新 mapping に
-従って再計算される。
+マッピングを変更しても DB の生アノテーションは書き換えず、検索結果と表示のみを新しいマッピングに従って再計算する。
 
-### Tier vocabulary
+### Tier 語彙
 
-検索 UI / API / JSON export の表示語彙は以下を採用する。
+検索 UI・API・JSON エクスポートの表示語彙として以下を採用する。
 
 | tier | 用途 |
 |---|---|
@@ -97,15 +80,14 @@ mapping を変更しても DB の raw annotation は書き換えない。検索�
 | `normal quality` | 中立。明確な高品質ではないが除外とも言い切れない |
 | `low quality` | 低品質。除外候補 |
 | `worst quality` | 最低品質。強い除外候補 |
-| `no score` | score 系 annotation が存在しない |
-| `unknown` | raw value は存在するが mapping 未定義 |
+| `no score` | スコア系アノテーションが存在しない |
+| `unknown` | 生値は存在するがマッピング未定義 |
 
-`no score` と `unknown` は分離する。未採点画像の抽出と、新 model / 未定義 label の検出は
-別ユースケースだからである。
+`no score` と `unknown` は分離する。未採点画像の抽出と、新モデルや未定義ラベルの検出は別のユースケースだからである。
 
-### Initial mapping
+### 初期マッピング
 
-初期 mapping は canonical scorer と manual score を対象にする。
+初期マッピングは、正規 scorer と手動スコアを対象とする。
 
 ```text
 aesthetic_shadow_v1 / aesthetic_shadow_v2:
@@ -127,39 +109,28 @@ manual score (0.00-10.00):
   0.00-2.99          -> worst quality
 ```
 
-`ImprovedAesthetic` / `WaifuAesthetic` などの regression scorer は初期 mapping から外す。
-これらは scale と閾値の意味が model-specific であり、ADR 0022 / iam-lib ADR 0002 で
-model 横断比較不可と整理済みである。後続 ADR で閾値を決めた場合のみ mapping に追加する。
+`ImprovedAesthetic` や `WaifuAesthetic` などの回帰型 scorer は初期マッピングから除外する。これらはスケールと閾値の意味がモデル固有であり、ADR 0022 および iam-lib ADR 0002 でモデル横断比較不可と整理済みだからである。後続 ADR で閾値を決定した場合のみマッピングに追加する。
 
-### Aggregation rule (集約規約)
+### 集約規約(Aggregation rule)
 
-1 image に複数 scorer の `score_labels` と manual score がある場合、それぞれを
-**vote** として扱い、統一 tier に集約する。集約は **median + is_unanimous hybrid**
-方式を採用する。
+1 枚の画像に複数 scorer の `score_labels` と手動スコアがある場合、それぞれを **vote(票)** として扱い、統一 tier へ集約する。集約には **中央値(median)と全一致フラグ(`is_unanimous`)のハイブリッド方式** を採用する。
 
-- `votes` を known (mapping 定義済) / unknown (mapping 未定義) に分類する。
-- known votes が 1 件以上ある場合:
-  - `tier` = known votes の tier を順序尺度に変換しソートした **中央値**。
-    偶数件の tie は higher 寄り (`sorted_tiers[len // 2]`) で決定的に解決する。
-  - `is_unanimous` = 全 known votes が同一 tier かつ unknown vote が 0 件のとき `true`。
-- known votes が 0 件で vote 自体は存在する場合 → `tier = "unknown"`。
-- vote が 1 件も無い場合 → `tier = "no score"`、`no_score = true`。
+- `votes` を既知(マッピング定義済み)と未知(マッピング未定義)に分類する。
+- 既知の票が 1 件以上ある場合:
+  - `tier`: 既知の票の tier を順序尺度へ変換してソートした**中央値**とする。偶数件で同順位になった場合は上位寄り(`sorted_tiers[len // 2]`)で決定的に解決する。
+  - `is_unanimous`: すべての既知の票が同一 tier であり、かつ未知の票が 0 件のときに `true` とする。
+- 既知の票が 0 件で票自体は存在する場合: `tier = "unknown"` とする。
+- 票が 1 件もない場合: `tier = "no score"`、`no_score = true` とする。
 
-median を採用する理由は Rationale 参照。`is_unanimous` は per-scorer pill
-(ADR 0028) を見なくても scorer 合意の有無を 1 field で判定できるようにするための
-補助 signal である。
+中央値を採用する理由は Rationale を参照すること。`is_unanimous` は、scorer 別ピル(ADR 0028)を見なくても scorer 間の合意有無を 1 フィールドで判定できるようにする補助シグナルである。
 
-集約パターンの比較検討 (median / most common / lowest / highest / mixed sentinel /
-votes-only) は #287 の planning フェーズで実施した。median は順序尺度として安定で
-filter の `min_tier` 比較と整合し、`is_unanimous` で不一致 (UC-C) も表現できる。
+集約パターンの比較検討(中央値・最頻値・最小値・最大値・混在番兵値・票のみ)は #287 の計画フェーズで実施した。中央値は順序尺度として安定しておりフィルタの `min_tier` 比較と整合するうえ、`is_unanimous` によって不一致(UC-C)も表現できる。
 
 ### Search filter behavior
 
-> 改訂 (2026-06-18): 主従反転済み。**filter は数値スコア (`Score.score` 0–10) を主**にし、
-> 下記 tier filter (`min_tier` / `vote_mode` / `no_score_mode`) は**大掴みの補助 filter**として併設する。
-> 以下は補助 tier filter の仕様として読む。
+> 改訂(2026-06-18): 主従を反転済み。**フィルタは数値スコア(`Score.score` 0–10)を主**とし、下記の tier フィルタ(`min_tier` / `vote_mode` / `no_score_mode`)は**大掴みの補助フィルタ**として併設する。以下は補助 tier フィルタの仕様として読むこと。
 
-dataset search/export filter は model-specific raw value ではなく tier を主 interface にする。
+データセットの検索・エクスポートフィルタでは、モデル固有の生値ではなく tier を主インターフェースとする。
 
 ```python
 class QualityTierFilter(TypedDict):
@@ -168,7 +139,7 @@ class QualityTierFilter(TypedDict):
     no_score_mode: str  # "exclude" | "include" | "only"
 ```
 
-想定 UI:
+想定 UI は以下のとおりである。
 
 ```text
 品質: good quality 以上
@@ -176,17 +147,17 @@ class QualityTierFilter(TypedDict):
 未採点: 除外 / 含める / 未採点のみ
 ```
 
-`min_tier` 比較では、上位から下位の順序を以下で固定する。
+`min_tier` の比較では、上位から下位への順序を以下で固定する。
 
 ```text
 masterpiece > best quality > good quality > normal quality > low quality > worst quality
 ```
 
-`unknown` は既定では条件一致に含めない。必要な場合は別 UI / filter で抽出する。
+`unknown` は既定では条件一致に含めない。必要な場合は別の UI またはフィルタで抽出する。
 
 ### Export / GUI
 
-JSON export では raw `score_labels` を維持し、追加で `quality_summary` を出力する。
+JSON エクスポートでは生の `score_labels` を維持しつつ、追加で `quality_summary` を出力する。
 
 ```json
 {
@@ -212,166 +183,136 @@ JSON export では raw `score_labels` を維持し、追加で `quality_summary`
 }
 ```
 
-`votes[]` 要素は `source` で `"score_label"` / `"manual_score"` を識別し、
-score_label は `raw_label`、manual_score は `raw_score` (float) を持つ。
-unknown vote は `quality_tier = "unknown"` (sentinel) を出力する。
+`votes[]` の各要素は `source` で `"score_label"` と `"manual_score"` を識別し、`score_label` は `raw_label`、`manual_score` は `raw_score`(float)を保持する。未知の票には `quality_tier = "unknown"`(番兵値)を出力する。
 
-GUI は ADR 0028 の per-scorer pill を残し、統一 tier は別 badge として `groupBoxScoreLabels`
-内の最上段に単一 QLabel で併記する (例: `品質: best quality (2 scorer)` / `品質: masterpiece
-(3 scorer) (全 scorer 一致)`)。`tier="no score"` / `"unknown"` のときは known_count 抜きで
-`品質: no score` / `品質: unknown` を表示する。`quality_summary` が空 dict のときは
-badge を hide する (旧データ互換、graceful fallback)。
+GUI では ADR 0028 の scorer 別ピルを残し、統一 tier を別バッジとして `groupBoxScoreLabels` の最上段に単一 `QLabel` で併記する(例: `品質: best quality (2 scorer)`、`品質: masterpiece (3 scorer) (全 scorer 一致)`)。`tier="no score"` または `"unknown"` の場合は `known_count` を省き、`品質: no score` / `品質: unknown` と表示する。`quality_summary` が空辞書の場合はバッジを非表示とし、旧データとの互換性を保つ。
 
-TXT export には出力しない (ADR 0028 と同じ理由: content tag 専用 file 汚染を避ける)。
+TXT エクスポートには出力しない(ADR 0028 と同じく、コンテンツタグ専用ファイルの汚染を避けるため)。
 
-### Mapping SSoT
+### マッピングの SSoT
 
-mapping SSoT は **code module** `src/lorairo/domain/quality_tier.py` とする。
+マッピングの SSoT は**コードモジュール** `src/lorairo/domain/quality_tier.py` とする。
 
-- `QualityTier` (IntEnum、順序尺度) と `(model, label) -> QualityTier` の dict 定数、
-  manual score の range mapping 関数、`MAPPING_VERSION` 定数を持つ。
-- `compute_quality_summary(score_labels, scores) -> dict` が derived view を計算する。
-- `database` / `services` / `gui` 層は `domain` を一方向 import する (循環なし)。
+- `QualityTier`(順序尺度の `IntEnum`)、`(model, label) -> QualityTier` の辞書定数、手動スコアの範囲マッピング関数、`MAPPING_VERSION` 定数を持つ。
+- `compute_quality_summary(score_labels, scores) -> dict` が派生ビューを計算する。
+- `database`・`services`・`gui` 層は `domain` を一方向でインポートする(循環依存を作らない)。
 
-TOML config (`src/lorairo/config/quality_tier_mapping.toml`) によるユーザー override は
-本 ADR の scope 外とし、必要になった時点で別 ADR / `mapping_version` v2 で検討する。
+TOML 設定(`src/lorairo/config/quality_tier_mapping.toml`)によるユーザー上書きは本 ADR のスコープ外とし、必要になった時点で別 ADR および `mapping_version` v2 で検討する。
 
-mapping はアプリ仕様であり user annotation ではない。DB に保存すると migration / seed /
-stale derived data の負担が大きいため、性能課題が出るまで derived calculation に留める。
-`get_image_annotations()` が戻り値 dict に `quality_summary` キーを derived 計算で含める。
+マッピングはアプリ仕様でありユーザーアノテーションではない。DB に保存するとマイグレーション・シード・古い派生データの管理負担が大きくなるため、性能課題が出るまでは派生計算にとどめる。`get_image_annotations()` が戻り値辞書に `quality_summary` キーを派生計算で含める。
 
-### Continuous display score (#626 — 改訂で本体・ベース尺度へ昇格)
+### Continuous display score(#626 — 改訂で本体・ベース尺度へ昇格)
 
-> 改訂 (2026-06-18): この連続スコアが**品質のベース尺度**(主)。tier は派生サマリ(従)。
-> 下表の「役割分担」は主従が反転した前提で読む(display score = 主、tier badge = 補助)。
+> 改訂(2026-06-18): この連続スコアが**品質のベース尺度(主)**であり、tier は派生サマリ(従)である。下表の役割分担は主従が反転した前提で読むこと(display score が主、tier バッジが補助)。
 
-tier badge (離散 6 段階) とは **別に**、AI 数値スコアを手動スライダーと同じ
-**0.0-10.0 の連続表示スコア** (`score_value`) として提供する。両者は役割分担する:
+tier バッジ(離散 6 段階)とは別に、AI 数値スコアを手動スライダーと同じ **0.0–10.0 の連続表示スコア(`score_value`)** として提供する。両者の役割分担は以下のとおりである。
 
-| 観点 | tier badge (本 ADR 本体) | display score (#626) |
+| 観点 | tier バッジ(本 ADR 本体) | display score(#626) |
 |---|---|---|
-| 値域 | 離散 6 段階 (`masterpiece` ... `worst quality`) | 連続 0.0-10.0 |
-| 入力 | `score_labels` (categorical) + manual score | scorer の数値 `scores` (positive key) + manual score |
+| 値域 | 離散 6 段階(`masterpiece` 〜 `worst quality`) | 連続 0.0–10.0 |
+| 入力 | `score_labels`(カテゴリ値)+ 手動スコア | scorer の数値 `scores`(正方向キー)+ 手動スコア |
 | SSoT | `domain/quality_tier.py` | `domain/score_scaler.py` |
-| 用途 | フィルタ / 多数決サマリー badge | スライダー初期値 / 数値表示 |
+| 用途 | フィルタ・多数決サマリバッジ | スライダー初期値・数値表示 |
 
-`domain/score_scaler.py` の規約:
+`domain/score_scaler.py` の規約は以下のとおりである。
 
-- 各 scorer の **positive key** (`higher_is_better=True`、例: shadow=`hq`, cafe=`aesthetic`)
-  だけを表示尺度の入力とする。complement (lq / not_aesthetic) は使わない。
-- 生値 → 0-10 は **連続・単調・区分線形補間** で写像する (線形 `*10` でも 6 段階離散でもない)。
-  knot は lib の `SCORE_THRESHOLDS` (Animagine 由来) と本 ADR の manual tier 境界を根拠にする。
-- `score_value` 導出 (`ImageRepository._derive_display_score`): 手動行があれば最優先で
-  その生値 (既に 0-10)、無ければ各 scorer の連続 0-10 値の **平均**、スコア無しは 0.0。
-- AI scorer の数値スコアは positive key 1 行だけを生値で保存する
-  (`AnnotationSaveService`、変換は読み取り時)。同一 model で positive/complement の 2 行が
-  保存され DB で positive 判別不能になる問題を防ぐ。legacy 2 行データは最新行採用で近似する。
+- 各 scorer の**正方向キー**(`higher_is_better=True`、例: shadow=`hq`、cafe=`aesthetic`)のみを表示尺度の入力とする。補数側(`lq` / `not_aesthetic`)は使わない。
+- 生値から 0–10 への変換は**連続・単調・区分線形補間**で写像する(単純な `*10` でも 6 段階離散でもない)。節点(knot)はライブラリの `SCORE_THRESHOLDS`(Animagine 由来)と本 ADR の手動 tier 境界を根拠とする。
+- `score_value` の導出(`ImageRepository._derive_display_score`)では、手動行があればその生値(既に 0–10)を最優先する。手動行がなければ各 scorer の連続 0–10 値の**平均**を採り、スコアがなければ 0.0 とする。
+- AI scorer の数値スコアは、正方向キー 1 行のみを生値で保存する(`AnnotationSaveService`、変換は読み取り時に行う)。同一モデルで正方向と補数の 2 行が保存されて DB 上で正方向を判別できなくなる問題を防ぐためである。旧 2 行データは最新行の採用で近似する。
 
-lib 側の `ScoreScale` (range / higher_is_better) メタデータ安定化と、LoRAIro 自前
-`_AI_SCORE_SPEC` との drift-guard は iam-lib#144 で扱う (pin 反映後に drift テストを有効化)。
+ライブラリ側の `ScoreScale`(range / `higher_is_better`)メタデータの安定化と、LoRAIro 側の `_AI_SCORE_SPEC` との乖離検出は iam-lib#144 で扱う(ピン反映後に乖離テストを有効化する)。
 
-### Sentinel tier (`no score` / `unknown`) の扱い
+### 番兵 tier(`no score` / `unknown`)の扱い
 
-`no score` と `unknown` は ordinal 比較の対象外の sentinel である。
+`no score` と `unknown` は順序比較の対象外となる番兵値である。
 
-- `no score`: score 系 annotation (score_labels / manual score) が 1 件も無い。
-- `unknown`: vote は存在するが mapping 未定義 (新 scorer / 未登録 label / 範囲外 manual score)。
+- `no score`: スコア系アノテーション(`score_labels` / 手動スコア)が 1 件もない状態。
+- `unknown`: 票は存在するがマッピングが未定義の状態(新 scorer、未登録ラベル、範囲外の手動スコアなど)。
 
-両者を `low quality` 等の実 tier に丸めると、未採点抽出と mapping 漏れ検出が
-区別できなくなる。GUI / JSON export では sentinel literal をそのまま出力し、
-filter (out-of-scope) では `no_score_mode` で別途扱う。
+両者を `low quality` などの実 tier に丸めると、未採点抽出とマッピング漏れ検出が区別できなくなる。GUI および JSON エクスポートでは番兵リテラルをそのまま出力し、フィルタ(スコープ外)では `no_score_mode` で別途扱う。
 
-### New scorer 追加時の運用
+### 新しい scorer 追加時の運用
 
-新 scorer (例: `WaifuAesthetic`) を unified tier に参加させる手順:
+新しい scorer(例: `WaifuAesthetic`)を統一 tier に参加させる手順は以下のとおりである。
 
 1. `_SCORE_LABEL_TO_TIER` に `(model_name, label) -> QualityTier` の行を追加する。
-2. mapping を変更した場合は `MAPPING_VERSION` を bump する (例: `quality-tier-v2`)。
-3. `tests/unit/domain/test_quality_tier.py` に該当 mapping の test を追加する。
-4. mapping 未追加のままの新 scorer label は `unknown` に落ちる (silent misclassification
-   ではなく明示的に検出可能)。
+2. マッピングを変更した場合は `MAPPING_VERSION` を更新する(例: `quality-tier-v2`)。
+3. `tests/unit/domain/test_quality_tier.py` に該当マッピングのテストを追加する。
+4. マッピング未追加のままの新 scorer ラベルは `unknown` に落ちるため、暗黙の誤分類ではなく明示的に検出できる。
 
 ## Rationale
 
 ### 慣れた語彙を UI に使う理由
 
-`masterpiece` / `best quality` / `low quality` は anime image generation / LoRA 文脈で
-広く共有された語彙であり、`EXCELLENT` / `PASS` などの抽象名より一見して意味が伝わる。
+`masterpiece`・`best quality`・`low quality` はアニメ画像生成および LoRA 学習の文脈で広く共有された語彙であり、`EXCELLENT` や `PASS` といった抽象名より直感的に意味が伝わる。
 
-ただし NovelAI、Anima、NoobAI、Animagine などで付与基準は異なるため、本 ADR では
-外部標準ではなく LoRAIro の dataset search 用 alias として定義する。
+ただし、NovelAI・Anima・NoobAI・Animagine などで付与基準は異なるため、本 ADR では外部標準ではなく LoRAIro のデータセット検索用エイリアスとして定義する。
 
-### Raw value と derived tier を分ける理由
+### 生値と派生 tier を分ける理由
 
-model raw output は再現性の源泉である。mapping を変えるたびに DB annotation を書き換えると、
-過去の annotation 結果が失われ、export / search の再現性も曖昧になる。
+モデルの生出力は再現性の源泉である。マッピングを変更するたびに DB のアノテーションを書き換えると、過去のアノテーション結果が失われ、エクスポートや検索の再現性も損なわれる。
 
-raw value を保存し、tier を派生計算にすることで:
+生値を保持し、tier を派生計算とすることで次の利点が得られる。
 
-- mapping を後から修正できる
-- 元の scorer 出力を監査できる
-- JSON export で raw と derived を両方出せる
-- `unknown` を検出して新 model / label 対応漏れを見つけられる
+- マッピングを後から修正できる。
+- 元の scorer 出力を監査できる。
+- JSON エクスポートで生値と派生値の両方を出力できる。
+- `unknown` を検出して新モデルやラベルの対応漏れを見つけられる。
 
 ### Numeric aggregation を初期採用しない理由
 
-> 改訂 (2026-06-18): **撤回**。数値スコアを品質のベース尺度に採用する(主従反転、冒頭「改訂」節参照)。
-> ただし下記「scale が違うので単純平均しない」点は維持し、表示用 0–10 化は
-> `domain/score_scaler.py` の単調・区分線形補間で行う。以下は単純平均を避ける根拠として読む。
+> 改訂(2026-06-18): **撤回**。数値スコアを品質のベース尺度として採用する(主従反転、冒頭「改訂」節を参照)。ただし、以下の「スケールが異なるため単純平均しない」点は維持し、表示用の 0–10 化は `domain/score_scaler.py` の単調・区分線形補間で行う。以下は単純平均を避ける根拠として読むこと。
 
-`scores` は model ごとに scale が異なる。
+`scores` はモデルごとにスケールが異なる。
 
-- `aesthetic_shadow`: `hq` / `lq` probability
-- `cafe_aesthetic`: `aesthetic` / `not_aesthetic` probability
-- manual score: 0.00-10.00
-- `ImprovedAesthetic`: 1-10 regression
-- `WaifuAesthetic`: 0-1 regression
+- `aesthetic_shadow`: `hq` / `lq` の確率値
+- `cafe_aesthetic`: `aesthetic` / `not_aesthetic` の確率値
+- 手動スコア: 0.00–10.00
+- `ImprovedAesthetic`: 1–10 の回帰値
+- `WaifuAesthetic`: 0–1 の回帰値
 
-単純平均や confidence-weighted aggregation は、scale の意味を混同する。初期実装では
-canonical label と manual score の rule-based mapping に限定する。
+単純平均や信頼度加重平均はスケールの意味を混同してしまう。初期実装では正規ラベルと手動スコアのルールベースマッピングに限定する。
 
 ### `no score` を tier として扱う理由
 
-データセット作成では、未採点画像を探して追加 scoring する操作が重要である。
-`no score` を低品質と同一視すると、未判定と低品質が混ざってしまう。
+データセット作成では、未採点画像を探して追加で採点する操作が重要になる。`no score` を低品質と同一視すると、未判定と低品質が混ざってしまうため独立した tier として扱う。
 
 ## Consequences
 
 ### 良い点
 
-- dataset export/search で「good quality 以上」のような自然な条件指定ができる
-- scorer ごとの raw value をユーザーが覚えなくてよい
-- raw DB annotation は不変で、mapping 変更に強い
-- `no score only` で未採点画像を抽出できる
-- `unknown` で mapping 漏れを検出できる
+- データセットのエクスポートや検索で「good quality 以上」のような自然な条件指定ができる。
+- ユーザーが scorer ごとの生値を覚える必要がない。
+- 生の DB アノテーションが不変であるため、マッピング変更に強い。
+- `no score only` で未採点画像を抽出できる。
+- `unknown` によりマッピング漏れを検出できる。
 
 ### 悪い点・トレードオフ
 
-- `masterpiece` 等の語彙は外部モデルごとに意味が異なるため、LoRAIro 独自定義であることを
-  UI / ADR / docs で明示する必要がある
-- 初期 mapping は rule-based であり、完全に客観的な美的尺度ではない
-- regression scorer は初期 filter に含まれないため、利用するには後続 ADR が必要
-- tier filter を SQL で高速化する場合、`score_labels` の追加 index や
-  `(image_id, model_id)` unique constraint を検討する必要がある
+- `masterpiece` 等の語彙は外部モデルごとに意味が異なるため、LoRAIro 独自定義であることを UI・ADR・ドキュメントで明示する必要がある。
+- 初期マッピングはルールベースであり、完全に客観的な美的尺度ではない。
+- 回帰型 scorer は初期フィルタに含まれないため、利用するには後続 ADR が必要になる。
+- tier フィルタを SQL で高速化する場合は、`score_labels` への追加インデックスや `(image_id, model_id)` の一意制約を検討する必要がある。
 
 ### 運用ルール
 
-- `scores` / `score_labels` raw value を tier に変換して DB 上書きしない
-- mapping 変更時は `mapping_version` を上げる
-- 未定義 raw label / model は `unknown` として扱い、黙って近い tier に丸めない
-- `no score` は annotation absence として扱い、`unknown` と混同しない
-- new scorer を unified tier filter に参加させる場合は mapping と unit test を追加する
+- `scores` や `score_labels` の生値を tier へ変換して DB を上書きしない。
+- マッピング変更時は `mapping_version` を上げる。
+- 未定義の生ラベルやモデルは `unknown` として扱い、近い tier へ暗黙に丸めない。
+- `no score` はアノテーション不在として扱い、`unknown` と混同しない。
+- 新しい scorer を統一 tier フィルタに参加させる場合は、マッピングとユニットテストを追加する。
 
 ## Related
 
 - **Issue**: NEXTAltair/LoRAIro#287
-- **Issue**: NEXTAltair/LoRAIro#626 (連続 display score の追補)
-- **Related Issue**: NEXTAltair/image-annotator-lib#144 (scorer `ScoreScale` メタデータ安定化 / drift-guard)
-- **Parent ADR**: 0027 (Score Labels DB Storage)
-- **Parent ADR**: 0028 (Score Labels Usage and Display Strategy)
-- **Related ADR**: 0022 (Aesthetic Score Predictor Model Survey)
+- **Issue**: NEXTAltair/LoRAIro#626(連続 display score の追補)
+- **関連 Issue**: NEXTAltair/image-annotator-lib#144(scorer `ScoreScale` メタデータ安定化・乖離検出)
+- **親 ADR**: 0027(Score Labels DB Storage)
+- **親 ADR**: 0028(Score Labels Usage and Display Strategy)
+- **関連 ADR**: 0022(Aesthetic Score Predictor Model Survey)
 - **iam-lib ADR**: `local_packages/image-annotator-lib/docs/decisions/0002-score-model-output-contract.md`
-- **External reference**:
-  - NovelAI docs: quality tags and aesthetic tags
-  - `circlestone-labs/Anima`: human score based quality tags and aesthetic model based score tags
-  - Animagine / NoobAI model cards: model-specific quality tag criteria
+- **外部参照**:
+  - NovelAI ドキュメント: quality tags および aesthetic tags
+  - `circlestone-labs/Anima`: human score based quality tags および aesthetic model based score tags
+  - Animagine / NoobAI モデルカード: モデル固有の品質タグ基準

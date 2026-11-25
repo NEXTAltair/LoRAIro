@@ -1,12 +1,12 @@
-# Widget Implementation Examples
+# ウィジェット実装例
 
-Detailed examples for common LoRAIro widget implementation scenarios.
+LoRAIro で頻出するウィジェット実装シナリオの具体例をまとめる。
 
-## Example 1: Simple Display Widget
+## 例 1: シンプルな表示専用ウィジェット
 
-**Scenario:** Create a widget to display image metadata (read-only).
+**シナリオ:** 画像メタデータを読み取り専用で表示するウィジェットを作成する。
 
-### Implementation
+### 実装
 
 ```python
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QGroupBox
@@ -29,11 +29,11 @@ class ImageMetadataWidget(QWidget):
         """Setup UI layout."""
         layout = QVBoxLayout()
 
-        # Create group box
+        # グループボックスを作成
         group = QGroupBox("Image Metadata")
         group_layout = QVBoxLayout()
 
-        # Create labels
+        # ラベルを作成
         self._path_label = QLabel("Path: -")
         self._size_label = QLabel("Size: -")
         self._format_label = QLabel("Format: -")
@@ -76,27 +76,27 @@ class ImageMetadataWidget(QWidget):
         self._tags_label.setText("Tags: -")
 ```
 
-### Connection in MainWindow
+### `MainWindow` での接続
 
 ```python
 class MainWindow(QMainWindow):
     def _connect_widgets(self) -> None:
-        # Thumbnail → Metadata display
+        # サムネイル選択 -> メタデータ表示
         self.thumbnail_widget.image_selected.connect(
             self.metadata_widget.display_metadata
         )
 
-        # Clear button → Clear display
+        # クリアボタン -> 表示クリア
         self.clear_button.clicked.connect(
             self.metadata_widget.clear_display
         )
 ```
 
-## Example 2: Interactive Input Widget
+## 例 2: 対話的な入力ウィジェット
 
-**Scenario:** Create a search filter widget with user input and signal emission.
+**シナリオ:** ユーザー入力を受け取り、シグナルを発火する検索フィルターウィジェットを作成する。
 
-### Implementation
+### 実装
 
 ```python
 from PySide6.QtWidgets import (
@@ -126,25 +126,25 @@ class SearchFilterWidget(QWidget):
         """Setup UI components."""
         layout = QVBoxLayout()
 
-        # Search query input
+        # 検索クエリ入力
         layout.addWidget(QLabel("Search Query:"))
         self._query_input = QLineEdit()
         self._query_input.setPlaceholderText("Enter search terms...")
         layout.addWidget(self._query_input)
 
-        # Minimum score filter
+        # 最小スコアフィルター
         layout.addWidget(QLabel("Minimum Score:"))
         self._score_input = QSpinBox()
         self._score_input.setRange(0, 100)
         self._score_input.setValue(50)
         layout.addWidget(self._score_input)
 
-        # Include untagged checkbox
+        # タグ未付与画像を含めるチェックボックス
         self._include_untagged = QCheckBox("Include untagged images")
         self._include_untagged.setChecked(True)
         layout.addWidget(self._include_untagged)
 
-        # Search button
+        # 検索ボタン
         self._search_button = QPushButton("Search")
         layout.addWidget(self._search_button)
 
@@ -153,12 +153,12 @@ class SearchFilterWidget(QWidget):
 
     def _connect_signals(self) -> None:
         """Connect internal signals."""
-        # Emit filter_changed on any input change
+        # 入力変更のたびに filter_changed を発火
         self._query_input.textChanged.connect(self._on_filter_changed)
         self._score_input.valueChanged.connect(self._on_filter_changed)
         self._include_untagged.stateChanged.connect(self._on_filter_changed)
 
-        # Emit search_triggered on button click
+        # ボタン押下で search_triggered を発火
         self._search_button.clicked.connect(self._on_search_triggered)
 
     def _get_filter_data(self) -> dict:
@@ -198,17 +198,17 @@ class SearchFilterWidget(QWidget):
             self._include_untagged.setChecked(criteria["include_untagged"])
 ```
 
-### Connection in MainWindow
+### `MainWindow` での接続
 
 ```python
 class MainWindow(QMainWindow):
     def _connect_widgets(self) -> None:
-        # Real-time filter updates → Update result count
+        # リアルタイムのフィルター変更 -> 該当件数を更新
         self.search_filter.filter_changed.connect(
             self._update_result_count
         )
 
-        # Search triggered → Execute search
+        # 検索実行トリガー -> 検索を実行
         self.search_filter.search_triggered.connect(
             self._execute_search
         )
@@ -216,7 +216,7 @@ class MainWindow(QMainWindow):
     @Slot(dict)
     def _update_result_count(self, criteria: dict) -> None:
         """Update result count based on filter."""
-        # Preview result count without executing search
+        # 本検索を実行せず件数だけプレビュー表示する
         count = self._search_service.count_results(criteria)
         self.status_label.setText(f"{count} images match")
 
@@ -227,13 +227,14 @@ class MainWindow(QMainWindow):
         self.result_widget.display_results(results)
 ```
 
-## Example 3: Qt Designer Integration
+## 例 3: Qt Designer との連携
 
-**Scenario:** Use Qt Designer to create widget UI, then add functionality.
+**シナリオ:** Qt Designer でウィジェット UI を設計し、Python クラスから機能を追加する。
 
-### Step 1: Design UI in Qt Designer
+### 手順 1: Qt Designer で UI を設計する
 
-Save as `CustomFilterWidget.ui`:
+`CustomFilterWidget.ui` として保存する。
+
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
@@ -255,16 +256,16 @@ Save as `CustomFilterWidget.ui`:
 </ui>
 ```
 
-### Step 2: Generate Python UI
+### 手順 2: Python UI コードを生成する
 
 ```bash
 cd /workspaces/LoRAIro
 uv run python scripts/generate_ui.py
 ```
 
-This creates `CustomFilterWidget_ui.py`.
+これにより `CustomFilterWidget_ui.py` が生成される。
 
-### Step 3: Implement Widget Class
+### 手順 3: ウィジェットクラスを実装する
 
 ```python
 from PySide6.QtWidgets import QWidget
@@ -284,11 +285,11 @@ class CustomFilterWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        # Load Qt Designer UI
+        # Qt Designer で生成した UI を読み込む
         self._ui = Ui_CustomFilterWidget()
         self._ui.setupUi(self)
 
-        # Connect signals
+        # シグナルを接続する
         self._connect_signals()
 
     def _connect_signals(self) -> None:
@@ -317,11 +318,11 @@ class CustomFilterWidget(QWidget):
         self._ui.queryInput.clear()
 ```
 
-## Example 4: Async Worker Integration
+## 例 4: 非同期ワーカーとの連携
 
-**Scenario:** Widget that starts async operation and displays progress.
+**シナリオ:** 非同期処理を開始し、進捗をプログレスバーで表示するウィジェットを作成する。
 
-### Implementation
+### 実装
 
 ```python
 from PySide6.QtWidgets import (
@@ -388,22 +389,22 @@ class AnnotationWidget(QWidget):
             logger.error("Worker manager not set")
             return
 
-        # Create worker
+        # ワーカーを生成する
         worker = AnnotationWorker(
             image_id=self._current_image_id,
             model="gpt-4o"
         )
 
-        # Connect worker signals
+        # ワーカーのシグナルを接続する
         worker.signals.started.connect(self._on_worker_started)
         worker.signals.progress.connect(self._on_worker_progress)
         worker.signals.finished.connect(self._on_worker_finished)
         worker.signals.error.connect(self._on_worker_error)
 
-        # Submit to worker manager
+        # ワーカーマネージャーへ投入する
         self._worker_manager.submit(worker)
 
-        # Emit signal
+        # 開始シグナルを発火する
         self.annotation_started.emit(self._current_image_id)
 
     @Slot()
@@ -430,7 +431,7 @@ class AnnotationWidget(QWidget):
         self._progress_bar.setVisible(False)
         self._annotate_button.setEnabled(True)
 
-        # Emit completion signal
+        # 完了シグナルを発火する
         self.annotation_completed.emit(self._current_image_id, results)
 
     @Slot(str)
@@ -443,7 +444,7 @@ class AnnotationWidget(QWidget):
         self._annotate_button.setEnabled(True)
 ```
 
-### Connection in MainWindow
+### `MainWindow` での接続
 
 ```python
 class MainWindow(QMainWindow):
@@ -458,12 +459,12 @@ class MainWindow(QMainWindow):
         self.annotation_widget.set_worker_manager(self._worker_manager)
 
     def _connect_widgets(self) -> None:
-        # Thumbnail → Annotation widget
+        # サムネイル選択 -> アノテーションウィジェット
         self.thumbnail_widget.image_selected.connect(
             lambda metadata: self.annotation_widget.set_image(metadata["id"])
         )
 
-        # Annotation completed → Update database
+        # アノテーション完了 -> データベース更新
         self.annotation_widget.annotation_completed.connect(
             self._save_annotation_results
         )
@@ -475,18 +476,18 @@ class MainWindow(QMainWindow):
         logger.info(f"Saved annotation results for image {image_id}")
 ```
 
-## Example 5: Multi-Widget Coordination
+## 例 5: 複数ウィジェットの協調動作
 
-**Scenario:** Multiple widgets need to coordinate for complex workflow.
+**シナリオ:** 複雑なワークフローを実現するため、複数のウィジェットを協調させる。
 
-### Implementation
+### 実装
 
 ```python
-# Widget 1: Image selector
+# ウィジェット 1: 画像セレクター
 class ImageSelectorWidget(QWidget):
     image_selected = Signal(int)  # image_id
 
-# Widget 2: Annotation control
+# ウィジェット 2: アノテーション制御
 class AnnotationControlWidget(QWidget):
     annotation_started = Signal(int)   # image_id
     annotation_stopped = Signal(int)   # image_id
@@ -496,13 +497,13 @@ class AnnotationControlWidget(QWidget):
         self._current_image_id = image_id
         self._update_ui()
 
-# Widget 3: Results display
+# ウィジェット 3: 結果表示
 class AnnotationResultsWidget(QWidget):
     @Slot(int, dict)
     def display_results(self, image_id: int, results: dict) -> None:
         self._show_results(results)
 
-# Widget 4: Progress monitor
+# ウィジェット 4: 進捗モニター
 class ProgressMonitorWidget(QWidget):
     @Slot(int)
     def start_monitoring(self, image_id: int) -> None:
@@ -512,20 +513,20 @@ class ProgressMonitorWidget(QWidget):
     def stop_monitoring(self, image_id: int) -> None:
         self._stop_timer()
 
-# MainWindow coordinates all widgets
+# MainWindow が全ウィジェットの接続を調整する
 class MainWindow(QMainWindow):
     def _connect_widgets(self) -> None:
-        # Image selection → Update all widgets
+        # 画像選択 -> 関連ウィジェットを更新
         self.selector.image_selected.connect(
             self.annotation_control.set_image
         )
 
-        # Annotation started → Update progress monitor
+        # アノテーション開始 -> 進捗監視を開始
         self.annotation_control.annotation_started.connect(
             self.progress_monitor.start_monitoring
         )
 
-        # Annotation completed → Update results and stop progress
+        # アノテーション完了 -> 結果表示と進捗監視の停止
         self._annotation_service.annotation_completed.connect(
             self.results_display.display_results
         )
@@ -533,15 +534,15 @@ class MainWindow(QMainWindow):
             lambda img_id, _: self.progress_monitor.stop_monitoring(img_id)
         )
 
-        # Annotation stopped manually → Stop progress
+        # 手動停止 -> 進捗監視を停止
         self.annotation_control.annotation_stopped.connect(
             self.progress_monitor.stop_monitoring
         )
 ```
 
-## Testing Examples
+## テスト実装例
 
-### Test Example 1: Signal Emission
+### テスト例 1: シグナル発火の検証
 
 ```python
 import pytest
@@ -555,12 +556,12 @@ def test_search_filter_signal_emission(qtbot):
     with qtbot.waitSignal(widget.filter_changed, timeout=1000) as blocker:
         widget._query_input.setText("test query")
 
-    # Verify signal payload
+    # シグナルのペイロードを検証する
     assert blocker.args[0]["query"] == "test query"
     assert "min_score" in blocker.args[0]
 ```
 
-### Test Example 2: Widget Interaction
+### テスト例 2: ウィジェット操作フローの検証
 
 ```python
 def test_annotation_widget_flow(qtbot):
@@ -568,25 +569,25 @@ def test_annotation_widget_flow(qtbot):
     widget = AnnotationWidget()
     qtbot.addWidget(widget)
 
-    # Mock worker manager
+    # ワーカーマネージャーをモック化する
     mock_manager = MagicMock()
     widget.set_worker_manager(mock_manager)
 
-    # Set image
+    # 対象画像を設定する
     widget.set_image(123)
 
-    # Click annotate button
+    # アノテーション開始ボタンをクリックする
     with qtbot.waitSignal(widget.annotation_started) as blocker:
         qtbot.mouseClick(widget._annotate_button, Qt.LeftButton)
 
-    # Verify signal
+    # シグナル引数を検証する
     assert blocker.args[0] == 123
 
-    # Verify worker submitted
+    # ワーカー投入を検証する
     mock_manager.submit.assert_called_once()
 ```
 
-### Test Example 3: Qt Designer Widget
+### テスト例 3: Qt Designer ウィジェットの検証
 
 ```python
 def test_custom_filter_ui_elements(qtbot):
@@ -594,10 +595,10 @@ def test_custom_filter_ui_elements(qtbot):
     widget = CustomFilterWidget()
     qtbot.addWidget(widget)
 
-    # Verify UI elements loaded
+    # UI 要素の読み込みを検証する
     assert widget._ui.queryInput is not None
     assert widget._ui.searchButton is not None
 
-    # Verify button enabled
+    # ボタンの有効状態を検証する
     assert widget._ui.searchButton.isEnabled()
 ```

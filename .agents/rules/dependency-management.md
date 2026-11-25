@@ -3,34 +3,34 @@ trigger: model_decision
 description: "依存パッケージを追加・更新するとき。AI 推論 SDK は最新追従、他は計画的 bump"
 ---
 
-# Dependency Management Rules
+# 依存パッケージ管理ルール
 
-依存パッケージ管理ルール。AI 推論 SDK は更新頻度が他の依存と質的に異なるため、最新追従を原則とし、それ以外は計画的な bump で運用を分ける。
+AI 推論 SDK は他の依存パッケージと更新頻度が質的に異なる。そのため、AI 推論 SDK は最新追従を原則とし、それ以外の依存は計画的なバージョン更新(bump)で運用を分ける。
 
-> **プロジェクト固有:** パッケージマネージャ (uv, poetry, npm 等) 固有のコマンド、lockfile 名、CI と同等の pytest / test filter コマンドは導入先で追記する。
+> **プロジェクト固有:** パッケージマネージャ(`uv`、`poetry`、`npm` など)固有のコマンド、lockfile 名、CI と同等のテストフィルタコマンドは導入先で追記する。
 
 ## 核心ルール
 
-**AI 推論 SDK は常に最新の安定版を使う。** 古い SDK は新モデルのレスポンス形式を parse しきれず inference が fail することがある (発端事例は導入先の記録を参照)。
+**AI 推論 SDK は常に最新の安定版を使う。** 古い SDK では新モデルのレスポンス形式を正しく解析できず、推論が失敗することがある(発端となった事例は導入先の記録を参照すること)。
 
-## 対象 SDK (最新追従)
+## 最新追従の対象となる SDK
 
-以下の library は本ルールの「常に最新」対象:
+以下のライブラリを「常に最新」の対象とする。
 
-- `pydantic-ai` — agentic inference orchestration
-- `anthropic` — Anthropic API client
-- `openai` — OpenAI API client
-- `google-genai` — Google Gemini API client
-- `litellm` — model registry / capability discovery DB
-- `transformers` — local ML inference
-- `huggingface-hub` — model download
-- `torch` / `torchvision` — local ML backend
+- `pydantic-ai`:エージェント推論のオーケストレーション
+- `anthropic`:Anthropic API クライアント
+- `openai`:OpenAI API クライアント
+- `google-genai`:Google Gemini API クライアント
+- `litellm`:モデルレジストリと機能判別データベース
+- `transformers`:ローカル機械学習推論
+- `huggingface-hub`:モデルのダウンロード
+- `torch` / `torchvision`:ローカル機械学習バックエンド
 
-## pyproject.toml の pin 方針
+## `pyproject.toml` のバージョン指定方針
 
-- **lower bound のみ pin** (`>=` 表記)
-- **upper bound (`<X.Y`) は付けない**
-- 例外: 下位互換性破壊が確認された minor / major release のみ一時 upper bound 追加、追従修正 PR で外す
+- **下限(lower bound)のみを指定する**(`>=` 表記を使う)。
+- **上限(upper bound、`<X.Y`)は付けない。**
+- 例外として、下位互換性の破壊が確認されたマイナーまたはメジャーリリースに限り、一時的に上限を追加する。この場合、追従修正を行う PR で上限を外す。
 
 ```toml
 # 正しい
@@ -38,61 +38,61 @@ description: "依存パッケージを追加・更新するとき。AI 推論 SD
 "anthropic>=0.102",
 "transformers>=4.50",
 
-# 禁止: upper bound で upgrade 抑止
+# 禁止: 上限指定でアップグレードを抑止しない
 "pydantic-ai>=1.97,<2.0",
 "anthropic==0.102.0",
 ```
 
-## lockfile 更新タイミング
+## lockfile の更新タイミング
 
-lockfile は git 管理下に置き、SDK は積極的に更新する方針とする (lockfile 管理方針の詳細は導入先の記録を参照):
+lockfile は git 管理下に置き、SDK を積極的に更新する方針とする(lockfile 管理方針の詳細は導入先の記録を参照すること)。
 
-1. **新モデル対応 / WebAPI バグ修正 PR で**:
+1. **新モデル対応や WebAPI のバグ修正 PR で更新する**
    ```bash
    uv lock --upgrade-package pydantic-ai --upgrade-package anthropic
    ```
-2. **ベンダリング/サブモジュール依存の pin 更新時に** 該当 SDK を bump
-3. **月次 dependency review** (毎月 1 日近辺):
+2. **ベンダリング依存や submodule 依存の固定バージョン更新時に、該当 SDK を更新する**
+3. **月次の依存レビュー(毎月 1 日前後)で一括更新する**
    ```bash
    uv lock --upgrade
-   # → CI-equivalent filter 全 pass を確認 → PR 起票 (label: `dependency review`)
+   # CI と同等のフィルタで全テストが通ることを確認し、label `dependency review` を付けて PR を起票する
    ```
 
-## 適用しない依存 (計画的 bump)
+## 最新追従を適用しない依存(計画的更新)
 
-以下は別運用 (major version で API / schema 破壊されるため):
+以下のカテゴリはメジャーバージョンで API やスキーマが破壊されるため、計画的に更新する。
 
-| カテゴリ | 例 | 運用 |
+| カテゴリ | 例 | 運用方針 |
 |---|---|---|
-| UI / GUI | `PySide6`, `qt-material` | major 変更時に手動移行 |
-| DB / migration | `SQLAlchemy`, `Alembic` | schema 整合性確認 + migration 同時更新 |
-| test framework | `pytest`, `pytest-qt`, `pytest-bdd` | runner 互換性確認 |
-| 汎用 library | `Pillow`, `loguru`, `polars` 等 | 通常の依存更新運用 |
+| UI / GUI | `PySide6`、`qt-material` | メジャー変更時に手動で移行する |
+| DB / マイグレーション | `SQLAlchemy`、`Alembic` | スキーマの整合性を確認し、マイグレーションを同時に更新する |
+| テストフレームワーク | `pytest`、`pytest-qt`、`pytest-bdd` | テストランナーの互換性を確認して更新する |
+| 汎用ライブラリ | `Pillow`、`loguru`、`polars` など | 通常の依存更新として扱う |
 
-## bump 時の regression check
+## 更新時の回帰確認
 
-SDK bump 前後で **CI-equivalent filter** (CI ワークフローと完全一致する test filter) を必ず実行する:
+SDK を更新する前後で、**CI と完全に一致するテストフィルタ(CI-equivalent filter)** を必ず実行する。
 
 ```bash
-# 例 (実際のフィルタは導入先の testing ルール文書を参照)
+# 例(実際のフィルタは導入先のテストルール文書を参照)
 pytest -m "not gui_show and not calls_real_webapi and not downloads_and_runs_model and not slow" --timeout=60
 ```
 
-実 API での挙動確認は手動 smoke test で行う (自動テストは実 API を叩かない)。
+自動テストでは実 API を呼び出さないため、実 API での挙動確認は手動のスモークテストで行う。
 
 ## PR 運用ルール
 
-- **依存更新を含む PR** は マニフェスト (`pyproject.toml` 等) と lockfile を **必ず同時 commit**
-- **サブモジュール/ベンダリング依存の pin 更新 PR** は 依存先パッケージ側の lockfile と本体側の lockfile の **両方** を更新
-- **SDK の major / breaking minor release** が public announcement で確認された場合、PR description で明示
-- **月次 review PR** は label `dependency review` を付与
+- 依存更新を含む PR では、マニフェスト(`pyproject.toml` など)と lockfile を必ず同時にコミットする。
+- submodule やベンダリング依存の固定バージョンを更新する PR では、依存先パッケージ側と本体側の両方の lockfile を更新する。
+- SDK のメジャーリリースや破壊的変更を含むマイナーリリースが公式に告知されている場合は、PR の説明欄にその旨を明記する。
+- 月次の依存レビュー PR には `dependency review` ラベルを付与する。
 
 ## 判断フロー
 
-1. このパッケージは AI 推論 SDK か? → Yes → 常に最新追従、lower bound のみ pin
-2. UI / DB / test framework か? → Yes → 計画的 bump、major 変更時に手動移行
-3. それ以外 → 通常の依存更新運用
+1. 対象のパッケージが AI 推論 SDK に該当する場合は、常に最新へ追従し、下限のみを指定する。
+2. UI、DB、テストフレームワークに該当する場合は、計画的に更新し、メジャー変更時は手動で移行する。
+3. 上記のいずれにも該当しない場合は、通常の依存更新として運用する。
 
 ## 関連
 
-> **プロジェクト固有:** 本ルールを支える ADR / Issue へのリンクを追記する。
+> **プロジェクト固有:** 本ルールを支える ADR や Issue へのリンクを追記する。

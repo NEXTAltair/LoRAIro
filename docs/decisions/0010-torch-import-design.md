@@ -9,14 +9,15 @@ tags: []
 
 ## Context
 
-pytest 実行時に `RuntimeError: function '_has_torch_function' already has a docstring` が発生。環境問題ではなく、重い ML ライブラリ (torch, tensorflow, onnxruntime) をモジュールレベルでインポートしていたことが原因。
+pytest の実行時に `RuntimeError: function '_has_torch_function' already has a docstring` が発生した。原因は環境依存の不具合ではなく、重い機械学習ライブラリ(`torch`、`tensorflow`、`onnxruntime`)をモジュールレベルでインポートしていたことだった。
 
 ## Decision
 
-**遅延インポート（Lazy Import）**を採用:
-- モジュールレベルの `import torch` / `import onnxruntime` を削除
-- 関数/メソッド内で必要な時のみインポート
-- 型定義のみの用途には `TYPE_CHECKING` ブロックを使用
+**遅延インポート(Lazy Import)**を採用する。
+
+- モジュールレベルの `import torch` と `import onnxruntime` を削除する。
+- 関数またはメソッドの内部で、実際に必要なタイミングのみインポートする。
+- 型注釈のみを目的とする参照には `TYPE_CHECKING` ブロックを使用する。
 
 ```python
 # Before (module-level)
@@ -29,11 +30,11 @@ def determine_effective_device(...):
 
 ## Rationale
 
-問題の連鎖: `test_base.py` → `base/annotator.py` → `utils.py` (torch 初期化) → `model_factory.py` (torch + tensorflow + onnx + anthropic + openai 全初期化)。ONNX モデルのテストで anthropic は不要なのに全ライブラリがロードされていた。
+モジュールレベルのインポートにより、`test_base.py` から `base/annotator.py`、`utils.py`(`torch` の初期化)、`model_factory.py`(`torch`、`tensorflow`、`onnx`、`anthropic`、`openai` の全初期化)へと連鎖的に読み込みが広がっていた。その結果、ONNX モデルのテストでは不要な `anthropic` などのライブラリまで全件ロードされていた。
 
 ## Consequences
 
-- pytest collection エラー解消
-- テスト実行時のメモリ使用量削減
-- テスト実行速度向上
-- `TYPE_CHECKING` ブロック内の型は文字列リテラルで参照する必要あり (`"ort.InferenceSession"`)
+- pytest のテスト収集時エラーを解消した。
+- テスト実行時のメモリ使用量を削減できた。
+- テストの実行速度が向上した。
+- `TYPE_CHECKING` ブロック内で参照する型は、`"ort.InferenceSession"` のように文字列リテラルで記述する必要がある。

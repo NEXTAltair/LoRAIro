@@ -1,75 +1,81 @@
-# Scenario: Basic Widget Creation with PySide6
+# シナリオ: PySide6 による基本ウィジェット作成
 
-## Input
-**User request:** "Create a new FilterPanelWidget for the image browser. It should have filter controls (dropdowns, checkboxes) and follow LoRAIro's widget patterns."
+## 入力
 
-**Context:**
-- LoRAIro uses PySide6 (Qt for Python)
-- Widget patterns to follow:
-  - Clear class structure with type hints
-  - Signal definitions using @Slot decorator
-  - Direct Widget Communication (not service layer for widget-to-widget)
-  - Proper initialization pattern
-- Existing examples: SearchFilterWidget, MetadataDisplayWidget
-- Location: `src/lorairo/gui/widgets/`
+**ユーザー依頼:** "Create a new FilterPanelWidget for the image browser. It should have filter controls (dropdowns, checkboxes) and follow LoRAIro's widget patterns."
 
-## Expected Behavior
-1. Skill `lorairo-qt-widget` should be invoked automatically
-2. Should guide widget creation workflow:
+**前提条件:**
+- LoRAIro は PySide6 (Qt for Python) を使用している。
+- 準拠すべきウィジェットパターンは以下の通りである。
+  - 型ヒントを備えた明確なクラス構造
+  - `@Slot` デコレータを用いたシグナル/スロット定義
+  - Direct Widget Communication (ウィジェット間通信にサービス層を挟まない設計)
+  - 適切な初期化パターン
+- 既存の実装例: `SearchFilterWidget`、`MetadataDisplayWidget`
+- 配置場所: `src/lorairo/gui/widgets/`
 
-   **Phase 1: Explore Existing Widgets**
-   - Use `Grep` to examine existing widget (e.g., SearchFilterWidget)
-   - Analyze structure: __init__, signals, slots, layout
-   - Check memory for widget patterns
+## 期待される動作
 
-   **Phase 2: Widget Implementation**
-   - Create FilterPanelWidget class inheriting QWidget
-   - Define signals for filter changes
-   - Implement __init__ with type hints
-   - Create UI layout (dropdowns, checkboxes)
-   - Add @Slot decorated methods
-   - Follow Direct Widget Communication pattern
+1. スキル `lorairo-qt-widget` が自動的に呼び出される。
+2. 以下の手順に沿ってウィジェット作成ワークフローを案内する。
 
-   **Phase 3: Integration Guidance**
-   - Show how parent widget connects to signals
-   - Demonstrate type-safe signal/slot connections
-   - Mention Qt Designer integration (if applicable)
+   **フェーズ 1: 既存ウィジェットの調査**
+   - `Grep` を使用して既存ウィジェット (例: `SearchFilterWidget`) を調べる。
+   - `__init__`、シグナル、スロット、レイアウトの構造を分析する。
+   - メモリを参照し、ウィジェットパターンを確認する。
 
-3. Should produce:
-   - Complete widget implementation
-   - Type-safe signals and slots
-   - Follows LoRAIro widget patterns
-   - Clear docstrings (Google style)
-   - Direct communication pattern
+   **フェーズ 2: ウィジェットの実装**
+   - `QWidget` を継承した `FilterPanelWidget` クラスを作成する。
+   - フィルタ変更を通知するシグナルを定義する。
+   - 型ヒントを付けて `__init__` を実装する。
+   - ドロップダウンやチェックボックスを含む UI レイアウトを構築する。
+   - `@Slot` デコレータを付与したメソッドを追加する。
+   - Direct Widget Communication パターンに従う。
 
-4. Should NOT:
-   - Use service layer for widget-to-widget communication
-   - Skip type hints
-   - Forget @Slot decorators
-   - Use generic `QObject.connect()` without type safety
+   **フェーズ 3: 統合ガイド**
+   - 親ウィジェットがシグナルへ接続する方法を示す。
+   - 型安全なシグナル/スロット接続を例示する。
+   - 該当する場合は Qt Designer との統合方法にも言及する。
 
-## Success Criteria
-- [x] Correct skill invoked (lorairo-qt-widget)
-- [x] Explores existing widgets before implementing
-- [x] Widget structure follows LoRAIro patterns
-- [x] Signals defined with proper types
-- [x] @Slot decorators present
-- [x] Type hints throughout
-- [x] Direct Widget Communication pattern used
-- [x] Completes without errors
+3. 以下の成果物を生成する。
+   - 完全なウィジェット実装
+   - 型安全なシグナルとスロット
+   - LoRAIro のウィジェットパターンに沿った構成
+   - 明確な docstring (Google スタイル)
+   - Direct Widget Communication パターン
 
-## Model Variations
-- **Haiku:** Should create basic widget structure; may need guidance on signal/slot typing
-- **Sonnet:** Should create complete widget following all patterns; good type safety and structure
-- **Opus:** May suggest UI/UX improvements; may optimize layout; excellent pattern adherence and documentation
+4. 以下を行わない。
+   - ウィジェット間通信にサービス層を使用する。
+   - 型ヒントを省略する。
+   - `@Slot` デコレータを付け忘れる。
+   - 型安全でない汎用的な `QObject.connect()` を使用する。
 
-## Test Validation
-After running this scenario:
-1. Verify skill invoked: Check `lorairo-qt-widget` in metadata
-2. Check exploration phase:
-   - Used `find_symbol` to examine existing widget
-   - Analyzed structure before implementing
-3. Verify widget structure:
+## 成功基準
+
+- [x] 正しいスキル (`lorairo-qt-widget`) が呼び出された
+- [x] 実装前に既存ウィジェットを調査した
+- [x] ウィジェット構造が LoRAIro のパターンに準拠している
+- [x] シグナルが適切な型で定義されている
+- [x] `@Slot` デコレータが付与されている
+- [x] 全体に型ヒントが付与されている
+- [x] Direct Widget Communication パターンが使用されている
+- [x] エラーなく完了する
+
+## モデル別の傾向
+
+- **Haiku:** 基本的なウィジェット構造を作成できる。シグナル/スロットの型指定には補足指示が必要な場合がある。
+- **Sonnet:** すべてのパターンに従った完全なウィジェットを作成できる。型安全性と構造の品質が高い。
+- **Opus:** UI/UX の改善提案やレイアウト最適化を行う場合がある。パターン準拠度とドキュメント品質が極めて高い。
+
+## テスト検証
+
+このシナリオの実行後、以下の項目を確認する。
+
+1. スキル呼び出しの確認: メタデータに `lorairo-qt-widget` が含まれていることを確認する。
+2. 調査フェーズの確認:
+   - `find_symbol` を使用して既存ウィジェットを調べている。
+   - 実装前に構造を分析している。
+3. ウィジェット構造の確認:
    ```python
    from PySide6.QtWidgets import QWidget
    from PySide6.QtCore import Signal, Slot
@@ -91,17 +97,17 @@ After running this scenario:
            # Slot implementation
            ...
    ```
-4. Check pattern adherence:
-   - Inherits from QWidget
-   - Signals defined at class level
-   - @Slot decorators on slot methods
-   - Type hints on all methods
-   - Private methods prefixed with `_`
-5. Verify Direct Communication:
-   - No service layer for widget-to-widget
-   - Parent connects to signals directly
-   - Type-safe connections mentioned
-6. Check documentation:
-   - Google-style docstrings
-   - Signal documentation (what data they emit)
-   - Method parameter descriptions
+4. パターン準拠の確認:
+   - `QWidget` を継承している。
+   - シグナルがクラスレベルで定義されている。
+   - スロットメソッドに `@Slot` デコレータが付与されている。
+   - すべてのメソッドに型ヒントが付与されている。
+   - プライベートメソッドにプレフィックス `_` が付いている。
+5. Direct Widget Communication の確認:
+   - ウィジェット間通信にサービス層を使用していない。
+   - 親ウィジェットがシグナルへ直接接続している。
+   - 型安全な接続について言及している。
+6. ドキュメントの確認:
+   - Google スタイルの docstring が記述されている。
+   - シグナルのドキュメント (送出するデータの内容) がある。
+   - メソッド引数の説明がある。

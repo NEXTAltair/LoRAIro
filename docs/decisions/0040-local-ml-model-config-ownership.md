@@ -18,116 +18,90 @@ tags: []
 
 ## Context
 
-ADR 0021 / ADR 0023 により、WebAPI モデル管理は `annotator_config.toml` から離れ、
-LiteLLM 同梱 DB を runtime SSoT とする設計へ移行した。LoRAIro から image-annotator-lib へは
-`litellm_model_id` と `api_keys` を明示的に渡すため、WebAPI モデル定義・API key・route selection
-は TOML system catalog の責務ではなくなっている。
+ADR 0021 および ADR 0023 により、WebAPI モデルの管理は `annotator_config.toml` から切り離され、LiteLLM 同梱 DB を実行時の SSoT とする設計へ移行した。LoRAIro から `image-annotator-lib` へは `litellm_model_id` と `api_keys` を明示的に渡すため、WebAPI モデルの定義、API キー、経路選択はもはや TOML のシステムカタログの責務ではない。
 
-一方、ローカル ML モデル (ONNX / Transformers / CLIP / TensorFlow) の設定は ADR 0003 / ADR 0004
-の方針を引き継ぎ、`annotator_config.toml` と `user_config.toml` を使う設計のまま残っている。
-このため、現在の `annotator_config.toml` は以下の複数の責務を兼ねている。
+一方で、ローカル ML モデル(ONNX、Transformers、CLIP、TensorFlow)の設定は ADR 0003 および ADR 0004 の方針を引き継ぎ、`annotator_config.toml` と `user_config.toml` を使う設計のまま残っている。その結果、現在の `annotator_config.toml` には以下の複数の責務が混在している。
 
-- built-in local model catalog
-- 利用側プロジェクトに配置される system config
-- `add_default_setting()` による不足 default の永続化先
-- model loader が計算した `estimated_size_gb` の保存先
-- test fixture が一時モデル設定を注入する対象
+- 組み込みローカルモデルのカタログ(built-in local model catalog)
+- 利用側プロジェクトに配置されるシステム設定
+- `add_default_setting()` による不足デフォルト値の永続化先
+- モデルローダーが算出した `estimated_size_gb` の保存先
+- テストフィクスチャが一時的なモデル設定を注入する対象
 
-この責務混在により、image-annotator-lib#95 では pytest 実行時に test-only モデル定義が
-`config/annotator_config.toml` へ書き戻され、production catalog に混入した。
+この責務混在が原因となり、`image-annotator-lib#95` では `pytest` 実行時にテスト専用モデル定義が `config/annotator_config.toml` へ書き戻され、本番カタログに混入した。
 
-具体的には、複数の test fixture が `config_registry.add_default_setting(...)` を呼び、
-同メソッドが `save_system_config()` を実行するため、以下のような test-only entry が system
-catalog に永続化された。
+具体的には、複数のテストフィクスチャが `config_registry.add_default_setting(...)` を呼び出し、同メソッドが内部で `save_system_config()` を実行したため、以下のテスト専用エントリがシステムカタログへ永続化された。
 
 - `test_model` / `MockAnnotator`
 - `dummy-model` / `DummyTransformersAnnotator`
 - `test_base_annotator_model` / `ConcreteAnnotator`
 - `test_transformers_base_model` / `TransformersBaseAnnotator`
 
-PR #92 (`chore: remove test-only annotator config entries`) で一度削除されたが、PR #93 の pytest
-実行時に同じ stub が再混入し、review で再検出された。これは個別 test の cleanup 不足ではなく、
-system catalog が通常 runtime/test から暗黙に書き換え可能な設計であることが根本原因である。
+これらは PR #92(`chore: remove test-only annotator config entries`)で一度削除された。しかし PR #93 の `pytest` 実行時に同じスタブが再混入し、レビューで再び検出された。これは個別テストの後片付け不足ではなく、システムカタログを通常の実行時処理やテストから暗黙に書き換えられる設計自体が根本原因である。
 
-また、LoRAIro#365 では rating 対応 local tagger の `capabilities` が古い config 由来で `tags`
-のみに落ち、LoRAIro#366 では `TaskCapability.RATINGS` の adapter 変換漏れが表面化した。
-`capabilities` は単なる表示設定ではなく、モデルが返してよい出力型の契約であり、user config
-によって built-in model の契約を削除できると、UI filter / DB sync / result validation / 保存処理の
-前提が崩れる。
+さらに、`LoRAIro#365` ではレーティング対応のローカルタガーの `capabilities` が古い設定由来で `tags` のみに縮退した。`LoRAIro#366` では `TaskCapability.RATINGS` のアダプター変換漏れも表面化した。`capabilities` は単なる表示用設定ではなく、モデルが返却し得る出力型の契約である。ユーザー設定によって組み込みモデルの契約を削除できると、UI フィルタ、DB 同期、結果検証、保存処理の前提が崩れる。
 
 ### ADR スコープ
 
-本 ADR は **ローカル ML モデル設定** の所有権と永続化先を定める。
+本 ADR は、**ローカル ML モデル設定**の所有権と永続化先を定める。
 
-対象:
+対象範囲:
 
 - `config/annotator_config.toml`
 - `config/user_config.toml`
-- runtime-derived metadata (`estimated_size_gb` など)
-- local ML model の `capabilities` merge 規則
-- test が config を扱うルール
-- LoRAIro と image-annotator-lib の local model config 境界
+- 実行時派生メタデータ(`estimated_size_gb` など)
+- ローカル ML モデルの `capabilities` マージ規則
+- テストが設定ファイルを扱うルール
+- LoRAIro と `image-annotator-lib` のローカルモデル設定境界
 
 対象外:
 
-- WebAPI モデル discovery / route selection / API key injection
-- LiteLLM DB の provider/model metadata
-- LoRAIro DB schema 上の `models` / `model_types` の正規化
+- WebAPI モデルの探索、経路選択、API キー注入
+- LiteLLM DB のプロバイダおよびモデルメタデータ
+- LoRAIro DB スキーマ上の `models` および `model_types` の正規化
 
 ## Decision
 
-### 1. local ML system catalog は利用側 project-local config に配置する
+### 1. ローカル ML システムカタログは利用側プロジェクト内に配置する
 
-ローカル ML モデルの system catalog は、ライブラリ利用側プロジェクトの
-`config/annotator_config.toml` に配置する。
+ローカル ML モデルのシステムカタログは、ライブラリ利用側プロジェクトの `config/annotator_config.toml` に配置する。
 
-image-annotator-lib は、同ファイルが存在しない場合に限り、package resource の
-`resources/system/annotator_config.toml` から初期生成してよい。
+`image-annotator-lib` は、同ファイルが存在しない場合に限り、パッケージリソースの `resources/system/annotator_config.toml` から初期生成してよい。
 
-生成後の `config/annotator_config.toml` は利用側プロジェクトが管理する catalog であり、
-通常 runtime 処理・model load 副作用・test fixture によって暗黙に書き換えてはならない。
+生成後の `config/annotator_config.toml` は利用側プロジェクトが管理するカタログである。通常の実行時処理、モデル読み込みの副作用、テストフィクスチャから暗黙に書き換えてはならない。
 
-### 2. package resource は初期テンプレートであり、通常 runtime の永続化先ではない
+### 2. パッケージリソースは初期テンプレートとし、実行時の永続化先にしない
 
-package resource の `resources/system/annotator_config.toml` は、初期生成用 template として扱う。
-直接編集・runtime 書き戻し・test fixture 注入の対象ではない。
+パッケージリソースの `resources/system/annotator_config.toml` は初期生成用テンプレートとして扱う。直接編集、実行時の書き戻し、テストフィクスチャからの注入対象にはしない。
 
-### 3. user override は OS user config directory に保存する
+### 3. ユーザー上書き設定は OS ユーザー設定ディレクトリへ保存する
 
-ユーザーが local model の実行設定を変える場合、platformdirs による
-`image-annotator-lib` の OS user config directory の `user_config.toml` を使う。
-Windows は LocalAppData、Linux は XDG config home。共有 `config/user_config.toml` は
-自動採用せず、内容と所有 OS を確認して明示移行する。明示 config path はテスト等で引き続き使える。
+ユーザーがローカルモデルの実行設定を変更する場合は、`platformdirs` による `image-annotator-lib` の OS ユーザー設定ディレクトリ配下の `user_config.toml` を使用する。Windows では LocalAppData、Linux では XDG config home となる。共有の `config/user_config.toml` は自動採用せず、内容と所有 OS を確認したうえで明示的に移行する。なお、テスト等で明示的に設定パスを渡す用法は引き続き利用できる。
 
-主な user override 対象:
+主なユーザー上書き対象:
 
 - `device`
 - `model_path`
 - `tag_threshold`
 - `batch_size`
 - `gpu_memory_limit_gb`
-- custom local model の section
+- カスタムローカルモデルのセクション
 
-system catalog を直接編集する運用は、built-in catalog の開発・配布更新・明示的な maintenance
-作業に限定する。
+システムカタログの直接編集は、組み込みカタログの開発、配布更新、および明示的なメンテナンス作業に限定する。
 
-### 4. runtime-derived metadata は system catalog に保存しない
+### 4. 実行時派生メタデータはシステムカタログに保存しない
 
-model loader が実行時に計算した metadata は `config/annotator_config.toml` に書き戻さない。
+モデルローダーが実行時に計算したメタデータは、`config/annotator_config.toml` へ書き戻さない。`estimated_size_gb` などの実行時派生メタデータは別ファイルに保存する。
 
-`estimated_size_gb` などの runtime-derived metadata は、別ファイルに保存する。
-
-初期候補:
+保存先の初期候補:
 
 ```text
 <OS user cache directory>/image-annotator-lib/model_runtime_cache.toml
 ```
 
-実行時 metadata と `install_markers` は OS user cache に分離する。モデル重みと
-system catalog は portable な project assets として維持する。生成ファイルと OS 固有の
-モデル実行パスを共有 checkout で奪い合わない。
+実行時メタデータと `install_markers` は OS ユーザーキャッシュへ分離する。一方で、モデル重みとシステムカタログはポータブルなプロジェクト資産として維持する。これにより、生成ファイルと OS 固有のモデル実行パスを共有チェックアウト上で奪い合う事態を防ぐ。
 
-`estimated_size_gb` の有効値は以下の優先順位で解決する。
+`estimated_size_gb` の有効値は、以下の優先順位で解決する。
 
 ```text
 user_config.toml
@@ -136,21 +110,19 @@ user_config.toml
 > code/class fallback
 ```
 
-ユーザーが明示した値を runtime cache が上書きしてはならない。
+ユーザーが明示した値を、実行時キャッシュが上書きしてはならない。
 
 ### 5. `capabilities` は削除不能な追加マージとする
 
-local ML model の `capabilities` は、通常の user override とは異なり、system catalog と
-`user_config.toml` の集合和で決定する。
+ローカル ML モデルの `capabilities` は通常の上書きとは異なり、システムカタログと `user_config.toml` の集合和で決定する。
 
 ```text
 effective_capabilities = system_capabilities ∪ user_capabilities
 ```
 
-これにより、`user_config.toml` は `capabilities` を追加できるが、system catalog が宣言した
-`capabilities` を削除できない。
+これにより、`user_config.toml` から `capabilities` を追加することはできるが、システムカタログが宣言した `capabilities` を削除することはできない。
 
-例:
+マージ例:
 
 ```toml
 # system catalog
@@ -162,16 +134,13 @@ capabilities = ["tags", "ratings"]
 capabilities = ["tags"]
 ```
 
-有効値:
+この場合、有効値は次のようになり、`ratings` は削除されない。
 
 ```toml
 capabilities = ["tags", "ratings"]
 ```
 
-`ratings` は削除されない。
-
-custom local model の場合、system catalog に同名 section がないため、`user_config.toml` の
-`capabilities` がそのまま採用される。
+カスタムローカルモデルの場合は、システムカタログに同名セクションが存在しないため、`user_config.toml` の `capabilities` がそのまま採用される。
 
 ```toml
 [my-custom-wd]
@@ -183,164 +152,135 @@ tag_threshold = 0.35
 device = "cuda"
 ```
 
-custom local model で `capabilities` が未指定の場合は、`type` / `class` から推論してよい。
-ただし、その場合は明示宣言を促す warning を出す。
+カスタムローカルモデルで `capabilities` が未指定の場合は、`type` や `class` から推論してよい。ただし、その際は明示的な宣言を促す警告(warning)を出力する。
 
-理由: `capabilities` は単なる表示用設定ではなく、モデルが返してよい出力型の契約である。
-system catalog が宣言した built-in model の契約を user override で落とせると、UI filter /
-LoRAIro DB sync / result validation / 保存処理が不整合になる。
+この仕様を採る理由は、`capabilities` が単なる表示用設定ではなくモデル出力型の契約であるためである。システムカタログの契約をユーザー設定で削れてしまうと、UI フィルタ、LoRAIro の DB 同期、結果検証、保存処理の間で不整合が生じる。
 
-### 6. `add_default_setting()` は新規利用禁止とする
+### 6. `add_default_setting()` は新規利用を禁止する
 
-`ModelConfigRegistry.add_default_setting()` は、新規コードで使用してはならない。
+`ModelConfigRegistry.add_default_setting()` は新規コードで使用してはならない。理由は以下の 3 点である。
 
-理由:
+- メソッド名から永続書き込みの発生を予測しづらい。
+- テストフィクスチャが一時設定の注入に使うとシステムカタログを汚染する。
+- システムカタログの読み取り専用契約と矛盾する。
 
-- 名前から永続書き込みが予測しづらい
-- test fixture が一時設定注入に使うと system catalog を汚染する
-- system catalog read-only contract と矛盾する
+既存互換のため即座には削除しないが、少なくともテストおよび通常実行経路では使用禁止とする。一時的な設定注入には、`set_system_value()` または分離された `ModelConfigRegistry` インスタンスを使用する。
 
-既存互換のため即削除はしないが、少なくとも test/runtime 経路では使用禁止とする。
-一時設定注入には `set_system_value()` または isolated `ModelConfigRegistry` を使う。
+### 7. `save_system_config()` は通常実行時から呼び出さない
 
-### 7. `save_system_config()` は通常 runtime から呼ばない
+`save_system_config()` は、メンテナンスおよび開発者向けツールの明示的操作に限定する。通常実行時、モデル読み込み、副作用的なメタデータ更新、テストフィクスチャから呼び出してはならない。
 
-`save_system_config()` は maintenance / developer tooling 用の明示操作に限定する。
+特に `loader_base._save_size_to_config()` は、システムカタログではなく実行時キャッシュへ保存する実装へ変更する。
 
-通常 runtime、model load、副作用的な metadata 更新、test fixture から呼んではならない。
+### 8. テストは本番のシステムカタログへ書き込んではならない
 
-特に `loader_base._save_size_to_config()` は、system catalog ではなく runtime cache へ保存する
-実装へ変更する。
+`image-annotator-lib` および LoRAIro のテストは、実際の `config/annotator_config.toml` を永続変更してはならない。テストでローカルモデル設定が必要な場合は、以下のいずれかを使用する。
 
-### 8. test は real system catalog に書いてはならない
+- `tmp_path` に配置した分離設定パス
+- 分離された `ModelConfigRegistry()` インスタンス
+- `set_system_value()` によるインメモリ注入
+- `monkeypatch` で差し替えた設定パス
 
-image-annotator-lib と LoRAIro の test は、real `config/annotator_config.toml` を永続変更してはならない。
-
-test で local model config が必要な場合は、以下のいずれかを使う。
-
-- `tmp_path` に配置した isolated config path
-- isolated `ModelConfigRegistry()` instance
-- `set_system_value()` による in-memory 注入
-- monkeypatch された config path
-
-regression 条件:
+回帰テストの条件:
 
 ```text
 pytest 実行後に config/annotator_config.toml に test-only section が追加されない。
 ```
 
-### 9. LoRAIro は image-annotator-lib の TOML を直接編集しない
+### 9. LoRAIro は `image-annotator-lib` の TOML を直接編集しない
 
-LoRAIro は image-annotator-lib の local model catalog を直接編集・同期しない。
-
-LoRAIro が使う lib 境界:
+LoRAIro は、`image-annotator-lib` のローカルモデルカタログを直接編集・同期しない。LoRAIro が利用するライブラリ境界は以下に限定する。
 
 - `list_annotator_info()`
 - `annotate(..., model_name_list=..., api_keys=...)`
 - その他の公開 API
 
-LoRAIro DB の `models` / `model_types` は検索・表示・保存関連の cache / projection であり、
-image-annotator-lib の config 正本ではない。
+LoRAIro DB の `models` および `model_types` は、検索・表示・保存のためのキャッシュおよび投影(projection)であり、`image-annotator-lib` の設定正本ではない。
 
-### 10. OS user config/cache directory への移行は今回採用しない
+### 10. OS ユーザー設定・キャッシュディレクトリへの移行は今回採用しない
 
-`platformdirs` 等を使って OS user config/cache directory に保存する案は、将来検討として残す。
+`platformdirs` 等を用いて OS 標準のユーザー設定・キャッシュディレクトリへ保存する案は、将来検討として残す。
 
-今回の優先事項は image-annotator-lib#95 の再発防止であり、保存先解決・migration・テスト差し替え・
-利用者説明が増える OS directory 移行は過剰と判断する。
+今回の最優先事項は `image-annotator-lib#95` の再発防止である。保存先解決、移行処理、テスト差し替え、利用者向け説明が増える OS ディレクトリ移行は、この時点では過剰と判断した。
 
-将来、以下が必要になった場合は別 ADR で再検討する。
+将来、以下の要件が生じた場合は別 ADR で再検討する。
 
-- frozen app / installer で cwd が安定しない
-- 複数アプリから image-annotator-lib を共有する
-- OS 標準の user config/cache directory に統一する必要がある
-- project-local config を portable mode に限定したい
+- フローズンアプリやインストーラー配布でカレントディレクトリ(cwd)が安定しない場合
+- 複数アプリから `image-annotator-lib` を共有する場合
+- OS 標準のユーザー設定・キャッシュディレクトリに統一する必要がある場合
+- プロジェクトローカル設定をポータブルモードに限定したい場合
 
 ## Rationale
 
-### project-local read-only catalog を採用する理由
+### プロジェクトローカルの読み取り専用カタログを採用する理由
 
 | 案 | 内容 | 利点 | 欠点 | 評価 |
 |---|---|---|---|---|
-| A. 現状維持 | `Path.cwd()/config` に system catalog を置き、runtime 書き戻しも継続 | 実装変更が最小 | #95 が再発しやすい。catalog と runtime state が混ざる | 不採用 |
-| B. project-local 維持 + read-only contract | 利用側 `config/annotator_config.toml` を system catalog とし、runtime/test 書き戻しは禁止 | 既存構造に近い。#95 を小さい変更で解決できる。custom local model も扱いやすい | cwd 依存は残る | 採用 |
-| C. OS user config/cache | `platformdirs` 等で OS 標準 directory に保存 | GUI/frozen app で安定。cwd 依存なし | 実装・migration・テスト差し替えが重い | 将来検討 |
-| D. package resource のみ | system catalog は package resource に固定 | drift が少ない。read-only が強い | 利用側 catalog 拡張が難しい | 不採用 |
-| E. 明示 config_path 必須 | lib は default path を持たず、利用側が必ず path を渡す | 責務が明確 | API 利用者の負担が大きい | 不採用 |
+| A. 現状維持 | `Path.cwd()/config` にシステムカタログを置き、実行時書き戻しも継続する | 実装変更が最小 | #95 が再発しやすい。カタログと実行時状態が混ざる | 不採用 |
+| B. プロジェクトローカル維持+読み取り専用契約 | 利用側 `config/annotator_config.toml` をシステムカタログとし、実行時・テストからの書き戻しを禁止する | 既存構造に近い。#95 を小さな変更で解決できる。カスタムローカルモデルも扱いやすい | cwd 依存は残る | 採用 |
+| C. OS ユーザー設定・キャッシュ | `platformdirs` 等で OS 標準ディレクトリに保存する | GUI やフローズンアプリで安定し、cwd 依存がない | 実装、移行、テスト差し替えの負担が重い | 将来検討 |
+| D. パッケージリソースのみ | システムカタログをパッケージリソースに固定する | 乖離が少ない。読み取り専用性が強い | 利用側でのカタログ拡張が難しい | 不採用 |
+| E. 明示 `config_path` 必須 | ライブラリはデフォルトパスを持たず、利用側が必ずパスを渡す | 責務が明確 | API 利用者の負担が大きい | 不採用 |
 
-B 案は、今回の主要目的である #95 の再発防止と、既存構造・テスタビリティ・custom local model
-サポートのバランスが最も良い。
+案 B は、今回の主要目的である #95 の再発防止と、既存構造・テスタビリティ・カスタムローカルモデル対応のバランスが最も良い。
 
 ### `capabilities` を集合和にする理由
 
-`capabilities` は `device` や `tag_threshold` と違い、単なる実行時 preference ではない。
-`UnifiedAnnotationResult` validation、LoRAIro model sync、UI filter、保存処理の前提になる
-出力契約である。
+`capabilities` は `device` や `tag_threshold` と異なり、単なる実行時の好み(preference)ではない。`UnifiedAnnotationResult` の検証、LoRAIro のモデル同期、UI フィルタ、保存処理の前提となる出力契約である。
 
-system catalog が `["tags", "ratings"]` と宣言した built-in model を、user config が
-`["tags"]` に上書きできると、モデル本体が `ratings` を返すにもかかわらず、LoRAIro は
-tags-only と誤認する。
+システムカタログが `["tags", "ratings"]` と宣言した組み込みモデルを、ユーザー設定が `["tags"]` へ上書きできてしまうと、モデル本体は `ratings` を返すにもかかわらず LoRAIro 側がタグ専用と誤認する。一方で、カスタムローカルモデルではユーザー自身がモデル契約の所有者となるため、ユーザー設定で `capabilities` を宣言できる必要がある。集合和マージであれば、組み込みモデルの契約削除を防ぎつつ、カスタムや実験的モデルの追加宣言を許容できる。
 
-一方、custom local model ではユーザーが model contract の owner になるため、user config で
-`capabilities` を宣言できる必要がある。
+### 実行時キャッシュを分離する理由
 
-集合和 merge は、built-in model の契約削除を防ぎつつ、custom / experimental model の追加宣言を
-許可できる。
+`estimated_size_gb` は実行時に計算できる補助メタデータであり、組み込みモデルカタログの定義そのものではない。システムカタログへ自動保存すると、以下の問題が発生する。
 
-### runtime cache を分離する理由
+- `git diff` に実行時の状態が混入する。
+- テストや通常実行によってカタログが書き換わる。
+- パッケージテンプレートと利用側カタログの乖離が広がる。
+- ユーザー明示値と自動計算値の優先順位が曖昧になる。
 
-`estimated_size_gb` は実行時に計算できる補助 metadata であり、built-in model catalog の定義そのもの
-ではない。
-
-system catalog に自動保存すると、以下の問題が起きる。
-
-- git diff に runtime state が混ざる
-- test / runtime 実行で catalog が変わる
-- package template と利用側 catalog の drift が増える
-- ユーザー明示値と自動計算値の優先順位が曖昧になる
-
-runtime cache へ分離すれば、削除可能な state として扱える。
+実行時キャッシュへ分離すれば、いつでも削除可能な一時状態として扱える。
 
 ## Consequences
 
 ### 良い影響
 
-- image-annotator-lib#95 の test-only config 汚染を構造的に防げる
-- system catalog と runtime cache の責務が分かれる
-- built-in local model の `capabilities` 契約が user config で削除されない
-- custom local model の `capabilities` 宣言は引き続き可能
-- LoRAIro は lib TOML を直接管理せず、公開 API 境界を維持できる
-- OS user directory 移行を後回しにでき、今回の実装 scope を小さく保てる
+- `image-annotator-lib#95` のテスト専用設定による汚染を構造的に防止できる。
+- システムカタログと実行時キャッシュの責務が分離される。
+- 組み込みローカルモデルの `capabilities` 契約がユーザー設定で削除されなくなる。
+- カスタムローカルモデルの `capabilities` 宣言は引き続き可能である。
+- LoRAIro はライブラリの TOML を直接管理せず、公開 API 境界を維持できる。
+- OS ユーザーディレクトリ移行を後回しにすることで、今回の実装スコープを小さく保てる。
 
 ### 悪い影響・トレードオフ
 
-- `capabilities` だけ通常 override ではなく集合和 merge になるため、仕様説明が必要
-- project-local config のため、cwd 依存は完全には解消しない
-- package resource と利用側 `config/annotator_config.toml` の drift は残る
-- runtime cache file の新設により、config file が 1 つ増える
-- `add_default_setting()` / `save_system_config()` 依存コードの整理が必要
+- `capabilities` だけ通常の上書きではなく集合和マージとなるため、仕様説明が必要になる。
+- プロジェクトローカル設定のため、cwd 依存は完全には解消しない。
+- パッケージリソースと利用側 `config/annotator_config.toml` の乖離は残る。
+- 実行時キャッシュファイルの新設により、設定ファイルが 1 つ増える。
+- `add_default_setting()` および `save_system_config()` に依存するコードの整理が必要になる。
 
 ### 実装方針
 
-Phase 1: #95 直接対策
+#### Phase 1:#95 直接対策
 
-- test fixture の `add_default_setting()` 使用をやめる
-- test は `tmp_path` / isolated registry / in-memory injection を使う
-- `config/annotator_config.toml` に test-only section が戻らない regression test を追加する
+- テストフィクスチャにおける `add_default_setting()` の使用を廃止する。
+- テストでは `tmp_path`、分離レジストリ、インメモリ注入のいずれかを使用する。
+- `config/annotator_config.toml` にテスト専用セクションが戻らないことを検証する回帰テストを追加する。
 
-Phase 2: merge semantics
+#### Phase 2:マージ仕様の変更
 
-- `_merge_configs()` で `capabilities` を集合和 merge にする
-- built-in model の system `capabilities` が user config によって削除されないことを test する
-- custom local model の user `capabilities` が採用されることを test する
+- `_merge_configs()` において、`capabilities` を集合和マージに変更する。
+- 組み込みモデルのシステム `capabilities` がユーザー設定で削除されないことをテストする。
+- カスタムローカルモデルのユーザー `capabilities` が採用されることをテストする。
 
-Phase 3: runtime cache 分離
+#### Phase 3:実行時キャッシュの分離
 
-- `loader_base._save_size_to_config()` を runtime cache 保存へ移す
-- `estimated_size_gb` の解決順を `user_config > runtime_cache > system_catalog` にする
-- `save_system_config()` を通常 runtime から呼ばないようにする
+- `loader_base._save_size_to_config()` の保存先を実行時キャッシュへ移す。
+- `estimated_size_gb` の解決順を `user_config > runtime_cache > system_catalog` にする。
+- 通常実行時から `save_system_config()` を呼び出さないようにする。
 
-Phase 4: maintenance API 整理
+#### Phase 4:メンテナンス API の整理
 
-- `add_default_setting()` を deprecated として明示する
-- system catalog 更新が必要な場合は maintenance / developer tooling として別経路に限定する
+- `add_default_setting()` を非推奨(deprecated)として明示する。
+- システムカタログの更新が必要な場合は、メンテナンスおよび開発者向けツールの別経路に限定する。

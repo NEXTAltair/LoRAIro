@@ -1,27 +1,27 @@
 ---
 type: ADR
-title: Export tag language directories for Kohya-compatible datasets
+title: Kohya 互換データセット向けにタグ言語別ディレクトリを出力する
 status: Accepted
 timestamp: 2026-07-09
 tags: [dataset-export, tag-translation, kohya]
 ---
-# ADR 0088: Export tag language directories for Kohya-compatible datasets
+# ADR 0088: Kohya 互換データセット向けにタグ言語別ディレクトリを出力する
 
 ## Context
 
-タグ翻訳を学習 export に反映するとき、複数言語を同じ `.txt` に混ぜると Kohya/sd-scripts
-からは「複数の語彙を同時に持つ 1 つの caption」として扱われる。これは「言語ごとに使える
-dataset を出す」目的と異なり、trigger やタグ語彙の重みを混線させる。
+タグ翻訳を学習用エクスポートに反映する際、複数言語を同じ `.txt` ファイルへ混在させると、Kohya および sd-scripts はそれを「複数語彙を同時に含む 1 つのキャプション」として解釈する。これは「言語ごとに利用できるデータセットを出力する」という目的に反し、トリガーやタグ語彙の重みを混線させる。
 
-Kohya の通常 dataset は画像と同名 stem の `.txt` sidecar を読むため、`img001.ja.txt` の
-ような複数 extension 同居も利用側の `caption_extension` 切り替えを要求する。
+また、Kohya の通常データセットは画像と同名のベース名(stem)を持つ `.txt` サイドカーファイルを読み込む。そのため、`img001.ja.txt` のように複数拡張子を混在させる方式では、利用側で `caption_extension` を切り替える手間が発生する。
 
 ## Decision
 
-タグ言語が 1 つだけ指定された場合は、従来と同じ export root に画像と sidecar を出力する。
-`canonical` は既存の tag format/canonical 出力を表す。
+### 単一言語の指定時
 
-複数言語が指定された場合は、言語ごとに export root 直下へ完全な dataset ディレクトリを作る。
+タグ言語が 1 つだけ指定された場合は、従来どおりエクスポートルート直下に画像とサイドカーファイルを出力する。なお、`canonical` は既存のタグ書式および正規化(canonical)出力を表す。
+
+### 複数言語の指定時
+
+複数言語が指定された場合は、エクスポートルート直下に言語ごとの完全なデータセットディレクトリを生成する。
 
 ```text
 export_dir/
@@ -33,19 +33,16 @@ export_dir/
     img001.txt
 ```
 
-翻訳タグは export overlay と tag format 変換後のタグ列を入力にし、指定言語の主訳があるタグだけ
-置換する。主訳が無いタグは canonical タグへ fallback する。
+### 翻訳タグの変換規則
+
+翻訳タグの生成では、エクスポート用オーバーレイとタグ書式変換を適用した後のタグ列を入力とする。指定言語の主訳が存在するタグだけを置換し、主訳がないタグは `canonical` タグへフォールバックする。
 
 ## Rationale
 
-言語別ディレクトリなら各ディレクトリをそのまま Kohya に渡せる。画像コピーは増えるが、
-初期実装では利用時の明快さを優先する。ディスク節約は将来 copy/hardlink/symlink の export
-ポリシーとして追加できる。
+言語別ディレクトリとして出力すれば、各ディレクトリをそのまま Kohya へ渡せる。画像のコピー量は増えるものの、初期実装では利用時の明快さを優先する。ディスク容量の節約については、将来コピー・ハードリンク・シンボリックリンクを切り替えるエクスポート方針として追加できる。
 
 ## Consequences
 
-TXT export と JSON metadata export は同じ tag language contract を使う。CLI の `export create`
-は txt と json を続けて生成するため、複数言語時は各言語ディレクトリに `.txt` と `metadata.json`
-が並ぶ。
-
-GUI で複数言語選択 UI を追加する場合も、この service contract へ `tag_languages` を渡す。
+- TXT エクスポートと JSON メタデータエクスポートは、同じタグ言語契約を用いる。
+- CLI の `export create` は TXT と JSON を連続して生成するため、複数言語の指定時には各言語ディレクトリに `.txt` と `metadata.json` が並ぶ。
+- GUI に複数言語の選択 UI を追加する場合も、同じサービス契約へ `tag_languages` を渡す。

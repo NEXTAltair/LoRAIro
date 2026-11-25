@@ -3,22 +3,24 @@ trigger: always_on
 description: "uv を並列に走らせて共有 venv を壊さないための運用"
 ---
 
-# Parallel Execution Rules
+# 並列実行と共有 venv の運用ルール
 
-複数のパッケージマネージャ操作 (例: `uv`) を並列に走らせた際の共有仮想環境 (venv) 破損事故を再発させないための運用ルール。プロジェクトルートの venv を共有するすべての操作に適用する。venv / 実行環境の分離粒度 (worktree 間・package 間でどこまで環境を共有し、どこから分離するか) の判断はこのファイルに集約する。他のルール文書 ([git-workflow.md](git-workflow.md), [testing.md](testing.md) 等) からはこのファイルを参照するだけにとどめる。
+複数のパッケージマネージャ操作(例:`uv`)を並列実行した際に発生する、共有仮想環境(venv)の破損事故を防ぐための運用ルールである。プロジェクトルートの venv を共有するすべての操作に適用する。
 
-> **プロジェクト固有:** 実際のプロジェクトルート venv のパス、パッケージマネージャ、CI で使う env 変数名は導入先で追記する。以下は `uv` (Python) を例にした記法。
+worktree 間およびパッケージ間における実行環境の分離粒度の判断は、本ファイルに集約する。他のルール文書([git-workflow.md](git-workflow.md)、[testing.md](testing.md) など)からは本ファイルを参照するだけにとどめる。
+
+> **プロジェクト固有:** 実際のプロジェクトルート venv のパス、パッケージマネージャ、CI で使う環境変数名は導入先で追記する。以下は `uv`(Python)を例とした記法である。
 
 ## 核心ルール
 
-**並列で `uv` を走らせる場合は同一 venv への同期系操作を競合させない。** worktree 内で実行する通常のコマンドは共有 venv の場所を明示して使う。`uv sync` / `uv lock` などの書き換え系は直列化し、`uv run --active` は使わない。
+**並列で `uv` を実行する場合は、同一 venv に対する同期系操作を競合させない。** worktree 内で通常のコマンドを実行する際は共有 venv の場所を明示する。また、`uv sync` や `uv lock` などの環境書き換え系コマンドは直列化し、`uv run --active` は使わない。
 
-## Hook で自動ブロックされる操作
+## フックで自動ブロックされる操作
 
-kit の PreToolUse hook (`hook_pre_commands.py`) は、導入先が `worktree_uv_guard: true` を override で有効化すると、`.agents/worktree/` 配下での `uv` 実行が共有 venv の明示 (`UV_PROJECT_ENVIRONMENT=<project root>/.venv`) を伴わない場合にブロックする。デフォルトルールは `hooks/rules/pre_commands.default.json`、導入先 override は `<project_root>/.claude/hooks/rules/pre_commands.json` に置く。
+kit の PreToolUse フック(`hook_pre_commands.py`)は、導入先で `worktree_uv_guard: true` を上書き有効化している場合、`.agents/worktree/` 配下で共有 venv の明示(`UV_PROJECT_ENVIRONMENT=<project root>/.venv`)を伴わない `uv` 実行をブロックする。デフォルトルールは `hooks/rules/pre_commands.default.json`、導入先の上書き設定は `<project_root>/.claude/hooks/rules/pre_commands.json` に配置する。
 
 ```bash
-# 禁止例 (worktree_uv_guard 有効時に hook がブロック)
+# 禁止例(worktree_uv_guard 有効時にフックがブロックする)
 uv run --active pytest
 uv run --active python script.py
 
@@ -26,79 +28,70 @@ uv run --active python script.py
 UV_PROJECT_ENVIRONMENT=<project root>/.venv uv run pytest
 ```
 
-`--active` が必要な特殊ケースでも、venv を直接 activate 済みなら `.venv/bin/<command>` を直接呼ぶことで hook ブロックを回避できる。
+`--active` が必要な特殊なケースでも、venv を直接有効化済みであれば `.venv/bin/<command>` を直接呼び出すことでフックのブロックを回避できる。
 
 ## 運用ルール
 
-核心ルールの具体形は次の 3 つ。1 と 2 は hook (`worktree_uv_guard`) で機械的に止められる。
+核心ルールの具体的な運用は次の 4 点である。このうち 1 と 2 はフック(`worktree_uv_guard`)によって機械的に防止される。
 
-1. **並列タスクは worktree で分離し、共有 venv を明示して使う。** 同一 venv を並列で叩かない
-   (`uv run pytest tests/unit/ & uv run pytest tests/integration/ &` のような並列起動は禁止)。
-2. **`--active` 相当のフラグは使わない。** activate 中の venv とマニフェストの制約が食い違うと
-   venv 再作成のトリガーになる。
-3. **`uv sync` / `uv lock` 相当の書き換え系は直列に並べる。** `uv sync && uv sync --dev` のように
-   逐次実行し、`&` で並列にしない。
-4. **言語ランタイムのバージョンは固定ファイル (`.python-version` 等) で管理する。** 手動 activate する
-   shell でも `python --version` と `.venv/bin/python --version` の一致を確認する。固定バージョンの
-   変更は影響範囲が広いため PR レビュー必須。
+1. **並列タスクは worktree で分離し、共有 venv を明示して使う。** 同一 venv に対して並列実行してはならない(`uv run pytest tests/unit/ & uv run pytest tests/integration/ &` のような並列起動は禁止)。
+2. **`--active` 相当のフラグは使わない。** 有効化中の venv とマニフェストの制約が食い違うと、venv の再作成が引き起こされる。
+3. **`uv sync` や `uv lock` などの書き換え系操作は直列に実行する。** `uv sync && uv sync --dev` のように逐次実行し、`&` で並列化しない。
+4. **言語ランタイムのバージョンは固定ファイル(`.python-version` など)で管理する。** 手動で仮想環境を有効化したシェルでも、`python --version` と `.venv/bin/python --version` の一致を確認する。固定バージョンの変更は影響範囲が広いため、PR レビューを必須とする。
 
-## venv 分離粒度: worktree 間
+## venv 分離粒度:worktree 間
 
-- 原則としてワークツリー内に専用 venv を作らない (共有のプロジェクトルート venv を使う)
-- worktree 配下で実行する場合は、共有実行環境のパスを明示する
-- **共有 venv パスの指定はツール側の環境設定で常設し、コマンドには毎回 env prefix を付けない**のが標準運用
-  - Claude Code 系ツール: 設定ファイル (例: `.claude/settings.json`) の `env` に `UV_PROJECT_ENVIRONMENT` を設定しておけば、worktree からでも素の `uv run ...` で共有 venv を使える
-  - Codex 系ツール: 設定ファイル (例: `.codex/config.toml`) の shell 環境変数設定に同様の値を設定する
-- その環境設定が効かない shell (手動端末など) では `UV_PROJECT_ENVIRONMENT=<project root>/.venv uv ...` を明示する
-- read-only 検証で対象 checkout を固定したい場合は、`--no-sync` 相当のオプションと `PYTHONPATH` 明示を併用する
-- `uv` 単体の help/inspection は venv を作らないため例外として許可する
-- worktree 固有の venv が必要な特殊事情がある場合は、理由を明示してから実行する
+- 原則として worktree 内に専用の venv を作らず、プロジェクトルートの共有 venv を使う。
+- worktree 配下でコマンドを実行する場合は、共有実行環境のパスを明示する。
+- **共有 venv パスの指定はツール側の環境設定に常設し、毎回コマンド先頭へ環境変数を付けない**のが標準運用である。
+  - Claude Code 系ツール:設定ファイル(例:`.claude/settings.json`)の `env` に `UV_PROJECT_ENVIRONMENT` を設定しておけば、worktree から素の `uv run ...` で共有 venv を利用できる。
+  - Codex 系ツール:設定ファイル(例:`.codex/config.toml`)のシェル環境変数設定に同様の値を設定する。
+- 常設設定が効かないシェル(手動端末など)では、`UV_PROJECT_ENVIRONMENT=<project root>/.venv uv ...` を明示する。
+- 読み取り専用の検証で対象チェックアウトを固定したい場合は、`--no-sync` 相当のオプションと `PYTHONPATH` の明示を併用する。
+- `uv` 単体のヘルプ表示や確認コマンドは venv を作成しないため、例外として許可する。
+- worktree 固有の venv が必要な特殊事情がある場合は、理由を明示してから実行する。
 
-| | 共有 venv 常設方法 | コマンド記法 |
+| ツール | 共有 venv の常設方法 | コマンド記法 |
 |---|---|---|
-| Claude Code 系 | 設定ファイルの `env` | `uv run ...` (env prefix 不要) |
-| Codex 系 | 設定ファイルの shell 環境変数設定 | `uv run ...` (env prefix 不要) |
+| Claude Code 系 | 設定ファイルの `env` | `uv run ...`(環境変数の前置不要) |
+| Codex 系 | 設定ファイルのシェル環境変数設定 | `uv run ...`(環境変数の前置不要) |
 
-どちらも常設設定が効かない shell では `UV_PROJECT_ENVIRONMENT=<project root>/.venv uv ...` を明示する。
+どちらのツールでも、常設設定が効かないシェルでは `UV_PROJECT_ENVIRONMENT=<project root>/.venv uv ...` を明示する。
 
-## venv 分離粒度: package (サブモジュール) 間
+## venv 分離粒度:パッケージ(submodule)間
 
-複数の独立した package (submodule / monorepo の sub-package 等、それぞれ独自の `pyproject.toml` を持つもの) を扱う場合:
+それぞれ独自の `pyproject.toml` を持つ独立パッケージ(submodule やモノレポ内のサブパッケージなど)を扱う場合は、以下の方針に従う。
 
-- 各 package のテストはそれぞれ独立した pytest セッションとして実行するのが基本 (単一 invocation に混ぜない)
-- ただし package ごとに専用 venv を作ると、重い依存 (機械学習ライブラリ等) の重複ダウンロードや低速な I/O 環境 (ネットワークマウント等) 上での venv 作成で実用速度を損なうことがある
-- 対策: プロジェクトルートの共有 venv (dev dependency group にまとめておく) を `UV_PROJECT_ENVIRONMENT` で指し示し、package root から `--no-sync` 相当で実行することで、package 固有の venv 作成を避けられる
+- 各パッケージのテストは、それぞれ独立した `pytest` セッションとして実行する(単一の実行へ混ぜない)。
+- ただし、パッケージごとに専用 venv を作成すると、重い依存(機械学習ライブラリなど)の重複ダウンロードや、低速な I/O 環境(ネットワークマウントなど)上での venv 作成により実用速度が著しく低下する。
+- 対策として、プロジェクトルートの共有 venv(開発依存グループにまとめておく)を `UV_PROJECT_ENVIRONMENT` で指し示し、パッケージルートから `--no-sync` 相当で実行する。これにより、パッケージ固有の venv 作成を避けられる。
 
-**注意**: 常設した `UV_PROJECT_ENVIRONMENT` などの環境変数は全シェルコマンドに継承される。独立した venv を持つべきサブプロジェクト (モノレポ内の別 package 等) を実行するコマンド / recipe は、共有 venv を誤って使わないよう自前の環境変数を明示的に上書きする。さもないと静かに共有 venv へ流れて依存解決が壊れる。
+**注意**:常設した `UV_PROJECT_ENVIRONMENT` などの環境変数は、すべてのシェルコマンドへ継承される。独立した venv を持つべきサブプロジェクト(モノレポ内の別パッケージなど)を実行するコマンドやレシピでは、共有 venv を誤用しないよう自前の環境変数を明示的に上書きすること。上書きを忘れると静かに共有 venv へ流れてしまい、依存解決が壊れる。
 
 ```bash
-# 例: package root から共有 venv を使ってテストする
+# 例: パッケージルートから共有 venv を使ってテストを実行する
 cd <package root>
 UV_PROJECT_ENVIRONMENT=<project root>/.venv uv run --no-sync pytest
 ```
 
-> **プロジェクト固有:** 実際の package 一覧、依存グループへの統合方針、I/O 制約のあるマウント構成 (devcontainer のネットワークマウント等) は導入先で追記する。
+> **プロジェクト固有:** 実際のパッケージ一覧、依存グループへの統合方針、I/O 制約のあるマウント構成(Dev Container のネットワークマウントなど)は導入先で追記する。
 
-## Windows: 長命プロセスの entry point ロックと暗黙 sync
+## Windows 固有の注意:長命プロセスによるロックと暗黙の同期
 
-Windows は POSIX と異なり使用中ファイルを削除できない。GUI アプリ等の長命プロセスが共有 venv の
-entry point 実行ファイル (`Scripts\*.exe`) から起動していると、その exe をロックし続ける。
-この状態でパッケージマネージャの暗黙 sync (例: `uv run` の起動時 sync) が走ると、editable install の
-entry point 再生成がロック中 exe の削除失敗で中断し、**先に削除された別の entry point が消えたまま
-venv が部分破損**する (症状: `Failed to spawn: <command> / program not found`)。
+Windows は POSIX と異なり、使用中のファイルを削除できない。GUI アプリなどの長命プロセスが共有 venv のエントリーポイント実行ファイル(`Scripts\*.exe`)から起動している間、その実行ファイルはロックされ続ける。
 
-- **予防**: 長命プロセスが共有 venv から稼働している間は、同じ venv を使う CLI 実行に
-  `--no-sync` 相当を常用する (venv を一切書き換えないため安全)
-- **復旧**: 長命プロセスを終了してから `uv sync --dev` 相当で再同期する
+この状態でパッケージマネージャの暗黙的な同期(例:`uv run` 起動時の同期)が走ると、editable インストールのエントリーポイント再生成がロック中ファイルの削除失敗で中断する。その結果、**先に削除された別のエントリーポイントが消えたまま venv が部分破損する**(症状:`Failed to spawn: <command> / program not found`)。
 
-> **プロジェクト固有:** 対象となる長命プロセス (GUI アプリ等) の名前、`--no-sync` 運用を明記した
-> skill / ドキュメントへのポインタは導入先で追記する。
+- **予防**:長命プロセスが共有 venv から稼働している間は、同じ venv を使う CLI 実行に `--no-sync` 相当を常用する(venv を一切書き換えないため安全である)。
+- **復旧**:長命プロセスを終了させてから、`uv sync --dev` 相当で再同期する。
 
-## 復旧手順
+> **プロジェクト固有:** 対象となる長命プロセス(GUI アプリなど)の名前、`--no-sync` 運用を明記したスキルやドキュメントへのポインタは導入先で追記する。
 
-### 兆候
+## venv 破損時の復旧手順
 
-以下のエラーが出たら venv 破損を疑う:
+### 破損の兆候
+
+以下のエラーが出力された場合は、venv の破損を疑う。
 
 ```
 failed to remove directory '.venv/lib': Directory not empty
@@ -114,18 +107,18 @@ rm -rf .venv
 uv sync --dev
 ```
 
-注意点:
-- 重い依存の再ダウンロードが発生する場合がある (数分~十数分)
-- worktree 内の venv が壊れた場合は当該 worktree 内で同様に実行
-- 復旧中は他のパッケージマネージャコマンドを走らせない
+復旧時は次の点に注意する。
+- 重い依存パッケージの再ダウンロードが発生し、数分〜十数分かかる場合がある。
+- worktree 内の venv が破損した場合は、当該 worktree 内で同様に実行する。
+- 復旧作業中は、他のパッケージマネージャコマンドを同時に実行しない。
 
-> **プロジェクト固有:** 復旧を1コマンド化する Makefile ターゲット等があれば、ここに追記する。
+> **プロジェクト固有:** 復旧を 1 コマンド化する Makefile ターゲットなどがあれば、ここに追記する。
 
-## 判断フロー
+## 並列タスク実行前の判断フロー
 
-並列タスクをディスパッチする前のチェックリスト:
+並列タスクを投入する前に、以下の順で確認する。
 
-1. このタスクはパッケージマネージャを内部で呼び出すか? → No なら気にしなくて良い
-2. 並列で走らせる別タスクも同じツールを呼ぶか? → No なら気にしなくて良い
-3. 同じ venv を共有しているか? → No (worktree 分離済み) なら OK
-4. 上記 3 すべて Yes → **直列に並べ替える、または worktree を切る**
+1. このタスクは内部でパッケージマネージャを呼び出すか。呼び出さないなら問題ない。
+2. 並列実行する別タスクも同じツールを呼び出すか。呼び出さないなら問題ない。
+3. 同じ venv を共有しているか。worktree などで分離済みなら問題ない。
+4. 上記 3 つすべてに該当する場合は、**直列に並べ替えるか、専用 worktree を切って分離する**。

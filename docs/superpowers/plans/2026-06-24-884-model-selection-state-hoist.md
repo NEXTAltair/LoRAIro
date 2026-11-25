@@ -1,68 +1,68 @@
-# ModelSelectionStateManager Hoist 実装計画 (#884 Phase 1)
+# ModelSelectionStateManager Hoist 実装計画(#884 Phase 1)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** モデル選択 (選択 litellm_model_id 集合) の SSoT を `ModelSelectionWidget` の checkbox state から `gui/state/` の QObject 状態マネージャへ hoist し、Annotate タブを購読 view に降格する。
+**Goal:** モデル選択(選択 `litellm_model_id` 集合)の信頼源(SSoT)を `ModelSelectionWidget` のチェックボックス状態から `gui/state/` の QObject 状態マネージャへ引き上げ(hoist)、Annotate タブを購読ビューへ降格する。
 
-**Architecture:** ADR 0074 の `StagingStateManager` の前例に倣い、`gui/state/model_selection_state.py` に `ModelSelectionStateManager(QObject)` を新設する。MainWindow が所有・DI し、`AnnotateTabWidget` 内で `ModelSelectionWidget` (view) ↔ manager (SSoT) を loop guard 付きで双方向同期する。本 Phase は behavior 不変の refactor で、後続 Phase (dispatch 射影 / Jobs submit 撤去) の土台を作る。
+**Architecture:** ADR 0074 の `StagingStateManager` の前例に倣い、`gui/state/model_selection_state.py` に `ModelSelectionStateManager(QObject)` を新設する。`MainWindow` がこれを所有・DI し、`AnnotateTabWidget` 内で `ModelSelectionWidget`(ビュー)とマネージャ(SSoT)をループガード付きで双方向同期する。本 Phase は振る舞いを変えないリファクタリングであり、後続 Phase(dispatch 射影および Jobs submit 撤去)の土台を作る。
 
-**Tech Stack:** PySide6 (QtCore QObject/Signal), pytest-qt, Loguru。
+**Tech Stack:** PySide6(QtCore QObject / Signal)、pytest-qt、Loguru
 
-## Global Constraints
+## 全体制約
 
-- ADR 0076 が本 Phase の SSoT。SSoT = 選択モデル集合 (ADR 0075)、所在を gui/state/ へ移す改定 (#884 hoist)。
-- 型ヒント必須・modern Python 構文 (`list[str]` / `X | None`)・Google-style docstring・実装コメントは日本語 (`.claude/rules/coding-style.md`)。
-- 行長 108 / Ruff format / `# type: ignore` `# noqa` 禁止。
-- INFO ログはバッチサマリーのみ。per-item は DEBUG/TRACE (`.claude/rules/logging.md`)。`StagingStateManager` と同じ粒度に揃える。
-- 実装作業は worktree から (`.claude/rules/git-workflow.md`)。branch `refactor/issue-884-model-selection-state`。
-- 検証は CI-equivalent filter: `uv run pytest -m "not gui_show and not calls_real_webapi and not downloads_and_runs_model and not slow"` (`.claude/rules/testing.md`)。タブ抽出系の回帰は `tests/unit/gui/window/test_main_window_coverage.py` も含める ([[feedback_tab_extraction_check_window_coverage]])。
-- Qt-free ≠ QObject 排除。state manager は QObject 維持が正解 ([[feedback_qt_free_not_qobject_exclusion]])。
-
----
-
-## Epic ロードマップ (ADR 0076 全体)
-
-本計画は **Phase 1 のみ**。後続は別計画 (別 PR) として起票する:
-
-- **Phase 1 (本計画)**: `ModelSelectionStateManager` hoist。Annotate を購読 view 化。behavior 不変の土台。
-- **Phase 2**: Annotate に dispatch mode (同期 / async Batch API) を追加 + Qt-free dispatch 射影 service (`provider_batch_capability` + `list_batch_capable_models` 再利用、worker thread, ADR 0044)。
-- **Phase 3**: Jobs (`provider_batch_job_widget.py`) の submit パネル丸ごと撤去 (picker / staging / rating_preflight combo)。Jobs を純粋監視台帳に。
-- **Phase 4**: wireframe v12 反映 (Annotate route バッジ / async batch レーン / Jobs 監視専用)。
-
-Phase 1 単体で「選択 state が 1 箇所に集約」を達成し、ユニットテスト可能。ユーザー可視のバグ解消 (Annotate↔Jobs 反映) は Phase 3 まで保留 (ADR 0076: Jobs は購読せず picker 撤去で解消)。
+- ADR 0076 を本 Phase の信頼源(SSoT)とする。SSoT は選択モデル集合(ADR 0075)であり、その所在を `gui/state/` へ移す改定である(#884 hoist)。
+- 型ヒントを必須とし、モダンな Python 構文(`list[str]`、`X | None`)、Google スタイルの docstring、日本語の実装コメントを用いる(`.claude/rules/coding-style.md`)。
+- 最大行長は 108 文字とし、Ruff フォーマットを適用する。`# type: ignore` および `# noqa` は禁止する。
+- INFO ログはバッチサマリーのみとし、個別項目は DEBUG または TRACE とする(`.claude/rules/logging.md`)。粒度は `StagingStateManager` に揃える。
+- 実装作業はワークツリーから開始する(`.claude/rules/git-workflow.md`)。ブランチ名は `refactor/issue-884-model-selection-state` とする。
+- 検証には CI 相当フィルタ `uv run pytest -m "not gui_show and not calls_real_webapi and not downloads_and_runs_model and not slow"` を用いる(`.claude/rules/testing.md`)。タブ抽出系の回帰確認には `tests/unit/gui/window/test_main_window_coverage.py` も含める([[feedback_tab_extraction_check_window_coverage]])。
+- Qt 非依存は QObject の排除を意味しない。状態マネージャは QObject を維持するのが正解である([[feedback_qt_free_not_qobject_exclusion]])。
 
 ---
 
-## File Structure
+## Epic ロードマップ(ADR 0076 全体)
 
-- `src/lorairo/gui/state/model_selection_state.py` (新規): `ModelSelectionStateManager(QObject)`。選択 litellm_model_id 集合の SSoT。
-- `src/lorairo/gui/window/main_window.py` (改修): manager の生成・所有・AnnotateTab への DI。
-- `src/lorairo/gui/tab/annotate_tab.py` (改修): manager を DI 受け取り、`ModelSelectionWidget` と双方向同期。`selected_litellm_model_ids()` を manager 起点に。
-- `tests/unit/gui/state/test_model_selection_state.py` (新規): manager のユニットテスト。
-- `tests/unit/gui/tab/test_annotate_tab.py` (改修): DI 引数追加・同期検証。
-- `tests/unit/gui/window/test_main_window_coverage.py` (改修): manager 初期化・DI 委譲の coverage。
+本計画の対象は **Phase 1 のみ**である。後続は別計画(別 PR)として起票する。
+
+- **Phase 1(本計画):** `ModelSelectionStateManager` の引き上げと Annotate の購読ビュー化。振る舞い不変の土台を作る。
+- **Phase 2:** Annotate に dispatch mode(同期/非同期 Batch API)を追加し、Qt 非依存の dispatch 射影サービスを実装する(`provider_batch_capability` と `list_batch_capable_models` を再利用、ワーカースレッド、ADR 0044)。
+- **Phase 3:** Jobs(`provider_batch_job_widget.py`)の submit パネル(ピッカー、ステージング、`rating_preflight` コンボ)を丸ごと撤去し、Jobs を純粋な監視台帳にする。
+- **Phase 4:** wireframe v12 を反映する(Annotate の route バッジ、async batch レーン、Jobs の監視専用化)。
+
+Phase 1 単体で「選択状態が 1 箇所に集約される」ことを達成し、ユニットテスト可能にする。ユーザー可視のバグ解消(Annotate と Jobs 間の反映)は Phase 3 まで保留する(ADR 0076 の方針により、Jobs は購読せずピッカー撤去で解消する)。
 
 ---
 
-### Task 1: ModelSelectionStateManager (gui/state/ QObject SSoT)
+## ファイル構成
+
+- `src/lorairo/gui/state/model_selection_state.py`(新規): `ModelSelectionStateManager(QObject)`。選択 `litellm_model_id` 集合の SSoT。
+- `src/lorairo/gui/window/main_window.py`(改修): マネージャの生成・所有、および `AnnotateTab` への DI。
+- `src/lorairo/gui/tab/annotate_tab.py`(改修): マネージャを DI で受け取り、`ModelSelectionWidget` と双方向同期する。`selected_litellm_model_ids()` をマネージャ起点へ変更する。
+- `tests/unit/gui/state/test_model_selection_state.py`(新規): マネージャのユニットテスト。
+- `tests/unit/gui/tab/test_annotate_tab.py`(改修): DI 引数の追加と同期検証。
+- `tests/unit/gui/window/test_main_window_coverage.py`(改修): マネージャ初期化と DI 委譲のカバレッジ追加。
+
+---
+
+### Task 1: `ModelSelectionStateManager`(`gui/state/` の QObject SSoT)
 
 **Files:**
 - Create: `src/lorairo/gui/state/model_selection_state.py`
 - Test: `tests/unit/gui/state/test_model_selection_state.py`
 
 **Interfaces:**
-- Consumes: なし (PySide6 QtCore のみ)。
-- Produces:
+- 依存(Consumes): なし(PySide6 の QtCore のみ)。
+- 提供(Produces):
   - `class ModelSelectionStateManager(QObject)`
-  - Signal `selection_changed = Signal(list)` (現在の選択 `list[str]` を載せる)
-  - `get_selected() -> list[str]` (選択順を保持)
-  - `set_selected(litellm_model_ids: list[str]) -> None` (集合を置換。変化時のみ emit)
-  - `set_model_selected(litellm_model_id: str, selected: bool) -> None` (1 件 ON/OFF。変化時のみ emit)
-  - `clear() -> None` (空に。元が非空のときのみ emit)
+  - シグナル `selection_changed = Signal(list)`(現在の選択 `list[str]` を載せる)
+  - `get_selected() -> list[str]`(選択順を保持する)
+  - `set_selected(litellm_model_ids: list[str]) -> None`(集合を置換し、変化時のみ発行する)
+  - `set_model_selected(litellm_model_id: str, selected: bool) -> None`(1 件を ON/OFF し、変化時のみ発行する)
+  - `clear() -> None`(空にし、元が非空のときのみ発行する)
   - `count() -> int`
   - `is_selected(litellm_model_id: str) -> bool`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: 失敗するテストを書く**
 
 ```python
 # tests/unit/gui/state/test_model_selection_state.py
@@ -142,12 +142,12 @@ def test_clear_emits_only_when_nonempty(qtbot, manager: ModelSelectionStateManag
     assert received == []
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: テストを実行して失敗を確認する**
 
-Run: `uv run pytest tests/unit/gui/state/test_model_selection_state.py -v`
-Expected: FAIL (ModuleNotFoundError: lorairo.gui.state.model_selection_state)
+実行コマンド: `uv run pytest tests/unit/gui/state/test_model_selection_state.py -v`
+期待結果: `ModuleNotFoundError: lorairo.gui.state.model_selection_state` で失敗する。
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **Step 3: 最小限の実装を書く**
 
 ```python
 # src/lorairo/gui/state/model_selection_state.py
@@ -243,12 +243,12 @@ class ModelSelectionStateManager(QObject):
         self.selection_changed.emit([])
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: テストを実行して通ることを確認する**
 
-Run: `uv run pytest tests/unit/gui/state/test_model_selection_state.py -v`
-Expected: PASS (7 tests)
+実行コマンド: `uv run pytest tests/unit/gui/state/test_model_selection_state.py -v`
+期待結果: 7 件すべて通る。
 
-- [ ] **Step 5: Format + commit**
+- [ ] **Step 5: フォーマットしてコミットする**
 
 ```bash
 uv run ruff format src/lorairo/gui/state/model_selection_state.py tests/unit/gui/state/test_model_selection_state.py
@@ -259,25 +259,26 @@ git commit -m "feat(gui): 選択モデル集合の SSoT ModelSelectionStateManag
 
 ---
 
-### Task 2: Annotate タブを購読 view に降格 + MainWindow 配線
+### Task 2: Annotate タブの購読ビュー化と `MainWindow` 配線
 
 **Files:**
-- Modify: `src/lorairo/gui/window/main_window.py` (state manager 生成・DI)
-- Modify: `src/lorairo/gui/tab/annotate_tab.py` (DI 受け取り・双方向同期)
-- Modify: `tests/unit/gui/tab/test_annotate_tab.py` (DI 引数追加・同期検証)
-- Modify: `tests/unit/gui/window/test_main_window_coverage.py` (初期化 coverage)
+- Modify: `src/lorairo/gui/window/main_window.py`(状態マネージャの生成と DI)
+- Modify: `src/lorairo/gui/tab/annotate_tab.py`(DI 受け取りと双方向同期)
+- Modify: `tests/unit/gui/tab/test_annotate_tab.py`(DI 引数の追加と同期検証)
+- Modify: `tests/unit/gui/window/test_main_window_coverage.py`(初期化カバレッジ)
 
 **Interfaces:**
-- Consumes: Task 1 の `ModelSelectionStateManager` (`get_selected` / `set_selected` / `set_model_selected` / `selection_changed`)。
-- Produces:
-  - `AnnotateTabWidget.__init__` に `model_selection_state_manager: ModelSelectionStateManager | None` キーワードを追加 (凍結契約の拡張)。
+- 依存(Consumes): Task 1 の `ModelSelectionStateManager`(`get_selected`、`set_selected`、`set_model_selected`、`selection_changed`)。
+- 提供(Produces):
+  - `AnnotateTabWidget.__init__` へのキーワード引数 `model_selection_state_manager: ModelSelectionStateManager | None` の追加(凍結契約の拡張)。
   - `MainWindow.model_selection_state_manager: ModelSelectionStateManager | None` 属性。
 
-**設計メモ (loop guard):** `ModelSelectionWidget.model_selection_changed (list)` → manager.`set_selected`、manager.`selection_changed` → widget.`set_selected_models` の双方向。再帰防止に `self._syncing_model_selection` フラグでガードする。`set_selected_models` は signal 抑制 setter なので、その後 manager は emit 済みで widget 側 emit は起きないが、安全のためガードを通す。`selected_litellm_model_ids()` getter は manager を SSoT として読む。
+**設計メモ(ループガード):**
+`ModelSelectionWidget.model_selection_changed(list)` からマネージャの `set_selected` へ、マネージャの `selection_changed` からウィジェットの `set_selected_models` へ双方向同期を行う。再帰を防ぐため、`self._syncing_model_selection` フラグでガードする。`set_selected_models` はシグナルを抑制するセッターだが、安全のためガードを通す。また、`selected_litellm_model_ids()` ゲッターはマネージャを SSoT として参照する。
 
-- [ ] **Step 1: Write the failing tests (annotate_tab)**
+- [ ] **Step 1: 失敗するテストを書く(`annotate_tab`)**
 
-`tests/unit/gui/tab/test_annotate_tab.py` の AnnotateTabWidget 生成 fixture (105, 143 行付近の 2 箇所) に `model_selection_state_manager=` 引数を追加し、同期テストを追記する。
+`tests/unit/gui/tab/test_annotate_tab.py` の `AnnotateTabWidget` 生成フィクスチャ(105 行目および 143 行目付近の 2 箇所)に `model_selection_state_manager=` 引数を追加し、同期テストを追記する。
 
 ```python
 # tests/unit/gui/tab/test_annotate_tab.py に追記
@@ -299,7 +300,7 @@ def test_state_manager_change_updates_widget_and_getter(qtbot, annotate_tab_with
     assert widget.selected_litellm_model_ids() == ["openai/gpt-4o"]
 ```
 
-新規 fixture (既存 fixture 群の近くに追加。既存の生成パターンを流用し `model_selection_state_manager` を渡す):
+新規フィクスチャを既存フィクスチャ群の近くに追加する(既存の生成パターンを流用し、`model_selection_state_manager` を渡す)。
 
 ```python
 @pytest.fixture
@@ -316,22 +317,22 @@ def annotate_tab_with_state(qtbot, mock_service_container, mock_db_manager):
     return widget, state_manager
 ```
 
-> 注: `mock_service_container` / `mock_db_manager` は既存 fixture 名に合わせること (test_annotate_tab.py の現行 fixture を grep で確認してから流用)。`selected_litellm_model_ids()` が manager 起点で値を返す検証なので、checkbox 未生成でも getter は manager を読む実装にする。
+> **注:** `mock_service_container` と `mock_db_manager` は、`test_annotate_tab.py` の現行フィクスチャを grep で確認して既存名に合わせる。`selected_litellm_model_ids()` がマネージャ起点で値を返すことを検証するため、チェックボックス未生成でもゲッターがマネージャを読む実装にする。
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 2: テストを実行して失敗を確認する**
 
-Run: `uv run pytest tests/unit/gui/tab/test_annotate_tab.py -v`
-Expected: FAIL (TypeError: unexpected keyword argument 'model_selection_state_manager')
+実行コマンド: `uv run pytest tests/unit/gui/tab/test_annotate_tab.py -v`
+期待結果: `TypeError: unexpected keyword argument 'model_selection_state_manager'` で失敗する。
 
-- [ ] **Step 3: Implement AnnotateTabWidget DI + 双方向同期**
+- [ ] **Step 3: `AnnotateTabWidget` の DI と双方向同期を実装する**
 
-`annotate_tab.py` の import に追加:
+`annotate_tab.py` のインポートに以下を追加する。
 
 ```python
 from ..state.model_selection_state import ModelSelectionStateManager
 ```
 
-`__init__` シグネチャに引数追加 (凍結契約 docstring も合わせて更新):
+`__init__` シグネチャに引数を追加し、凍結契約の docstring も更新する。
 
 ```python
     def __init__(
@@ -346,7 +347,7 @@ from ..state.model_selection_state import ModelSelectionStateManager
     ) -> None:
 ```
 
-`__init__` 本体 (`self._dataset_state_manager = dataset_state_manager` の直後) に追加:
+`__init__` 本体(`self._dataset_state_manager = dataset_state_manager` の直後)に以下を追加する。
 
 ```python
         self._model_selection_state_manager = model_selection_state_manager
@@ -354,7 +355,7 @@ from ..state.model_selection_state import ModelSelectionStateManager
         self._syncing_model_selection = False
 ```
 
-`_build_pipeline_composition_panel` の Signal 配線部 (`self._batch_model_selection.model_selection_changed.connect(self._on_pipeline_models_changed)` の直後) に state 同期配線を追加:
+`_build_pipeline_composition_panel` のシグナル配線部(`self._batch_model_selection.model_selection_changed.connect(self._on_pipeline_models_changed)` の直後)に状態同期の配線を追加する。
 
 ```python
         # モデル選択 SSoT を gui/state/ へ hoist (#884, ADR 0076)
@@ -367,7 +368,7 @@ from ..state.model_selection_state import ModelSelectionStateManager
             )
 ```
 
-同期ハンドラと getter 改修を追加 (`selected_litellm_model_ids` の定義を置換):
+同期ハンドラを追加し、`selected_litellm_model_ids` の定義を以下へ置換する。
 
 ```python
     def _on_widget_model_selection_changed(self, litellm_model_ids: list[str]) -> None:
@@ -402,21 +403,21 @@ from ..state.model_selection_state import ModelSelectionStateManager
         return self._batch_model_selection.get_selected_models()
 ```
 
-- [ ] **Step 4: Implement MainWindow 配線**
+- [ ] **Step 4: `MainWindow` の配線を実装する**
 
-`main_window.py` import 追加 (39 行 staging import の近く):
+`main_window.py` のインポート(39 行目の staging インポート付近)に以下を追加する。
 
 ```python
 from ..state.model_selection_state import ModelSelectionStateManager
 ```
 
-属性宣言追加 (77 行 `staging_state_manager` 宣言の近く):
+属性宣言(77 行目の `staging_state_manager` 宣言付近)に以下を追加する。
 
 ```python
     model_selection_state_manager: ModelSelectionStateManager | None
 ```
 
-`_initialize_staging_state_manager()` 呼び出し (228 行付近) の直後に初期化呼び出しを追加し、init メソッドを新設:
+`_initialize_staging_state_manager()` 呼び出し(228 行目付近)の直後に初期化呼び出しを追加し、初期化メソッドを新設する。
 
 ```python
         self._initialize_model_selection_state_manager()
@@ -433,7 +434,7 @@ from ..state.model_selection_state import ModelSelectionStateManager
             self.model_selection_state_manager = None
 ```
 
-AnnotateTabWidget 生成箇所 (731 行付近) に DI 追加:
+`AnnotateTabWidget` の生成箇所(731 行目付近)に DI 引数を追加する。
 
 ```python
         widget = AnnotateTabWidget(
@@ -446,16 +447,16 @@ AnnotateTabWidget 生成箇所 (731 行付近) に DI 追加:
         )
 ```
 
-> 注: 731 行の既存 `AnnotateTabWidget(` 呼び出しの実引数構成を Read で確認し、`model_selection_state_manager=` を 1 行追加するだけにとどめる (他引数・parent は現状維持)。
+> **注:** 731 行目の既存 `AnnotateTabWidget(` 呼び出しの実引数構成を事前に読み込んで確認し、`model_selection_state_manager=` を 1 行追加するだけにとどめる(他引数と `parent` は現状を維持する)。
 
-- [ ] **Step 5: Run annotate_tab tests to verify they pass**
+- [ ] **Step 5: `annotate_tab` テストを実行して通ることを確認する**
 
-Run: `uv run pytest tests/unit/gui/tab/test_annotate_tab.py -v`
-Expected: PASS (既存 + 新規 2 件)
+実行コマンド: `uv run pytest tests/unit/gui/tab/test_annotate_tab.py -v`
+期待結果: 既存テストおよび新規 2 件がすべて通る。
 
-- [ ] **Step 6: Add MainWindow coverage test**
+- [ ] **Step 6: `MainWindow` のカバレッジテストを追加する**
 
-`tests/unit/gui/window/test_main_window_coverage.py` に追記 (既存 MainWindow fixture を流用):
+`tests/unit/gui/window/test_main_window_coverage.py` に以下を追記する(既存の `MainWindow` フィクスチャを流用する)。
 
 ```python
 def test_model_selection_state_manager_initialized(main_window):
@@ -465,17 +466,18 @@ def test_model_selection_state_manager_initialized(main_window):
     assert isinstance(main_window.model_selection_state_manager, ModelSelectionStateManager)
 ```
 
-> 注: `main_window` fixture 名・生成方法は test_main_window_coverage.py の現行 fixture を grep で確認して流用する。DB 初期化を伴う fixture の場合は既存パターンに従う。
+> **注:** `main_window` フィクスチャ名と生成方法は `test_main_window_coverage.py` の現行フィクスチャを grep で確認して流用する。DB 初期化を伴うフィクスチャであれば既存パターンに従う。
 
-- [ ] **Step 7: Run coverage test + full CI-equivalent filter**
+- [ ] **Step 7: カバレッジテストと CI 相当フィルタを実行する**
 
 ```bash
 uv run pytest tests/unit/gui/window/test_main_window_coverage.py -v
 uv run pytest -m "not gui_show and not calls_real_webapi and not downloads_and_runs_model and not slow"
 ```
-Expected: 全 PASS (回帰なし)。
 
-- [ ] **Step 8: Format + mypy + commit**
+期待結果: すべて通り、回帰がない。
+
+- [ ] **Step 8: フォーマット、mypy、コミットを実行する**
 
 ```bash
 uv run ruff format src/lorairo/gui/state/model_selection_state.py src/lorairo/gui/tab/annotate_tab.py src/lorairo/gui/window/main_window.py
@@ -487,15 +489,17 @@ git commit -m "refactor(gui): モデル選択 state を ModelSelectionStateManag
 
 ---
 
-## Self-Review
+## セルフレビュー
 
-**Spec coverage (ADR 0076 §3 / #884 step 2):**
-- 「モデル選択 state を gui/state/ へ hoist」→ Task 1 (manager 新設) + Task 2 (Annotate 購読 view 化)。✓
-- 「canonical = 選択モデル集合」→ Task 1 の SSoT セマンティクス。✓
-- 「Annotate はこれを購読する唯一の view」→ Task 2 双方向同期。✓
-- 「Jobs は購読しない (監視のみ)」→ 本 Phase は Jobs を一切触らない (Phase 3 で picker 撤去)。✓
-- batch-capable フィルタ / 射影 / Jobs submit 撤去 → **Phase 2-3 へ繰り延べ** (ロードマップ記載)。Phase 1 のスコープ外。✓
+**仕様カバレッジ(ADR 0076 §3 / #884 step 2):**
+- 「モデル選択 state を `gui/state/` へ hoist」: Task 1(マネージャ新設)と Task 2(Annotate の購読ビュー化)でカバーしている。✓
+- 「canonical = 選択モデル集合」: Task 1 の SSoT セマンティクスでカバーしている。✓
+- 「Annotate はこれを購読する唯一の view」: Task 2 の双方向同期でカバーしている。✓
+- 「Jobs は購読しない(監視のみ)」: 本 Phase では Jobs を一切触らず、Phase 3 でピッカーを撤去する。✓
+- batch-capable フィルタ、射影、Jobs submit 撤去: Phase 2–3 へ繰り延べた(ロードマップに記載済み、Phase 1 のスコープ外)。✓
 
-**Placeholder scan:** 全 step に実コード/実コマンド記載済み。fixture 名は「現行を grep で確認」と明示 (既存テスト構造に依存するため)。
+**プレースホルダ確認:**
+全ステップに実コードと実コマンドを記載済みである。フィクスチャ名は既存テスト構造に依存するため、「現行を grep で確認」と明示した。
 
-**Type consistency:** `get_selected`/`set_selected`/`set_model_selected`/`selection_changed(list)` を Task 1 で定義し Task 2 で同名使用。`ModelSelectionWidget.model_selection_changed(list)` / `set_selected_models(list[str])` / `get_selected_models()` は既存 API (確認済み, 行 104/771/704)。✓
+**型整合性:**
+`get_selected`、`set_selected`、`set_model_selected`、`selection_changed(list)` を Task 1 で定義し、Task 2 で同名使用している。`ModelSelectionWidget.model_selection_changed(list)`、`set_selected_models(list[str])`、`get_selected_models()` は既存 API であることを確認済みである(行 104 / 771 / 704)。✓

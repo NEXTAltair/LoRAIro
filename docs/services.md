@@ -10,451 +10,458 @@ depends_on: [pyside6]
 
 ## 概要
 
-LoRAIroは2層サービスアーキテクチャを採用し、Qt-freeなビジネスロジックとQt-dependentなGUIサービスを分離しています。
+LoRAIro は 2 層サービスアーキテクチャを採用し、Qt 非依存のビジネスロジックと Qt 依存の GUI サービスを分離している。
 
-**設計原則:**
-- **Business Logic Services**: Qt依存なし、CLI/GUI/API全てで再利用可能
-- **GUI Services**: Qt依存、Signal/Slotによるウィジェット間通信
-- **Qt-Free Core Pattern**: コアサービスはQt-free、GUIラッパーはCompositionパターンでSignalサポート
+**設計原則**:
+- **ビジネスロジックサービス**: Qt に依存せず、CLI・GUI・API のすべてで再利用できる
+- **GUI サービス**: Qt に依存し、Signal/Slot によるウィジェット間通信を担う
+- **Qt-Free Core パターン**: コアサービスは Qt 非依存とし、GUI ラッパーがコンポジションパターンで Signal 機能を追加する
 
-**ディレクトリ構成:**
-- `src/lorairo/services/` - Business Logic Services (本ドキュメントのカタログを参照。件数はここに直書きせず `ls src/lorairo/services/*.py` で都度確認する — カタログとの乖離を防ぐため)
-- `src/lorairo/gui/services/` - GUI Services (同上)
+**ディレクトリ構成**:
+- `src/lorairo/services/` — ビジネスロジックサービス群
+- `src/lorairo/gui/services/` — GUI サービス群
+
+カタログとの乖離を防ぐため、サービス件数は本ドキュメントへ直書きせず、`ls src/lorairo/services/*.py` 等で都度確認する。
 
 ## ビジネスロジックサービス
 
-Qt依存のないビジネスロジックサービス群。CLI、GUI、API全てで共通利用可能。
+Qt 依存のないビジネスロジックサービス群である。CLI、GUI、API のすべてから共通利用できる。
 
 ### コアインフラ
 
 #### ServiceContainer
-- **Path**: `src/lorairo/services/service_container.py`
-- **Class**: `ServiceContainer`
-- **Purpose**: 依存性注入(DI)コンテナ、全サービスの一元管理
-- **Pattern**: Singleton pattern
-- **Functions**: `get_service_container()`, `get_config_service()`, `get_model_sync_service()`
+- **パス**: `src/lorairo/services/service_container.py`
+- **クラス**: `ServiceContainer`
+- **目的**: 依存性注入(DI)コンテナとして全サービスを一元管理する
+- **パターン**: シングルトンパターン
+- **関数**: `get_service_container()`、`get_config_service()`、`get_model_sync_service()`
 
 #### ConfigurationService
-- **Path**: `src/lorairo/services/configuration_service.py`
-- **Class**: `ConfigurationService`
-- **Purpose**: アプリケーション設定の読み込み、更新、保存
-- **Config**: `config/lorairo.toml` の管理
+- **パス**: `src/lorairo/services/configuration_service.py`
+- **クラス**: `ConfigurationService`
+- **目的**: アプリケーション設定の読み込み、更新、保存を担う
+- **設定ファイル**: `config/lorairo.toml`
 
 ### タグ管理
 
 #### TagManagementService
-- **Path**: `src/lorairo/services/tag_management_service.py`
-- **Class**: `TagManagementService`
-- **Purpose**: User DB専用のタグ管理（Base DBは対象外）
-- **Integration**: genai-tag-db-tools公開API (`search_tags()`, `register_tag()`)
-- **Strategy**: format_id=1000+, type_name="unknown" placeholder
-- **Operations**: unknown typeタグ検索、type一覧取得、一括type更新
+- **パス**: `src/lorairo/services/tag_management_service.py`
+- **クラス**: `TagManagementService`
+- **目的**: User DB 専用のタグ管理を担う(Base DB は対象外)
+- **統合**: `genai-tag-db-tools` 公開 API(`search_tags()`、`register_tag()`)
+- **方針**: `format_id=1000+`、`type_name="unknown"` をプレースホルダーとして扱う
+- **操作**: `unknown` タイプタグの検索、タイプ一覧の取得、一括タイプ更新
 
-#### RefinementService (Qt-free)
-- **Path**: `src/lorairo/services/refinement_service.py`
-- **Purpose**: genai-tag-db-tools の `recommend_manual_refinement` を呼び、ローカル ignore (tag + reason_code 単位) を除外した「表示すべきリコメンド」を返す
-- **Note**: 判定ロジック・承認反映・base DB 提案は genai-tag-db-tools 側の責務。同一 (tag, format_name) はプロセス内キャッシュで再評価回避
+#### RefinementService(Qt-free)
+- **パス**: `src/lorairo/services/refinement_service.py`
+- **目的**: `genai-tag-db-tools` の `recommend_manual_refinement` を呼び出し、ローカルの無視設定(タグと `reason_code` 単位)を除外した「表示すべきリコメンド」を返す
+- **補足**: 判定ロジック、承認反映、Base DB 提案は `genai-tag-db-tools` 側の責務である。同一の `(tag, format_name)` はプロセス内キャッシュで再評価を避ける
 
-#### StagingTagAggregation (Qt-free)
-- **Path**: `src/lorairo/services/staging_tag_aggregation.py`
-- **Purpose**: ステージング集合内のタグ集計 (Issue #945)。左ペイン StagingTagPanel (#947) が消費
+#### StagingTagAggregation(Qt-free)
+- **パス**: `src/lorairo/services/staging_tag_aggregation.py`
+- **目的**: ステージング集合内のタグを集計する(Issue #945)。左ペインの `StagingTagPanel`(#947)が結果を利用する
 
-#### TriggerVocab (Qt-free)
-- **Path**: `src/lorairo/services/trigger_vocab.py`
-- **Purpose**: trigger word 語彙のユーザーDB登録・補完 (Issue #946)。ExportOverlayBar (#948) の trigger 補完リストへ供給
-- **Storage**: ユーザーDB (USER_TAGS, tag_id >= 1_000_000_000) の専用 format に隔離登録。canonical/danbooru タグDBは汚染しない
-- **Note**: trigger はリテラル (convert バイパス)。正規化せずそのまま格納しdedupする
+#### TriggerVocab(Qt-free)
+- **パス**: `src/lorairo/services/trigger_vocab.py`
+- **目的**: トリガーワード語彙のユーザー DB 登録と補完を担う(Issue #946)。`ExportOverlayBar`(#948)のトリガー補完リストへ供給する
+- **保存先**: ユーザー DB(`USER_TAGS`、`tag_id >= 1_000_000_000`)の専用フォーマットへ隔離して登録する。canonical タグ DB や Danbooru タグ DB は汚染しない
+- **補足**: トリガーはリテラルとして扱い、変換をバイパスする。正規化せずそのまま格納し、重複のみ排除する
 
-### AIアノテーション
+### AI アノテーション
 
-#### AnnotationProgress (Qt-free)
-- **Path**: `src/lorairo/services/annotation_progress.py`
-- **Classes**: `AnnotationPhase`, `AnnotationProgress`
-- **Purpose**: アノテーションの工程、対象画像・モデル数、経過時間をセッション内のスナップショットとして保持する (Issue #1386)
-- **Boundary**: 処理済み件数や残り時間を推定しない。キャンセル要求後の停止待ちを完了と区別し、終了後は経過時間を固定する
+#### AnnotationProgress(Qt-free)
+- **パス**: `src/lorairo/services/annotation_progress.py`
+- **クラス**: `AnnotationPhase`、`AnnotationProgress`
+- **目的**: アノテーションの工程、対象画像数、モデル数、経過時間をセッション内のスナップショットとして保持する(Issue #1386)
+- **境界**: 処理済み件数や残り時間は推定しない。キャンセル要求後の停止待ちを完了と区別し、終了後は経過時間を固定する
 
-#### AnnotationExecutionPolicy (Qt-free)
-- **Path**: `src/lorairo/services/annotation_execution_policy.py`
-- **Classes**: `AnnotationExecutionPolicy`, `AnnotationExecutionSettings`, `MemorySnapshot`
-- **Purpose**: ローカル ML モデル実行前の受付判定 (空き RAM / VRAM と安全余裕)、回復待ち、見送り判断 (ADR 0109)
-- **Config**: `[annotation_execution]`。空きメモリ取得・時計・sleep は DI でき、テストは fake で書く
+#### AnnotationExecutionPolicy(Qt-free)
+- **パス**: `src/lorairo/services/annotation_execution_policy.py`
+- **クラス**: `AnnotationExecutionPolicy`、`AnnotationExecutionSettings`、`MemorySnapshot`
+- **目的**: ローカル ML モデル実行前の受付判定(空き RAM・VRAM と安全余裕)、回復待ち、見送り判断を担う(ADR 0109)
+- **設定**: `[annotation_execution]`。空きメモリ取得、時計、sleep 処理は DI でき、テストでは fake を用いる
 
 #### AnnotationReviewService
-- **Path**: `src/lorairo/services/annotation_review_service.py`
-- **Purpose**: 既存タグ・キャプションと、関連画像群から抽出した未付与タグを ローカル Clef の型付き判定 API で照合する
-- **Boundary**: タグクラウドの集計を再利用し、警告と追加候補を別の基準で判定する。注釈・confidence・reviewed は変更しない
+- **パス**: `src/lorairo/services/annotation_review_service.py`
+- **目的**: 既存のタグ・キャプションと、関連画像群から抽出した未付与タグをローカル Clef の型付き判定 API で照合する
+- **境界**: タグクラウドの集計を再利用し、警告と追加候補を別の基準で判定する。注釈、`confidence`、`reviewed` は変更しない
 
 #### AnnotationReviewStore
-- **Path**: `src/lorairo/services/annotation_review_store.py`
-- **Purpose**: 画像ごとの最新判定・候補条件を保存し、現在の画像・注釈・設定との一致を検証する
-- **Currentness**: 内容が変わった結果は古い判定として返し、確率と採用操作を無効にする
+- **パス**: `src/lorairo/services/annotation_review_store.py`
+- **目的**: 画像ごとの最新判定と候補条件を保存し、現在の画像・注釈・設定との一致を検証する
+- **鮮度管理**: 内容が変わった結果は古い判定として返し、確率表示と採用操作を無効にする
 
 #### AnnotationReviewAdoptionService
-- **Path**: `src/lorairo/services/annotation_review_adoption_service.py`
-- **Purpose**: 最新かつ現在有効な追加候補を、ユーザーの選択により手動タグとして採用する
-- **Boundary**: 保存時刻・候補 ID・画像と注釈の鮮度を照合し、確率を confidence や手動スコアへ書き込まない
+- **パス**: `src/lorairo/services/annotation_review_adoption_service.py`
+- **目的**: 最新かつ現在有効な追加候補を、ユーザーの選択に応じて手動タグとして採用する
+- **境界**: 保存時刻、候補 ID、画像と注釈の鮮度を照合する。確率を `confidence` や手動スコアへ書き込まない
 
 #### AnnotationSaveService
-- **Path**: `src/lorairo/services/annotation_save_service.py`
-- **Class**: `AnnotationSaveService`
-- **Purpose**: AI annotation 結果を image ID keyed payload から DB へ保存する
-- **Operations**: provider batch / normalized annotation result の保存、skip/error 集計
+- **パス**: `src/lorairo/services/annotation_save_service.py`
+- **クラス**: `AnnotationSaveService`
+- **目的**: 画像 ID をキーとしたペイロードから、AI アノテーション結果を DB へ保存する
+- **操作**: プロバイダーバッチおよび正規化済みアノテーション結果の保存、スキップ・エラー件数の集計
 
 #### ModerationPreflightService
-- **Path**: `src/lorairo/services/moderation_preflight_service.py`
-- **Purpose**: WebAPI annotation 送信前の OpenAI moderation preflight（画像ごとに moderation モデルを通し、フラグ済み画像を送信対象から除外）
-- **Operations**: per-image moderation 実行、skip 理由（`ModerationPreflightSkip`）の収集
-- **Boundary**: `ModerationRunner` Protocol で単一 moderation モデル実行を抽象化
+- **パス**: `src/lorairo/services/moderation_preflight_service.py`
+- **目的**: WebAPI アノテーション送信前に OpenAI moderation preflight を実行する。画像ごとに moderation モデルを通し、フラグ付き画像を送信対象から除外する
+- **操作**: 画像単位の moderation 実行と、スキップ理由(`ModerationPreflightSkip`)の収集
+- **境界**: `ModerationRunner` プロトコルで単一 moderation モデルの実行を抽象化する
 
 #### AnnotatorLibraryAdapter
-- **Path**: `src/lorairo/annotation/annotator_adapter.py`
-- **Class**: `AnnotatorLibraryAdapter`
-- **Purpose**: image-annotator-lib統合アダプター
-- **Providers**: OpenAI, Anthropic, Google, Local ML models
-- **Returns**: `PHashAnnotationResults`
+- **パス**: `src/lorairo/annotation/annotator_adapter.py`
+- **クラス**: `AnnotatorLibraryAdapter`
+- **目的**: `image-annotator-lib` の統合アダプター
+- **プロバイダー**: OpenAI、Anthropic、Google、ローカル ML モデル
+- **戻り値**: `PHashAnnotationResults`
 
 ### 画像処理
 
 #### ImageProcessingService
-- **Path**: `src/lorairo/services/image_processing_service.py`
-- **Class**: `ImageProcessingService`
-- **Purpose**: 画像処理ワークフロー（リサイズ、変換、品質評価）
+- **パス**: `src/lorairo/services/image_processing_service.py`
+- **クラス**: `ImageProcessingService`
+- **目的**: リサイズ、フォーマット変換、品質評価などの画像処理ワークフローを担う
 
 #### DatasetExportService
-- **Path**: `src/lorairo/services/dataset_export_service.py`
-- **Class**: `DatasetExportService`
-- **Purpose**: データセットのエクスポート機能
+- **パス**: `src/lorairo/services/dataset_export_service.py`
+- **クラス**: `DatasetExportService`
+- **目的**: データセットのエクスポート機能を提供する
 
-#### crop_batch_service (Qt-free)
-- **Path**: `src/lorairo/services/crop_batch_service.py`
-- **Function**: `run_crop_batch()`
-- **Purpose**: `CropRectProvider` の矩形候補からクロップ画像を一括作成する (1 矩形 = 1 結果、部分失敗は継続、同じ親・矩形・由来は skipped、dry-run 対応)。1 件の作成は `crop_service.create_crop_image` を再利用 (ADR 0103)
+#### crop_batch_service(Qt-free)
+- **パス**: `src/lorairo/services/crop_batch_service.py`
+- **関数**: `run_crop_batch()`
+- **目的**: `CropRectProvider` が返す矩形候補からクロップ画像を一括作成する(ADR 0103)。1 矩形につき 1 結果を返し、部分失敗があっても継続する。同じ親画像・矩形・由来の組み合わせは `skipped` とし、dry-run にも対応する。1 件の作成処理には `crop_service.create_crop_image` を再利用する
 
-#### JsonlCropRectProvider (Qt-free)
-- **Path**: `src/lorairo/services/crop_rect_jsonl_provider.py`
-- **Class**: `JsonlCropRectProvider`
-- **Purpose**: 外部で用意した矩形 JSONL (1 行 = image_id + 矩形) を読む `CropRectProvider` の最初の実装。不正な行は行番号付きで保持し、500 行超は count-first で拒否 (ADR 0103)
+#### JsonlCropRectProvider(Qt-free)
+- **パス**: `src/lorairo/services/crop_rect_jsonl_provider.py`
+- **クラス**: `JsonlCropRectProvider`
+- **目的**: 外部で用意した矩形 JSONL(1 行につき `image_id` と矩形)を読む `CropRectProvider` の初期実装(ADR 0103)。不正な行は行番号付きで保持し、500 行を超える入力は件数確認の段階で拒否する
 
-#### DetectorCropRectProvider (Qt-free)
-- **Path**: `src/lorairo/services/crop_detect_provider.py`
-- **Class**: `DetectorCropRectProvider` (検出器境界: `ObjectDetector` / 実装 `LibObjectDetector`)
-- **Purpose**: image-annotator-lib の物体検出器 (person / face / head) で矩形を決める `CropRectProvider`。余白・閾値・最小長辺・既存クロップとの IoU を判定し、作成しない矩形は理由コード付き候補、検出 0 件や失敗は `CropRectNotice` で返す。lib は検出実行時まで import しない (ADR 0110)
+#### DetectorCropRectProvider(Qt-free)
+- **パス**: `src/lorairo/services/crop_detect_provider.py`
+- **クラス**: `DetectorCropRectProvider`(検出器境界: `ObjectDetector`、実装: `LibObjectDetector`)
+- **目的**: `image-annotator-lib` の物体検出器(`person`、`face`、`head`)で矩形を決める `CropRectProvider`(ADR 0110)。余白、閾値、最小長辺、既存クロップとの IoU を判定し、作成対象外の矩形は理由コード付き候補として返す。検出 0 件や失敗は `CropRectNotice` で通知し、ライブラリ本体は検出実行時までインポートしない
 
-#### ExportOverlay (Qt-free)
-- **Path**: `src/lorairo/services/export_overlay.py`
-- **Purpose**: エクスポート時の per-image タグ変換パイプライン (ADR 0080 §1-§4)
-- **Pipeline順序**: replace 適用 → exclude 除去 → convert (alias→preferred + meta 除外) → add を先頭に literal prepend (convert バイパス) → 順序保持 dedup
+#### ExportOverlay(Qt-free)
+- **パス**: `src/lorairo/services/export_overlay.py`
+- **目的**: エクスポート時の画像単位タグ変換パイプライン(ADR 0080 §1-§4)
+- **パイプライン順序**:
+  1. `replace` を適用する
+  2. `exclude` を除去する
+  3. `convert` を適用する(alias から preferred への変換と meta 除外)
+  4. `add` を先頭へリテラル追加する(変換はバイパス)
+  5. 順序を保持したまま重複を除去する
 
 ### モデル管理
 
 #### ModelFilterService
-- **Path**: `src/lorairo/services/model_filter_service.py`
-- **Class**: `ModelFilterService`
-- **Purpose**: AIモデルのフィルタリングと管理
+- **パス**: `src/lorairo/services/model_filter_service.py`
+- **クラス**: `ModelFilterService`
+- **目的**: AI モデルのフィルタリングと管理を担う
 
 #### ModelSelectionService
-- **Path**: `src/lorairo/services/model_selection_service.py`
-- **Class**: `ModelSelectionService`
-- **Purpose**: モデル選択ロジックとプリセット管理
+- **パス**: `src/lorairo/services/model_selection_service.py`
+- **クラス**: `ModelSelectionService`
+- **目的**: モデル選択ロジックとプリセット管理を担う
 
 #### ModelRouteService
-- **Path**: `src/lorairo/services/model_route_service.py`
-- **Purpose**: WebAPIモデルのdirect/OpenRouter route判定、表示用畳み込み、API key事前検証
+- **パス**: `src/lorairo/services/model_route_service.py`
+- **目的**: WebAPI モデルの direct 経路と OpenRouter 経路の判定、表示用の畳み込み、API キーの事前検証を担う
 
 #### ModelSyncService
-- **Path**: `src/lorairo/services/model_sync_service.py`
-- **Class**: `ModelSyncService`
-- **Purpose**: モデル設定の同期とキャッシュ管理
+- **パス**: `src/lorairo/services/model_sync_service.py`
+- **クラス**: `ModelSyncService`
+- **目的**: モデル設定の同期とキャッシュ管理を担う
 
 #### ModelRegistryProtocol
-- **Path**: `src/lorairo/services/model_registry_protocol.py`
-- **Purpose**: モデルレジストリのプロトコル定義
+- **パス**: `src/lorairo/services/model_registry_protocol.py`
+- **目的**: モデルレジストリのプロトコルを定義する
 
-### Search & Filter
+### 検索・フィルタ
 
-#### search_review_status (helper)
-- **Path**: `src/lorairo/services/search_review_status.py`
-- **Purpose**: 保存済みの Clef 判定を鮮度確認して検索サムネイルへ付与し、全検索結果から現在有効な警告を絞り込む
-- **Boundary**: 検索時にローカル Clef の起動・推論は行わない。未チェック・失敗・未評価・古い結果を区別する
+#### search_review_status(ヘルパー)
+- **パス**: `src/lorairo/services/search_review_status.py`
+- **目的**: 保存済みの Clef 判定を鮮度確認したうえで検索サムネイルへ付与し、全検索結果から現在有効な警告を絞り込む
+- **境界**: 検索時にローカル Clef の起動や推論は行わない。未チェック、失敗、未評価、古い結果を区別して扱う
 
 #### SearchCriteriaProcessor
-- **Path**: `src/lorairo/services/search_criteria_processor.py`
-- **Class**: `SearchCriteriaProcessor`
-- **Purpose**: 検索条件の処理とフィルタリングロジック
+- **パス**: `src/lorairo/services/search_criteria_processor.py`
+- **クラス**: `SearchCriteriaProcessor`
+- **目的**: 検索条件の処理とフィルタリングロジックを担う
 
 #### SearchModels
-- **Path**: `src/lorairo/services/search_models.py`
-- **Purpose**: 検索用データモデル定義
+- **パス**: `src/lorairo/services/search_models.py`
+- **目的**: 検索用のデータモデルを定義する
 
 ### 状態管理
 
 #### SelectionStateService
-- **Path**: `src/lorairo/services/selection_state_service.py`
-- **Class**: `SelectionStateService`
-- **Purpose**: アプリケーション内選択状態の管理
+- **パス**: `src/lorairo/services/selection_state_service.py`
+- **クラス**: `SelectionStateService`
+- **目的**: アプリケーション内の選択状態を管理する
 
 ### ユーティリティ
 
-#### DbMaintenanceCheckService (Qt-free)
-- **Path**: `src/lorairo/services/db_maintenance_check_service.py`
-- **Class**: `DbMaintenanceCheckService`
-- **Purpose**: Provider Batch の DB 状態の整合と画像実ファイル欠損の読み取り専用点検 (`maintenance check`, ADR 0099)
+#### DbMaintenanceCheckService(Qt-free)
+- **パス**: `src/lorairo/services/db_maintenance_check_service.py`
+- **クラス**: `DbMaintenanceCheckService`
+- **目的**: Provider Batch の DB 状態の整合性と、画像実ファイルの欠損を読み取り専用で点検する(`maintenance check`、ADR 0099)
 
 #### DateFormatter
-- **Path**: `src/lorairo/services/date_formatter.py`
-- **Purpose**: 日付フォーマット統一処理
+- **パス**: `src/lorairo/services/date_formatter.py`
+- **目的**: 日付フォーマットの統一処理を担う
 
 #### FavoriteFiltersService
-- **Path**: `src/lorairo/services/favorite_filters_service.py`
-- **Class**: `FavoriteFiltersService`
-- **Purpose**: お気に入りフィルター条件の永続化管理
+- **パス**: `src/lorairo/services/favorite_filters_service.py`
+- **クラス**: `FavoriteFiltersService`
+- **目的**: お気に入りフィルター条件の永続化を管理する
 
-#### FolderCommonTags (Qt-free)
-- **Path**: `src/lorairo/services/folder_common_tags.py`
-- **Purpose**: ディレクトリ取り込み時のサブフォルダごとの共通タグ (直下の全画像へ MANUAL_EDIT タグとして付与)
+#### FolderCommonTags(Qt-free)
+- **パス**: `src/lorairo/services/folder_common_tags.py`
+- **目的**: ディレクトリ取り込み時に、サブフォルダごとの共通タグを直下の全画像へ `MANUAL_EDIT` タグとして付与する
 
 #### ImageRegistrationService
-- **Path**: `src/lorairo/services/image_registration_service.py`
-- **Class**: `ImageRegistrationService`
-- **Purpose**: 画像ファイルのDB登録ワークフロー管理
+- **パス**: `src/lorairo/services/image_registration_service.py`
+- **クラス**: `ImageRegistrationService`
+- **目的**: 画像ファイルの DB 登録ワークフローを管理する
 
 #### ProjectManagementService
-- **Path**: `src/lorairo/services/project_management_service.py`
-- **Purpose**: プロジェクト作成・切り替え・管理
+- **パス**: `src/lorairo/services/project_management_service.py`
+- **目的**: プロジェクトの作成、切り替え、管理を担う
 
 #### TagSuggestionService
-- **Path**: `src/lorairo/services/tag_suggestion_service.py`
-- **Purpose**: タグオートコンプリート候補の取得とキャッシュ管理（TTL + LRU、スレッドセーフ）
-- **Integration**: genai-tag-db-tools `search_tags()` API
+- **パス**: `src/lorairo/services/tag_suggestion_service.py`
+- **目的**: タグのオートコンプリート候補取得とキャッシュ管理を担う(TTL + LRU、スレッドセーフ)
+- **統合**: `genai-tag-db-tools` の `search_tags()` API
 
 ### バッチインポート
 
 #### ProviderBatchJobService
-- **Path**: `src/lorairo/services/provider_batch_service.py`
-- **Purpose**: Provider Batch API job lifecycle の共通 service boundary
-- **Operations**: submit_batch / submit (legacy) / refresh / cancel / fetch_results / download_results
-- **Status normalization**: `normalize_status()` / `validate_transition()` で 10 種共通 status を管理
-- **Custom ID SSoT**: `build_custom_id(image_id)` → `img-{image_id}`
-- **User Guide**: [docs/provider-batch-api.md](provider-batch-api.md)
+- **パス**: `src/lorairo/services/provider_batch_service.py`
+- **目的**: Provider Batch API のジョブライフサイクルを扱う共通サービス境界
+- **操作**: `submit_batch`、`submit`(レガシー)、`refresh`、`cancel`、`fetch_results`、`download_results`
+- **ステータス正規化**: `normalize_status()` と `validate_transition()` で 10 種の共通ステータスを管理する
+- **Custom ID の SSoT**: `build_custom_id(image_id)` で `img-{image_id}` 形式を生成する
+- **利用ガイド**: [docs/provider-batch-api.md](provider-batch-api.md)
 
 #### ProviderBatchWorkflowService
-- **Path**: `src/lorairo/services/provider_batch_workflow_service.py`
-- **Purpose**: GUI / API / CLI から再利用する Provider Batch API workflow facade
-- **Operations**: build_submit_request / submit_images / refresh / cancel / fetch_results / **import_results** / apply_result_items
-- **Re-import gate**: `import_results()` は `job.status == "imported"` または `imported_at IS NOT NULL` で reject
-- **Adapter wiring**: `ServiceContainer.provider_batch_workflow_service` は image-annotator-lib 境界へ委譲する `ProviderBatchLibraryAdapter` を主要 provider 用に登録する
+- **パス**: `src/lorairo/services/provider_batch_workflow_service.py`
+- **目的**: GUI・API・CLI から再利用する Provider Batch API のワークフローファサード
+- **操作**: `build_submit_request`、`submit_images`、`refresh`、`cancel`、`fetch_results`、**`import_results`**、`apply_result_items`
+- **再インポート制御**: `import_results()` は `job.status == "imported"` または `imported_at IS NOT NULL` の場合に拒否する
+- **アダプター配線**: `ServiceContainer.provider_batch_workflow_service` は、`image-annotator-lib` 境界へ委譲する `ProviderBatchLibraryAdapter` を主要プロバイダー用に登録する
 
-#### provider_batch_capability (helper)
-- **Path**: `src/lorairo/services/provider_batch_capability.py`
-- **Purpose**: Provider Batch capability の Qt-free ヘルパー。モデルオブジェクトから batch-capable 判定・direct provider 解決・litellm_model_id 抽出を行う
-- **Functions**: `direct_provider_for_model()`, `litellm_id_from_batch_model()`
-- **Usage**: ModelSelectionWidget の batch-capable filter 等
+#### provider_batch_capability(ヘルパー)
+- **パス**: `src/lorairo/services/provider_batch_capability.py`
+- **目的**: Provider Batch 適格性を扱う Qt 非依存ヘルパー。モデルオブジェクトから batch-capable 判定、direct プロバイダー解決、`litellm_model_id` 抽出を行う
+- **関数**: `direct_provider_for_model()`、`litellm_id_from_batch_model()`
+- **用途**: `ModelSelectionWidget` の batch-capable フィルタなど
 
-#### provider_batch_library_compat (helper)
-- **Path**: `src/lorairo/services/provider_batch_library_compat.py`
-- **Purpose**: image-annotator-lib Provider Batch DTO との互換ヘルパー。LoRAIro 側 request/response を導入済みライブラリの DTO へ相互変換する
-- **Functions**: `to_library_submit_request()` 等
+#### provider_batch_library_compat(ヘルパー)
+- **パス**: `src/lorairo/services/provider_batch_library_compat.py`
+- **目的**: `image-annotator-lib` の Provider Batch DTO との互換ヘルパー。LoRAIro 側のリクエスト・レスポンスを導入済みライブラリの DTO へ相互変換する
+- **関数**: `to_library_submit_request()` など
 
 #### BatchImportService
-- **Path**: `src/lorairo/services/batch_import_service.py`
-- **Purpose**: OpenAI Batch API JSONL結果の一括インポート処理
+- **パス**: `src/lorairo/services/batch_import_service.py`
+- **目的**: OpenAI Batch API の JSONL 結果を一括インポートする
 
 #### BatchContentParser
-- **Path**: `src/lorairo/services/batch_content_parser.py`
-- **Purpose**: OpenAI Batch API応答のcontentテキストパース
+- **パス**: `src/lorairo/services/batch_content_parser.py`
+- **目的**: OpenAI Batch API 応答の content テキストを解析する
 
 #### BatchImageMatcher
-- **Path**: `src/lorairo/services/batch_image_matcher.py`
-- **Class**: `BatchImageMatcher`
-- **Purpose**: JSONL custom_id → DB image_id の一括照合
-- **Operations**: `match_all(custom_ids)` (ADR 0062 形式 `ph:{phash}:le:{long_edge}` は pHash、それ以外はファイル名 stem で照合), `extract_stem(custom_id)`
-- **Result**: `ImageMatchResult` (matched / unmatched / ambiguous)
+- **パス**: `src/lorairo/services/batch_image_matcher.py`
+- **クラス**: `BatchImageMatcher`
+- **目的**: JSONL の `custom_id` と DB の `image_id` を一括照合する
+- **操作**: `match_all(custom_ids)`(ADR 0062 形式の `ph:{phash}:le:{long_edge}` は pHash で照合し、それ以外はファイル名の stem で照合する)、`extract_stem(custom_id)`
+- **結果**: `ImageMatchResult`(`matched` / `unmatched` / `ambiguous`)
 
-### ジョブ・品質・パイプライン (Wireframes v11 / ADR 0066)
+### ジョブ・品質・パイプライン(Wireframes v11 / ADR 0066)
 
-#### DispatchProjectionService (Qt-free)
-- **Path**: `src/lorairo/services/dispatch_projection_service.py`
-- **Purpose**: Annotate の選択モデル集合を async Provider Batch dispatch の射影として確定する (ADR 0076 §2)。選択モデルを `list_batch_capable_models()` の discovery と intersect し、`provider_batch_capability` helper で provider/task ルールを判定
-- **不変条件**: 非 batch-capable 混在は拒否 (部分射影しない)。1 submit = 1 model (`DispatchEntry` = 1 `provider_batch_jobs` 行)
+#### DispatchProjectionService(Qt-free)
+- **パス**: `src/lorairo/services/dispatch_projection_service.py`
+- **目的**: アノテーション画面で選択されたモデル集合を、非同期 Provider Batch 送信の射影として確定する(ADR 0076 §2)。選択モデルと `list_batch_capable_models()` の検出結果の積集合を取り、`provider_batch_capability` ヘルパーでプロバイダーとタスクのルールを判定する
+- **不変条件**: 非 batch-capable モデルが混在する場合は拒否し、部分射影は行わない。1 送信につき 1 モデル(1 `DispatchEntry` につき `provider_batch_jobs` 1 行)とする
 
 #### CostEstimationService
-- **Path**: `src/lorairo/services/cost_estimation_service.py`
-- **Class**: `CostEstimationService`
-- **Purpose**: アノテーション推論のコスト概算 (Wireframes v11 Frame 2B / Issue #747)。バッチ全体のコスト・時間を概算する。
+- **パス**: `src/lorairo/services/cost_estimation_service.py`
+- **クラス**: `CostEstimationService`
+- **目的**: アノテーション推論のコストと所要時間をバッチ全体で概算する(Wireframes v11 Frame 2B / Issue #747)
 
 #### ErrorTriageService
-- **Path**: `src/lorairo/services/error_triage_service.py`
-- **Class**: `ErrorTriageService`
-- **Purpose**: エラーレコードを同一原因でグルーピングし、サマリ・フィルタを提供する (Qt-free)。
+- **パス**: `src/lorairo/services/error_triage_service.py`
+- **クラス**: `ErrorTriageService`
+- **目的**: エラーレコードを同一原因でグルーピングし、サマリとフィルタを提供する(Qt-free)
 
 #### JobLedgerService
-- **Path**: `src/lorairo/services/job_ledger_service.py`
-- **Class**: `JobLedgerService`
-- **Purpose**: In-memory のジョブ台帳 (ADR 0066 Unified Jobs Lifecycle View)。ジョブのライフサイクル状態を一元管理する。
+- **パス**: `src/lorairo/services/job_ledger_service.py`
+- **クラス**: `JobLedgerService`
+- **目的**: インメモリのジョブ台帳として、ジョブのライフサイクル状態を一元管理する(ADR 0066 Unified Jobs Lifecycle View)
 
 #### PipelineCompositionService
-- **Path**: `src/lorairo/services/pipeline_composition.py`
-- **Class**: `PipelineCompositionService`
-- **Purpose**: アノテーションパイプライン構成の Qt-free ドメインモデル (Wireframes v11 Frame 2A / Phase 6a)。
+- **パス**: `src/lorairo/services/pipeline_composition.py`
+- **クラス**: `PipelineCompositionService`
+- **目的**: アノテーションパイプライン構成の Qt 非依存ドメインモデル(Wireframes v11 Frame 2A / Phase 6a)
 
 #### DatasetImportService
-- **Path**: `src/lorairo/services/dataset_import_service.py`
-- **Class**: `DatasetImportService`
-- **Purpose**: Kohya-ss 形式の学習データセットを版・フォルダ・学習テキストとして取り込む (Qt-free)。画像は登録のみで画像直下の `Tag` には書かない。永続化は `DatasetRepository` (`src/lorairo/database/repository/dataset.py`)。CLI は `lorairo-cli dataset import / export / show / diff / copy-tags / usage` (`copy-tags` は学習テキストをライブラリの `Tag` へ写す。ADR 0104)。
+- **パス**: `src/lorairo/services/dataset_import_service.py`
+- **クラス**: `DatasetImportService`
+- **目的**: Kohya-ss 形式の学習データセットを版・フォルダ・学習テキストとして取り込む(Qt-free)。画像は登録のみ行い、画像直下の `Tag` には書き込まない。永続化は `DatasetRepository`(`src/lorairo/database/repository/dataset.py`)が担う。CLI は `lorairo-cli dataset import / export / show / diff / copy-tags / usage` を提供する(`copy-tags` は学習テキストをライブラリの `Tag` へ写す。ADR 0104)
 
 #### KohyaDatasetExportService
-- **Path**: `src/lorairo/services/kohya_dataset_export_service.py`
-- **Class**: `KohyaDatasetExportService`
-- **Purpose**: 保存済みの版を Kohya-ss 形式 (画像 + 学習テキスト + sd-scripts 用 TOML) で書き出す (Qt-free)。
+- **パス**: `src/lorairo/services/kohya_dataset_export_service.py`
+- **クラス**: `KohyaDatasetExportService`
+- **目的**: 保存済みの版を Kohya-ss 形式(画像、学習テキスト、sd-scripts 用 TOML)で書き出す(Qt-free)
 
 #### DatasetVersionDiffService
-- **Path**: `src/lorairo/services/dataset_version_diff.py`
-- **Class**: `DatasetVersionDiffService` / Function: `diff_snapshots()`
-- **Purpose**: 2 つの版のフォルダ・画像 (追加 / 削除 / 差し替え)・学習テキスト (要素の追加 / 削除 / 並び替え) の差分を表示時に計算する (Qt-free、保存しない)。CLI は `lorairo-cli dataset diff`。
+- **パス**: `src/lorairo/services/dataset_version_diff.py`
+- **クラス**: `DatasetVersionDiffService`(関数: `diff_snapshots()`)
+- **目的**: 2 つの版のフォルダ、画像(追加・削除・差し替え)、学習テキスト(要素の追加・削除・並び替え)の差分を表示時に計算する(Qt-free、保存はしない)。CLI は `lorairo-cli dataset diff` に対応する
 
-#### ImageComparisonService (Qt-free)
-- **Path**: `src/lorairo/services/image_comparison.py`
-- **Class**: `ImageComparisonService` / `ComparisonSelection` / Functions: `diff_tags()`, `diff_caption()`, `snapshot_from_metadata()`
-- **Purpose**: 2 枚の画像の現在のタグ (共通 / 左だけ / 右だけ) とキャプション (原文を保ったテキスト差分) を比べる読み取り専用の処理と、比較画面の左右選択・片側固定の状態。片側に情報が無いときは比較せず欠けている側を返す。画面は `gui/widgets/image_comparison_dialog.py`、読み込みは `gui/workers/image_comparison_worker.py`。
+#### ImageComparisonService(Qt-free)
+- **パス**: `src/lorairo/services/image_comparison.py`
+- **クラス・関数**: `ImageComparisonService`、`ComparisonSelection`、`diff_tags()`、`diff_caption()`、`snapshot_from_metadata()`
+- **目的**: 2 枚の画像の現在のタグ(共通・左のみ・右のみ)とキャプション(原文を保ったテキスト差分)を読み取り専用で比較し、比較画面の左右選択と片側固定の状態を管理する。片側に情報が無い場合は比較せず、欠けている側を返す。画面は `gui/widgets/image_comparison_dialog.py`、読み込みは `gui/workers/image_comparison_worker.py` が担う
 
-#### GenerationMetadataParser (Qt-free)
-- **Path**: `src/lorairo/services/generation_metadata_parser.py`
-- **Functions**: `extract_generation_metadata()`, `read_generation_sources()`, `parse_generation_sources()`, `parse_sd_webui_parameters()`
-- **Purpose**: 画像に埋め込まれた生成情報 (PNG の `parameters` / `prompt` / `workflow`、EXIF UserComment) を整形前の原データとして取り出し、SD WebUI 形式を共通項目へ解析する。ComfyUI は判定のみ。結果型は `domain/generation_metadata.py`、保存は `GenerationMetadataRepository` (ADR 0105)。
+#### GenerationMetadataParser(Qt-free)
+- **パス**: `src/lorairo/services/generation_metadata_parser.py`
+- **関数**: `extract_generation_metadata()`、`read_generation_sources()`、`parse_generation_sources()`、`parse_sd_webui_parameters()`
+- **目的**: 画像に埋め込まれた生成情報(PNG の `parameters`、`prompt`、`workflow`、EXIF UserComment)を整形前の原データとして取り出し、SD WebUI 形式を共通項目へ解析する。ComfyUI は判定のみ行う。結果型は `domain/generation_metadata.py`、保存は `GenerationMetadataRepository` が担う(ADR 0105)
 
 #### KohyaScanner
-- **Path**: `src/lorairo/services/kohya_scanner.py`
-- **Purpose**: `<繰り返し数>_<名前>/` フォルダと学習テキストのスキャン。トリガーワード候補の検出 (Qt-free)。
+- **パス**: `src/lorairo/services/kohya_scanner.py`
+- **目的**: `<繰り返し数>_<名前>/` フォルダと学習テキストをスキャンし、トリガーワード候補を検出する(Qt-free)
 
 #### LearningText
-- **Path**: `src/lorairo/services/learning_text.py`
-- **Functions**: `split_elements()`, `join_elements()`
-- **Purpose**: 学習テキストの要素分割と連結 (正規化しない)。
+- **パス**: `src/lorairo/services/learning_text.py`
+- **関数**: `split_elements()`、`join_elements()`
+- **目的**: 学習テキストを正規化せずに要素分割および連結する
 
 #### KohyaConfigNormalizer
-- **Path**: `src/lorairo/services/kohya_config_normalizer.py`
-- **Purpose**: Kohya_ss GUI の設定 json を sd-scripts の引数名と型へ正規化する。秘密の値の除去、未変換キーの分離。
+- **パス**: `src/lorairo/services/kohya_config_normalizer.py`
+- **目的**: Kohya_ss GUI の設定 JSON を sd-scripts の引数名と型へ正規化する。秘密の値を除去し、未変換キーを分離する
 
 #### SdScriptsToml / SdScriptsArgTable
-- **Path**: `src/lorairo/services/sd_scripts_toml.py`, `src/lorairo/services/sd_scripts_arg_table.py`
-- **Purpose**: sd-scripts 用 TOML (`--dataset_config` / `--config_file`) の書き出しと、引数名と型の表 (`scripts/gen_sd_scripts_arg_table.py` で生成)。
+- **パス**: `src/lorairo/services/sd_scripts_toml.py`、`src/lorairo/services/sd_scripts_arg_table.py`
+- **目的**: sd-scripts 用 TOML(`--dataset_config`、`--config_file`)の書き出しと、引数名・型の対応表を提供する(対応表は `scripts/gen_sd_scripts_arg_table.py` で生成)
 
 #### QualityIssueDetectionService
-- **Path**: `src/lorairo/services/quality_issue_detection_service.py`
-- **Class**: `QualityIssueDetectionService`
-- **Purpose**: アノテーション品質の構造的問題を閾値非依存で検出する (Qt-free)。
+- **パス**: `src/lorairo/services/quality_issue_detection_service.py`
+- **クラス**: `QualityIssueDetectionService`
+- **目的**: アノテーション品質の構造的問題を閾値非依存で検出する(Qt-free)
 
 #### TagCloudService
-- **Path**: `src/lorairo/services/tag_cloud_service.py`
-- **Class**: `TagCloudService`
-- **Purpose**: キーワード連動の共起タグ探索 (共起グラフ生成)。
+- **パス**: `src/lorairo/services/tag_cloud_service.py`
+- **クラス**: `TagCloudService`
+- **目的**: キーワード連動の共起タグ探索(共起グラフ生成)を担う
 
-## GUIサービス
+## GUI サービス
 
-Qt依存のGUIサービス群。Signal/Slotによるウィジェット間通信をサポート。
+Qt 依存の GUI サービス群である。Signal/Slot によるウィジェット間通信をサポートする。
 
-### Worker調整
+### ワーカー調整
 
 #### WorkerService
-- **Path**: `src/lorairo/gui/services/worker_service.py`
-- **Class**: `WorkerService`
-- **Purpose**: Qt-basedの非同期タスク調整
-- **Pattern**: QThreadPool + QRunnable
-- **Integration**: WorkerManagerと連携
+- **パス**: `src/lorairo/gui/services/worker_service.py`
+- **クラス**: `WorkerService`
+- **目的**: Qt ベースの非同期タスク調整を担う
+- **パターン**: `QThreadPool` + `QRunnable`
+- **統合**: `WorkerManager` と連携する
 
 ### 検索・フィルタ
 
 #### SearchFilterService
-- **Path**: `src/lorairo/gui/services/search_filter_service.py`
-- **Class**: `SearchFilterService`
-- **Purpose**: GUI向け検索・フィルタ操作
-- **Integration**: MainWindow統合完了
-- **Signals**: 検索結果、フィルタ状態変更通知
+- **パス**: `src/lorairo/gui/services/search_filter_service.py`
+- **クラス**: `SearchFilterService`
+- **目的**: GUI 向けの検索・フィルタ操作を担う
+- **統合**: `MainWindow` へ統合済み
+- **シグナル**: 検索結果およびフィルタ状態の変更通知
 
 ### パイプライン制御
 
 #### PipelineControlService
-- **Path**: `src/lorairo/gui/services/pipeline_control_service.py`
-- **Class**: `PipelineControlService`
-- **Purpose**: 処理パイプラインの制御とステート管理
+- **パス**: `src/lorairo/gui/services/pipeline_control_service.py`
+- **クラス**: `PipelineControlService`
+- **目的**: 処理パイプラインの制御と状態管理を担う
 
 ### 状態・進捗管理
 
 #### ProgressStateService
-- **Path**: `src/lorairo/gui/services/progress_state_service.py`
-- **Class**: `ProgressStateService`
-- **Purpose**: 進捗状態の管理とSignal通知
+- **パス**: `src/lorairo/gui/services/progress_state_service.py`
+- **クラス**: `ProgressStateService`
+- **目的**: 進捗状態の管理と Signal 通知を担う
 
 #### ResultHandlerService
-- **Path**: `src/lorairo/gui/services/result_handler_service.py`
-- **Class**: `ResultHandlerService`
-- **Purpose**: 処理結果のハンドリングとUI反映
+- **パス**: `src/lorairo/gui/services/result_handler_service.py`
+- **クラス**: `ResultHandlerService`
+- **目的**: 処理結果のハンドリングと UI 反映を担う
 
 ### データベース統合
 
 #### ImageDBWriteService
-- **Path**: `src/lorairo/gui/services/image_db_write_service.py`
-- **Class**: `ImageDBWriteService`
-- **Purpose**: 画像データベース書き込み操作のGUIラッパー
+- **パス**: `src/lorairo/gui/services/image_db_write_service.py`
+- **クラス**: `ImageDBWriteService`
+- **目的**: 画像データベース書き込み操作の GUI ラッパー
 
-### GUI Widgets
+### GUI ウィジェット
 
-Qt-basedのGUIウィジェット群。MainWindow内でQTabWidgetとして統合。
+Qt ベースの GUI ウィジェット群である。`MainWindow` 内で `QTabWidget` として統合される。
 
 #### BatchTagAddWidget
-- **Path**: `src/lorairo/gui/widgets/batch_tag_add_widget.py`
-- **UI**: `src/lorairo/gui/designer/BatchTagAddWidget.ui`
-- **Class**: `BatchTagAddWidget`
-- **Purpose**: 複数画像に対して1つのタグを一括追加
-- **Architecture**:
-  - QTabWidget タブ3（バッチタグ追加）として統合
-  - OrderedDict[int, str] でステージングリスト管理（挿入順保持 + 重複防止）
-  - 500画像のステージング上限
-- **Integration**:
-  - TagCleaner.clean_format() による正規化（underscores → spaces, lowercase）
-  - DatasetStateManager.selected_image_ids からの選択画像取得
-  - ImageDBWriteService.add_tag_batch() による一括DB書き込み
-- **Signals**:
-  - `staged_images_changed(list)` - ステージングリスト変更通知
-  - `tag_add_requested(list, str)` - タグ追加リクエスト（image_ids, normalized_tag）
-  - `staging_cleared()` - ステージングリストクリア通知
-- **Features**:
-  - ドラッグ選択同期（ThumbnailSelectorWidget → DatasetStateManager）
-  - 個別削除（Delete キーで選択アイテム削除）
+- **パス**: `src/lorairo/gui/widgets/batch_tag_add_widget.py`
+- **UI ファイル**: `src/lorairo/gui/designer/BatchTagAddWidget.ui`
+- **クラス**: `BatchTagAddWidget`
+- **目的**: 複数画像に対して 1 つのタグを一括追加する
+- **構成**:
+  - `QTabWidget` のタブ 3(バッチタグ追加)として統合される
+  - `OrderedDict[int, str]` でステージングリストを管理する(挿入順保持と重複防止)
+  - ステージング上限は 500 画像である
+- **統合**:
+  - `TagCleaner.clean_format()` で正規化する(アンダースコアを空白へ変換し小文字化)
+  - `DatasetStateManager.selected_image_ids` から選択画像を取得する
+  - `ImageDBWriteService.add_tag_batch()` で DB へ一括書き込む
+- **シグナル**:
+  - `staged_images_changed(list)`: ステージングリスト変更通知
+  - `tag_add_requested(list, str)`: タグ追加リクエスト(`image_ids`, `normalized_tag`)
+  - `staging_cleared()`: ステージングリストクリア通知
+- **機能**:
+  - ドラッグ選択同期(`ThumbnailSelectorWidget` から `DatasetStateManager` へ連携)
+  - 個別削除(Delete キーで選択アイテムを削除)
   - 全クリアボタン
-  - 空タグバリデーション
+  - 空タグのバリデーション
   - 重複画像の自動スキップ
-- **Testing**:
-  - Unit tests: 21 tests, 97% coverage
-  - Integration tests: 11 tests, 100% pass rate
+- **テスト**:
+  - ユニットテスト: 21 件、カバレッジ 97%
+  - 統合テスト: 11 件、成功率 100%
 
 #### RatingScoreEditWidget
-- **Path**: `src/lorairo/gui/widgets/rating_score_edit_widget.py`
-- **UI**: `src/lorairo/gui/designer/RatingScoreEditWidget.ui`
-- **Class**: `RatingScoreEditWidget`
-- **Purpose**: 単一画像のRating/Score編集
-- **Architecture**:
-  - QTabWidget タブ2（Rating/Score編集）として統合
-  - SelectedImageDetailsWidget から分離（読み取り専用化）
-- **UI Components**:
-  - Rating選択: QComboBox（PG, PG-13, R, X, XXX）
-  - Score調整: QSlider（0-1000内部値、0.00-10.00表示）
+- **パス**: `src/lorairo/gui/widgets/rating_score_edit_widget.py`
+- **UI ファイル**: `src/lorairo/gui/designer/RatingScoreEditWidget.ui`
+- **クラス**: `RatingScoreEditWidget`
+- **目的**: 単一画像の Rating と Score を編集する
+- **構成**:
+  - `QTabWidget` のタブ 2(Rating/Score 編集)として統合される
+  - 読み取り専用化した `SelectedImageDetailsWidget` から分離されている
+- **UI コンポーネント**:
+  - Rating 選択: `QComboBox`(`PG`, `PG-13`, `R`, `X`, `XXX`)
+  - Score 調整: `QSlider`(内部値 0–1000、表示 0.00–10.00)
   - 現在値ラベル: リアルタイム更新
-- **Data Conversion**:
-  - UI内部: 0-1000（精度維持）
-  - UI表示: 0.00-10.00（value/100.0）
-  - DB格納: 0.0-10.0 Float（value/100.0）
-- **Signals**:
-  - `rating_changed(int, str)` - Rating変更通知（image_id, rating）
-  - `score_changed(int, int)` - Score変更通知（image_id, score）
+- **データ変換**:
+  - UI 内部: 0–1000(精度維持)
+  - UI 表示: 0.00–10.00(`value / 100.0`)
+  - DB 格納: 0.0–10.0 Float(`value / 100.0`)
+- **シグナル**:
+  - `rating_changed(int, str)`: Rating 変更通知(`image_id`, `rating`)
+  - `score_changed(int, int)`: Score 変更通知(`image_id`, `score`)
 
 ## 設計パターン
 
-### Qt-Free Coreパターン
+### Qt-Free Core パターン
 
-**目的:** CLIツールがQt依存なしで動作可能に、GUIは完全なSignalサポート
+CLI ツールを Qt 非依存で動作させつつ、GUI には完全な Signal サポートを提供するためのパターンである。
 
-**実装例: TagRegisterService**
+**実装例: `TagRegisterService`**
 
 ```
 Core Service (Qt-free):
@@ -469,19 +476,17 @@ GUI Wrapper (Qt-dependent):
   - Signal emit (tag_registered, error_occurred等)
 ```
 
-**パターンの利点:**
-- CLIツール: コアサービスを直接使用（Qt不要）
-- GUIアプリ: GUIラッパー経由でSignal通知受信
-- テスタビリティ: コアロジックは単独でテスト可能
+**利点**:
+- CLI ツールはコアサービスを直接使用でき、Qt を必要としない
+- GUI アプリは GUI ラッパー経由で Signal 通知を受け取れる
+- コアロジックを単独でユニットテストできる
 
-### 依存性注入 (DI)
+### 依存性注入(DI)
 
-**ServiceContainerによるDI管理:**
-- 全サービスのシングルトンインスタンス管理
-- 依存関係の自動解決
-- テスト時のモック注入サポート
+`ServiceContainer` が全サービスのシングルトン管理、依存関係の自動解決、テスト時のモック注入を担う。
 
-**使用例:**
+**使用例**:
+
 ```python
 from src.lorairo.services.service_container import get_service_container
 
@@ -490,14 +495,11 @@ config = container.get_config_service()
 tag_service = container.get_tag_management_service()
 ```
 
-### Signal通信
+### Signal 通信
 
-**GUI Services間通信:**
-- Qt Signal/Slotによる疎結合
-- イベント駆動アーキテクチャ
-- 非同期処理の完了通知
+GUI サービス間は Qt の Signal/Slot によるイベント駆動アーキテクチャで疎結合に連携し、非同期処理の完了などを通知する。
 
-**主要Signal:**
+**主要シグナル**:
 - `SearchFilterService`: 検索結果、フィルタ変更
 - `ProgressStateService`: 進捗更新
 - `ResultHandlerService`: 処理完了、エラー通知
@@ -506,33 +508,33 @@ tag_service = container.get_tag_management_service()
 
 ### 初期化順序
 
-1. **ConfigurationService**: 設定ファイル読み込み
-2. **ServiceContainer**: DIコンテナ初期化
-3. **Business Logic Services**: コアサービス初期化
-4. **GUI Services**: ウィジェット連携サービス初期化
+1. **ConfigurationService**: 設定ファイルを読み込む
+2. **ServiceContainer**: DI コンテナを初期化する
+3. **ビジネスロジックサービス**: コアサービス群を初期化する
+4. **GUI サービス**: ウィジェット連携サービス群を初期化する
 
-### シャットダウンプロセス
+### シャットダウン順序
 
-1. GUI Services: Signal切断、リソース解放
-2. Business Logic Services: 処理中タスクの完了待機
-3. Database: コネクション終了
-4. Configuration: 設定保存
+1. **GUI サービス**: Signal を切断し、リソースを解放する
+2. **ビジネスロジックサービス**: 処理中タスクの完了を待機する
+3. **データベース**: コネクションを終了する
+4. **設定**: 設定を保存する
 
 ## テスト戦略
 
 ### ユニットテスト
 
-- **Business Logic Services**: Qt依存なしで単独テスト可能
-- **Mock不要**: 外部依存（filesystem, network, API）のみモック
-- **Coverage Target**: 75%+
+- ビジネスロジックサービスは Qt 非依存のまま単独でテストする
+- モック対象はファイルシステム、ネットワーク、外部 API などの外部依存に限定する
+- カバレッジ目標は 75% 以上とする
 
 ### 統合テスト
 
-- **GUI Services**: pytest-qtによるSignalテスト
-- **Pattern**: `qtbot.waitSignal()`, `qtbot.waitUntil()`
-- **Mock**: `QMessageBox`等のUI要素のみ
+- GUI サービスは pytest-qt で Signal の発火と遷移を検証する
+- 待機には `qtbot.waitSignal()` と `qtbot.waitUntil()` を使う
+- モック対象は `QMessageBox` などの UI 要素のみとする
 
-### テスト構造
+### テスト構成
 
 ```
 tests/
@@ -545,35 +547,34 @@ tests/
 
 ## メンテナンスガイドライン
 
-### 新規サービス追加
+### 新規サービスの追加
 
-1. **Business Logic Service**: Create in `src/lorairo/services/`
-   - Qt依存なし
-   - Google-style docstring
-   - Type hints必須
-   - ServiceContainerに登録
+1. **ビジネスロジックサービス**(`src/lorairo/services/` に作成):
+   - Qt に依存させない
+   - Google スタイルの docstring を記述する
+   - 型ヒントを必ず付与する
+   - `ServiceContainer` へ登録する
 
-2. **GUI Service**: Create in `src/lorairo/gui/services/`
-   - QObject継承
-   - Signal定義
-   - Compositionパターンでコアロジック委譲
+2. **GUI サービス**(`src/lorairo/gui/services/` に作成):
+   - `QObject` を継承する
+   - 必要な Signal を定義する
+   - コンポジションパターンでコアロジックへ委譲する
 
-### サービスの責任
+### サービスの責務
 
-**Single Responsibility Principle (SRP) 遵守:**
-- 1サービス = 1明確な責任
-- 複雑化したら分割を検討
-- 例: `ModelService` → `ModelFilterService`, `ModelSelectionService`, `ModelSyncService`
+単一責任の原則(SRP)に従い、1 サービスにつき 1 つの明確な責務を持たせる。処理が複雑化した場合は分割を検討する。
+
+- 分割例: `ModelService` を `ModelFilterService`、`ModelSelectionService`、`ModelSyncService` へ分離
 
 ### 非推奨化プロセス
 
-1. `@deprecated` decorator追加
-2. 新サービスへの移行パス文書化
-3. 1リリースサイクル後に削除
+1. `@deprecated` デコレーターを付与する
+2. 新サービスへの移行手順を文書化する
+3. 1 リリースサイクルの経過後に削除する
 
 ## 関連ドキュメント
 
-- [CLAUDE.md](../CLAUDE.md) - Development overview
-- [docs/integrations.md](integrations.md) - External package integration
-- [docs/testing.md](testing.md) - Testing strategies
-- [docs/architecture.md](architecture.md) - System design principles
+- [CLAUDE.md](../CLAUDE.md) — 開発概要
+- [docs/integrations.md](integrations.md) — 外部パッケージ統合
+- [docs/testing.md](testing.md) — テスト戦略
+- [docs/architecture.md](architecture.md) — システム設計原則

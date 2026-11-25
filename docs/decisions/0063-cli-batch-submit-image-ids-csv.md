@@ -8,18 +8,17 @@ tags: []
 # ADR 0063: CLI Batch Submit Image IDs CSV Contract
 
 - **関連 Issue**: #671
-- **関連 ADR**: [0057](0057-cli-jsonl-output-and-error-contract.md), [0059](0059-cli-command-introspection.md), [0060](0060-cli-bounded-pagination-contract.md)
+- **関連 ADR**: [0057](0057-cli-jsonl-output-and-error-contract.md)、[0059](0059-cli-command-introspection.md)、[0060](0060-cli-bounded-pagination-contract.md)
 
 ## Context
 
-`lorairo-cli batch submit` は対象画像を repeatable な `--image-id` で受け取っていた。
-この形は少数の手入力では動くが、`images list --fetch` で得た ID 集合を後続の batch submit
-に渡す導線では冗長になる。CLI の利用者は ID 集合を「リスト」として扱いたい一方、引数ごとに
-同じ option 名を繰り返す契約はその意図とずれる。
+従来の `lorairo-cli batch submit` は、対象画像を繰り返し指定可能な `--image-id` オプションで受け取っていた。少数の手入力であれば問題ないが、`images list --fetch` で得た ID 集合を後続の `batch submit` に渡す導線では記述が冗長になる。
+
+CLI 利用者は ID 集合を 1 つのリストとして扱いたい。一方で、引数ごとに同じオプション名を繰り返す契約はその意図と噛み合っていない。
 
 ## Decision
 
-`batch submit` の画像 ID 指定は、単一 option のカンマ区切り CSV に統一する。
+`batch submit` の画像 ID 指定は、単一オプションのカンマ区切り CSV に統一する。
 
 ```bash
 lorairo-cli batch submit \
@@ -29,21 +28,17 @@ lorairo-cli batch submit \
   --image-ids 2,7,11
 ```
 
-旧 `--image-id` repeatable option は authoritative な経路ではなくなり、CLI help、
-introspection、docs から削除する。command 層は `--image-ids` を `list[int]` に正規化し、
-既存の `ProviderBatchWorkflowService.submit_images(image_ids=...)` へ渡す。
+旧 `--image-id` 繰り返しオプションは正式な経路から廃止し、CLI のヘルプ、introspection、ドキュメントから削除する。コマンド層は `--image-ids` を `list[int]` に正規化し、既存の `ProviderBatchWorkflowService.submit_images(image_ids=...)` へ渡す。
 
 ## Rationale
 
-`batch submit` の責務は「対象画像集合を provider batch に投入する」ことであり、サービス層の
-canonical input は今後も `list[int]` のままでよい。変更すべきなのは CLI の入力表面である。
-互換追加として `--image-id` と `--image-ids` を併存させると、help / introspection / docs の
-導線が二重化し、利用者がどちらを使うべきか迷う。Issue #671 では導線を単純にするため、
-CSV の単一路線へ寄せる。
+`batch submit` の責務は、対象画像集合をプロバイダバッチへ投入することである。サービス層の正準入力は今後も `list[int]` のままでよく、変更すべきなのは CLI の入力インターフェースだけである。
+
+互換性のために `--image-id` と `--image-ids` を併存させると、ヘルプ・introspection・ドキュメントの導線が二重化し、利用者がどちらを使うべきか迷う原因になる。Issue #671 では導線を単純に保つため、CSV 形式の単一路線へ統一する。
 
 ## Consequences
 
-- `batch submit` 利用者は `--image-ids 2,7,11` を使う。
-- 旧 `--image-id` を使う既存スクリプトは更新が必要。
+- `batch submit` の利用者は `--image-ids 2,7,11` を使用する。
+- 旧 `--image-id` を使っている既存スクリプトは更新が必要になる。
 - introspection の `BatchSubmitInput` は `image_ids: csv[int]` を公開する。
 - `images list --fetch` の `image_id` 出力は、後段で CSV 化して `--image-ids` に渡す ID 集合として扱う。

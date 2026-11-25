@@ -1,34 +1,34 @@
 ---
 type: ADR
-title: OpenAI Moderation WebAPI Preflight
+title: WebAPI アノテーションにおける OpenAI モデレーションのプリフライト
 status: Accepted
 timestamp: 2026-05-30
 tags: []
 ---
-# ADR 0070: OpenAI Moderation WebAPI Preflight
+# ADR 0070: WebAPI アノテーションにおける OpenAI モデレーションのプリフライト
 
-## Context
+## 背景
 
-WebAPI annotation can send images to downstream provider models before LoRAIro has a usable rating row. Existing refusal and rating filters prevent repeat sends for known refused or `X` / `XXX` images, but unrated images still need a preflight decision before normal WebAPI annotation.
+WebAPI アノテーションでは、LoRAIro が利用可能なレーティング行を持つ前に、下流のプロバイダモデルへ画像を送信してしまう可能性があった。既存の拒否フィルタとレーティングフィルタにより、既知の拒否済み画像や `X` / `XXX` 画像の再送信は防げるが、未評価画像については通常の WebAPI アノテーション前にプリフライト判定を行う必要がある。
 
-## Decision
+## 決定
 
-Normal GUI and CLI WebAPI annotation paths run `openai/omni-moderation-latest` for DB-registered images whose latest rating is missing, `UNRATED`, or otherwise not usable for a send decision. Moderation results are stored in the existing `ratings` table using the existing OpenAI moderation model row and `openai_moderation_v1` rating scheme. No new schema flag is added.
+通常の GUI および CLI の WebAPI アノテーション経路では、DB 登録済み画像のうち最新レーティングが未登録、`UNRATED`、または送信可否の判定に利用できない画像に対して `openai/omni-moderation-latest` を実行する。モデレーション結果は、既存の OpenAI モデレーションモデル行と `openai_moderation_v1` レーティングスキームを用いて既存の `ratings` テーブルへ保存する。新しいスキーマフラグは追加しない。
 
-Known latest ratings remain authoritative:
+既知の最新レーティングは引き続き正規の判定基準として扱う。
 
-- `X` / `XXX` skip WebAPI annotation without another moderation call.
-- `PG` / `PG-13` / `R` proceed without another moderation call.
-- unknown file paths pass through because no `ratings.image_id` target exists.
+- `X` / `XXX`: モデレーションを再実行せず、WebAPI アノテーションをスキップする。
+- `PG` / `PG-13` / `R`: モデレーションを再実行せず、処理を続行する。
+- 未知のファイルパス: 対応する `ratings.image_id` が存在しないため、そのまま通過させる。
 
-If moderation cannot run or does not produce a saved rating for an unrated image, LoRAIro fails closed for that image: the image is skipped, an `error_records` row records the reason, and the rest of the batch continues.
+未評価画像に対してモデレーションを実行できない場合、または保存可能なレーティングを得られない場合、LoRAIro はその画像に対してフェイルクローズで動作する。すなわち、該当画像をスキップして理由を `error_records` 行へ記録し、バッチ内の残りの画像は処理を継続する。
 
-## Rationale
+## 根拠
 
-This keeps the rating table as the single source of truth for WebAPI send decisions and reuses the existing image-annotator-lib OpenAI moderation converter. A fixed fail-closed policy avoids accidentally sending unrated images when the OpenAI key, network, or moderation API is unavailable.
+この方針により、WebAPI 送信判定の単一情報源(SSoT)を `ratings` テーブルに保ちつつ、既存の image-annotator-lib の OpenAI モデレーション変換ロジックを再利用できる。固定のフェイルクローズ方針を採ることで、OpenAI API キー未設定、ネットワーク障害、モデレーション API 障害時に未評価画像が誤送信されるのを防ぐ。
 
-Provider Batch automatic two-stage orchestration is not included here. The existing manual `rating_preflight` batch task remains available, while this ADR covers the normal GUI/CLI annotation path.
+Provider Batch における 2 段階の自動オーケストレーションは本決定の対象外である。既存の手動 `rating_preflight` バッチタスクは引き続き利用可能であり、本 ADR は通常の GUI/CLI アノテーション経路のみを対象とする。
 
-## Consequences
+## 影響
 
-Tests must cover existing-rating skip/allow, unrated moderation allow/block, moderation failure, and no-op local-model selections. The model registry must keep `openai/omni-moderation-latest` mapped to the `ratings` model type, and future moderation model changes must preserve `openai_moderation_v1` mapping compatibility.
+テストでは、既存レーティングによるスキップ/許可、未評価画像のモデレーションによる許可/ブロック、モデレーション失敗時の挙動、およびローカルモデル選択時の無動作を網羅する必要がある。モデルレジストリでは `openai/omni-moderation-latest` を `ratings` モデル種別へマッピングし続ける必要があり、将来のモデレーションモデル変更時も `openai_moderation_v1` マッピングとの互換性を維持しなければならない。

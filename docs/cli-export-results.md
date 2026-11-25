@@ -5,126 +5,53 @@ status: Accepted
 tags: [cli, dataset-export]
 ---
 
-# Export results and retries
+# エクスポート結果とリトライ
 
-`export create` reports this invocation, including errors after partial file output.
-Its terminal JSONL result preserves `total_images` as the requested ID count for
-compatibility; use `exported` to decide how many complete image datasets were written.
-An image is exported only when all requested languages and both TXT and JSON finish.
+`export create` は、部分的なファイル出力後に発生したエラーを含め、その呼び出しの結果を報告します。末尾の JSONL 結果では互換性のため `total_images` に要求 ID 数を残していますが、完全な画像データセットが何件書き出されたかを判断するには `exported` を使用してください。1 枚の画像がエクスポート済みとみなされるのは、要求された全言語について TXT と JSON の両方が完了したときだけです。
 
-| Field | Meaning |
+| フィールド | 意味 |
 | --- | --- |
-| `requested` | Number of unique requested IDs; duplicate CSV IDs are exported once |
-| `exported` | Images with complete TXT/JSON output |
-| `skipped` | IDs missing from the DB or without a usable processed image |
-| `failed` | Images with operational failures, such as DB, copy, or writer errors |
-| `exported_ids` | IDs with all requested output complete |
-| `failed_ids` | Every incomplete ID, including skipped images; suitable for retry input |
-| `error_details` | Per-ID reasons, completed formats, and files whose writers completed |
+| `requested` | 要求された一意な ID 数 (CSV 内の重複 ID は 1 回だけエクスポート) |
+| `exported` | TXT / JSON 出力がすべて完了した画像数 |
+| `skipped` | DB に存在しない ID、または利用可能な処理済み画像がない ID の数 |
+| `failed` | DB・コピー・ライターのエラーなど実行時障害が発生した画像数 |
+| `exported_ids` | 要求された出力がすべて完了した ID の一覧 |
+| `failed_ids` | スキップを含むすべての未完了 ID (リトライ入力にそのまま利用可能) |
+| `error_details` | ID ごとの理由、完了済みフォーマット、および書き込みが完了したファイル一覧 |
 
-`requested = exported + skipped + failed`. Any incomplete image produces `ok:false`.
-`status` is `success` (exit 0) for complete output, `partial_success` (exit 3) when some
-images exported, and `failed` (exit 1) when none exported. Invalid input remains exit 2.
-A TXT file can remain after a JSON
-write fails; it is listed as partial evidence and does not increment `exported`.
-JSON evidence is tracked separately for each language. When an image's later language
-fails, an earlier language's completed `metadata.json` can still contain that image
-and is listed in its `output_files`. A metadata write failure is attributed to every
-image staged in that specific document, including images already failing elsewhere;
-the error message identifies the document path. Neither partial staging nor one
-successful language makes the image's overall JSON format complete.
-Missing IDs (`image_not_found`) and missing processed files (`processed_image_missing`)
-are distinct from `export_error` and late `metadata_write_error` failures.
-`output_path_collision` means a later selected image would overwrite an earlier
-image's output. Flat filenames remain unchanged: different source directories with
-the same basename, or different extensions with the same TXT/caption stem, conflict.
-The later ID fails before writing any language or format, preserving the earlier
-image's files and JSON entry. Correct the source naming or export the conflicting
-IDs into separate directories before retrying.
+`requested = exported + skipped + failed` が成り立ちます。未完了の画像が 1 枚でもあれば `ok:false` になります。`status` は全件完了で `success` (exit 0)、一部のみ完了で `partial_success` (exit 3)、1 件も完了しなかった場合は `failed` (exit 1) です。無効な入力は引き続き exit 2 です。JSON の書き込みが失敗したあとに TXT ファイルが残る場合がありますが、これは部分的な出力証拠として記録されるのみで `exported` は加算されません。JSON の出力証拠は言語ごとに個別追跡されます。ある画像の後半の言語で失敗した場合、前半の言語で完了した `metadata.json` にはその画像が含まれることがあり、そのファイルのパスは `output_files` に記載されます。メタデータ書き込みエラーは、別箇所ですでに失敗していた画像を含め、そのドキュメントにステージされていた全画像へ帰属し、エラーメッセージにドキュメントパスが示されます。部分的なステージングや 1 言語だけの成功によって、その画像の JSON フォーマット全体が完了扱いになることはありません。
 
-Destination ownership is retained for the entire operation, including across 500-ID
-boundaries and between TXT/JSON passes, using O(selected IDs × languages) memory.
-All destinations for an ID are checked before reservation; a rejected ID does not
-reserve unrelated names. This ownership record is separate from translation caches.
+存在しない ID (`image_not_found`) や処理済みファイル欠損 (`processed_image_missing`) は、`export_error` や後段の `metadata_write_error` と区別されます。`output_path_collision` は、あとから選択された画像が先の画像の出力を上書きしてしまう衝突を示します。フラットなファイル名規則は変わらないため、異なるソースディレクトリに同じベース名がある場合や、拡張子が異なっても TXT / キャプションのステムが同じ場合は衝突します。あとの ID はどの言語・フォーマットも書き込む前に失敗し、先の画像のファイルと JSON エントリを保護します。リトライ前にソース側の命名を修正するか、衝突する ID を別々の出力ディレクトリへエクスポートしてください。
 
-This changes the former exit-0 behavior for incomplete exports. Scripts should inspect
-exit status and `ok`, then use `exported`, rather than treating `total_images` as success.
-Successful filenames, TXT/caption/JSON contents and single-format service Path return
-values remain compatible. Service callers may supply `ExportResult` to collect results.
+出力先の所有権は 500 ID の境界や TXT / JSON パスをまたいで操作全体で保持され、メモリ使用量は O(selected IDs × languages) です。ある ID についてすべての出力先を検証してから予約するため、拒否された ID が無関係なファイル名を予約することはありません。この所有権記録は翻訳キャッシュとは分離しています。
 
-Existing output files are overwritten, and unrelated or stale files are not deleted.
-`metadata.json` is replaced with this invocation's records, rather than merged with a
-previous export. Files already present are never taken as proof that a new write
-succeeded. Atomic rollback of output files is not provided; an interrupted write can
-leave an incomplete file, and `output_files` lists only completed writes. For retries,
-correct the reported cause and write `failed_ids` to a new output directory; to rebuild
-a complete dataset in the same directory, rerun the original full ID list.
-CSV input remains limited to 500 IDs; use `--image-ids-file` for up to 100,000 IDs.
+これは、不完全なエクスポートでも exit 0 を返していた従来の挙動を変更するものです。スクリプトでは `total_images` を成功とみなさず、終了コードと `ok` を確認したうえで `exported` を参照してください。成功時のファイル名、TXT / キャプション / JSON の内容、および単一フォーマットサービスの Path 戻り値は互換性を維持します。サービス呼び出し側は `ExportResult` を渡して結果を収集できます。
 
-## Shared work for all formats
+既存の出力ファイルは上書きされ、無関係なファイルや古いファイルは削除されません。`metadata.json` は前回のエクスポートとマージされるのではなく、今回の呼び出しのレコードで置き換えられます。すでに存在するファイルをもって新規書き込み成功の証拠とすることはありません。出力ファイルのアトミックなロールバックは提供されないため、書き込みが中断されると不完全なファイルが残る場合があります (`output_files` には完了した書き込みのみを記録します)。リトライ時は報告された原因を解消し、`failed_ids` を新しい出力ディレクトリへ書き出してください。同じディレクトリに完全なデータセットを再構築したい場合は、元の全 ID リストで再実行してください。CSV 入力の上限は引き続き 500 ID です。最大 100,000 ID を扱う場合は `--image-ids-file` を使用してください。
 
-`export create` uses `DatasetExportService.export_dataset_all_formats` and copies each
-processed image once per language destination. For N unique IDs and L languages,
-successful copies are NL instead of 2NL. Processed-path resolution, image metadata,
-annotations, and canonical tag normalization run once per image; translation runs
-once per image and language and is shared by TXT and JSON. Exact/closest processed
-resolution selection uses the existing resolver.
+## 全フォーマット間の共通処理
 
-Input records are consumed one image at a time. Translation caches reset every 500
-images; their size depends on the tags in that window. Final JSON document dictionaries
-still grow with the output dataset, as in the existing JSON writer. This change does
-not batch SQL queries or claim bounded total memory or a measured speedup factor.
+`export create` は `DatasetExportService.export_dataset_all_formats` を使用し、各処理済み画像を言語ごとの出力先へ 1 回だけコピーします。一意な ID 数を N、言語数を L とすると、成功時のコピー回数は 2NL ではなく NL 回になります。処理済みパス解決、画像メタデータ、アノテーション、正規タグの正規化は画像ごとに 1 回だけ実行します。翻訳は画像と言語の組ごとに 1 回だけ実行し、TXT と JSON で共有します。厳密解像度 / 最近傍解像度の選択には既存のリゾルバーを使用します。
 
-Python callers can use `lorairo.public_api.export.export_images_all_formats` with a
-project name, exact image IDs, output path, resolution, and optional languages. It
-returns the same service `ExportResult` collector, whose `summary()` exposes the CLI
-result fields above. Existing single-format methods remain available. A TXT failure
-can leave successful JSON output, and a late JSON failure retains completed TXT files;
-both remain incomplete image results and can be retried using `failed_ids`.
+入力レコードは画像を 1 枚ずつ消費します。翻訳キャッシュは 500 枚ごとにリセットされ、そのサイズは各ウィンドウ内のタグに依存します。最終的な JSON ドキュメント辞書は既存の JSON ライターと同様に出力データセットに応じて増加します。この変更は SQL クエリのバッチ化を行うものではなく、総メモリ量の上限や実測の高速化倍率を保証するものでもありません。
 
-## Preview without output writes
+Python からは、プロジェクト名・厳密画像 ID・出力パス・解像度・任意言語を指定して `lorairo.public_api.export.export_images_all_formats` を呼び出せます。サービスと同じ `ExportResult` コレクターを返し、その `summary()` で上記の CLI 結果フィールドを取得できます。既存の単一フォーマットメソッドも引き続き利用できます。TXT の失敗後に成功した JSON 出力が残ることや、後段の JSON 失敗後に完了済み TXT ファイルが残ることがありますが、いずれも未完了画像として扱われ `failed_ids` からリトライできます。
 
-Add `--dry-run` to preview the same exact IDs, processed image resolution selection,
-tag language directories, TXT/caption names, and filename collisions used by real export:
+## 出力書き込みなしのプレビュー
+
+`--dry-run` を追加すると、実際のエクスポートと同じ厳密 ID、処理済み解像度選択、タグ言語ディレクトリ、TXT / キャプション名、およびファイル名衝突を事前確認できます。
 
 ```sh
 lorairo-cli --json export create --project training --image-ids-file ids.txt \
   --output planned-dataset --tag-language canonical --tag-language ja --dry-run
 ```
 
-The preview emits a `kind:item` JSONL row for each image ready for export, followed by
-one `kind:result`. Each item contains `image_id`, `source_path`, and `destinations`.
-Each destination contains `language`, `image_path`, `tags_path`, `caption_path`
-(`null` when there is no caption), and `metadata_path`. Paths follow the same spelling
-and relative/absolute convention as the real export, and language aliases and repeated
-language options are normalized by the shared path resolver.
+プレビューでは、エクスポート準備が整った画像ごとに `kind:item` の JSONL 行を出力し、最後に `kind:result` を 1 行出力します。各アイテムには `image_id`、`source_path`、`destinations` が含まれます。各 destination には `language`、`image_path`、`tags_path`、`caption_path` (キャプションがない場合は `null`)、`metadata_path` が含まれます。パスの表記と相対 / 絶対パス規約は実際のエクスポートと同じであり、言語エイリアスや重複した言語オプションは共通のパスリゾルバーで正規化されます。
 
-The result sets `dry_run:true`, replaces `exported` with `would_export`, and replaces
-`exported_ids` with `ready_ids`. It also lists the planned per-language `metadata_files`.
-`requested`, `skipped`, `failed`, `failed_ids`, and `error_details` retain their meanings
-for input validation. Preview error details contain reasons without completed-format or
-written-file evidence. `requested = would_export + skipped + failed`. Exit 0 means all
-requested inputs are ready; exit 3 means some are ready; exit 1 means none are ready.
-The manifest and counts describe a plan and do not claim that any files were exported.
+結果オブジェクトには `dry_run:true` が設定され、`exported` の代わりに `would_export`、`exported_ids` の代わりに `ready_ids` が入ります。さらに言語ごとの予定 `metadata_files` も列挙されます。`requested`、`skipped`、`failed`、`failed_ids`、`error_details` は入力検証結果として同じ意味を保ちます。プレビューの `error_details` には理由のみが入り、完了済みフォーマットや書き込み済みファイルの証拠は含まれません。`requested = would_export + skipped + failed` が成り立ちます。終了コードは全入力が準備完了なら 0、一部準備完了なら 3、準備完了なしなら 1 です。マニフェストと件数は計画を示すものであり、ファイルが実際にエクスポートされたことは意味しません。
 
-Plain `--dry-run` already requires existing compatible project and tag databases and
-cached tag data. It never creates output directories, copies images, writes metadata,
-initializes user tag databases, downloads base tag data, or migrates the project DB.
-Missing preparation returns `PRECONDITION_FAILED`; run the separately authorized
-`project prepare` workflow before trying again. `--read-only` can also be combined with
-`--dry-run`; `--read-only export create` without `--dry-run` is rejected.
-The existing CLI log and SQLite read-only WAL/shared-memory bookkeeping remain in
-use; the guarantee covers dataset output and logical database content, not those
-runtime bookkeeping files.
+通常の `--dry-run` でも、既存の互換プロジェクト DB、タグ DB、およびキャッシュ済みタグデータが必要です。出力ディレクトリの作成、画像コピー、メタデータ書き込み、ユーザータグ DB の初期化、ベースタグデータのダウンロード、プロジェクト DB のマイグレーションは一切行いません。準備が不足している場合は `PRECONDITION_FAILED` を返すため、別途許可された `project prepare` ワークフローを実行してから再試行してください。`--read-only` は `--dry-run` と併用できますが、`--dry-run` なしの `--read-only export create` は拒否されます。既存の CLI ログおよび SQLite の読み取り専用 WAL / 共有メモリ管理は引き続き使用されます。書き込みなし保証の対象はデータセット出力と論理的なデータベース内容であり、これらランタイム管理ファイルは対象外です。
 
-The shared planner resolves tags, captions, translations, optional Python overlays,
-and output name ownership before returning paths. It does not attempt writes to prove
-permissions, available disk space, or future write success. Source changes and races
-between preview and real export remain possible, and existing destination files will
-be overwritten by a later real export as before.
+共通プランナーはパスを返す前に、タグ、キャプション、翻訳、任意の Python オーバーレイ、および出力名の所有権を解決します。権限、空きディスク容量、将来の書き込み成功を証明するための試験書き込みは行いません。プレビューと実エクスポートの間にソース変更や競合が生じる可能性は残っており、実エクスポート時には従来どおり既存の出力先ファイルが上書きされます。
 
-Python callers can use `lorairo.public_api.export.preview_images_all_formats` with the
-same project name, exact IDs, output path, resolution and languages as the real facade.
-It returns `ExportPreview`, containing `manifest`, `metadata_files`, and `summary()`.
-Service callers can use `DatasetExportService.preview_dataset_all_formats` and supply
-the same `tag_format` and `overlay_plan` options as `export_dataset_all_formats`.
+Python からは、実ファサードと同じプロジェクト名・厳密 ID・出力パス・解像度・言語を指定して `lorairo.public_api.export.preview_images_all_formats` を呼び出せます。`manifest`、`metadata_files`、`summary()` を持つ `ExportPreview` を返します。サービス呼び出し側は `DatasetExportService.preview_dataset_all_formats` を使用でき、`export_dataset_all_formats` と同じ `tag_format` および `overlay_plan` オプションを渡せます。

@@ -1,62 +1,62 @@
-# GUI Wireframes v11 — Phase 2 Results 読み取り専用トリアージ Implementation Plan
+# GUI Wireframes v11 — Phase 2 Results 読み取り専用トリアージ 実装計画
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Wireframes v11 Frame 5「Results」を読み取り専用のアノテーション品質トリアージ画面として実装し、Phase 1 の `tabResults` スタブを置換する。
 
-**Architecture:** Qt-free の `QualityIssueDetectionService`（純粋な分類ロジック）と Qt の `ResultsWidget`（表示）を分離し、MainWindow が両者を仲介する MVC 構成。検出は**構造的事実 5 種のみ**で閾値は持たない。データソースは共有ステージング集合（Phase 1 で全タブ共有済み）。
+**Architecture:** Qt 非依存の `QualityIssueDetectionService`(純粋な分類ロジック)と Qt の `ResultsWidget`(表示)を分離し、`MainWindow` が両者を仲介する MVC 構成とする。検出対象は**構造的事実 5 種のみ**とし、閾値は持たない。データソースには共有ステージング集合(Phase 1 で全タブ共有済み)を使用する。
 
-**Tech Stack:** PySide6 / pytest-qt / 既存 `domain/quality_tier.py` `domain/score_scaler.py` / `db_manager.get_image_annotations`
+**Tech Stack:** PySide6、pytest-qt、既存の `domain/quality_tier.py` および `domain/score_scaler.py`、`db_manager.get_image_annotations`
 
 ---
 
-## 確定スコープ（ユーザー承認済 2026-06-11）
+## 確定スコープ(ユーザー承認済 2026-06-11)
 
-- **読み取り専用トリアージ**: サマリ band + issue カード + per-image 行の「表示」まで。accept/edit/reject アクション・bulk 承認・永続化は **Phase 2b** に分離
-- **検出閾値は持たない**: 低信頼度タグ・短 caption は issue 化せず、行内にデータとして表示するのみ。issue 検出は構造的事実 5 種:
-  1. `EMPTY_TAGS` — tagger 由来の採用タグが 0 件
-  2. `NO_SCORE` — scorer 出力（score / score_label）が無い
-  3. `UNKNOWN_TIER` — score_label が `map_score_label_to_tier` で None（mapping 未定義、ADR 0028）
-  4. `RATING_DISAGREEMENT` — 複数モデルの `normalized_rating` が割れている
-  5. `SCORER_DISAGREEMENT` — 複数 scorer の tier が割れている（`is_unanimous == false` 相当）
-- **`Image.reviewed_at` migration は Phase 2b**（accept アクションと同時。本フェーズでは未使用カラムを足さない＝YAGNI）
-- **データソース** = 共有ステージング集合の image_ids（`dataset_state_manager` / staging widget 経由、Export と同じ「有界・可視・名前付き集合」ADR 0055）
+- **読み取り専用トリアージ:** サマリ帯、issue カード、画像ごとの行の「表示」までを実装する。accept/edit/reject アクション、一括承認、永続化は **Phase 2b** へ分離する。
+- **検出閾値は持たない:** 低信頼度タグや短いキャプションは issue 化せず、行内にデータとして表示するだけにとどめる。issue 検出は構造的事実の 5 種のみとする。
+  1. `EMPTY_TAGS`: tagger 由来の採用タグが 0 件である。
+  2. `NO_SCORE`: scorer 出力(`score` / `score_label`)が存在しない。
+  3. `UNKNOWN_TIER`: `score_label` が `map_score_label_to_tier` で `None` になる(マッピング未定義、ADR 0028)。
+  4. `RATING_DISAGREEMENT`: 複数モデルの `normalized_rating` が一致していない。
+  5. `SCORER_DISAGREEMENT`: 複数 scorer の tier が一致していない(`is_unanimous == false` 相当)。
+- **`Image.reviewed_at` マイグレーションは Phase 2b で実施する:** accept アクションと同時に追加する。本フェーズでは未使用カラムを足さない(YAGNI)。
+- **データソース:** 共有ステージング集合の `image_ids` を使用する(`dataset_state_manager` または staging widget 経由。Export と同じ「有界・可視・名前付き集合」、ADR 0055)。
 
 ---
 
 ## 背景と既存資産
 
-- 設計: `docs/design/wireframes-v11/wireframes-v11.html` の `data-screen-label="05 Results"`（Frame 5）
-- `src/lorairo/domain/quality_tier.py`: `QualityTier(IntEnum)`, `map_score_label_to_tier(model, label) -> QualityTier | None`, `map_manual_score_to_tier`
-- `src/lorairo/domain/score_scaler.py`: `calibrate_to_display`, `select_positive_score` 等（raw → 表示スコア）
-- `db_manager.get_image_annotations(image_id, *, include_rejected=False)` → dict:
+- 設計: `docs/design/wireframes-v11/wireframes-v11.html` の `data-screen-label="05 Results"`(Frame 5)
+- `src/lorairo/domain/quality_tier.py`: `QualityTier(IntEnum)`、`map_score_label_to_tier(model, label) -> QualityTier | None`、`map_manual_score_to_tier`
+- `src/lorairo/domain/score_scaler.py`: `calibrate_to_display`、`select_positive_score` など(生値から表示スコアへの変換)
+- `db_manager.get_image_annotations(image_id, *, include_rejected=False)` の戻り値辞書:
   - `tags`: `[{id, tag, tag_id, model_id, confidence_score, rejected_at, is_edited_manually, existing, ...}]`
   - `captions`: `[{id, caption, model_id, rejected_at, ...}]`
   - `scores`: `[{id, score, model_id, ...}]`
-  - `score_labels`: `[{id, label, model_id, model, ...}]`（ADR 0028: model 名と組）
+  - `score_labels`: `[{id, label, model_id, model, ...}]`(ADR 0028: model 名と組)
   - `ratings`: `[{id, raw_rating_value, normalized_rating, model_id, model, source, confidence_score, ...}]`
-- Phase 1 スタブ: `MainWindow.ui` の `tabResults`（`labelResultsStub` を内包する `verticalLayout_results`）
+- Phase 1 スタブ: `MainWindow.ui` の `tabResults`(`labelResultsStub` を内包する `verticalLayout_results`)
 
 ---
 
-## File Structure
+## ファイル構成
 
 | ファイル | 担当 Track | 内容 |
 |---|---|---|
-| `src/lorairo/services/quality_issue_detection_service.py` | Lead(契約)+A | 契約 dataclass + 検出ロジック実装 |
-| `tests/unit/services/test_quality_issue_detection_service.py` | A | 検出ロジックの unit テスト |
-| `src/lorairo/gui/widgets/results_widget.py` | Lead(契約)+B | ResultsWidget（表示、純コード QWidget） |
-| `tests/unit/gui/widgets/test_results_widget.py` | B | widget 表示テスト（hand-built dataclass 入力） |
-| `src/lorairo/gui/window/main_window.py` | Lead(C) | `_setup_results_tab` + Results タブ表示時の wiring |
-| `tests/integration/test_main_window_tab_integration.py` | Lead(C) | Results 埋め込み統合テスト |
+| `src/lorairo/services/quality_issue_detection_service.py` | Lead(契約)+ A | 契約 dataclass と検出ロジックの実装 |
+| `tests/unit/services/test_quality_issue_detection_service.py` | A | 検出ロジックのユニットテスト |
+| `src/lorairo/gui/widgets/results_widget.py` | Lead(契約)+ B | `ResultsWidget`(表示、純コード QWidget) |
+| `tests/unit/gui/widgets/test_results_widget.py` | B | ウィジェット表示テスト(手組み dataclass 入力) |
+| `src/lorairo/gui/window/main_window.py` | Lead(C) | `_setup_results_tab` と Results タブ表示時の配線 |
+| `tests/integration/test_main_window_tab_integration.py` | Lead(C) | Results 埋め込みの統合テスト |
 
-**ファイル集合は Track A / B / C で完全に disjoint** → 並列マージ無衝突。論理結合は下記「共有契約」で吸収。
+ファイル集合は Track A、B、C で完全に分離されているため、並列マージ時に競合しない。論理結合は下記の「共有契約」で吸収する。
 
 ---
 
-## 共有契約（Lead が Task 1 で先行コミット。Track A/B はこれを import するだけ）
+## 共有契約(Lead が Task 1 で先行コミット。Track A/B はこれをインポートするのみ)
 
-`src/lorairo/services/quality_issue_detection_service.py` の冒頭に定義:
+`src/lorairo/services/quality_issue_detection_service.py` の冒頭に以下を定義する。
 
 ```python
 from dataclasses import dataclass, field
@@ -66,7 +66,7 @@ from lorairo.domain.quality_tier import QualityTier
 
 
 class IssueType(Enum):
-    """構造的品質問題の種別（閾値非依存）。"""
+    """構造的品質問題の種別(閾値非依存)。"""
 
     EMPTY_TAGS = "empty_tags"
     NO_SCORE = "no_score"
@@ -77,7 +77,7 @@ class IssueType(Enum):
 
 @dataclass(frozen=True)
 class TagView:
-    """行表示用のタグ（採用分のみ）。"""
+    """行表示用のタグ(採用分のみ)。"""
 
     tag: str
     confidence_score: float | None
@@ -117,7 +117,7 @@ class ImageTriageResult:
     ratings: list[RatingView]
     canonical_tier: QualityTier | None    # scorer tier の median 相当
     scorers: list[ScorerView]
-    issues: list[IssueType]               # 検出された構造的問題（空なら clean）
+    issues: list[IssueType]               # 検出された構造的問題(空なら clean)
 
     @property
     def needs_review(self) -> bool:
@@ -133,11 +133,11 @@ class BatchTriageSummary:
     clean_count: int
     issue_counts: dict[IssueType, int]    # issue 種別ごとの件数
     tier_distribution: dict[QualityTier, int]
-    no_tier_count: int                    # tier 算出不能（no-score/unknown）の件数
+    no_tier_count: int                    # tier 算出不能(no-score/unknown)の件数
 
 
 class QualityIssueDetectionService:
-    """ステージング集合のアノテーションを構造的品質問題に分類する（Qt-free）。"""
+    """ステージング集合のアノテーションを構造的品質問題に分類する(Qt-free)。"""
 
     def detect_image(self, image_id: int, image_meta: dict, annotations: dict) -> ImageTriageResult:
         """1 画像のアノテーションをトリアージする。
@@ -145,7 +145,7 @@ class QualityIssueDetectionService:
         Args:
             image_id: 画像 ID。
             image_meta: ``{"uuid": str|None, "width": int|None, "height": int|None}``。
-            annotations: ``db_manager.get_image_annotations`` の戻り（tags/captions/scores/score_labels/ratings）。
+            annotations: ``db_manager.get_image_annotations`` の戻り(tags/captions/scores/score_labels/ratings)。
         """
         raise NotImplementedError
 
@@ -154,13 +154,13 @@ class QualityIssueDetectionService:
         raise NotImplementedError
 ```
 
-`ResultsWidget` の公開 API（Track B 実装、Track C が呼ぶ）:
+`ResultsWidget` の公開 API(Track B が実装し、Track C が呼び出す)は以下のとおりである。
 
 ```python
 class ResultsWidget(QWidget):
     """Frame 5 · Results 読み取り専用トリアージ表示。objectName = "resultsWidget"。"""
 
-    review_requested = Signal(int)  # image_id（Annotate へ遷移要求。Phase 2b で接続）
+    review_requested = Signal(int)  # image_id(Annotate へ遷移要求。Phase 2b で接続)
 
     def __init__(self, parent: QWidget | None = None) -> None: ...
 
@@ -168,19 +168,19 @@ class ResultsWidget(QWidget):
         """サマリ band・issue カード・per-image 行を再描画する。"""
 
     def clear(self) -> None:
-        """空状態（ステージング 0 件）を表示する。"""
+        """空状態(ステージング 0 件)を表示する。"""
 ```
 
 ---
 
-### Task 1: 共有契約の先行コミット（Lead）
+### Task 1: 共有契約の先行コミット(Lead)
 
 **Files:**
-- Create: `src/lorairo/services/quality_issue_detection_service.py`（上記契約、メソッドは `NotImplementedError`）
-- Create: `src/lorairo/gui/widgets/results_widget.py`（`display`/`clear` は `pass` のスタブ、契約 import）
+- Create: `src/lorairo/services/quality_issue_detection_service.py`(上記契約。メソッドは `NotImplementedError`)
+- Create: `src/lorairo/gui/widgets/results_widget.py`(`display` と `clear` は `pass` のスタブ、契約インポート)
 
-- [ ] **Step 1: 契約ファイルを作成**（上記「共有契約」のコード全文）
-- [ ] **Step 2: ResultsWidget スタブを作成**
+- [ ] **Step 1: 契約ファイルを作成する**(上記「共有契約」のコード全文)
+- [ ] **Step 2: `ResultsWidget` スタブを作成する**
 
 ```python
 from PySide6.QtCore import Signal
@@ -207,15 +207,15 @@ class ResultsWidget(QWidget):
         pass
 ```
 
-- [ ] **Step 3: import が通ることを確認**
+- [ ] **Step 3: インポートが通ることを確認する**
 
 ```bash
 UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv run --no-sync python -c "from lorairo.gui.widgets.results_widget import ResultsWidget; from lorairo.services.quality_issue_detection_service import QualityIssueDetectionService, IssueType, ImageTriageResult, BatchTriageSummary; print('ok')"
 ```
 
-Expected: `ok`
+期待結果: `ok` が出力される。
 
-- [ ] **Step 4: コミット**
+- [ ] **Step 4: コミットする**
 
 ```bash
 git add src/lorairo/services/quality_issue_detection_service.py src/lorairo/gui/widgets/results_widget.py
@@ -224,28 +224,28 @@ git commit -m "feat(results): Phase 2 共有契約 (dataclass + service/widget s
 
 ---
 
-### Task A: QualityIssueDetectionService の検出ロジック実装（Track A・並列）
+### Task A: `QualityIssueDetectionService` の検出ロジック実装(Track A・並列)
 
 **Files:**
-- Modify: `src/lorairo/services/quality_issue_detection_service.py`（`detect_image` / `summarize` 実装）
+- Modify: `src/lorairo/services/quality_issue_detection_service.py`(`detect_image` および `summarize` の実装)
 - Create: `tests/unit/services/test_quality_issue_detection_service.py`
 
-**検出ルール（閾値なし・構造的事実のみ）:**
+**検出ルール(閾値なし・構造的事実のみ):**
 
-- `EMPTY_TAGS`: 採用タグ（`rejected_at is None`）が 0 件。`annotations["tags"]` が空、または全て rejected。
-- `NO_SCORE`: `annotations["scores"]` と `annotations["score_labels"]` が両方空。
-- `UNKNOWN_TIER`: いずれかの `score_label` で `map_score_label_to_tier(sl["model"], sl["label"]) is None`。
-- `RATING_DISAGREEMENT`: `annotations["ratings"]` のうち `normalized_rating` の distinct 値が 2 以上。
-- `SCORER_DISAGREEMENT`: score_label を tier に map した結果（None 除く）の distinct 値が 2 以上。
+- `EMPTY_TAGS`: 採用タグ(`rejected_at is None`)が 0 件である(`annotations["tags"]` が空、またはすべて却下済み)。
+- `NO_SCORE`: `annotations["scores"]` と `annotations["score_labels"]` が両方空である。
+- `UNKNOWN_TIER`: いずれかの `score_label` で `map_score_label_to_tier(sl["model"], sl["label"])` が `None` になる。
+- `RATING_DISAGREEMENT`: `annotations["ratings"]` の `normalized_rating` について、重複を除いた値が 2 種類以上ある。
+- `SCORER_DISAGREEMENT`: `score_label` を tier へマッピングした結果(`None` を除く)について、重複を除いた値が 2 種類以上ある。
 
 **集約ルール:**
 
-- `canonical_rating`: ratings の `normalized_rating` のうち最も厳しい値（順序 `PG < PG-13 < R < X < XXX`）。
-- `canonical_tier`: scorer tier（None 除く）の中央値（偶数個は厳しい側＝小さい ordinal を採用、要 docstring 明記）。None しか無ければ None。
-- `caption_word_count`: 採用 caption（最初の `rejected_at is None`）を空白 split した語数。caption 無しは 0。
-- `tags`: 採用タグを `TagView` に（confidence 降順）。
+- `canonical_rating`: `ratings` の `normalized_rating` のうち最も厳しい値を採用する(順序は `PG < PG-13 < R < X < XXX`)。
+- `canonical_tier`: scorer tier(`None` を除く)の中央値を採用する。偶数個の場合は厳しい側(小さい序数)を採用し、その仕様を docstring に明記する。`None` しかない場合は `None` とする。
+- `caption_word_count`: 採用キャプション(最初の `rejected_at is None`)を空白で分割した語数とする。キャプションが無い場合は 0 とする。
+- `tags`: 採用タグを `TagView` に変換し、信頼度の降順で並べる。
 
-- [ ] **Step 1: 失敗するテストを書く**（各 issue 種別 + clean + summarize。最低 8 ケース）
+- [ ] **Step 1: 失敗するテストを書く**(各 issue 種別、clean、summarize を網羅し最低 8 ケース)
 
 ```python
 import pytest
@@ -345,24 +345,24 @@ def test_summarize_counts(service):
     assert summary.issue_counts[IssueType.NO_SCORE] == 1
 ```
 
-- [ ] **Step 2: テスト実行で失敗確認**
+- [ ] **Step 2: テストを実行して失敗を確認する**
 
 ```bash
 UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv run --no-sync pytest tests/unit/services/test_quality_issue_detection_service.py -v --timeout=60
 ```
 
-Expected: FAIL（`NotImplementedError`）
+期待結果: `NotImplementedError` で失敗する。
 
-- [ ] **Step 3: `detect_image` / `summarize` を実装**（検出ルール・集約ルールに従う。`map_score_label_to_tier` を使用。rating 順序は `_RATING_ORDER = {"PG":0,"PG-13":1,"R":2,"X":3,"XXX":4}` を定義）
-- [ ] **Step 4: テスト green 確認**
-- [ ] **Step 5: mypy + format**
+- [ ] **Step 3: `detect_image` と `summarize` を実装する**(上記の検出ルールと集約ルールに従う。`map_score_label_to_tier` を使用し、rating 順序には `_RATING_ORDER = {"PG":0,"PG-13":1,"R":2,"X":3,"XXX":4}` を定義する)
+- [ ] **Step 4: テストが通ることを確認する**
+- [ ] **Step 5: mypy とフォーマットを実行する**
 
 ```bash
 UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv run --no-sync mypy -p lorairo 2>&1 | grep quality_issue_detection_service || echo "no mypy error"
 UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv run --no-sync ruff format src/lorairo/services/quality_issue_detection_service.py tests/unit/services/test_quality_issue_detection_service.py
 ```
 
-- [ ] **Step 6: コミット**
+- [ ] **Step 6: コミットする**
 
 ```bash
 git add src/lorairo/services/quality_issue_detection_service.py tests/unit/services/test_quality_issue_detection_service.py
@@ -371,27 +371,27 @@ git commit -m "feat(results): 構造的品質問題検出サービスを実装 (
 
 ---
 
-### Task B: ResultsWidget 表示実装（Track B・並列）
+### Task B: `ResultsWidget` の表示実装(Track B・並列)
 
 **Files:**
-- Modify: `src/lorairo/gui/widgets/results_widget.py`（`display` / `clear` 実装）
+- Modify: `src/lorairo/gui/widgets/results_widget.py`(`display` および `clear` の実装)
 - Create: `tests/unit/gui/widgets/test_results_widget.py`
 
-**表示構成（Frame 5 準拠、読み取り専用）:**
+**表示構成(Frame 5 準拠、読み取り専用):**
 
-- **サマリ band**: batch_size / needs_review_count / clean_count / tier 分布 / 検出 issue 総数。`BatchTriageSummary` から描画。
-- **issue band**: `summary.issue_counts` の各種別を issue カードとして並べる（種別ラベル + 件数 + 該当 image_id リスト）。0 件の種別は出さない。
-- **per-image 行**: `results` を `needs_review` 優先（issue 有→無）でソートして縦に並べる。各行:
-  - image_id / uuid（短縮）/ width×height
-  - tags（confidence 付き、低 conf は dim クラス。閾値判定ではなく単に最小値側を視覚的に弱める程度）
-  - caption（語数表示）
-  - canonical_tier ラベル + scorer pills（model: label）
-  - canonical_rating + モデル別 rating（不一致は強調）
-  - issue バッジ（その行の `issues`）
-  - `▸ レビュー` ボタン（クリックで `review_requested.emit(image_id)`、Phase 2b で Annotate 遷移に接続）
-- **clear()**: 「ステージングに画像がありません」プレースホルダ表示。
+- **サマリ帯:** `BatchTriageSummary` に基づき、`batch_size`、`needs_review_count`、`clean_count`、tier 分布、検出 issue 総数を描画する。
+- **issue 帯:** `summary.issue_counts` の各種別を issue カードとして並べる(種別ラベル、件数、該当 `image_id` リスト)。0 件の種別は表示しない。
+- **画像ごとの行:** `results` を `needs_review` 優先(issue ありから issue なしの順)でソートして縦に並べる。各行には以下を表示する。
+  - `image_id`、短縮した `uuid`、`width×height`
+  - タグ(信頼度付き。低信頼度のタグは dim クラスで視覚的に弱めるが、閾値判定ではなく最小値側を弱める程度とする)
+  - キャプション(語数を表示)
+  - `canonical_tier` ラベルと scorer ピル(`model: label`)
+  - `canonical_rating` とモデル別 rating(不一致がある場合は強調表示)
+  - issue バッジ(その行の `issues`)
+  - `▸ レビュー` ボタン(クリック時に `review_requested.emit(image_id)` を発行し、Phase 2b で Annotate 遷移へ接続する)
+- **`clear()`:** 「ステージングに画像がありません」のプレースホルダを表示する。
 
-実装は純コード QWidget（動的生成のため .ui 不使用）。既存スタイルは他 widget を踏襲。
+動的生成を行うため、`.ui` ファイルは使わず純粋なコードによる `QWidget` として実装する。既存スタイルは他ウィジェットを踏襲する。
 
 - [ ] **Step 1: 失敗するテストを書く**
 
@@ -462,7 +462,7 @@ def test_needs_review_sorted_first(qapp):
     clean = _result(11, [])
     bad = _result(10, [IssueType.EMPTY_TAGS])
     widget.display(_summary(), [clean, bad])
-    order = widget._row_order()  # 実装が提供する内部順序アクセサ（list[int]）
+    order = widget._row_order()  # 実装が提供する内部順序アクセサ(list[int])
     assert order.index(10) < order.index(11)
 
 
@@ -474,32 +474,32 @@ def test_clear_shows_empty_state(qapp):
     assert widget.findChild(object, "resultsEmptyState") is not None
 ```
 
-- [ ] **Step 2: テスト失敗確認**
+- [ ] **Step 2: テストが失敗することを確認する**
 
 ```bash
 QT_QPA_PLATFORM=offscreen UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv run --no-sync pytest tests/unit/gui/widgets/test_results_widget.py -v --timeout=60
 ```
 
-Expected: FAIL
+期待結果: 失敗する。
 
-- [ ] **Step 3: `display` / `clear` を実装**
+- [ ] **Step 3: `display` と `clear` を実装する**
 
-要点:
-- 各行コンテナの objectName を `resultsRow_{image_id}`、レビューボタンを `resultsReviewButton_{image_id}` にする（テスト・後続が参照）
-- `display` は前回描画をクリアしてから再構築（`clear` ヘルパ共通化、ただし `clear()` 公開メソッドは空状態表示）
-- `_row_order() -> list[int]` を内部アクセサとして提供
-- 空状態プレースホルダの objectName は `resultsEmptyState`
-- レビューボタン click → `self.review_requested.emit(image_id)`
+実装の要点は以下のとおりである。
+- 各行コンテナの `objectName` を `resultsRow_{image_id}`、レビューボタンを `resultsReviewButton_{image_id}` とする(テストおよび後続実装から参照される)。
+- `display` は前回描画をクリアしてから再構築する。クリア用ヘルパを共通化するが、公開メソッドの `clear()` は空状態を表示する。
+- `_row_order() -> list[int]` を内部アクセサとして提供する。
+- 空状態プレースホルダの `objectName` は `resultsEmptyState` とする。
+- レビューボタンのクリックで `self.review_requested.emit(image_id)` を発行する。
 
-- [ ] **Step 4: テスト green 確認**
-- [ ] **Step 5: mypy + format**
+- [ ] **Step 4: テストが通ることを確認する**
+- [ ] **Step 5: mypy とフォーマットを実行する**
 
 ```bash
 UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv run --no-sync mypy -p lorairo 2>&1 | grep results_widget || echo "no mypy error"
 UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv run --no-sync ruff format src/lorairo/gui/widgets/results_widget.py tests/unit/gui/widgets/test_results_widget.py
 ```
 
-- [ ] **Step 6: コミット**
+- [ ] **Step 6: コミットする**
 
 ```bash
 git add src/lorairo/gui/widgets/results_widget.py tests/unit/gui/widgets/test_results_widget.py
@@ -508,7 +508,7 @@ git commit -m "feat(results): ResultsWidget 読み取り専用トリアージ表
 
 ---
 
-### Task C: MainWindow への結線（Lead・A/B マージ後）
+### Task C: `MainWindow` への結線(Lead・A/B マージ後)
 
 **Files:**
 - Modify: `src/lorairo/gui/window/main_window.py`
@@ -516,16 +516,16 @@ git commit -m "feat(results): ResultsWidget 読み取り専用トリアージ表
 
 **結線内容:**
 
-- `_setup_results_tab()` を追加し、`tabResults` の `labelResultsStub` を削除して `ResultsWidget` を埋め込む（`verticalLayout_results` に addWidget）。`self.results_widget` 属性に保持。
-- `QualityIssueDetectionService` を `self.quality_issue_detection_service` として生成（Qt-free、引数なし）。
-- `_on_main_tab_changed` に Results タブ分岐を追加: 表示時に
-  1. ステージング集合の image_ids を取得（`batchTagAddWidget.get_staging_widget().get_staged_items()` 経由、Phase 1 で確認済みの共有ステージング）
-  2. 各 id について `db_manager.get_image_annotations(id)` + 画像メタ（`db_manager` から uuid/width/height）を取得
-  3. `service.detect_image` → `service.summarize`
-  4. `results_widget.display(summary, results)`（0 件なら `clear()`）
-- `results_widget.review_requested` は Phase 2b で接続（本フェーズは `logger.debug` ログのみのハンドラ、または未接続で可）。
+- `_setup_results_tab()` を追加し、`tabResults` の `labelResultsStub` を削除して `ResultsWidget` を `verticalLayout_results` へ埋め込む。生成したインスタンスは `self.results_widget` 属性に保持する。
+- `QualityIssueDetectionService` を `self.quality_issue_detection_service` として生成する(Qt 非依存、引数なし)。
+- `_on_main_tab_changed` に Results タブの分岐を追加し、表示時に以下を実行する。
+  1. ステージング集合の `image_ids` を取得する(`batchTagAddWidget.get_staging_widget().get_staged_items()` 経由、Phase 1 で確認済みの共有ステージング)。
+  2. 各 ID について `db_manager.get_image_annotations(id)` と画像メタ情報(`db_manager` から uuid、width、height)を取得する。
+  3. `service.detect_image` を実行し、`service.summarize` で集約する。
+  4. `results_widget.display(summary, results)` を呼び出す(0 件の場合は `clear()`)。
+- `results_widget.review_requested` は Phase 2b で接続する。本フェーズでは `logger.debug` のみを出力するハンドラを接続するか、未接続のままとする。
 
-- [ ] **Step 1: 統合テスト追加（red）**
+- [ ] **Step 1: 統合テストを追加する(red)**
 
 ```python
 from lorairo.gui.widgets.results_widget import ResultsWidget
@@ -545,36 +545,36 @@ from lorairo.gui.widgets.results_widget import ResultsWidget
         assert stub is None
 ```
 
-- [ ] **Step 2: 失敗確認 → 実装 → green**（`get_staged_items` の戻り値型・メタ取得 API は実装時に `db_manager` / staging widget で確認。staging が空でも落ちないこと）
-- [ ] **Step 3: CI-equivalent filter（GUI スコープ）で検証**
+- [ ] **Step 2: 失敗確認から実装、テスト通過までを進める**(`get_staged_items` の戻り値型とメタ取得 API は実装時に `db_manager` と staging widget で確認する。ステージングが空でも例外が出ないことを保証する)
+- [ ] **Step 3: CI 相当フィルタ(GUI スコープ)で検証する**
 
 ```bash
 QT_QPA_PLATFORM=offscreen UV_PROJECT_ENVIRONMENT=/workspaces/LoRAIro/.venv uv run --no-sync pytest tests/unit/gui tests/integration/test_main_window_tab_integration.py tests/unit/services/test_quality_issue_detection_service.py -m "not gui_show and not calls_real_webapi and not downloads_and_runs_model and not slow" --timeout=60 -q
 ```
 
-- [ ] **Step 4: コミット**
+- [ ] **Step 4: コミットする**
 
 ---
 
-### Task D: 全体検証 + PR（Lead）
+### Task D: 全体検証と PR(Lead)
 
-- [ ] CI-equivalent filter（全体、worktree 環境失敗は CI が SSoT）
-- [ ] push + `gh pr create --base epic/gui-wireframes-v11`
-- [ ] CI 監視（ScheduleWakeup）→ green なら epic へ squash merge → #726 にコメント
+- [ ] CI 相当フィルタで全体を検証する(ワークツリー環境特有の失敗がある場合は CI を信頼源とする)
+- [ ] プッシュし、`gh pr create --base epic/gui-wireframes-v11` で PR を作成する
+- [ ] CI を監視(`ScheduleWakeup`)し、すべて通れば epic ブランチへスカッシュマージして #726 にコメントする
 
 ---
 
 ## Agent Teams 実行構成
 
-- **Lead（本セッション）**: Task 1（契約コミット）→ Track A/B worktree 作成 + 並列 dispatch → 完了後マージ → Task C/D
-- **Track A worktree**: `.agents/worktree/gui-v11-p2-service`（`feat/gui-v11-p2-service`、Task 1 コミットから分岐）
-- **Track B worktree**: `.agents/worktree/gui-v11-p2-widget`（`feat/gui-v11-p2-widget`、Task 1 コミットから分岐）
-- ファイル disjoint（A: service+test / B: widget+test）→ マージ無衝突。両者とも契約 dataclass を import するのみ。
-- 各 Track は自身の test まで green にして commit。Lead が両ブランチをマージ後 Task C（統合）を実行。
+- **Lead(本セッション):** Task 1(契約コミット)を実行した後、Track A と B のワークツリーを作成して並列ディスパッチする。両者の完了後にマージし、Task C と D を進める。
+- **Track A ワークツリー:** `.agents/worktree/gui-v11-p2-service`(ブランチ `feat/gui-v11-p2-service`、Task 1 コミットから分岐)
+- **Track B ワークツリー:** `.agents/worktree/gui-v11-p2-widget`(ブランチ `feat/gui-v11-p2-widget`、Task 1 コミットから分岐)
+- Track A(サービスとテスト)と Track B(ウィジェットとテスト)はファイルが完全に分離されているため、マージ競合は発生しない。両者とも契約 dataclass をインポートするのみである。
+- 各 Track は自身のテストを通した状態でコミットする。Lead が両ブランチをマージした後、Task C(統合)を実行する。
 
 ## リスクと注意
 
-- **worktree pytest の解決差**: Phase 1 同様、worktree の pytest は main checkout の editable install を見る場合がある。真偽は push 後 CI が SSoT。
-- **staging API**: `get_staged_items()` の戻り値型は Task C 着手時に実装確認（image_id の list か dict か）。
-- **画像メタ取得**: uuid/width/height の取得 API は `db_manager.get_images_by_ids` 等で Task C 時に確認。
-- **rating 順序**: `PG < PG-13 < R < X < XXX`。`XXX` が DB に存在するか Task A で確認（無ければ 4 値）。
+- **ワークツリーでの pytest 解決差:** Phase 1 と同様、ワークツリーからの pytest はメインチェックアウトの editable install を参照する場合がある。最終的な正否はプッシュ後の CI を信頼源とする。
+- **staging API:** `get_staged_items()` の戻り値型(`image_id` のリストか辞書か)は Task C 着手時に実装を確認する。
+- **画像メタ取得:** uuid、width、height の取得 API は Task C 時に `db_manager.get_images_by_ids` などで確認する。
+- **rating 順序:** 順序は `PG < PG-13 < R < X < XXX` とする。`XXX` が DB に存在するかは Task A で確認し、存在しなければ 4 値とする。
