@@ -44,6 +44,7 @@ from PySide6.QtWidgets import QSplitter, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
 from ...database.db_manager import ImageDatabaseManager
+from ...database.repository.dataset import DatasetRepository
 from ...filesystem import FileSystemManager
 from ...services.model_selection_service import ModelSelectionService
 from ...services.refinement_service import RefinementService
@@ -60,6 +61,7 @@ from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
 from ..state.staging_state import StagingStateManager
 from ..widgets.annotation_review_batch_widget import AnnotationReviewBatchWidget
+from ..widgets.dataset_usage_widget import DatasetUsageEntry
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_comparison_dialog import ImageComparisonLauncher
 from ..widgets.image_preview import ImagePreviewWidget
@@ -212,6 +214,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         # 選択画像詳細: DB Manager / MergedTagReader / 選択シグナル接続
         if self._db_manager is not None:
             self._selected_image_details_widget.set_db_manager(self._db_manager)
+            self._wire_dataset_usage()
         self.reload_annotation_review_service()
         # tag DB の初期化 (HF Hub 確認) は GUI スレッドで行わない (#1438)。起動時は準備済みの
         # reader だけを使い、未準備なら補完/翻訳なしで始めて on_tag_db_ready() で後から注入する。
@@ -482,6 +485,32 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
                 self._db_manager.image_repo.session_factory
             )
         return self._service_container.refinement_service
+
+    def _wire_dataset_usage(self) -> None:
+        """画像詳細の「学習に使ったデータセット」に取得手段を配線する (#1647)。"""
+        if self._db_manager is None:
+            return
+        repository = DatasetRepository(session_factory=self._db_manager.image_repo.session_factory)
+
+        def load_entries(image_id: int) -> list[DatasetUsageEntry]:
+            return [
+                DatasetUsageEntry(
+                    dataset_name=usage.dataset_name,
+                    version_name=usage.version_name,
+                    dir_name=usage.dir_name,
+                    num_repeats=usage.num_repeats,
+                    elements=tuple(
+                        element
+                        for text in usage.texts
+                        if text.extension == ".txt"
+                        for element in text.elements
+                        if element
+                    ),
+                )
+                for usage in repository.list_image_usage(image_id)
+            ]
+
+        self._selected_image_details_widget.set_dataset_usage_provider(load_entries)
 
     def _setup_search_filter_integration(self) -> None:
         """filterSearchPanel に SearchFilterService / WorkerService / お気に入りフィルタを注入する。

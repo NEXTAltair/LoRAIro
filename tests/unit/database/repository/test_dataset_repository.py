@@ -1034,3 +1034,141 @@ def test_list_image_usage_unused_image_returns_empty_list(
 
     assert repo.list_image_usage(unused_id) == []
     assert repo.list_image_usage(999999) == []
+
+
+# --- KOHYA_DATASET の最新版への同期 (Issue #1647) ---
+
+
+def _version_with(
+    repo: DatasetRepository, dataset_id: int, name: str, images: dict[int, str], parent: int | None = None
+) -> int:
+    """1 フォルダの版を作る。images は {image_id: .txt の原文}。"""
+    version_id = repo.create_version(dataset_id, name, parent)
+    repo.add_folder(
+        version_id,
+        _folder("10_kariginu", 0),
+        [
+            FolderImageSpec(image_id=image_id, file_stem=f"s{image_id}", texts=[_text(raw)])
+            for image_id, raw in images.items()
+        ],
+    )
+    return version_id
+
+
+def test_sync_kohya_tags_uses_latest_version_and_removes_stale_rows(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    """順番の指定が無ければ最後に取り込んだ版が最新。古い版にしか無い要素・画像の行は消える。"""
+    image_a = _insert_image(session_factory, "img-a")
+    image_b = _insert_image(session_factory, "img-b")
+    dataset_id = repo.ensure_dataset("kariginu")
+    _version_with(repo, dataset_id, "v01", {image_a: "Kariginu, rating:safe", image_b: "Kariginu, old"})
+    first = repo.sync_kohya_tags_for_dataset(dataset_id)
+    assert (first.images, first.tags_added, first.tags_removed) == (2, 4, 0)
+
+    _version_with(repo, dataset_id, "v02", {image_a: "Kariginu, 1girl"})
+    second = repo.sync_kohya_tags_for_dataset(dataset_id)
+
+    assert (second.images, second.tags_added, second.tags_removed) == (2, 1, 3)
+    assert _tags_by_image(session_factory) == {
+        image_a: [("1girl", KOHYA_DATASET_LITELLM_ID), ("Kariginu", KOHYA_DATASET_LITELLM_ID)]
+    }
+
+
+def test_sync_kohya_tags_latest_is_end_of_parent_chain(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    """--order で新しい名前の版を先に取り込んでも、親の連鎖の末端 (後の版) を最新にする。"""
+    image_a = _insert_image(session_factory, "img-a")
+    dataset_id = repo.ensure_dataset("kariginu")
+    v10 = _version_with(repo, dataset_id, "v10", {image_a: "Kariginu, from_v10"})
+    _version_with(repo, dataset_id, "v01", {image_a: "Kariginu, from_v01"}, parent=v10)
+    # 親の連鎖とは無関係に ID が最大でも、連鎖の途中 (他の版の親) は最新にしない
+    v_mid = _version_with(repo, dataset_id, "v_mid", {image_a: "Kariginu, from_mid"})
+    _version_with(repo, dataset_id, "v_end", {image_a: "Kariginu, from_end"}, parent=v_mid)
+
+    repo.sync_kohya_tags_for_dataset(dataset_id)
+
+    assert [tag for tag, _ in _tags_by_image(session_factory)[image_a]] == ["Kariginu", "from_end"]
+
+
+def test_sync_kohya_tags_ignores_working_version(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    """作業中の版 (is_working=True) は最新版にも、最新版を隠す子にも数えない。"""
+    image_a = _insert_image(session_factory, "img-a")
+    dataset_id = repo.ensure_dataset("kariginu")
+    _version_with(repo, dataset_id, "v01", {image_a: "Kariginu, committed"})
+    working = repo.create_working_version(dataset_id)
+    repo.update_learning_text_elements(
+        repo.get_version_snapshot(working.id).folders[0].images[0].texts[0].id, ["Kariginu", "draft"]
+    )
+
+    repo.sync_kohya_tags_for_dataset(dataset_id)
+
+    assert [tag for tag, _ in _tags_by_image(session_factory)[image_a]] == ["Kariginu", "committed"]
+
+
+def test_sync_kohya_tags_unions_latest_versions_across_datasets(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    """同じ画像を使う別データセットがあれば、データセットごとの最新版の要素の和集合にする。"""
+    image_a = _insert_image(session_factory, "img-a")
+    first = repo.ensure_dataset("kariginu")
+    other = repo.ensure_dataset("other")
+    _version_with(repo, first, "v01", {image_a: "Kariginu, old_only"})
+    _version_with(repo, first, "v02", {image_a: "Kariginu, new"})
+    _version_with(repo, other, "o1", {image_a: "other_trigger, new"})
+
+    repo.sync_kohya_tags_for_dataset(other)
+
+    assert [tag for tag, _ in _tags_by_image(session_factory)[image_a]] == [
+        "Kariginu",
+        "new",
+        "other_trigger",
+    ]
+
+
+def test_sync_kohya_tags_keeps_other_models_and_soft_rejected_desired_rows(
+    repo: DatasetRepository, session_factory: Callable[[], Session]
+) -> None:
+    """手入力・AI の行には触れない。正に残る soft-reject 済みの行は消さずに保つ。"""
+    image_a = _insert_image(session_factory, "img-a")
+    dataset_id = repo.ensure_dataset("kariginu")
+    _version_with(repo, dataset_id, "v01", {image_a: "Kariginu, stale"})
+    repo.sync_kohya_tags_for_dataset(dataset_id)
+    with session_factory() as session:
+        manual = Model(name="MANUAL_EDIT", provider="user", litellm_model_id=MANUAL_EDIT_LITELLM_ID)
+        session.add(manual)
+        session.flush()
+        session.add(
+            Tag(image_id=image_a, model_id=manual.id, tag="stale", existing=False, is_edited_manually=True)
+        )
+        rejected = session.execute(
+            select(Tag).where(Tag.image_id == image_a, Tag.tag == "Kariginu")
+        ).scalar_one()
+        rejected.rejected_at = rejected.created_at
+        rejected_id = rejected.id
+        session.commit()
+
+    _version_with(repo, dataset_id, "v02", {image_a: "Kariginu, fresh"})
+    result = repo.sync_kohya_tags_for_dataset(dataset_id)
+
+    assert (result.tags_added, result.tags_removed) == (1, 1)
+    assert _tags_by_image(session_factory)[image_a] == [
+        ("Kariginu", KOHYA_DATASET_LITELLM_ID),
+        ("fresh", KOHYA_DATASET_LITELLM_ID),
+        ("stale", MANUAL_EDIT_LITELLM_ID),
+    ]
+    with session_factory() as session:
+        kept = session.get(Tag, rejected_id)
+        assert kept is not None
+        assert kept.rejected_at is not None
+
+
+def test_sync_kohya_tags_unknown_or_empty_dataset(repo: DatasetRepository) -> None:
+    with pytest.raises(LookupError):
+        repo.sync_kohya_tags_for_dataset(999)
+    dataset_id = repo.ensure_dataset("empty")
+    result = repo.sync_kohya_tags_for_dataset(dataset_id)
+    assert (result.images, result.tags_added, result.tags_removed) == (0, 0, 0)

@@ -54,6 +54,7 @@ from .annotation_data_display_widget import (
     ImageDetails,
 )
 from .annotation_review_widget import AnnotationReviewWidget
+from .dataset_usage_widget import DatasetUsageEntry, DatasetUsageWidget
 from .generation_metadata_display_widget import GenerationMetadataDisplayWidget
 from .rating_score_edit_widget import RatingScoreEditWidget
 from .related_images_widget import RelatedImagesWidget
@@ -172,6 +173,8 @@ class SelectedImageDetailsWidget(QWidget):
 
         # クロップ親子関係 (#1346): set_crop_relation_service で配線。未配線ならセクション非表示。
         self._crop_relation_service: CropRelationService | None = None
+        # 学習に使ったデータセットの取得 (#1647): set_dataset_usage_provider で配線。未配線なら非表示。
+        self._dataset_usage_provider: Callable[[int], list[DatasetUsageEntry]] | None = None
 
         # shutdown 後に遅延起動 (QTimer.singleShot) が worker を再起動しないためのフラグ (#1206)
         self._closing: bool = False
@@ -340,6 +343,12 @@ class SelectedImageDetailsWidget(QWidget):
         self._related_images_widget.image_activated.connect(self.related_image_activated.emit)
         self._related_images_widget.setVisible(False)
         layout.addWidget(self._related_images_widget)
+
+        # 学習に使ったデータセット (#1647)。行の選択でタグ欄の該当タグを強調する。
+        self._dataset_usage_widget = DatasetUsageWidget(container)
+        self._dataset_usage_widget.highlight_changed.connect(self.annotation_display.set_tag_highlight)
+        self._dataset_usage_widget.setVisible(False)
+        layout.addWidget(self._dataset_usage_widget)
 
         # 生成メタデータ詳細表示 (#1483)
         self.generation_metadata_widget = GenerationMetadataDisplayWidget(container)
@@ -546,6 +555,38 @@ class SelectedImageDetailsWidget(QWidget):
             self._related_images_widget.clear()
             return
         self._related_images_widget.set_related(parent_entry, child_entries)
+
+    def set_dataset_usage_provider(self, provider: Callable[[int], list[DatasetUsageEntry]] | None) -> None:
+        """画像が使われたデータセット・版・フォルダの取得手段を配線する (#1647)。
+
+        Args:
+            provider: ``images.id`` を受け取り表示行を返す callable。None でセクションを隠す。
+        """
+        self._dataset_usage_provider = provider
+        self._dataset_usage_widget.setVisible(provider is not None)
+        self.refresh_dataset_usage()
+
+    def refresh_dataset_usage(self) -> None:
+        """現在表示中の画像の「学習に使ったデータセット」を取り直して表へ反映する (#1647)。
+
+        表の選択 (タグ欄の強調) は解除する。取得手段が未配線、または未選択なら空表示へ戻す。
+        """
+        provider = self._dataset_usage_provider
+        image_id = self.current_image_id
+        self.annotation_display.set_tag_highlight(None)
+        if provider is None or image_id is None:
+            self._dataset_usage_widget.clear()
+            return
+        try:
+            entries = provider(image_id)
+        except SQLAlchemyError:
+            # 付加情報なので、取得失敗でも詳細表示全体は落とさず空表示に留める。
+            logger.opt(exception=True).error(
+                f"学習に使ったデータセットの取得に失敗しました: image_id={image_id}"
+            )
+            self._dataset_usage_widget.clear()
+            return
+        self._dataset_usage_widget.set_entries(entries)
 
     def set_annotation_review_service(self, service: "AnnotationReviewService") -> None:
         """Inject the explicit, read-only Clef review service into the details panel."""
@@ -1585,6 +1626,7 @@ class SelectedImageDetailsWidget(QWidget):
         self._populate_rejected_tags()
         if not same_image:
             self.refresh_related_images()
+            self.refresh_dataset_usage()
             self._update_generation_metadata(image_id, image_data)
         # 翻訳/使用頻度/type を background で解決し、完了時に反映する (#1046)
         self._current_tags_list = new_tags_list
@@ -2049,6 +2091,8 @@ class SelectedImageDetailsWidget(QWidget):
         self.annotation_display.clear_data()
         # 関連画像 (クロップ親子) のクリア (#1346)
         self._related_images_widget.clear()
+        # 学習に使ったデータセットのクリア (#1647)
+        self._dataset_usage_widget.clear()
         # 生成メタデータ表示のクリア (#1483)
         self.generation_metadata_widget.clear_display()
         if self._copy_details_button:

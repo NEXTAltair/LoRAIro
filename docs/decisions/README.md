@@ -107,11 +107,11 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0095](0095-clef-review-batch-results.md) | Clef アノテーション確認の固定対象バッチと画像別結果保持 | 2026-10-06 | Accepted |
 | [0096](0096-clef-search-tag-suggestions.md) | Clef の検索警告と関連画像群のタグ候補・手動修正 | 2026-10-08 | Accepted |
 | [0097](0097-clef-local-only.md) | Clef をローカルモデル専用に変更 | 2026-10-08 | Accepted |
-| [0098](0098-kohya-dataset-model.md) | Kohya-ss 学習データセットのデータモデルと取り込み・書き出し | 2026-11-06 | Proposed |
+| [0098](0098-kohya-dataset-model.md) | Kohya-ss 学習データセットのデータモデルと取り込み・書き出し | 2026-11-25 | Accepted |
 | [0099](0099-read-only-db-maintenance-check.md) | 読み取り専用の DB メンテナンス点検コマンド | 2026-11-08 | Accepted |
 | [0100](0100-registration-date-filter-single-state.md) | 登録日フィルタはスライダーを唯一の状態にし、暦日の境界を 1 箇所で決める | 2026-11-08 | Accepted |
 | [0103](0103-crop-rect-provider-and-batch-crop.md) | クロップ矩形の供給元を CropRectProvider で差し替え可能にし、外部 JSONL から一括作成する | 2026-11-08 | Accepted |
-| [0104](0104-kohya-learning-text-to-library-tags.md) | Kohya データセットの学習テキストをライブラリの Tag へ写す (擬似モデル KOHYA_DATASET) | 2026-11-08 | Accepted |
+| [0104](0104-kohya-learning-text-to-library-tags.md) | Kohya データセットの学習テキストをライブラリの Tag へ写す (擬似モデル KOHYA_DATASET) | 2026-11-25 | Accepted |
 | [0105](0105-generation-metadata-raw-and-parsed.md) | 生成メタデータを原データと解析結果に分けて保存する | 2026-11-08 | Accepted |
 | [0106](0106-generation-metadata-registration-and-reanalysis.md) | 生成メタデータを登録時に読み取り、再取り込みと再解析では原データとアノテーションを保つ | 2026-11-08 | Accepted |
 | [0107](0107-ai-generated-tag-from-generation-metadata.md) | 生成メタデータを根拠に、登録時に ai generated タグを自動で付ける (擬似モデル GENERATION_METADATA) | 2026-11-08 | Accepted |

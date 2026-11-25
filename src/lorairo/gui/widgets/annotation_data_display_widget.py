@@ -302,6 +302,11 @@ class AnnotationDataDisplayWidget(QWidget, Ui_AnnotationDataDisplayWidget):
         """各タグ chip に refinement リコメンドを反映する (TagPanelWidget へ委譲、#931)。"""
         self._tag_panel.apply_refinements(recommendations, candidate_counts=candidate_counts)
 
+    @Slot(object)
+    def set_tag_highlight(self, tags: set[str] | None) -> None:
+        """学習データセットの行選択に一致するタグ chip を強調する (TagPanelWidget へ委譲、#1647)。"""
+        self._tag_panel.set_highlight_tags(tags)
+
     def displayed_tags_text(self) -> str:
         """現在の言語選択で表示されているタグ文字列を返す (TagPanelWidget へ委譲)。"""
         return self._tag_panel.displayed_tags_text()

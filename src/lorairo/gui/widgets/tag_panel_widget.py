@@ -69,6 +69,7 @@ from ...utils.log import logger
 from .. import theme
 from ..message_box import show_information
 from .ds_no_scroll_combo_box import DsNoScrollComboBox
+from .ds_segmented_control import DsSegmentedControl
 from .tag_cloud_widget import FlowLayout
 from .tag_suggestion import TagSuggestionWidget
 
@@ -129,6 +130,18 @@ _TYPE_GLYPHS: dict[str, str] = {
     "meta": "M",
     "general": "",
 }
+# タグ行の出所 (Repository の ``source``) → 由来絞り込みの区分 (#1647)。
+# 取り込み (Import)・画像処理 (Processing) は「すべて」でだけ表示する。
+_ORIGIN_BY_SOURCE: dict[str, str] = {"Dataset": "dataset", "AI": "ai", "Manual": "manual"}
+_ORIGIN_FILTER_OPTIONS: list[tuple[str, str]] = [
+    ("all", "すべて"),
+    ("dataset", "データセット"),
+    ("ai", "AI"),
+    ("manual", "手入力"),
+]
+# 学習データセット由来 (KOHYA_DATASET) を含む chip の印 (#1647)。種別グリフ (英字/©) と重ならない記号。
+_DATASET_ORIGIN_GLYPH = "▣"
+
 _TYPE_LABELS_JA: dict[str, str] = {
     "character": "キャラクター",
     "copyright": "版権",
@@ -185,6 +198,11 @@ class SelectableTagChip(QLabel):
         self.refinement: RefinementRecommendation | None = None
         self.review_warning = False
         self._review_tooltip = ""
+        # 学習データセット由来の行を含むか (#1647)。_add_chip が設定する。
+        self.from_dataset = False
+        # 「学習に使ったデータセット」の行選択による強調状態 (#1647)。
+        # None = 強調なし、"hit" = 選んだ版・フォルダの要素、"dim" = それ以外。
+        self.highlight_state: str | None = None
         # 種別インジケータ (Issue #1233 / #1241)。set_type_indicator で更新される。
         # 左端ストライプ色 (None = 無印) と表示用グリフ文字を保持する。
         self.stripe_color: str | None = None
@@ -1116,6 +1134,13 @@ class TagPanelWidget(QWidget):
         # Ctrl+クリックで選択された canonical 集合 (#814 のコピー選択 + #997 のバッチ操作起点)。
         # chip は再描画のたびに新規生成されるため、選択状態はウィジェット側で持って復元する。
         self._selected_canonicals: set[str] = set()
+        # 由来の絞り込み (#1647)。"all" / "dataset" / "ai" / "manual"。
+        self._origin_filter: str = "all"
+        # 「学習に使ったデータセット」の行選択で強調する canonical 集合 (#1647)。
+        # 選択 (_selected_canonicals) とは別の集合。None = 強調なし。
+        self._highlight_canonicals: set[str] | None = None
+        # 描画中の chip が参照する canonical → 由来区分 (_render_tag_chips が更新)
+        self._chip_origins: dict[str, set[str]] = {}
         # 表示中画像の識別子。set_tags でこれが変わったときだけ表示状態をリセットする。
         # 同一画像の reject reload (✕ → 親が soft-reject → 同画像 reload → set_tags 呼び戻し)
         # で _hidden が消え、外したタグが破線で即再出現する回帰を防ぐ (PR #992 Codex P2)。
@@ -1200,6 +1225,23 @@ class TagPanelWidget(QWidget):
         self._group_by_type_checkbox.setEnabled(False)
         self._group_by_type_checkbox.toggled.connect(self._on_group_by_type_toggled)
         root.addWidget(self._group_by_type_checkbox)
+
+        # 由来の絞り込み (#1647)。タグが無ければ非表示 (_render_tag_chips が切り替える)。
+        self._origin_filter_bar = QWidget(self)
+        origin_layout = QHBoxLayout(self._origin_filter_bar)
+        origin_layout.setContentsMargins(0, 0, 0, 2)
+        origin_layout.addWidget(QLabel("由来:", self._origin_filter_bar))
+        self._origin_filter_control = DsSegmentedControl(
+            _ORIGIN_FILTER_OPTIONS, value="all", size="small", parent=self._origin_filter_bar
+        )
+        self._origin_filter_control.setToolTip(
+            f"タグの由来で絞り込みます。{_DATASET_ORIGIN_GLYPH} = 学習データセットの .txt から取り込んだタグ"
+        )
+        self._origin_filter_control.value_changed.connect(self.set_origin_filter)
+        origin_layout.addWidget(self._origin_filter_control)
+        origin_layout.addStretch(1)
+        self._origin_filter_bar.setVisible(False)
+        root.addWidget(self._origin_filter_bar)
 
         # チップ表示コンテナ。高さ上限付きスクロール箱に収める (#835)。FlowLayout の
         # minimumSizeHint は「最小幅で全チップ縦積み」の過大値を報告し、放置すると親の
@@ -1397,6 +1439,7 @@ class TagPanelWidget(QWidget):
             self._last_refinements = {}
             self._last_candidate_counts = {}
             self._selected_canonicals = set()
+            self._highlight_canonicals = None
         self._rebuild_counts_by_canonical()
         self._refresh_metric_selector()
         self._populate_table(self._all_tag_rows)
@@ -1743,11 +1786,76 @@ class TagPanelWidget(QWidget):
         self._last_candidate_counts = {}
         self._counts_by_canonical = {}
         self._selected_canonicals = set()
+        self._highlight_canonicals = None
         self._refresh_metric_selector()
         self.tableWidgetTags.setRowCount(0)
         self._tags_compact_label.setText("-")
         self._render_tag_chips([], is_translated=False)
         self._adjust_tags_chip_height()
+
+    # ─── 由来の印・絞り込み・強調 (#1647) ───────────────────────────────
+
+    def set_origin_filter(self, origin: str) -> None:
+        """由来でタグ chip を絞り込む (#1647)。
+
+        Args:
+            origin: "all" (すべて) / "dataset" (学習データセット) / "ai" / "manual" (手入力)。
+                未知の値は "all" とみなす。
+        """
+        normalized = origin if origin in {value for value, _label in _ORIGIN_FILTER_OPTIONS} else "all"
+        if self._origin_filter_control.value() != normalized:
+            self._origin_filter_control.set_value(normalized)
+        if normalized == self._origin_filter:
+            return
+        self._origin_filter = normalized
+        self._refresh_tags_for_language(self._current_language())
+
+    def origin_filter(self) -> str:
+        """現在の由来の絞り込みを返す。"""
+        return self._origin_filter
+
+    def set_highlight_tags(self, tags: set[str] | None) -> None:
+        """「学習に使ったデータセット」で選んだ版・フォルダの要素に一致する chip を強調する (#1647)。
+
+        選択 (Ctrl+クリック) とは別の強調で、一致しない chip は薄く表示する。
+
+        Args:
+            tags: 強調する canonical の集合。None で強調を解除する。
+        """
+        highlight = set(tags) if tags is not None else None
+        if highlight == self._highlight_canonicals:
+            # 画像切替のたびに解除が来るため、変化が無ければ chip を作り直さない
+            return
+        self._highlight_canonicals = highlight
+        self._refresh_tags_for_language(self._current_language())
+
+    def _origins_by_canonical(self) -> dict[str, set[str]]:
+        """畳む前の全タグ行から、canonical ごとの由来区分の集合を作る。"""
+        origins: dict[str, set[str]] = {}
+        for row in self._all_tag_rows:
+            canonical = str(row.get("tag", ""))
+            if not canonical:
+                continue
+            origin = _ORIGIN_BY_SOURCE.get(str(row.get("source", "")))
+            bucket = origins.setdefault(canonical, set())
+            if origin is not None:
+                bucket.add(origin)
+        return origins
+
+    @staticmethod
+    def _highlight_hit_qss() -> str:
+        """強調 (選んだ版・フォルダの要素) chip の QSS。"""
+        return (
+            f"QLabel {{ background-color: {theme.ACCENT_SOFT}; color: {theme.ACCENT_HOVER};"
+            f" border: {theme.BORDER_WIDTH_ACCENT}px solid {theme.ACCENT};"
+            f" border-radius: {theme.RADIUS_CHIP}px; padding: 0px 8px;"
+            f" font-size: {theme.FONT_SIZE_SMALL}px; font-weight: 600; }}"
+        )
+
+    @staticmethod
+    def _highlight_dim_qss() -> str:
+        """強調中に一致しない chip の QSS (薄く表示)。"""
+        return theme.chip_qss("muted", weight=None)
 
     # ─── 言語・描画 ─────────────────────────────────────────────────────
 
@@ -1965,18 +2073,27 @@ class TagPanelWidget(QWidget):
         # refinement 保持フラグをリセットする (#1221)。末尾の再反映で必要なら再度立つ。
         self._chips_carry_refinements = False
 
+        # 由来の絞り込み (#1647)。タグがあるときだけ絞り込みバーを出す。
+        origins = self._origins_by_canonical()
+        self._chip_origins = origins
+        self._origin_filter_bar.setVisible(bool(chip_items) or bool(self._rejected_tags))
+        origin_filter = self._origin_filter
+
+        def origin_matches(canonical: str) -> bool:
+            return origin_filter == "all" or origin_filter in origins.get(canonical, set())
+
         # アクティブタグ (✕ 非表示は除外)
         visible_items = [
             (display, original, has_tr)
             for display, original, has_tr in chip_items
-            if display and original not in self._hidden
+            if display and original not in self._hidden and origin_matches(original)
         ]
         # DB 由来 soft-rejected のうちアクティブに含まれないものを破線 chip として追記する。
         active_canonicals = {original for _display, original, _has_tr in chip_items}
         rejected_only = [
             tag
             for tag in self._rejected_tags
-            if tag and tag not in active_canonicals and tag not in self._hidden
+            if tag and tag not in active_canonicals and tag not in self._hidden and origin_matches(tag)
         ]
 
         if not visible_items and not rejected_only:
@@ -2159,7 +2276,12 @@ class TagPanelWidget(QWidget):
         type_name = self._tag_types.get(original)
         # 種別グリフを表示名に前置する (#1241)。general/不明は無印 (ノイズを増やさない)。
         glyph = _TYPE_GLYPHS.get(type_name, "") if type_name else ""
-        chip = SelectableTagChip(f"{glyph} {display}" if glyph else display, original)
+        label = f"{glyph} {display}" if glyph else display
+        # 同一 canonical の行のどれかが学習データセット (KOHYA_DATASET) 由来なら印を前置する (#1647)
+        from_dataset = "dataset" in self._chip_origins.get(original, set())
+        if from_dataset:
+            label = f"{_DATASET_ORIGIN_GLYPH} {label}"
+        chip = SelectableTagChip(label, original)
         chip.set_type_indicator(type_name)
         if is_translated and not has_translation and self._tag_metadata_pending:
             # 翻訳解決中 (#1191): 「翻訳なし」の点線と区別し、反映失敗との誤認を防ぐ。
@@ -2186,6 +2308,7 @@ class TagPanelWidget(QWidget):
             )
         # 無効化 (破線) 表示の場合は disabled スタイルを適用する。
         chip.setStyleSheet(self._disabled_chip_qss() if disabled else chip.base_qss)
+        self._apply_origin_decorations(chip, original, from_dataset=from_dataset, disabled=disabled)
         # 選択集合 (#814 / #997) を再描画をまたいで復元する。disabled より優先して上書きする。
         if original in self._selected_canonicals:
             chip.selected = True
@@ -2213,6 +2336,30 @@ class TagPanelWidget(QWidget):
         chip.usage_counts_menu_requested.connect(self._open_usage_counts_dialog)
         self._tag_chips.append(chip)
         target_layout.addWidget(self._wrap_editable_chip(chip, original))
+
+    def _apply_origin_decorations(
+        self, chip: SelectableTagChip, original: str, *, from_dataset: bool, disabled: bool
+    ) -> None:
+        """学習データセット由来の印と、行選択による強調を chip に反映する (#1647)。
+
+        表示名への印の前置は chip 生成時に済ませている。強調は無効化 (破線) を上書きせず、
+        選択 (Ctrl+クリック) はこの後で優先して上書きする。
+        """
+        if from_dataset:
+            chip.from_dataset = True
+            existing_tip = chip.toolTip()
+            chip.setToolTip(
+                f"{existing_tip}\n由来: 学習データセット" if existing_tip else "由来: 学習データセット"
+            )
+        if self._highlight_canonicals is None:
+            return
+        chip.highlight_state = "hit" if original in self._highlight_canonicals else "dim"
+        if disabled:
+            return
+        chip.base_qss = (
+            self._highlight_hit_qss() if chip.highlight_state == "hit" else self._highlight_dim_qss()
+        )
+        chip.setStyleSheet(chip.base_qss)
 
     def _clear_chip_layout(self) -> None:
         """chip セクション群 (ヘッダ + FlowLayout コンテナ) を破棄する。"""

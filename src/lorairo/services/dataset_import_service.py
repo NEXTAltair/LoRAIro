@@ -257,6 +257,8 @@ class DatasetImportResult:
         training_config_ids: 追加した学習設定の ID。
         images_without_text: 取り込んだ画像のうち、学習テキストが無い画像数 (取り込みはする)。
             登録に失敗した画像は数えない。
+        tags_added: 最新版の内容への同期で追加した `KOHYA_DATASET` の `Tag` 行数。
+        tags_removed: 最新版の内容への同期で削除した `KOHYA_DATASET` の `Tag` 行数。
     """
 
     dataset_id: int
@@ -266,6 +268,8 @@ class DatasetImportResult:
     skipped_images: int
     training_config_ids: list[int]
     images_without_text: int = 0
+    tags_added: int = 0
+    tags_removed: int = 0
 
 
 @dataclass(frozen=True)
@@ -701,10 +705,14 @@ class DatasetImportService:
             for prepared in prepared_configs
         ]
 
+        # 取り込んだ .txt を通常タグにも載せる。データセットごとの最新版の内容へ差分同期する (ADR 0104)
+        tag_sync = self._repository.sync_kohya_tags_for_dataset(dataset_id)
+
         logger.info(
             f"データセット取り込み完了: version_id={version_id}, folders={len(targets)}, "
             f"images={image_count}, skipped={skipped_images}, without_text={images_without_text}, "
-            f"configs={len(training_config_ids)}"
+            f"configs={len(training_config_ids)}, tags_added={tag_sync.tags_added}, "
+            f"tags_removed={tag_sync.tags_removed}"
         )
         return DatasetImportResult(
             dataset_id=dataset_id,
@@ -714,4 +722,6 @@ class DatasetImportService:
             skipped_images=skipped_images,
             training_config_ids=training_config_ids,
             images_without_text=images_without_text,
+            tags_added=tag_sync.tags_added,
+            tags_removed=tag_sync.tags_removed,
         )

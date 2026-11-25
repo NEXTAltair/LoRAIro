@@ -264,6 +264,8 @@ def _print_versions_result(
                     "images": result.image_count,
                     "skipped_images": result.skipped_images,
                     "images_without_text": result.images_without_text,
+                    "tags_added": result.tags_added,
+                    "tags_removed": result.tags_removed,
                     "training_config_ids": result.training_config_ids,
                 }
             )
@@ -282,7 +284,8 @@ def _print_versions_result(
         console.print(
             f"Imported version '{candidate.version_name}'  version_id={result.version_id}  "
             f"parent_version_id={parent}  folders={result.folder_count}  images={result.image_count}  "
-            f"skipped_images={result.skipped_images}  images_without_text={result.images_without_text}",
+            f"skipped_images={result.skipped_images}  images_without_text={result.images_without_text}  "
+            f"tags_added={result.tags_added}  tags_removed={result.tags_removed}",
             markup=False,
         )
         previous = result.version_id
@@ -498,6 +501,8 @@ def import_dataset(
                 images=result.image_count,
                 skipped_images=result.skipped_images,
                 images_without_text=result.images_without_text,
+                tags_added=result.tags_added,
+                tags_removed=result.tags_removed,
                 training_config_ids=result.training_config_ids,
             )
         else:
@@ -507,6 +512,7 @@ def import_dataset(
             console.print(f"images: {result.image_count}")
             console.print(f"skipped_images: {result.skipped_images}")
             console.print(f"images_without_text: {result.images_without_text}")
+            console.print(f"tags_added: {result.tags_added}  tags_removed: {result.tags_removed}")
             if result.training_config_ids:
                 ids = ", ".join(str(i) for i in result.training_config_ids)
                 console.print(f"training_config_ids: {ids}")

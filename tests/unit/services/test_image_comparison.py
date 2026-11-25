@@ -547,6 +547,13 @@ def test_snapshot_origins_label_pseudo_models_not_as_ai() -> None:
         {"tag": "cat", "model_name": "SIDECAR_IMPORT", "source": "Import", "existing": True},
         {"tag": "upscaled", "model_name": "IMAGE_PROCESSING", "source": "Processing"},
         {"tag": "dog", "model_name": "MANUAL_EDIT", "source": "Manual", "is_edited_manually": True},
+        # 学習データセットから写した行 (#1647)。existing=True でも手動編集とは表示しない
+        {"tag": "trained", "model_name": "KOHYA_DATASET", "source": "Dataset", "existing": True},
     ]
     snapshot = snapshot_from_metadata(7, _metadata(tags=tags))
-    assert [t.origins for t in snapshot.tags] == [("取り込み",), ("画像処理",), ("手動",)]
+    assert [t.origins for t in snapshot.tags] == [
+        ("取り込み",),
+        ("画像処理",),
+        ("手動",),
+        ("学習データセット",),
+    ]

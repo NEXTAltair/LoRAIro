@@ -60,6 +60,7 @@ from ...utils.log import logger
 from ..filter_criteria import ImageFilterCriteria, KeywordSearchGroup
 from ..schema import (
     IMAGE_PROCESSING_LITELLM_ID,
+    KOHYA_DATASET_LITELLM_ID,
     MANUAL_EDIT_LITELLM_ID,
     MANUAL_EDIT_NAME,
     PSEUDO_MODEL_LITELLM_IDS,
@@ -2664,12 +2665,16 @@ class ImageRepository(BaseRepository):
         """タグ 1 行の出所区分 (表示用) を返す (ADR 0111)。
 
         擬似モデルの行は model_id で出所が決まる: 関連ファイル取り込み (SIDECAR_IMPORT) は
-        ``"Import"``、画像処理の自動タグ (IMAGE_PROCESSING) は ``"Processing"``、手動編集
-        (MANUAL_EDIT) は ``"Manual"``。それ以外は従来どおりフラグで判定する。
+        ``"Import"``、画像処理の自動タグ (IMAGE_PROCESSING) は ``"Processing"``、学習データセット
+        から写したタグ (KOHYA_DATASET、ADR 0104) は ``"Dataset"``、手動編集 (MANUAL_EDIT) は
+        ``"Manual"``。それ以外は従来どおりフラグで判定する。
         """
         litellm_model_id = tag.model.litellm_model_id if tag.model else None
         if litellm_model_id == SIDECAR_IMPORT_LITELLM_ID:
             return "Import"
+        if litellm_model_id == KOHYA_DATASET_LITELLM_ID:
+            # existing=True で写すため、Manual 判定より前に分ける
+            return "Dataset"
         if litellm_model_id == IMAGE_PROCESSING_LITELLM_ID:
             return "Processing"
         if litellm_model_id == MANUAL_EDIT_LITELLM_ID or tag.is_edited_manually or tag.existing:

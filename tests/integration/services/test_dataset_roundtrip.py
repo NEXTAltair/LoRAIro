@@ -1,7 +1,7 @@
 """Kohya データセットの取り込み → 書き出し往復の結合テスト (Issue #1420)。
 
 実 DB と実 `ImageDatabaseManager` で取り込み、編集なしの書き出しが元の .txt と文字列として
-一致すること、`Tag` テーブルが増えないことを確認する。
+一致すること、`Tag` には `.txt` の要素が `KOHYA_DATASET` の行としてだけ入ることを確認する (#1647)。
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.repository.dataset import DatasetRepository
-from lorairo.database.schema import Base
+from lorairo.database.schema import KOHYA_DATASET_LITELLM_ID, Base
 from lorairo.filesystem import FileSystemManager
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.dataset_import_service import DatasetImportService
@@ -80,14 +80,14 @@ def kohya_root(tmp_path: Path) -> Path:
     return root
 
 
-def test_unedited_roundtrip_preserves_texts_and_writes_no_tags(
+def test_unedited_roundtrip_preserves_texts_and_writes_only_kohya_tags(
     import_service: DatasetImportService,
     repository: DatasetRepository,
     session_factory: Callable[[], Session],
     kohya_root: Path,
     tmp_path: Path,
 ) -> None:
-    """CRLF・(tag:1.2)・大文字・アンダースコア・複数行が往復で一致し、Tag は 0 行のまま。"""
+    """CRLF・(tag:1.2)・大文字・アンダースコア・複数行が往復で一致し、Tag は KOHYA_DATASET の行だけ。"""
     plan = import_service.propose_plan(kohya_root, "ds", "v1")
     result = import_service.import_directory(kohya_root, plan)
     assert result.image_count == len(_TEXTS)
@@ -100,5 +100,19 @@ def test_unedited_roundtrip_preserves_texts_and_writes_no_tags(
         assert exported == payload, stem
         assert (out_dir / "10_mix" / f"{stem}.png").is_file()
 
+    snapshot = repository.get_version_snapshot(result.version_id)
+    expected = sorted(
+        (image.image_id, element, KOHYA_DATASET_LITELLM_ID)
+        for folder in snapshot.folders
+        for image in folder.images
+        for text_snapshot in image.texts
+        for element in text_snapshot.elements
+    )
     with session_factory() as session:
-        assert session.execute(text("SELECT count(*) FROM tags")).scalar_one() == 0
+        rows = session.execute(
+            text(
+                "SELECT t.image_id, t.tag, m.litellm_model_id FROM tags t "
+                "JOIN models m ON m.id = t.model_id"
+            )
+        ).all()
+    assert sorted((row[0], row[1], row[2]) for row in rows) == expected
