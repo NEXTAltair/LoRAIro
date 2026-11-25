@@ -19,8 +19,11 @@ from lorairo.database.repository.dataset import DatasetRepository, ImageDatasetU
 from lorairo.public_api.project import get_project as api_get_project
 from lorairo.services.dataset_import_service import (
     DatasetImportPlan,
+    DatasetImportResult,
     DatasetImportService,
     FolderImportPlan,
+    VersionCandidate,
+    order_version_candidates,
 )
 from lorairo.services.dataset_version_diff import (
     DatasetVersionDiffService,
@@ -87,25 +90,251 @@ def _apply_folder_options(
     return applied
 
 
+def _folder_plan_line(folder: FolderImportPlan) -> str:
+    """計画のフォルダ 1 つ分を 1 行で表す (`+` は取り込む、`-` は外す)。"""
+    mark = "+" if folder.include else "-"
+    trigger = folder.trigger_word if folder.trigger_word else "-"
+    line = f"{mark} {folder.dir_name}  repeats={folder.num_repeats}  trigger={trigger}"
+    scan = folder.scan
+    if scan is not None:
+        line += f"  images={scan.image_count}  without_text={scan.images_without_text}"
+        if scan.trigger_candidate:
+            line += f"  candidate={scan.trigger_candidate} ({scan.trigger_match_rate:.0%})"
+    return line
+
+
+def _folder_plan_item(folder: FolderImportPlan) -> dict[str, object]:
+    scan = folder.scan
+    return {
+        "dir_name": folder.dir_name,
+        "name": folder.name,
+        "num_repeats": folder.num_repeats,
+        "include": folder.include,
+        "trigger_word": folder.trigger_word,
+        "images": scan.image_count if scan else None,
+        "images_without_text": scan.images_without_text if scan else None,
+        "trigger_candidate": scan.trigger_candidate if scan else None,
+        "trigger_match_rate": scan.trigger_match_rate if scan else None,
+    }
+
+
+def _plan_images(plan: DatasetImportPlan) -> int:
+    return sum(folder.scan.image_count for folder in plan.included_folders if folder.scan)
+
+
+def _parse_order(values: list[str]) -> list[str]:
+    """`--order` の値 (カンマ区切り・繰り返し可) を版名の並びにする。"""
+    return [name.strip() for value in values for name in value.split(",") if name.strip()]
+
+
+def _apply_options_to_versions(
+    candidates: list[VersionCandidate], exclude_patterns: list[str], triggers: dict[str, str]
+) -> list[VersionCandidate]:
+    """`--exclude-dir` と `--trigger` を全部の版の計画に反映する。
+
+    `--trigger` は同じフォルダ名を持つ全部の版に入れる。どの版にも無いフォルダは拒否する。
+
+    Raises:
+        typer.BadParameter: `--trigger` のフォルダがどの版の計画にも無い場合。
+    """
+    known = {folder.dir_name for candidate in candidates for folder in candidate.plan.folders}
+    unknown = sorted(set(triggers) - known)
+    if unknown:
+        raise typer.BadParameter(f"--trigger folder not found in scan result: {', '.join(unknown)}")
+    applied: list[VersionCandidate] = []
+    for candidate in candidates:
+        names = {folder.dir_name for folder in candidate.plan.folders}
+        own_triggers = {dir_name: word for dir_name, word in triggers.items() if dir_name in names}
+        folders = _apply_folder_options(candidate.plan.folders, exclude_patterns, own_triggers)
+        applied.append(replace(candidate, plan=replace(candidate.plan, folders=folders)))
+    return applied
+
+
+def _print_versions_plan(
+    parent: Path,
+    ordered: list[VersionCandidate],
+    skipped: list[VersionCandidate],
+    parent_version_id: int | None,
+    order_given: bool,
+) -> None:
+    """親フォルダで見つけた版ごとの取り込み計画を表示する (Issue #1648)。"""
+    if is_json_mode():
+        previous: str | None = None
+        for position, candidate in enumerate(ordered, start=1):
+            emit_item(
+                {
+                    "version": candidate.version_name,
+                    "order": position,
+                    "include": True,
+                    "root": str(candidate.root),
+                    "relative_root": candidate.root.relative_to(parent).as_posix(),
+                    "parent_version": previous,
+                    "parent_version_id": parent_version_id if previous is None else None,
+                    "folders": len(candidate.plan.included_folders),
+                    "images": _plan_images(candidate.plan),
+                    "config_files": [str(path) for path in candidate.plan.config_files],
+                    "folder_plans": [_folder_plan_item(folder) for folder in candidate.plan.folders],
+                }
+            )
+            previous = candidate.version_name
+        for candidate in skipped:
+            emit_item(
+                {
+                    "version": candidate.version_name,
+                    "order": None,
+                    "include": False,
+                    "root": str(candidate.root),
+                    "relative_root": candidate.root.relative_to(parent).as_posix(),
+                }
+            )
+        emit_result(
+            f"Dry run: {len(ordered)} version(s) would be imported",
+            dry_run=True,
+            dataset=ordered[0].plan.dataset_name if ordered else None,
+            order="given" if order_given else "name",
+            versions=[candidate.version_name for candidate in ordered],
+            skipped_versions=[candidate.version_name for candidate in skipped],
+            parent_version_id=parent_version_id,
+            folders=sum(len(candidate.plan.included_folders) for candidate in ordered),
+            images=sum(_plan_images(candidate.plan) for candidate in ordered),
+        )
+        return
+
+    dataset_name = (ordered or skipped)[0].plan.dataset_name
+    total = len(ordered) + len(skipped)
+    # 版名・フォルダ名に [] が入りうるため Rich の markup は解釈させない
+    console.print(
+        f"dry run: dataset '{dataset_name}', {total} version(s) found under {parent} (nothing imported)",
+        markup=False,
+    )
+    if order_given:
+        console.print("order: as given by --order (oldest first)")
+    else:
+        console.print(
+            "order: name order (initial value, not a judgement of the latest; change with --order)"
+        )
+    previous_label = str(parent_version_id) if parent_version_id is not None else "-"
+    for position, candidate in enumerate(ordered, start=1):
+        plan = candidate.plan
+        console.print(
+            f"[{position}] {candidate.version_name}  parent={previous_label}  "
+            f"folders={len(plan.included_folders)}  images={_plan_images(plan)}  "
+            f"root={candidate.root.relative_to(parent).as_posix()}",
+            markup=False,
+        )
+        for folder in plan.folders:
+            console.print(f"    {_folder_plan_line(folder)}", markup=False)
+        for path in plan.config_files:
+            console.print(f"    config: {path}", markup=False)
+        previous_label = candidate.version_name
+    for candidate in skipped:
+        console.print(
+            f"[-] {candidate.version_name}  not in --order, not imported  "
+            f"root={candidate.root.relative_to(parent).as_posix()}",
+            markup=False,
+        )
+    folders = sum(len(candidate.plan.included_folders) for candidate in ordered)
+    images = sum(_plan_images(candidate.plan) for candidate in ordered)
+    console.print(
+        f"total: {len(ordered)} version(s), {folders} folder(s), {images} image(s) would be imported"
+    )
+    empty = [candidate.version_name for candidate in ordered if not candidate.plan.included_folders]
+    if empty:
+        console.print(
+            f"No folder to import in: {', '.join(empty)}; the import would fail.",
+            style="yellow",
+            markup=False,
+        )
+    console.print("Pass --confirm (without --dry-run) to import these versions in this order.")
+
+
+def _print_versions_result(
+    ordered: list[VersionCandidate], results: list[DatasetImportResult], parent_version_id: int | None
+) -> None:
+    """版ごとの取り込み結果を表示する。"""
+    if is_json_mode():
+        previous = parent_version_id
+        for candidate, result in zip(ordered, results, strict=True):
+            emit_item(
+                {
+                    "version": candidate.version_name,
+                    "version_id": result.version_id,
+                    "parent_version_id": previous,
+                    "folders": result.folder_count,
+                    "images": result.image_count,
+                    "skipped_images": result.skipped_images,
+                    "images_without_text": result.images_without_text,
+                    "training_config_ids": result.training_config_ids,
+                }
+            )
+            previous = result.version_id
+        emit_result(
+            f"Imported {len(results)} version(s)",
+            dataset_id=results[0].dataset_id if results else None,
+            version_ids=[result.version_id for result in results],
+            folders=sum(result.folder_count for result in results),
+            images=sum(result.image_count for result in results),
+        )
+        return
+    previous = parent_version_id
+    for candidate, result in zip(ordered, results, strict=True):
+        parent = str(previous) if previous is not None else "-"
+        console.print(
+            f"Imported version '{candidate.version_name}'  version_id={result.version_id}  "
+            f"parent_version_id={parent}  folders={result.folder_count}  images={result.image_count}  "
+            f"skipped_images={result.skipped_images}  images_without_text={result.images_without_text}",
+            markup=False,
+        )
+        previous = result.version_id
+    console.print(f"total: {len(results)} version(s) imported")
+
+
+def _reject_single_root_options(version: str, config: list[Path] | None) -> None:
+    """親フォルダの取り込みで使えない `--version` / `--config` を拒否する。"""
+    if version.strip():
+        raise typer.BadParameter(
+            "--version cannot be used for a parent folder; version names come from the "
+            "version folders (use --order to choose and order them).",
+            param_hint="--version",
+        )
+    if config:
+        raise typer.BadParameter(
+            "--config cannot be used for a parent folder; config json is detected per version.",
+            param_hint="--config",
+        )
+
+
+def _import_discovered_versions(
+    service: DatasetImportService,
+    parent: Path,
+    candidates: list[VersionCandidate],
+    *,
+    order: list[str],
+    parent_version_id: int | None,
+    dry_run: bool,
+    confirm: bool,
+) -> None:
+    """親フォルダで見つけた版を、指定の順番で表示または取り込む (Issue #1648)。
+
+    `--confirm` が無ければ (または `--dry-run` なら) 計画を表示するだけで何も書かない。
+    """
+    try:
+        ordered, skipped = order_version_candidates(candidates, order)
+    except ValueError as e:
+        raise typer.BadParameter(str(e), param_hint="--order") from e
+    if dry_run or not confirm:
+        _print_versions_plan(parent, ordered, skipped, parent_version_id, bool(order))
+        return
+    results = service.import_versions(ordered, parent_version_id)
+    _print_versions_result(ordered, results, parent_version_id)
+
+
 def _print_plan(plan: DatasetImportPlan) -> None:
     """取り込み計画 (スキャン情報とトリガーワード候補を含む) を表示する。"""
     included = plan.included_folders
     if is_json_mode():
         for folder in plan.folders:
-            scan = folder.scan
-            emit_item(
-                {
-                    "dir_name": folder.dir_name,
-                    "name": folder.name,
-                    "num_repeats": folder.num_repeats,
-                    "include": folder.include,
-                    "trigger_word": folder.trigger_word,
-                    "images": scan.image_count if scan else None,
-                    "images_without_text": scan.images_without_text if scan else None,
-                    "trigger_candidate": scan.trigger_candidate if scan else None,
-                    "trigger_match_rate": scan.trigger_match_rate if scan else None,
-                }
-            )
+            emit_item(_folder_plan_item(folder))
         emit_result(
             f"Dry run: {len(included)} of {len(plan.folders)} folder(s) would be imported",
             dry_run=True,
@@ -126,15 +355,7 @@ def _print_plan(plan: DatasetImportPlan) -> None:
     if plan.parent_version_id is not None:
         console.print(f"parent_version_id: {plan.parent_version_id}")
     for folder in plan.folders:
-        mark = "+" if folder.include else "-"
-        trigger = folder.trigger_word if folder.trigger_word else "-"
-        line = f"{mark} {folder.dir_name}  repeats={folder.num_repeats}  trigger={trigger}"
-        scan = folder.scan
-        if scan is not None:
-            line += f"  images={scan.image_count}  without_text={scan.images_without_text}"
-            if scan.trigger_candidate:
-                line += f"  candidate={scan.trigger_candidate} ({scan.trigger_match_rate:.0%})"
-        console.print(line)
+        console.print(_folder_plan_line(folder))
     for path in plan.config_files:
         console.print(f"config: {path}")
     console.print(f"total: {len(included)} of {len(plan.folders)} folder(s) would be imported")
@@ -146,10 +367,23 @@ def _print_plan(plan: DatasetImportPlan) -> None:
 
 @app.command("import")
 def import_dataset(
-    directory: Path = typer.Argument(..., help="Kohya-ss dataset root (contains <repeats>_<name> folders)"),
+    directory: Path = typer.Argument(
+        ...,
+        help=(
+            "Kohya-ss dataset root (contains <repeats>_<name> folders), or a parent folder whose "
+            "subfolders (up to 4 levels deep) hold one root per version."
+        ),
+    ),
     project: str = typer.Option(..., "--project", "-p", help="Project name"),
     dataset: str = typer.Option(..., "--dataset", help="Dataset name"),
-    version: str = typer.Option(..., "--version", help="Version name"),
+    version: str = typer.Option(
+        "",
+        "--version",
+        help=(
+            "Version name. Empty: output_name of the config json, else the folder name. "
+            "Not used for a parent folder (version names come from the version folders)."
+        ),
+    ),
     parent_version: int | None = typer.Option(None, "--parent-version", help="Parent version ID"),
     exclude_dir: list[str] | None = typer.Option(
         None,
@@ -175,6 +409,23 @@ def import_dataset(
         "--dry-run",
         help="Show the import plan (scan info and trigger candidates) without importing.",
     ),
+    order: list[str] | None = typer.Option(
+        None,
+        "--order",
+        help=(
+            "Parent folder only: version names to import, oldest first (comma separated or repeated). "
+            "Each version's parent is the one before it. Versions not listed are not imported. "
+            "Default: all versions in name order."
+        ),
+    ),
+    confirm: bool = typer.Option(
+        False,
+        "--confirm",
+        help=(
+            "Parent folder only: import the versions shown by the plan. "
+            "Without it, the plan is shown and nothing is imported."
+        ),
+    ),
 ) -> None:
     """Import a Kohya-ss dataset directory as a new dataset version.
 
@@ -182,6 +433,14 @@ def import_dataset(
     images without learning text and trigger word candidates first; trigger words are stored only
     when given with --trigger. Images are registered without writing image tags; learning texts are
     stored per folder. Fails without creating a version when no folder is imported.
+
+    When DIRECTORY is a parent folder (no <repeats>_<name> folders directly under it), the
+    folders holding them are searched up to 4 levels deep (default exclusions such as sample*,
+    reg, log and *__Processed are not entered; archives such as .7z are not extracted). Each one
+    becomes a version named after its top folder under DIRECTORY, with config json found in the
+    folders up to that top folder. The plan lists the versions in name order; the latest version
+    is never decided automatically. Use --order to set the order (and the parent of each version),
+    and --confirm to import; without --confirm nothing is written.
     """
     with command_boundary():
         root = directory.resolve()
@@ -193,9 +452,29 @@ def import_dataset(
 
         triggers = _parse_triggers(trigger or [])
 
+        order_names = _parse_order(order or [])
+
         repository = _build_repository(project)
         container = get_service_container()
         service = DatasetImportService(container.db_manager, repository, container.file_system_manager)
+
+        candidates = service.discover_versions(root, dataset, tuple(exclude_dir or []))
+        if candidates:
+            _reject_single_root_options(version, config)
+            _import_discovered_versions(
+                service,
+                root,
+                _apply_options_to_versions(candidates, exclude_dir or [], triggers),
+                order=order_names,
+                parent_version_id=parent_version,
+                dry_run=dry_run,
+                confirm=confirm,
+            )
+            return
+        if order_names:
+            raise typer.BadParameter(
+                "--order is only for a parent folder that holds several versions.", param_hint="--order"
+            )
 
         explicit_configs = [path.resolve() for path in config] if config else None
         plan = service.propose_plan(root, dataset, version, explicit_configs)

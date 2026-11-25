@@ -550,3 +550,181 @@ def test_cli_usage_returns_versions_folders_and_texts_for_image(
     unused_lines = [json.loads(line) for line in unused.stdout.strip().splitlines()]
     assert [line for line in unused_lines if line["kind"] == "item"] == []
     assert unused_lines[-1]["usages"] == 0
+
+
+# --- 親フォルダの指定 (Issue #1648) ---
+
+
+@pytest.fixture
+def versions_parent(tmp_path: Path) -> Path:
+    """版を 3 つ持つ親フォルダ。版フォルダ直下に設定 json、除外フォルダとアーカイブを含む。"""
+    parent = tmp_path / "ライコウLoRA"
+    seed = 200
+    for version in ("raikou_v01", "raikou_v02", "raikou_v06ps"):
+        train = parent / version / "lora_train_data" / "train_dir"
+        for folder in ("10_raikou", "5_raikousyouzoku1"):
+            seed += 1
+            _save_noise_image(train / folder / f"{version}.png", seed=seed)
+            (train / folder / f"{version}.txt").write_bytes(f"raikou, {version}\r\n".encode())
+        (parent / version / f"{version}.json").write_text(
+            json.dumps({"output_name": version.replace("ps", "")}), encoding="utf-8"
+        )
+    for excluded in ("sample", "reg", "log", "old__Processed", "終了"):
+        _save_noise_image(parent / excluded / "1_hidden" / "x.png", seed=seed + 1)
+    (parent / "raikou_v00.7z").write_bytes(b"7z")
+    _save_noise_image(parent / "too_deep" / "a" / "b" / "c" / "d" / "10_deep" / "x.png", seed=seed + 2)
+    return parent
+
+
+def _invoke_parent(runner: CliRunner, parent: Path, *extra: str, json_mode: bool = True) -> Result:
+    args = ["--json"] if json_mode else []
+    return runner.invoke(
+        app, [*args, "dataset", "import", str(parent), "-p", PROJECT, "--dataset", "raikou", *extra]
+    )
+
+
+def _json_lines(result: Result) -> list[dict[str, object]]:
+    return [json.loads(line) for line in result.stdout.strip().splitlines()]
+
+
+def test_cli_parent_folder_lists_versions_in_name_order_and_imports_nothing(
+    cli_runner: CliRunner, project_dir: Path, versions_parent: Path
+) -> None:
+    """親フォルダを指定すると版ごとの計画を名前順で出し、--confirm が無ければ書き込まない。"""
+    result = _invoke_parent(cli_runner, versions_parent)
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    lines = _json_lines(result)
+    items = [line for line in lines if line["kind"] == "item"]
+    assert [(i["version"], i["order"], i["parent_version"]) for i in items] == [
+        ("raikou_v01", 1, None),
+        ("raikou_v02", 2, "raikou_v01"),
+        ("raikou_v06ps", 3, "raikou_v02"),
+    ]
+    assert [(i["folders"], i["images"]) for i in items] == [(2, 2), (2, 2), (2, 2)]
+    assert items[2]["config_files"] == [str(versions_parent / "raikou_v06ps" / "raikou_v06ps.json")]
+    assert items[2]["relative_root"] == "raikou_v06ps/lora_train_data/train_dir"
+    summary = lines[-1]
+    assert summary["dry_run"] is True
+    assert summary["order"] == "name"
+    assert summary["versions"] == ["raikou_v01", "raikou_v02", "raikou_v06ps"]
+    assert _version_count(project_dir) == 0
+
+
+def test_cli_parent_folder_rich_output_shows_plan(
+    cli_runner: CliRunner, project_dir: Path, versions_parent: Path
+) -> None:
+    result = _invoke_parent(cli_runner, versions_parent, "--dry-run", json_mode=False)
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    out = result.stdout
+    assert "3 version(s) found" in out
+    assert "not a judgement of the latest" in out
+    assert "[1] raikou_v01  parent=-  folders=2  images=2" in out
+    assert "[3] raikou_v06ps  parent=raikou_v02  folders=2  images=2" in out
+    assert "hidden" not in out
+    assert "too_deep" not in out
+    assert "raikou_v00" not in out
+    assert _version_count(project_dir) == 0
+
+
+def test_cli_parent_folder_dry_run_with_confirm_imports_nothing(
+    cli_runner: CliRunner, project_dir: Path, versions_parent: Path
+) -> None:
+    result = _invoke_parent(cli_runner, versions_parent, "--confirm", "--dry-run")
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert _version_count(project_dir) == 0
+
+
+def test_cli_parent_folder_order_sets_parents_and_skips_unlisted(
+    cli_runner: CliRunner, project_dir: Path, versions_parent: Path
+) -> None:
+    """--order の順 (古い順) に取り込み、親の版を 1 つ前の版にする。指定外の版は取り込まない。"""
+    plan = _invoke_parent(cli_runner, versions_parent, "--order", "raikou_v06ps, raikou_v01")
+    assert plan.exit_code == 0, plan.stdout + plan.stderr
+    plan_lines = _json_lines(plan)
+    assert plan_lines[-1]["order"] == "given"
+    assert plan_lines[-1]["skipped_versions"] == ["raikou_v02"]
+    assert _version_count(project_dir) == 0
+
+    result = _invoke_parent(cli_runner, versions_parent, "--order", "raikou_v06ps,raikou_v01", "--confirm")
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    items = [line for line in _json_lines(result) if line["kind"] == "item"]
+    assert [i["version"] for i in items] == ["raikou_v06ps", "raikou_v01"]
+    assert items[0]["parent_version_id"] is None
+    assert items[1]["parent_version_id"] == items[0]["version_id"]
+    assert _version_count(project_dir) == 2
+    assert _tag_count(project_dir) == 0
+
+    # 取り込んだ版を書き出すと .txt の原文が戻る
+    out_dir = project_dir.parent / "out_v01"
+    export = cli_runner.invoke(
+        app, ["dataset", "export", str(items[1]["version_id"]), str(out_dir), "-p", PROJECT]
+    )
+    assert export.exit_code == 0, export.stdout + export.stderr
+    assert (out_dir / "10_raikou" / "raikou_v01.txt").read_bytes() == b"raikou, raikou_v01\r\n"
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ("--order", "raikou_v99", "--confirm"),
+        ("--order", "raikou_v01,raikou_v01", "--confirm"),
+        ("--version", "v1", "--confirm"),
+        ("--config", "__CONFIG__", "--confirm"),
+    ],
+)
+def test_cli_parent_folder_rejects_invalid_options_and_imports_nothing(
+    cli_runner: CliRunner, project_dir: Path, versions_parent: Path, extra: tuple[str, ...]
+) -> None:
+    config = versions_parent / "raikou_v01" / "raikou_v01.json"
+    args = [str(config) if value == "__CONFIG__" else value for value in extra]
+
+    result = _invoke_parent(cli_runner, versions_parent, *args)
+
+    assert result.exit_code != 0
+    assert "Traceback" not in result.stdout + result.stderr
+    assert _version_count(project_dir) == 0
+
+
+def test_cli_order_is_rejected_for_a_single_root(
+    cli_runner: CliRunner, project_dir: Path, kohya_root: Path
+) -> None:
+    result = _invoke_import(cli_runner, kohya_root, "--order", "v1", "--dry-run")
+
+    assert result.exit_code != 0
+    assert _version_count(project_dir) == 0
+
+
+def test_cli_single_root_dry_run_output_is_unchanged(
+    cli_runner: CliRunner, project_dir: Path, versions_parent: Path
+) -> None:
+    """train_dir を直接指定した dry-run は、親フォルダ対応の前と同じ行を出す。"""
+    train_dir = versions_parent / "raikou_v06ps" / "lora_train_data" / "train_dir"
+
+    result = cli_runner.invoke(
+        app,
+        [
+            "dataset",
+            "import",
+            str(train_dir),
+            "-p",
+            PROJECT,
+            "--dataset",
+            "ds",
+            "--version",
+            "v1",
+            "--dry-run",
+        ],
+        env={"COLUMNS": "200"},
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert result.stdout.splitlines() == [
+        "dry run: dataset 'ds' version 'v1' (nothing imported)",
+        "+ 10_raikou  repeats=10  trigger=-  images=1  without_text=0  candidate=raikou (100%)",
+        "+ 5_raikousyouzoku1  repeats=5  trigger=-  images=1  without_text=0  candidate=raikou (100%)",
+        "total: 2 of 2 folder(s) would be imported",
+    ]

@@ -308,6 +308,7 @@ Qt 依存のないビジネスロジックサービス群である。CLI、GUI�
 - **パス**: `src/lorairo/services/dataset_import_service.py`
 - **クラス**: `DatasetImportService`
 - **目的**: Kohya-ss 形式の学習データセットを版・フォルダ・学習テキストとして取り込む(Qt-free)。画像は登録のみ行い、画像直下の `Tag` には書き込まない。永続化は `DatasetRepository`(`src/lorairo/database/repository/dataset.py`)が担う。CLI は `lorairo-cli dataset import / export / show / diff / copy-tags / usage` を提供する(`copy-tags` は学習テキストをライブラリの `Tag` へ写す。ADR 0104)
+- **親フォルダの取り込み**: `dataset import` に版を複数含む親フォルダを渡すと、深さ 4 までの配下から `<数字>_<名前>` フォルダを持つディレクトリを版の候補として探し、版ごとの計画を名前順で表示する(既定の除外フォルダには潜らず、アーカイブは展開しない)。最新版は自動で決めない。`--order` で取り込む版と順番(古い順)を指定し、各版の親の版は 1 つ前の版になる。`--confirm` が無ければ書き込まない(Issue #1648)
 
 #### KohyaDatasetExportService
 - **パス**: `src/lorairo/services/kohya_dataset_export_service.py`
