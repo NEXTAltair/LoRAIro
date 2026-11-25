@@ -9,27 +9,29 @@ tags: []
 
 ## Context
 
-`db_core.py` に旧 Tag DB アーキテクチャへの参照が残存していた:
-- `TAG_DB_PACKAGE` / `TAG_DB_FILENAME` — genai_tag_db_tools.data パッケージから DB を読む古い方式
-- `get_tag_db_path()` — importlib.resources でパッケージ内 DB を解決
-- `attach_tag_db_listener()` — SQLAlchemy イベントリスナーで Tag DB をアタッチ
+`db_core.py` には、旧 Tag DB アーキテクチャへの参照が残存していた。
 
-現在のアーキテクチャは `ensure_databases()` (HuggingFace ダウンロード) + `init_user_db()` (user_tags.sqlite 作成) に移行済み。
+- `TAG_DB_PACKAGE` および `TAG_DB_FILENAME`:`genai_tag_db_tools.data` パッケージから DB を読み込む旧方式の定数
+- `get_tag_db_path()`:`importlib.resources` でパッケージ内の DB パスを解決する関数
+- `attach_tag_db_listener()`:SQLAlchemy のイベントリスナーで Tag DB をアタッチする関数
+
+現在のアーキテクチャは、`ensure_databases()` による HuggingFace からのダウンロードと、`init_user_db()` による `user_tags.sqlite` の作成へすでに移行済みである。
 
 ## Decision
 
-レガシー関数・定数を完全削除し、注釈コメントで削除理由を明記:
-- `TAG_DB_PACKAGE` / `TAG_DB_FILENAME` 定数削除
-- `get_tag_db_path()` 関数削除
-- `attach_tag_db_listener()` 関数削除
+以下のレガシー定数および関数を完全に削除し、コード内のコメントに削除理由を明記する。
+
+- `TAG_DB_PACKAGE` および `TAG_DB_FILENAME` 定数を削除する。
+- `get_tag_db_path()` 関数を削除する。
+- `attach_tag_db_listener()` 関数を削除する。
 
 ## Rationale
 
-代替実装 (genai-tag-db-tools Public API: `search_tags()`, `register_tag()`, `MergedTagReader`) が完全に機能している。レガシーコードを残すと混乱を招くため即削除（段階的廃止は不要）。
+代替となる `genai-tag-db-tools` の公開 API(`search_tags()`、`register_tag()`、`MergedTagReader`)がすでに完全に機能している。不要なレガシーコードを残すと保守時の混乱を招くため、段階的廃止は行わず即時に削除する。
 
 ## Consequences
 
-- `db_core.py` からレガシー参照が完全に除去される
-- Base DB: `ensure_databases()` で HuggingFace からダウンロード（3 DB files）
-- User DB: `init_user_db()` で user_tags.sqlite を project ディレクトリに作成
-- `format_id 1000+` 予約でユーザータグと Base DB のタグが衝突しない設計を維持
+- `db_core.py` から旧アーキテクチャへの参照が完全に除去される。
+- Base DB は、`ensure_databases()` により HuggingFace から 3 つの DB ファイルをダウンロードして利用する。
+- User DB は、`init_user_db()` によりプロジェクトディレクトリ内に `user_tags.sqlite` を作成して利用する。
+- `format_id 1000+` の予約領域により、ユーザータグと Base DB のタグが衝突しない設計を維持する。

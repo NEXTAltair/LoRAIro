@@ -5,10 +5,9 @@ status: Accepted
 tags: [cli, images, processing]
 ---
 
-# Offline processed-image generation
+# オフライン処理済み画像の生成
 
-`images process` connects registered originals to the processed-image paths used by
-annotation, Provider Batch, and export. It preserves the original file and image ID.
+`images process` は、登録済みの元画像をアノテーション・Provider Batch・エクスポートで使用する処理済み画像パスへ結び付けます。元ファイルと画像 ID はそのまま保持します。
 
 ```bash
 lorairo-cli --json images process --project dataset --image-ids-file ids.txt --resolution 512
@@ -17,50 +16,16 @@ lorairo-cli --json batch submit --project dataset --image-ids 1 --model provider
 lorairo-cli --json export create --project dataset --image-ids-file ids.txt --resolution 512 --output exported
 ```
 
-Choose exactly one of `--image-ids` (CSV, maximum 500) and `--image-ids-file`
-(newline/comma-separated, maximum 100,000). Empty input is INVALID_INPUT/exit 2.
-Repeated IDs are processed once. No image outside the selected ID set is registered
-or processed. Missing IDs and corrupt/missing originals produce individual failures.
+`--image-ids` (CSV、最大 500 件) と `--image-ids-file` (改行 / カンマ区切り、最大 100,000 件) のどちらか 1 つを必ず選択してください。空の入力は `INVALID_INPUT` (exit 2) です。重複する ID は 1 回だけ処理します。選択された ID セット外の画像が登録・処理されることはありません。存在しない ID や破損・欠損した元画像は個別の失敗として報告されます。
 
-The resolution is the target long side, a multiple of 32 between 32 and 8192.
-The existing CPU pipeline performs automatic cropping, color normalization and
-Lanczos resize; dimensions align to multiples of 32. Extremely narrow images that
-would yield a zero dimension fail with a per-image error. Preferred-resolution buckets
-and configured upscalers do not override the explicit size. No model is loaded or
-downloaded, no inference API is called, and GPU is not required. A small original can
-be enlarged with ordinary Lanczos interpolation; this does not invoke a learned model.
+解像度には目標とする長辺サイズを指定します (32〜8192 の 32 の倍数)。既存の CPU パイプラインにより自動クロップ、色正規化、Lanczos リサイズを行い、縦横サイズを 32 の倍数へ揃えます。極端に細長く、いずれかの辺が 0 になる画像は画像単位のエラーで失敗します。推奨解像度バケットや設定済みのアップスケーラーが明示的なサイズ指定を上書きすることはありません。モデルの読み込み・ダウンロードや推論 API 呼び出しは行わず、GPU も不要です。小さな元画像も通常の Lanczos 補間で拡大される場合があり、学習済みモデルは呼び出しません。
 
-A valid, decodable exact-resolution output whose dimensions, mode and alpha match
-its DB record is skipped after verifying the original still exists and decodes. When multiple
-exact-resolution rows exist, the first exact row is used, matching annotation/Batch/export selection;
-a broken first row is repaired rather than skipping to a later valid file.
-A nearby resolution does not substitute for the requested size. Missing or
-corrupt exact output is rebuilt at its existing processed path; `--rebuild` also
-regenerates a valid file. Replacement uses a temporary file in the same directory and
-an atomic rename, without changing the original image row or processed-image ID.
-If regenerated dimensions differ from existing DB metadata, the command reports
-`processed_metadata_mismatch` instead of replacing the file with inconsistent data.
-An existing nonempty `upscaler_used`, or a mode/alpha mismatch, rejects offline rebuild
-with `processed_provenance_mismatch`, preserving the previous file and row. Choose a
-different resolution to create a separate offline output, or restore the old processed
-file. A valid upscaled file can still be skipped without `--rebuild`; its provenance
-is retained because the file is unchanged.
-Paths outside the project's image dataset or inside original-image storage are never
-replaced. New resolutions create a processed file and associate it with the original
-ID through the existing DB registration service. A DB registration failure reports
-the unlinked output path; generated files are not silently deleted.
+指定解像度に完全一致する有効かつデコード可能な出力がすでにあり、寸法・モード・アルファが DB レコードと一致する場合は、元画像の存在とデコード可能性を確認したうえでスキップします。同じ厳密解像度の行が複数ある場合は、アノテーション / Batch / エクスポートの選択と同じく最初の厳密一致行を使用します。最初の行が破損している場合、あとの有効ファイルへスキップするのではなく最初の行を修復します。近傍解像度で要求サイズを代替することはありません。欠損または破損した厳密出力は既存の処理済みパス上で再構築します。`--rebuild` を指定すると有効なファイルも再生成します。置き換えは同一ディレクトリ内の一時ファイルとアトミックリネームで行い、元画像行や処理済み画像 ID は変更しません。再生成された寸法が既存の DB メタデータと異なる場合、不整合なデータでファイルを置き換えず `processed_metadata_mismatch` を報告します。既存の `upscaler_used` が空でない場合、またはモード / アルファが一致しない場合は、`processed_provenance_mismatch` でオフライン再構築を拒否し、既存のファイルと行を保護します。別の解像度を指定して別個のオフライン出力を作成するか、元の処理済みファイルを復元してください。`--rebuild` を付けなければ有効なアップスケール済みファイルもスキップでき、ファイルが変更されないため出所 (provenance) は保持されます。
 
-Each JSONL `item` contains `image_id`, `status` (`success`, `skipped`, `failed`),
-`resolution`, `output_path`, `processed_image_id`, and `reason`. The terminal result
-contains total/processed/skipped/failed counts and their ID sets. Valid skips retain
-`ok:true`, status `success`, and exit 0. Any failure gives `ok:false`;
-status `partial_success` exits 3 when another selected ID is usable, otherwise `failed` exits 1.
-Input validation errors exit 2 before processing.
+プロジェクトの画像データセット外や元画像ストレージ内のパスを上書きすることはありません。新しい解像度では処理済みファイルを作成し、既存の DB 登録サービスを通じて元画像 ID と関連付けます。DB 登録が失敗した場合は未リンクの出力パスを報告し、生成済みファイルを黙って削除しません。
 
-The original-image guard for annotate and Batch remains active: specify
-`--resolution` to select generated processed paths. Generation does not rewrite an
-original DB path to bypass this guard.
+各 JSONL の `item` には `image_id`、`status` (`success`、`skipped`、`failed`)、`resolution`、`output_path`、`processed_image_id`、`reason` が含まれます。末尾の `result` には total / processed / skipped / failed の件数とそれぞれの ID セットが含まれます。有効なスキップのみの場合は `ok:true`、status `success`、exit 0 を維持します。1 件でも失敗がある場合は `ok:false` となり、他に利用可能な選択 ID があれば status `partial_success` (exit 3)、そうでなければ `failed` (exit 1) を返します。入力検証エラーは処理前に exit 2 で終了します。
 
-The implementation reuses `ImageProcessingManager`, `FileSystemManager`, and
-`ImageDatabaseManager`; CLI-specific work is exact-ID selection, offline policy,
-validated re-use, and per-ID reporting. Existing GUI processing remains unchanged.
+アノテーションおよび Batch の元画像保護ガードは引き続き有効です。生成した処理済みパスを選択するには `--resolution` を指定してください。この生成処理がガードを回避するために元画像の DB パスを書き換えることはありません。
+
+実装は `ImageProcessingManager`、`FileSystemManager`、`ImageDatabaseManager` を再利用しています。CLI 固有の処理は厳密 ID 選択、オフラインポリシー、検証済み再利用、および ID ごとのレポート出力です。既存の GUI 処理に変更はありません。

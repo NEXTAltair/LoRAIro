@@ -1,10 +1,10 @@
-# Repository Pattern Implementation Examples
+# リポジトリパターン実装例
 
-Complete, real-world repository implementation examples for LoRAIro.
+LoRAIro でそのまま応用できる実践的なリポジトリ実装例をまとめる。
 
-## Example 1: Basic ImageRepository
+## 例 1: 基本的な `ImageRepository`
 
-Full implementation of ImageRepository with CRUD operations.
+CRUD 操作を備えた `ImageRepository` の完全な実装例である。
 
 ```python
 from typing import Optional
@@ -76,7 +76,7 @@ class ImageRepository:
         with self.session_factory() as session:
             session.add(image)
             session.commit()
-            session.refresh(image)  # Populate ID and defaults
+            session.refresh(image)  # 生成された ID や既定値を反映する
             return image
 
     def batch_add(self, images: list[Image]) -> list[Image]:
@@ -92,7 +92,7 @@ class ImageRepository:
         with self.session_factory() as session:
             session.add_all(images)
             session.commit()
-            # All images now have IDs populated
+            # すべての画像に ID が採番される
             return images
 
     def update(self, image: Image) -> Image:
@@ -142,9 +142,9 @@ class ImageRepository:
             return session.query(Image.id).filter(Image.id == image_id).first() is not None
 ```
 
-## Example 2: Advanced Search with Criteria
+## 例 2: 検索条件オブジェクトによる高度な検索
 
-Type-safe search implementation using dataclass criteria.
+`dataclass` の検索条件を使った型安全な検索実装である。
 
 ```python
 from dataclasses import dataclass
@@ -170,7 +170,7 @@ class ImageSearchCriteria:
     offset: Optional[int] = None
 
 class ImageRepository:
-    # ... (previous methods)
+    # ... (前出のメソッド)
 
     def search(self, criteria: ImageSearchCriteria) -> list[Image]:
         """
@@ -193,9 +193,9 @@ class ImageRepository:
         with self.session_factory() as session:
             query = session.query(Image)
 
-            # Apply filters only if criteria provided
+            # 指定された条件のみフィルターを適用する
             if criteria.tags:
-                # Assuming tags is JSON array in database
+                # DB 上で tags が JSON 配列として格納されている前提
                 for tag in criteria.tags:
                     query = query.filter(Image.tags.contains(tag))
 
@@ -220,7 +220,7 @@ class ImageRepository:
             if criteria.created_before is not None:
                 query = query.filter(Image.created_at <= criteria.created_before)
 
-            # Apply pagination
+            # ページネーションを適用する
             if criteria.offset is not None:
                 query = query.offset(criteria.offset)
 
@@ -242,7 +242,7 @@ class ImageRepository:
         with self.session_factory() as session:
             query = session.query(Image.id)
 
-            # Apply same filters as search()
+            # search() と同じ条件を適用する
             if criteria.tags:
                 for tag in criteria.tags:
                     query = query.filter(Image.tags.contains(tag))
@@ -250,21 +250,21 @@ class ImageRepository:
             if criteria.min_score is not None:
                 query = query.filter(Image.score >= criteria.min_score)
 
-            # ... (other filters same as search)
+            # ... (残りの条件も search と同様)
 
             return query.count()
 ```
 
-## Example 3: Error Handling and Logging
+## 例 3: エラーハンドリングとログ出力
 
-Robust error handling with specific exception catching.
+具体的な例外クラスを捕捉する堅牢なエラー処理の例である。
 
 ```python
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError, OperationalError
 from loguru import logger
 
 class ImageRepository:
-    # ... (previous methods)
+    # ... (前出のメソッド)
 
     def add_safe(self, image: Image) -> Optional[Image]:
         """
@@ -331,16 +331,16 @@ class ImageRepository:
         return successful, failed
 ```
 
-## Example 4: Complex Queries with Joins
+## 例 4: 結合を含む複雑なクエリ
 
-Advanced queries using SQLAlchemy ORM relationships.
+SQLAlchemy ORM のリレーションシップを活用した高度なクエリ例である。
 
 ```python
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy import and_, or_
 
 class ImageRepository:
-    # ... (previous methods)
+    # ... (前出のメソッド)
 
     def get_with_annotations(self, image_id: int) -> Optional[Image]:
         """
@@ -389,8 +389,7 @@ class ImageRepository:
             List of similar Image instances
         """
         with self.session_factory() as session:
-            # Note: This is simplified; real implementation would use
-            # custom SQL function for hamming distance calculation
+            # 簡略化した例。実運用ではハミング距離計算のカスタム SQL 関数を使う
             return session.query(Image)\
                 .filter(Image.phash.like(f"{phash[:threshold]}%"))\
                 .all()
@@ -417,22 +416,22 @@ class ImageRepository:
         with self.session_factory() as session:
             query = session.query(Image)
 
-            # Required tags (AND logic)
+            # 必須タグ (AND 条件)
             if required_tags:
                 for tag in required_tags:
                     query = query.filter(Image.tags.contains(tag))
 
-            # Optional tags (OR logic)
+            # 任意タグ (OR 条件)
             if optional_tags:
                 or_conditions = [Image.tags.contains(tag) for tag in optional_tags]
                 query = query.filter(or_(*or_conditions))
 
-            # Exclude tags (NOT logic)
+            # 除外タグ (NOT 条件)
             if exclude_tags:
                 for tag in exclude_tags:
                     query = query.filter(~Image.tags.contains(tag))
 
-            # Score range
+            # スコア範囲
             if score_range:
                 min_score, max_score = score_range
                 query = query.filter(
@@ -445,15 +444,15 @@ class ImageRepository:
             return query.all()
 ```
 
-## Example 5: Batch Operations and Bulk Updates
+## 例 5: バッチ処理とバルク更新
 
-Efficient bulk operations for performance.
+パフォーマンスを高めるための効率的なバルク操作の例である。
 
 ```python
 from sqlalchemy import update
 
 class ImageRepository:
-    # ... (previous methods)
+    # ... (前出のメソッド)
 
     def bulk_update_scores(self, score_updates: dict[int, float]) -> int:
         """
@@ -466,7 +465,7 @@ class ImageRepository:
             Number of images updated
         """
         with self.session_factory() as session:
-            # Use bulk update for better performance
+            # 高速化のためバルク更新を使う
             session.bulk_update_mappings(
                 Image,
                 [{"id": id, "score": score} for id, score in score_updates.items()]
@@ -505,7 +504,7 @@ class ImageRepository:
         updated_count = 0
 
         with self.session_factory() as session:
-            # Process in batches to avoid memory issues
+            # メモリ消費を抑えるためバッチ単位で処理する
             batch_size = 1000
             offset = 0
 
@@ -518,7 +517,7 @@ class ImageRepository:
                 if not images:
                     break
 
-                # Calculate new scores
+                # 新しいスコアを計算する
                 for image in images:
                     image.score = score_calculator(image)
                     updated_count += 1
@@ -530,13 +529,13 @@ class ImageRepository:
         return updated_count
 ```
 
-## Example 6: Transaction Management
+## 例 6: トランザクション管理
 
-Complex multi-step transactions with rollback handling.
+ロールバック処理を含む多段階トランザクションの例である。
 
 ```python
 class ImageRepository:
-    # ... (previous methods)
+    # ... (前出のメソッド)
 
     def move_images_to_project(
         self,
@@ -557,12 +556,12 @@ class ImageRepository:
         """
         try:
             with self.session_factory() as session:
-                # Verify project exists
+                # 移動先プロジェクトの存在を確認する
                 project = session.query(Project).filter(Project.id == project_id).first()
                 if not project:
                     return False, f"Project {project_id} not found"
 
-                # Update all images
+                # 対象画像をまとめて更新する
                 updated = session.query(Image)\
                     .filter(Image.id.in_(image_ids))\
                     .update(
@@ -574,7 +573,7 @@ class ImageRepository:
                     session.rollback()
                     return False, f"Expected {len(image_ids)}, updated {updated}"
 
-                # Update project statistics
+                # プロジェクトの統計情報を更新する
                 project.image_count += updated
                 session.commit()
 
@@ -605,12 +604,12 @@ class ImageRepository:
             with self.session_factory() as session:
                 for data in image_data:
                     try:
-                        # Create image
+                        # 画像レコードを作成する
                         image = Image(**data['image'])
                         session.add(image)
-                        session.flush()  # Get image.id without committing
+                        session.flush()  # コミットせずに image.id を取得する
 
-                        # Create annotations
+                        # アノテーションを作成する
                         for ann_data in data.get('annotations', []):
                             annotation = Annotation(
                                 image_id=image.id,
@@ -624,9 +623,9 @@ class ImageRepository:
                         error_msg = f"Failed to import {data.get('image', {}).get('path', 'unknown')}: {e}"
                         errors.append(error_msg)
                         logger.warning(error_msg)
-                        # Continue with next image
+                        # 次の画像へ処理を続行する
 
-                # Commit all successful imports
+                # 成功したインポートをまとめてコミットする
                 session.commit()
 
         except SQLAlchemyError as e:
@@ -637,35 +636,37 @@ class ImageRepository:
         return imported_images, errors
 ```
 
-## Usage Examples
+## 利用例
 
-### Basic CRUD Operations
+### 基本的な CRUD 操作
+
 ```python
-# Initialize repository
+# リポジトリを初期化する
 from src.lorairo.database.db_core import get_session_factory
 repository = ImageRepository(get_session_factory())
 
-# Create
+# 作成
 new_image = Image(path="/path/to/image.jpg", phash="abc123")
 saved_image = repository.add(new_image)
 print(f"Created image with ID: {saved_image.id}")
 
-# Read
+# 取得
 image = repository.get_by_id(saved_image.id)
 all_images = repository.get_all(limit=100)
 
-# Update
+# 更新
 image.score = 0.95
 updated_image = repository.update(image)
 
-# Delete
+# 削除
 deleted = repository.delete(saved_image.id)
 print(f"Deleted: {deleted}")
 ```
 
-### Advanced Search
+### 高度な検索
+
 ```python
-# Type-safe search
+# 型安全な検索
 criteria = ImageSearchCriteria(
     tags=["anime", "landscape"],
     min_score=0.8,
@@ -677,9 +678,10 @@ count = repository.count_matching(criteria)
 print(f"Found {count} images, showing {len(results)}")
 ```
 
-### Batch Processing
+### バッチ処理
+
 ```python
-# Batch add
+# 一括追加
 images = [
     Image(path=f"/image_{i}.jpg", phash=f"hash{i}")
     for i in range(100)
@@ -687,7 +689,7 @@ images = [
 added_images = repository.batch_add(images)
 print(f"Added {len(added_images)} images")
 
-# Bulk update
+# バルク更新
 score_updates = {img.id: 0.9 for img in added_images[:10]}
 updated_count = repository.bulk_update_scores(score_updates)
 print(f"Updated {updated_count} scores")

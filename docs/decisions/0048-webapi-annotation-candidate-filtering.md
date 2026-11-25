@@ -12,60 +12,87 @@ tags: []
 
 ## Context
 
-`image-annotator-lib` の WebAPI discovery (`webapi/api_model_discovery.py`) は LiteLLM 同梱 DB を runtime SSoT とし、`supports_vision` + `supports_function_calling` + `mode ∈ {chat, responses}` を満たすモデルを annotation 候補として登録する (ADR 0023 Phase 1.6)。LoRAIro はこの候補一覧を信頼して DB sync / UI 表示する。
+`image-annotator-lib` の WebAPI モデル検出処理(`webapi/api_model_discovery.py`)は、LiteLLM 同梱 DB を実行時の SSoT としている。現在の実装では、`supports_vision`、`supports_function_calling`、`mode ∈ {chat, responses}` を満たすモデルをアノテーション候補として登録する(ADR 0023 Phase 1.6)。LoRAIro はこの候補一覧を信頼し、DB 同期および UI 表示に利用している。
 
-実運用で、現行の同期 annotation runtime では使えないモデルや、用途が画像 annotation に合わないモデルが候補に紛れ込む問題が表面化した。168 件の discovery 結果を分類した結果、原因の異なる複数の不適格モデルが存在した:
+しかし実運用において、現行の同期アノテーション実行基盤では利用できないモデルや、画像アノテーションの用途に適さないモデルが候補へ混入する問題が顕在化した。168 件の検出結果を分類したところ、原因の異なる以下の 3 種類の不適格モデルが存在することが分かった。
 
-- **`mode=responses` 専用モデル** (23 件: deep-research / codex 直 / pro ティア)。現 runtime (`webapi/model_id.py:build_pydantic_model`) は OpenAI を常に `OpenAIChatModel` (`v1/chat/completions`) で構築するため、Responses 専用モデルは実行時に 404。
-- **`tools` 非対応モデル** (例: `gpt-5-search-api` 族)。LiteLLM が `supports_function_calling=True` と報告するが、`get_model_info().supported_openai_params` には `tools` / `tool_choice` が無い。LiteLLM の capability boolean が自身の param リストと矛盾しており、現条件をすり抜ける。
-- **用途不適モデル** (TTS / computer-use / web 検索強制の search-preview)。`mode=chat` でエンドポイント上は動くが、出力 modality や対話パラダイムが画像 annotation に合わない。これらは LiteLLM metadata では判別できない (`supports_audio_output` 誤報、`supports_web_search=True` は優良モデルも持つため判定軸に使えない)。
+- **`mode=responses` 専用モデル(23 件)**:deep-research、codex 系、pro ティアなどが該当する。現行の実行基盤(`webapi/model_id.py:build_pydantic_model`)は OpenAI モデルを常に `OpenAIChatModel`(`v1/chat/completions`)で構築するため、Responses 専用モデルは実行時に 404 エラーとなる。
+- **`tools` 非対応モデル**:`gpt-5-search-api` 族などが該当する。LiteLLM は `supports_function_calling=True` と報告するものの、`get_model_info().supported_openai_params` には `tools` や `tool_choice` が含まれていない。LiteLLM の機能フラグが自身のパラメータ一覧と矛盾しており、現行の絞り込み条件をすり抜ける。
+- **用途不適モデル**:TTS、computer-use、Web 検索を強制する search-preview などが該当する。`mode=chat` でエンドポイント上は動作するが、出力モダリティや対話方式が画像アノテーションに適さない。LiteLLM のメタデータでは判別できず、`supports_audio_output` には誤報があるうえ、`supports_web_search=True` は優良モデルも持つため判定軸として使えない。
 
-加えて消費側の問題として、LoRAIro `ModelSyncService.sync_available_models()` は register / update のみで de-list を持たず、ライブラリが提供しなくなったモデルが `discontinued_at=NULL` のまま `available=True` で残存し続ける (`Model.available = discontinued_at is None`)。
+さらに消費側である LoRAIro にも課題がある。`ModelSyncService.sync_available_models()` は登録と更新のみを行い、候補から外れたモデルの無効化(de-list)を行わない。そのため、ライブラリが提供しなくなったモデルが `discontinued_at=NULL` のまま `available=True` として残り続ける(`Model.available = discontinued_at is None`)。
 
-これらは独立した関心事であり、ひとつの「フィルタ強度」ノブで扱うと優良モデルの巻き添え (pro ティアを「不適格」と誤排除) や本丸の取り逃し (chat-mode の用途不適モデルが残る) を招く。
+これらは互いに独立した関心事である。単一の「フィルタ強度」設定でまとめて扱おうとすると、優良モデルである pro ティアを不適格として誤排除したり、`mode=chat` の用途不適モデルを取り逃したりする原因になる。
 
 ## Decision
 
-WebAPI annotation 候補の選別を **3 つの直交する軸** に分解し、それぞれ独立に実装する。
+WebAPI アノテーション候補の選別を**3 つの直交する軸**に分解し、それぞれを独立に実装する。あわせて消費側(LoRAIro)に無効化の再同期処理を導入する。
 
-### 軸A — エンドポイント実行可能性 (capability gate)
-現 runtime が実際に構築・実行できる endpoint のモデルのみを候補にする。現状 runtime は Chat Completions 一本 (ADR 0023 同期経路 / ADR 0038 batch も `/v1/chat/completions`) のため、annotation 候補は `mode == "chat"` に限定する。`mode=responses` は「不適格」ではなく「現 runtime 未対応」として扱い、Responses runtime 対応で gate を反転する (軸の forward path、後述)。
+### 軸 A:エンドポイント実行可能性(capability gate)
 
-### 軸B — capability 判定の正確化 (tool/function calling)
-ADR 0023 Phase 1.6 で確立した「tool/function calling を絞り込み主条件にする」を踏襲しつつ、LiteLLM の `supports_function_calling` boolean を盲信しない。`get_model_info().supported_openai_params` が populate されている場合は `"tools"` の実在を要求し (ground truth 優先)、未populate (Gemini / Anthropic 等) の場合のみ boolean を信頼する。これにより `tools` 非対応の search-api 族を名前非依存で除外しつつ、param を populate しない provider を巻き込まない。
+現行の実行基盤が実際に構築・実行できるエンドポイントのモデルだけを候補とする。
 
-### 軸C — アノテーション適性 (suitability denylist)
-エンドポイント・capability が揃っても用途が画像 annotation に合わないモデルは、LiteLLM metadata で判別不能なため curated な名前 substring denylist で除外する (TTS / computer-use / web 検索強制 / data-source tool 前提の deep-research)。軸A の gate とは独立した定数・関数として実装し、軸A を反転しても denylist は維持する。denylist は test fixture で固定し、LiteLLM DB の月次 dependency review で drift を確認する。
+- 現行の実行基盤は Chat Completions に一本化されている(ADR 0023 の同期経路および ADR 0038 のバッチ経路がいずれも `/v1/chat/completions` を使用)。そのため、アノテーション候補は `mode == "chat"` に限定する。
+- `mode=responses` のモデルは「不適格」ではなく「現行の実行基盤では未対応」として扱う。将来 Responses 実行基盤へ対応した際に、このゲートを反転して利用可能にする(後述の Forward path)。
 
-### 消費側 — de-list reconcile (LoRAIro)
-ライブラリが提供しなくなった WebAPI モデルを LoRAIro が正しく無効化できるようにする。`ModelSyncService.sync_available_models()` に reconcile ステップを追加し、現在の discovery に存在しない WebAPI モデル (`requires_api_key=True`) を soft-delete (`discontinued_at` 設定) する。ローカル ML モデルと MANUAL_EDIT sentinel は対象外。既 discontinued 行は再書き込みしない。再出現時の reactivation は既存 update 経路 (`discontinued_at=None`) が担う。これはライブラリ側フィルタとは独立した汎用的な堅牢性であり、新規 DB はライブラリ側フィルタが、既存 DB は本 de-list がカバーする。
+### 軸 B:機能判定の正確化(tool / function calling)
 
-### Forward path — Responses runtime (別軸 / 次段階)
-OpenAI は Responses API を主軸化し pro / 専用ティアを Responses 専用で提供する。将来 `OpenAIResponsesModel` 経路を追加し軸A の gate を反転すれば pro ティア (gpt-5-pro / o3-pro 等) が実行可能になる。これは ADR 0023 の Chat 一本化を見直すアーキテクチャ判断であり、本 ADR のスコープ外 (別 Issue / 別 ADR)。その際も軸C denylist (deep-research 等) は維持する。
+ADR 0023 Phase 1.6 で定めた「tool / function calling 対応を絞り込みの主条件とする」方針を踏襲しつつ、LiteLLM の `supports_function_calling` 真偽値を盲信しない。
+
+- `get_model_info().supported_openai_params` に値が設定されている場合は、その中に `"tools"` が実際に存在することを要求する(実パラメータ一覧を優先)。
+- 当該パラメータ一覧が未設定のプロバイダ(Gemini、Anthropic など)に限り、`supports_function_calling` の真偽値を信頼する。
+
+これにより、`tools` 非対応の search-api 族をモデル名に依存せず除外しつつ、パラメータ一覧を持たないプロバイダを巻き込まないようにする。
+
+### 軸 C:アノテーション適性(suitability denylist)
+
+エンドポイントと機能の条件を満たしていても、画像アノテーションの用途に合わないモデルは LiteLLM のメタデータで判別できない。そこで、精査済みのモデル名部分一致による拒否リスト(denylist)で除外する。
+
+- 対象は TTS、computer-use、Web 検索強制モデル、データソースツール前提の deep-research などとする。
+- 軸 A のゲートとは独立した定数および関数として実装し、将来軸 A を反転しても拒否リストは維持する。
+- 拒否リストはテストフィクスチャで固定し、LiteLLM DB の月次依存関係レビューで乖離(drift)を確認する。
+
+### 消費側:候補外モデルの無効化(LoRAIro)
+
+ライブラリが提供しなくなった WebAPI モデルを LoRAIro 側で正しく無効化できるようにする。
+
+- `ModelSyncService.sync_available_models()` に再同期(reconcile)ステップを追加する。現在の検出結果に存在しない WebAPI モデル(`requires_api_key=True`)に対し、`discontinued_at` を設定して論理削除(soft-delete)する。
+- ローカル ML モデルおよび `MANUAL_EDIT` センチネルは対象外とする。また、すでに `discontinued_at` が設定済みのレコードは再書き込みしない。
+- モデルが再び候補へ現れた際の再有効化は、既存の更新経路(`discontinued_at=None`)が担う。
+
+この処理はライブラリ側フィルタとは独立した汎用的な保護機構である。新規 DB はライブラリ側フィルタが保護し、既存 DB の残留レコードは本無効化処理が解消する。
+
+### Forward path:Responses 実行基盤への対応(別軸・次段階)
+
+OpenAI は Responses API を主軸としており、pro ティアや専用ティアを Responses 専用で提供している。将来 `OpenAIResponsesModel` の実行経路を追加して軸 A のゲートを反転すれば、`gpt-5-pro` や `o3-pro` などの pro ティアを実行できるようになる。
+
+ただし、これは ADR 0023 の Chat 一本化方針を見直すアーキテクチャ判断にあたるため、本 ADR の対象外とし、別の Issue および ADR で扱う。その場合でも、軸 C の拒否リスト(deep-research など)は維持する。
 
 ## Consequences
 
-**Positive**
-- pro ティアを「不適格」と誤排除せず「runtime 未対応」として正しく区別 — 将来の Responses 対応で復活させられる。
-- search-api 族を名前非依存・metadata 駆動で除外。将来の同種モデルも自動的に弾ける。
-- 軸の分離により Responses runtime 対応時に軸A だけを反転でき、変更範囲が局所化する。
-- 既存 DB に残った stale モデルも消費側 de-list で UI から消える。
+### 良い点
 
-**Negative / Trade-off**
-- 軸C は curated denylist のため LiteLLM DB 更新で drift し得る。月次 dependency review + test fixture 固定で緩和する。
-- 現状 OpenAI pro ティアは利用不可 (Responses runtime 未対応のため)。Forward path で解消予定。
+- pro ティアを「不適格」と誤って排除せず「実行基盤未対応」として区別できるため、将来の Responses 対応で容易に復活させられる。
+- search-api 族を名前非依存のメタデータ判定で除外でき、同種の将来モデルも自動的に弾ける。
+- 3 つの軸を分離したことで、Responses 実行基盤へ対応する際の変更範囲を軸 A の反転のみに局所化できる。
+- 既存 DB に残っていた古いモデルも、消費側の無効化処理によって UI から消去される。
+
+### トレードオフ
+
+- 軸 C は手動管理の拒否リストであるため、LiteLLM DB の更新に伴い乖離が生じ得る。月次の依存関係レビューとテストフィクスチャ固定によってリスクを緩和する。
+- 現時点では OpenAI の pro ティアは利用できない(Responses 実行基盤が未対応のため)。これは Forward path で解消する予定である。
 
 ## Alternatives Considered
 
-- **`mode=responses` を一律除外するだけ**: pro ティアを「不適格」と誤ラベルし恒久排除、かつ chat-mode の用途不適モデルを取り逃す。軸の混同。却下。
-- **provider family allowlist (opt-in)**: 安全だが LiteLLM 駆動 auto-discovery (ADR 0021) の利点を殺し、新モデルごとに手動追加が必要。却下。
-- **`supports_web_search` で search モデルを除外**: gpt-5 / gemini-2.5-pro 等の優良モデルも `supports_web_search=True` を持つため 60 件規模の誤除外。却下。
-- **soft tier (recommended フラグ) で表示抑制**: 候補一覧には残るため「不適格モデルがリストアップされる」問題を解消しない。却下。
+- **`mode=responses` を一律除外するだけにする案**:pro ティアを「不適格」と誤分類して恒久的に排除してしまううえ、`mode=chat` の用途不適モデルを取り逃す。関心事の混同にあたるため却下した。
+- **プロバイダ系列ごとの許可リスト(opt-in allowlist)案**:安全性は高いが、LiteLLM 駆動の自動検出(ADR 0021)の利点を損ない、新モデルのたびに手動追加が必要になるため却下した。
+- **`supports_web_search` で検索モデルを除外する案**:`gpt-5` や `gemini-2.5-pro` などの優良モデルも `supports_web_search=True` を持つため、約 60 件規模の誤除外が発生する。そのため却下した。
+- **推奨フラグ(soft tier)で表示を抑制する案**:候補一覧そのものには不適格モデルが残るため、根本的な問題が解消しない。そのため却下した。
 
 ## Related
 
-- ADR 0021 — LiteLLM-Driven WebAPI Model Registry (auto-discovery 基盤)
-- ADR 0023 — PydanticAI / LiteLLM WebAPI Inference Boundary (軸B の tool 主条件 / Chat 一本化の SSoT、Forward path で改訂対象)
-- ADR 0026 — On-Demand Runtime Validation Strategy (Responses runtime の実 API 検証方針)
-- ADR 0038 — Provider Batch API Integration Strategy (Chat Completions 統一の根拠)
-- `.claude/rules/dependency-management.md` — denylist drift の月次 review
+- ADR 0021 — LiteLLM-Driven WebAPI Model Registry(自動検出基盤)
+- ADR 0023 — PydanticAI / LiteLLM WebAPI Inference Boundary(軸 B の tool 主条件および Chat 一本化の SSoT。Forward path での改訂対象)
+- ADR 0026 — On-Demand Runtime Validation Strategy(Responses 実行基盤の実 API 検証方針)
+- ADR 0038 — Provider Batch API Integration Strategy(Chat Completions 統一の根拠)
+- `.claude/rules/dependency-management.md` — 拒否リストの乖離を確認する月次レビュー運用

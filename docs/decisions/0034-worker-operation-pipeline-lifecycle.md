@@ -11,90 +11,83 @@ tags: []
 
 ## Context
 
-#430 / #433 で worker の cancel reason と abnormal terminal outcome を明示したが、GUI 層には
-古い worker 種別別 signal (`search_error(str)`, `thumbnail_canceled(str)` など) が残っている。
-これらは単一 worker の完了通知としては十分だったが、現在の search -> thumbnail pipeline では以下を
-区別できない。
+#430 および #433 により、ワーカーのキャンセル理由と異常終了結果を明示できるようにした。しかし、GUI 層には従来のワーカー種別ごとのシグナル(`search_error(str)` や `thumbnail_canceled(str)` など)が残っている。
 
-- 現在の user operation の失敗
-- replacement された古い worker の失敗
-- 明示キャンセル後の timeout / terminate
-- prefetch cleanup など通常運用の cancel
-- pipeline UI state の cleanup 対象かどうか
+これらのシグナルは単一ワーカーの完了通知としては十分であった。一方、現在の検索からサムネイル生成へつながるパイプラインでは、以下の事象を区別できない。
 
-その結果、worker lifecycle、operation/request lifecycle、pipeline UI lifecycle が同じ signal 経路に
-混在し、stale worker の terminal が現在の UI state を壊す、または cleanup が二重 dispatch される。
+- 現在のユーザー操作の失敗
+- 新しい処理に置き換えられた古いワーカーの失敗
+- 明示的なキャンセル後に発生したタイムアウトや強制終了
+- プリフェッチの後処理など、通常運用におけるキャンセル
+- パイプラインの UI 状態をクリーンアップすべき対象かどうか
+
+その結果、ワーカーのライフサイクル、操作・リクエストのライフサイクル、およびパイプライン UI のライフサイクルが同一のシグナル経路に混在している。これにより、無効化された古いワーカーの終了通知が現在の UI 状態を壊したり、クリーンアップ処理が二重に発火したりする問題が起きている。
 
 ## Decision
 
-### 1. Lifecycle を 3 層に分離する
+### 1. ライフサイクルを 3 層に分離する
+
+ライフサイクルの責務を次の 3 層に明確に分離する。
 
 | 層 | 所有者 | 表すもの | 購読者 |
 |---|---|---|---|
-| Worker lifecycle | `WorkerManager` | QThread / worker の事実 (`SUCCEEDED`, `FAILED`, `CANCELED`, `TERMINATED`, `UNRESPONSIVE`) | `WorkerService` |
-| Operation lifecycle | `WorkerService` | user operation / request 単位の current / superseded / completed / failed / canceled | pipeline service, UI adapter |
-| Pipeline lifecycle | `PipelineControlService` | search -> thumbnail -> display の画面状態と cleanup | widgets / MainWindow delegates |
+| ワーカーライフサイクル | `WorkerManager` | `QThread` とワーカーの事実(`SUCCEEDED`, `FAILED`, `CANCELED`, `TERMINATED`, `UNRESPONSIVE`) | `WorkerService` |
+| 操作ライフサイクル | `WorkerService` | ユーザー操作・リクエスト単位の状態(current / superseded / completed / failed / canceled) | パイプラインサービス、UI アダプター |
+| パイプラインライフサイクル | `PipelineControlService` | 検索・サムネイル生成・表示に至る画面状態とクリーンアップ | ウィジェット、MainWindow の委譲先 |
 
-`WorkerManager` は operation の current / stale 判定を行わない。`WorkerService` は worker fact を
-operation event に変換し、`PipelineControlService` は operation event だけを authoritative input として
-UI cleanup を行う。
+`WorkerManager` は、ある操作が最新か古いかの判定を行わない。`WorkerService` がワーカーの事実イベントを操作イベントへ変換する。そして `PipelineControlService` は、操作イベントのみを唯一の正本入力として UI のクリーンアップを実行する。
 
-### 2. Worker terminal event は事実イベントに限定する
+### 2. ワーカー終了イベントは事実イベントに限定する
 
-`WorkerTerminalEvent` は worker ごとに一度だけ確定する事実イベントであり、UI cleanup の所有者ではない。
+`WorkerTerminalEvent` は、ワーカーごとに一度だけ確定する事実イベントである。UI クリーンアップの所有権は持たせない。
 
-- `worker_id` と `worker_type` は worker の識別子であり、operation の新旧判定には使わない。
-- `cancel_reason` は cancellation request の理由であり、operation current 判定の代替にしない。
-- `UNRESPONSIVE` は「停止未確認」の事実なので、manager の active tracking を clean と見なさない。
+- `worker_id` と `worker_type` はワーカーの識別子であり、操作の新旧判定には使用しない。
+- `cancel_reason` はキャンセル要求の理由を表すものであり、操作が最新かどうかの判定の代替にはしない。
+- `UNRESPONSIVE` は「停止未確認」という事実を表すため、マネージャ側のアクティブ追跡が正常に終了したとは見なさない。
 
-### 3. Operation event を UI の authoritative input にする
+### 3. 操作イベントを UI の正本入力とする
 
-`WorkerService` は `operation_id` / `request_id` / `generation` のいずれかで current operation を管理する。
+`WorkerService` は、`operation_id`、`request_id`、`generation` のいずれかを用いて現在の操作を管理する。
 
-- search は generation または operation_id で current / superseded を判定する。
-- thumbnail は既存の `request_id` を operation context に取り込み、display / prefetch を区別する。
-- superseded worker の `FAILED` / `TERMINATED` / `UNRESPONSIVE` は現在の operation state を変更しない。
-- non-replacement failure は一度だけ operation failure として dispatch する。
+- 検索処理は、`generation` または `operation_id` によって最新(current)か置き換え済み(superseded)かを判定する。
+- サムネイル処理は、既存の `request_id` を操作コンテキストへ取り込み、表示用(display)と先読み用(prefetch)を区別する。
+- 置き換え済みの古いワーカーから届いた `FAILED`、`TERMINATED`、`UNRESPONSIVE` は、現在の操作状態を変更しない。
+- 置き換え以外の要因による失敗は、一度だけ操作失敗イベントとして配送する。
 
-### 4. compat signal は移行用 adapter とする
+### 4. 互換シグナルは移行用アダプターとする
 
-既存の `search_finished`, `search_error`, `search_canceled`, `thumbnail_*`, `batch_*`,
-`enhanced_annotation_*` は当面残す。ただし新規 UI / service code は operation event を購読する。
+既存の `search_finished`、`search_error`、`search_canceled`、`thumbnail_*`、`batch_*`、`enhanced_annotation_*` は当面維持する。ただし、新規の UI コードやサービスコードは操作イベントを購読する。
 
-compat signal の扱い:
+互換シグナルの運用方針は次のとおりとする。
 
-- search / thumbnail は #434 で operation event 主導へ移行する。
-- batch registration / batch import / enhanced annotation は #434 では棚卸し対象とし、即時移行しない。
-- compat signal は operation event から派生する adapter であり、authoritative cleanup path ではない。
+- 検索およびサムネイル系の処理は、#434 で操作イベント主導へ移行する。
+- バッチ登録、バッチインポート、拡張アノテーションの各処理は、#434 では棚卸し対象にとどめ、即時移行は行わない。
+- 互換シグナルは操作イベントから派生するアダプターであり、正規のクリーンアップ経路としては扱わない。
 
-### 5. Progress close は terminal handling の責務にする
+### 5. プログレスダイアログのクローズは終了処理側の責務とする
 
-progress dialog は operation event や compat error signal の購読者ではなく、terminal handling 側で閉じる。
+プログレスダイアログは、操作イベントや互換エラーシグナルの購読者にはしない。終了処理(terminal handling)側が一元的に閉じる。
 
-- success / failed / canceled / abnormal / superseded の代表経路で一度だけ close する。
-- progress dialog を開始しない worker (thumbnail / prefetch など) は明示的に対象外にする。
-- compat signal 側で progress close を再実行しない。
+- 成功、失敗、キャンセル、異常終了、置き換えの各代表経路において、一度だけ閉じる。
+- プログレスダイアログを表示しないワーカー(サムネイル生成やプリフェッチなど)は、明示的に対象外とする。
+- 互換シグナル側でプログレスダイアログのクローズを再実行しない。
 
 ## Rationale
 
-Qt signal を worker 種別別に分ける設計は単純な一回実行 worker では扱いやすい。しかし replacement や
-prefetch を含む pipeline では、`search_error(str)` のような payload では stale 判定に必要な情報を
-表現できない。
+Qt シグナルをワーカー種別ごとに分ける設計は、単純な 1 回実行型のワーカーであれば扱いやすい。しかし、処理の置き換えやプリフェッチを含むパイプラインでは、`search_error(str)` のような単純なペイロードでは古い通知かどうかを判定するための情報が不足する。
 
-worker fact と user operation を分けることで、`WorkerManager` は QThread 管理に集中し、
-`WorkerService` が request 単位の意味づけを担当できる。UI は operation event だけを見ればよく、
-compat signal と terminal event の両方で cleanup する二重経路を避けられる。
+ワーカーの事実とユーザー操作の意味づけを分離することで、`WorkerManager` は `QThread` の管理に集中できる。同時に `WorkerService` がリクエスト単位の状態管理を担えるようになる。UI 側は操作イベントだけを参照すればよくなり、互換シグナルと終了イベントの両方でクリーンアップが走る二重経路を排除できる。
 
 ## Consequences
 
-- `WorkerService` に operation context と operation event 型を追加する必要がある。
-- search / thumbnail UI は compat signal 直接購読から operation event 購読へ移行する。
-- batch / annotation 系 signal は即時削除せず、残存範囲を docs / issue で管理する。
-- テストは signal 名ではなく lifecycle 境界を守る観点で追加する。
+- `WorkerService` に、操作コンテキストおよび操作イベントの型を追加する必要がある。
+- 検索とサムネイルの UI は、互換シグナルの直接購読から操作イベントの購読へ移行する。
+- バッチ系およびアノテーション系のシグナルは即時削除せず、残存範囲をドキュメントと Issue で管理する。
+- テストはシグナル名の一致ではなく、ライフサイクルの境界が守られているかという観点で追加する。
 
 ## Prohibited Dependencies
 
-- `WorkerManager` から `PipelineControlService` / widgets / current operation state を参照しない。
-- `PipelineControlService` は raw worker terminal を authoritative cleanup input として扱わない。
-- 新規 UI code は `search_error(str)` / `thumbnail_error(str)` に直接依存しない。
-- `worker_id` prefix だけで current / stale 判定をしない。
+- `WorkerManager` から `PipelineControlService`、ウィジェット、現在の操作状態を参照してはならない。
+- `PipelineControlService` は、生のワーカー終了イベントを正規のクリーンアップ入力として扱ってはならない。
+- 新規の UI コードは、`search_error(str)` や `thumbnail_error(str)` に直接依存してはならない。
+- `worker_id` の接頭辞だけで、操作が最新か古いかを判定してはならない。

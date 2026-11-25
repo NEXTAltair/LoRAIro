@@ -1,4 +1,4 @@
-ラベル付きチェックボックス。`checked` 塗りは accent、`indeterminate` で – 表示（`checked` が立つと解除）。複数選択（モデルピッカー・フィルタ facet・DataTable の行選択）に使う。
+ラベル付きのチェックボックスである。`checked` 状態の塗りはアクセント色、`indeterminate` 状態では `–` を表示する(`checked` が有効になると解除される)。モデルピッカーやフィルタのファセット、`DataTable` の行選択など、複数選択を行う場面で使用する。
 
 ```jsx
 <Checkbox label="API モデルのみ" checked={only} onChange={e => setOnly(e.target.checked)} />

@@ -3,7 +3,7 @@ name: lorairo-qt-widget
 version: "1.3.0"
 description: PySide6 widget technical implementation for LoRAIro GUI. Covers Signal/Slot patterns, Direct Widget Communication, Qt Designer integration, and async workers. For design intent and aesthetics, use interface-design skill first.
 metadata:
-  short-description: PySide6技術実装（Signal/Slot、Qt Designer）。デザイン意図はinterface-design参照。
+  short-description: PySide6技術実装(Signal/Slot、Qt Designer)。デザイン意図はinterface-design参照。
 allowed-tools:
   # Code exploration
   - Grep
@@ -19,41 +19,42 @@ dependencies:
   - interface-design
 ---
 
-# PySide6 Widget Implementation for LoRAIro
+# LoRAIro 向け PySide6 ウィジェット実装ガイド
 
-Technical implementation patterns for PySide6 widgets with Signal/Slot, Direct Widget Communication, and Qt Designer integration.
+Signal/Slot、ウィジェット間の直接通信(Direct Widget Communication)、Qt Designer 連携、非同期ワーカーを含む、PySide6 ウィジェットの技術実装パターンである。
 
-## Skill Coordination
+## スキル間の役割分担
 
-This skill focuses on **technical implementation**. For design decisions, use `interface-design` first.
+本スキルは**技術実装**に特化している。デザインの意図や方針を決めるときは、先に `interface-design` スキルを使う。
 
-| Question | Use This Skill | Use interface-design |
-|----------|----------------|---------------------|
-| How to emit a signal? | Yes | No |
-| What color should this be? | No | Yes |
-| How to structure widget class? | Yes | No |
-| What should this feel like? | No | Yes |
-| How to connect widgets? | Yes | No |
-| What's the signature element? | No | Yes |
+| 問い | 本スキル(`lorairo-qt-widget`) | `interface-design` |
+|---|---|---|
+| シグナルをどう発火するか | 対象 | 対象外 |
+| どの色を使うべきか | 対象外 | 対象 |
+| ウィジェットクラスをどう構成するか | 対象 | 対象外 |
+| どのような質感・手触りにすべきか | 対象外 | 対象 |
+| ウィジェット同士をどう接続するか | 対象 | 対象外 |
+| この製品ならではの要素は何か | 対象外 | 対象 |
 
-**Recommended workflow:**
-1. **interface-design**: Define intent, domain, signature, aesthetics
-2. **lorairo-qt-widget**: Implement the technical structure
+推奨ワークフローは次の順序である。
 
-## When to Use
+1. **`interface-design`**: 設計意図・ドメイン・特徴的要素・美観を定義する。
+2. **`lorairo-qt-widget`**: 定義した設計を技術構造として実装する。
 
-Use this skill when:
-- **Creating widgets**: Implementing new GUI components
-- **Refactoring widgets**: Improving existing widget architecture
-- **Signal/Slot setup**: Connecting widget communication
-- **Qt Designer integration**: Working with .ui files
-- **Worker integration**: Async operations in widgets
+## 適用場面
 
-## Core Patterns
+- **ウィジェットの新規作成**: 新しい GUI コンポーネントを実装するとき
+- **ウィジェットのリファクタリング**: 既存ウィジェットのアーキテクチャを改善するとき
+- **Signal/Slot の配線**: ウィジェット間の通信を接続するとき
+- **Qt Designer 連携**: `.ui` ファイルを扱うとき
+- **ワーカー連携**: ウィジェットから非同期処理を呼び出すとき
 
-### 1. Basic Widget Structure
+## コアパターン
 
-**Standard widget template:**
+### 1. 基本的なウィジェット構造
+
+標準的なウィジェットのテンプレートは次のとおりである。
+
 ```python
 from PySide6.QtWidgets import QWidget
 from PySide6.QtCore import Signal, Slot
@@ -103,9 +104,9 @@ class ExampleWidget(QWidget):
         pass
 ```
 
-### 2. Direct Widget Communication
+### 2. ウィジェット間の直接通信(Direct Widget Communication)
 
-**LoRAIro pattern** - Direct widget-to-widget connections:
+LoRAIro では、ウィジェット同士を直接接続するパターンを採用している。
 
 ```python
 class ThumbnailWidget(QWidget):
@@ -131,11 +132,14 @@ class MainWindow(QMainWindow):
         self.image_details.connect_to_thumbnail_widget(self.thumbnail)
 ```
 
-See [direct-communication.md](./direct-communication.md) for complete pattern details.
+パターンの詳細は [direct-communication.md](./direct-communication.md) を参照する。
 
-### 3. Type-Safe Signals
+### 3. 型安全なシグナル
 
-**Good: Type-specified signals**
+シグナルには必ず具体的な型を指定する。
+
+**推奨: 型を明示したシグナル**
+
 ```python
 class DataWidget(QWidget):
     data_changed = Signal(str)
@@ -144,21 +148,24 @@ class DataWidget(QWidget):
     metadata_loaded = Signal(dict)    # Complex data
 ```
 
-**Bad: Untyped signals**
+**非推奨: 型が曖昧なシグナル**
+
 ```python
 class BadWidget(QWidget):
     data_changed = Signal()      # Unclear payload
     value_updated = Signal(object)  # Ambiguous type
 ```
 
-### 4. Qt Designer Integration
+### 4. Qt Designer 連携
 
-**UI generation:**
+`.ui` ファイルを変更したら、次のコマンドで Python コードを再生成する。
+
 ```bash
 uv run python scripts/generate_ui.py
 ```
 
-**Usage pattern:**
+生成された UI クラスの利用例は次のとおりである。
+
 ```python
 from .ExampleWidget_ui import Ui_ExampleWidget
 
@@ -170,9 +177,10 @@ class ExampleWidget(QWidget):
         self._ui.okButton.clicked.connect(self._on_ok_clicked)
 ```
 
-### 5. Async Worker Integration (`LoRAIroWorkerBase` + `QThread` + `moveToThread`)
+### 5. 非同期ワーカー連携(`LoRAIroWorkerBase` + `QThread` + `moveToThread`)
 
-**Worker coordination (`WorkerManager` / `WorkerService`):**
+ワーカーの実行とライフサイクルは `WorkerManager` や `WorkerService` で調整する。
+
 ```python
 from lorairo.gui.workers.base import LoRAIroWorkerBase, WorkerProgress
 from lorairo.gui.workers.manager import WorkerManager
@@ -204,41 +212,46 @@ class AsyncWidget(QWidget):
         self._ui.progressBar.setValue(progress.percentage)
 ```
 
-## LoRAIro Conventions
+## LoRAIro の規約
 
-### File Structure
-- **Tab Widgets (1 tab = 1 widget)**: `src/lorairo/gui/tab/` (`search_tab.py`, `annotate_tab.py`, `jobs_tab.py`, `results_tab.py`, `export_tab.py`, `map_tab.py`, `errors_tab.py`, `cli_tab.py`)
-- **Reusable Widgets**: `src/lorairo/gui/widgets/` (`thumbnail_selector_widget.py`, `selected_image_details_widget.py`, `image_preview.py`, `filter_search_panel.py`, etc.)
-- **Designer**: `src/lorairo/gui/designer/*.ui`
-- **Generated UI**: `src/lorairo/gui/designer/*_ui.py`
-- **Main Window (glue / orchestrator)**: `src/lorairo/gui/window/main_window.py`
-- **Workers & Manager**: `src/lorairo/gui/workers/` (`base.py`, `manager.py`, `annotation_worker.py`, `registration_worker.py`, `search_worker.py`, `thumbnail_worker.py`)
-- **GUI Services & Theme**: `src/lorairo/gui/services/` (`worker_service.py`), `src/lorairo/gui/theme.py`
+### ファイル構成
 
-### Naming Rules
-- **Classes**: `{Name}Widget` (e.g., `ThumbnailWidget`)
-- **Signals**: `{action}_{tense}` (e.g., `data_changed`, `item_selected`)
-- **Public methods**: `set_*`, `get_*`, `update_*`
-- **Private methods**: `_on_*` (handlers), `_update_*` (internal)
-- **Slots**: Always use `@Slot()` decorator
+- **タブウィジェット(1 タブ = 1 ウィジェット)**: `src/lorairo/gui/tab/`(`search_tab.py`、`annotate_tab.py`、`jobs_tab.py`、`results_tab.py`、`export_tab.py`、`map_tab.py`、`errors_tab.py`、`cli_tab.py`)
+- **再利用ウィジェット**: `src/lorairo/gui/widgets/`(`thumbnail_selector_widget.py`、`selected_image_details_widget.py`、`image_preview.py`、`filter_search_panel.py` など)
+- **Qt Designer 定義**: `src/lorairo/gui/designer/*.ui`
+- **自動生成 UI**: `src/lorairo/gui/designer/*_ui.py`
+- **メインウィンドウ(接着剤・オーケストレーター)**: `src/lorairo/gui/window/main_window.py`
+- **ワーカーとマネージャー**: `src/lorairo/gui/workers/`(`base.py`、`manager.py`、`annotation_worker.py`、`registration_worker.py`、`search_worker.py`、`thumbnail_worker.py`)
+- **GUI サービスとテーマ**: `src/lorairo/gui/services/`(`worker_service.py`)、`src/lorairo/gui/theme.py`
 
-### Direct Communication Principles
-1. **Avoid intermediaries**: Skip DatasetStateManager, connect directly
-2. **Centralize in MainWindow**: All connections in `_connect_widgets()`
-3. **connect_to_* pattern**: Provide `connect_to_{widget}()` methods
-4. **Type safety**: All signals/slots must specify types
+### 命名規則
 
-### Widget Composition / MainWindow = glue (MUST)
-画面/タブの構成は **コンポジション** を基本とし、MainWindow は薄く保つ。
-- **1 タブ / 1 画面 = 1 専用ウィジェット。** そのタブのレイアウト・子ウィジェット・Signal 配線・固有の振る舞い (ピッカー起動 / preset 配線 / run bar 構築 / パイプライン構成 等) は **そのタブウィジェットが所有**する。
-- **MainWindow は「接着剤 (glue / orchestrator)」に徹する。** 役割は ① タブウィジェットを配置 ② サービス注入 ③ トップレベル Signal 接続 まで。**タブ/画面固有のロジックを MainWindow に直接書かない** (書きたくなったら、そのタブウィジェットへ移す合図)。
-- **再利用ウィジェットは `widgets/` に置く。複数画面で実際に共有されるものだけ切り出す** (YAGNI)。`ds/` のような部品ライブラリ・サブパッケージは事前に作らない。design↔code の整合は `theme.py` token parity (#782) と `docs/design/lorairo-design-system/` (Claude Design ミラー) が担い、Qt ウィジェットの配置構成とは独立。
-- **判断基準**: その振る舞いは「タブ間で共有する接着」か「特定タブ固有」か。固有なら MainWindow でなくタブウィジェットへ。再利用するなら `widgets/` へ。
-- ウィジェット分割 + composition は Qt の基本設計でコスト低 — 「大幅リファクタ」と過大評価しない ([[feedback_qt_widget_extraction_cheap]])。根拠と全体方針は `docs/architecture.md` の GUI Architecture「Widget composition principle」+ `docs/lessons-learned.md` (MainWindow 肥大)。
+- **クラス名**: `{Name}Widget`(例: `ThumbnailWidget`)
+- **シグナル名**: `{action}_{tense}`(例: `data_changed`、`item_selected`)
+- **公開メソッド**: `set_*`、`get_*`、`update_*`
+- **非公開メソッド**: `_on_*`(ハンドラー)、`_update_*`(内部更新)
+- **スロット**: 必ず `@Slot()` デコレーターを付与する
 
-## Styling with QSS
+### 直接通信の原則
 
-Apply design decisions from `interface-design` skill using Qt Style Sheets:
+1. **仲介層を避ける**: `DatasetStateManager` を経由せず、ウィジェット同士を直接接続する。
+2. **`MainWindow` に集約する**: すべてのウィジェット間接続は `_connect_widgets()` にまとめる。
+3. **`connect_to_*` パターン**: 接続用メソッドとして `connect_to_{widget}()` を提供する。
+4. **型安全性**: すべてのシグナルとスロットで型を明示する。
+
+### ウィジェット合成と `MainWindow` の責務(必須)
+
+画面やタブの構成は**合成(コンポジション)**を基本とし、`MainWindow` は薄く保つ。
+
+- **1 タブ・1 画面につき 1 つの専用ウィジェット**: レイアウト、子ウィジェット、シグナル配線、タブ固有の振る舞い(ピッカー起動、プリセット配線、実行バー構築、パイプライン構成など)は、すべてそのタブウィジェット自身が所有する。
+- **`MainWindow` は接着剤(glue / orchestrator)に徹する**: 責務は「タブウィジェットの配置」「サービスの注入」「トップレベルのシグナル接続」の 3 点にとどめる。**タブや画面固有のロジックを `MainWindow` に直接書かない。** 書きたくなったら、対象タブウィジェットへ移す合図である。
+- **再利用ウィジェットの切り出し基準**: 実際に複数画面で共有されるものだけを `widgets/` へ切り出す(YAGNI)。`ds/` のような部品ライブラリ用サブパッケージは事前に作らない。デザインとコードの整合性は `theme.py` のトークン整合(#782)と `docs/design/lorairo-design-system/`(Claude Design ミラー)が担い、Qt ウィジェットの配置構成とは独立している。
+- **配置の判断基準**: 「タブ間を接着する処理」か「特定タブ固有の処理」かで見極める。固有なら `MainWindow` ではなくタブウィジェットへ、複数画面で再利用するなら `widgets/` へ置く。
+- **分割コストの考え方**: ウィジェット分割と合成は Qt の基本設計であり低コストである。「大規模なリファクタリング」と過大評価しない([[feedback_qt_widget_extraction_cheap]])。根拠と全体方針は `docs/architecture.md` の GUI Architecture「Widget composition principle」および `docs/lessons-learned.md`(MainWindow 肥大)を参照する。
+
+## QSS によるスタイリング
+
+`interface-design` スキルで決定したデザイン方針を、Qt Style Sheets(QSS)で適用する。
 
 ```python
 class StyledWidget(QWidget):
@@ -270,7 +283,8 @@ class StyledWidget(QWidget):
         """)
 ```
 
-**Token naming (from interface-design):**
+**トークン命名例(`interface-design` 由来):**
+
 ```css
 /* Domain-specific naming reflects product world */
 QWidget {
@@ -282,61 +296,65 @@ QWidget {
 }
 ```
 
-## Layout & Sizing Pitfalls
+## レイアウトとサイズの落とし穴
 
-レイアウト/サイズの不具合 (余白・隙間・はみ出し) は対症療法で潰すと別の症状に化けて堂々巡りになる。**まず実測して根本原因を特定する。**
+余白・隙間・はみ出しといったレイアウト不具合を対症療法で直すと、別の症状に姿を変えて堂々巡りになる。**まず実測して根本原因を特定する。**
 
-### 余白/隙間の原因は実測で特定する
+### 実測で余白や隙間の原因を特定する
 
-「スコアカード下に異常な余白が出る」のような症状を見たら、推測で `addStretch` 追加やサイズポリシー変更を繰り返さない。次を測る:
+「スコアカードの下に異常な余白が出る」といった症状を見ても、推測で `addStretch` の追加やサイズポリシーの変更を繰り返してはならない。まず次の値を実測する。
 
 ```python
-# どの widget が想定より高い/低いかを実測
+# どのウィジェットが想定より高い・低いかを実測
 print(inner.height(), inner.sizeHint().height(), inner.minimumSizeHint().height())
-# scroll なら viewport vs inner、各子の minimumSizeHint を dump して伝播源を探す
+# スクロール領域なら viewport と inner、各子要素の minimumSizeHint を出力して伝播源を探す
 ```
 
-トップ詰め (末尾 stretch) ⇄ ボトム固定 ⇄ 縦ハグ は「下の余白 ↔ セクション間の隙間 ↔ 中身のクリップ」を**交換するだけ**。原因 widget を特定せず切り替えると無限ループになる (LoRAIro #823→#827→#831→#833→#835 の実例)。
+上詰め(末尾 stretch)・下固定・縦フィットの切り替えは、「下の余白」「セクション間の隙間」「中身のクリップ」の症状を**入れ替えるだけ**にすぎない。原因ウィジェットを特定せずに切り替えると無限ループに陥る(LoRAIro #823→#827→#831→#833→#835 の実例)。
 
-### `heightForWidth` レイアウト (FlowLayout 等) を `widgetResizable=True` の QScrollArea に入れない (素のままでは)
+### `heightForWidth` レイアウト(`FlowLayout` 等)をそのまま `widgetResizable=True` の `QScrollArea` に入れない
 
-FlowLayout のような折り返しレイアウトは **`minimumSizeHint` を「最小幅で全アイテム縦積み」した過大値**で報告する。これがネストした親 → `widgetResizable=True` のスクロール領域へ伝播すると、Qt が container を minimumSize まで引き伸ばし、コンテンツ末尾に**ビューポートを超える余白 + 不要スクロール**が出る。
+`FlowLayout` のような折り返しレイアウトは、「最小幅で全アイテムを縦積みした高さ」という過大な `minimumSizeHint` を返す。これが親レイアウトを経由して `widgetResizable=True` のスクロール領域へ伝播すると、Qt がコンテナを `minimumSize` まで引き伸ばす。その結果、コンテンツ末尾に**ビューポートを超える余白と不要なスクロール**が発生する。
 
-対処:
-- **可変高さの折り返し領域は高さ上限付きの内側 `QScrollArea` に隔離**し、親の高さがアイテム数に依存しないよう有界化する (`setFixedHeight(min(layout.heightForWidth(実幅), 上限))`、`resizeEvent` で追従)。
-- 手動 `setFixedHeight(sizeHint().height())` での縦ハグは FlowLayout の `sizeHint` 過小報告で**アイテムをクリップ**し、レイアウト確定前 width での timing 依存になるため避ける。
+対処法は次のとおりである。
 
-### 込み入ったレイアウト部品は専用ウィジェットへ切り出してカプセル化する
+- **高さ上限付きの内側 `QScrollArea` に隔離する**: 可変高さの折り返し領域を内側スクロール領域に閉じ込め、親の高さがアイテム数に依存しないよう有界化する。具体的には `setFixedHeight(min(layout.heightForWidth(実幅), 上限))` を設定し、`resizeEvent` で追従させる。
+- **手動の縦フィットを避ける**: `setFixedHeight(sizeHint().height())` は、`FlowLayout` の `sizeHint` 過小報告によって**アイテムがクリップ**されるうえ、レイアウト確定前の幅に依存するため使用しない。
 
-`sizeHint`/`minimumSizeHint`/`heightForWidth` を内部で閉じた専用ウィジェット (例: `TagChipBox(QWidget)`) に切り出せば、過大な最小サイズが親へ漏れる伝播事故を構造的に断てる。**Qt ではウィジェット分割 + composition は基本設計であり「大幅リファクタ」ではない** — コストを過大評価せず第一級の選択肢として検討する。
+### 複雑なレイアウト部品は専用ウィジェットへ切り出す
 
-詳細は `docs/lessons-learned.md` の「PySide6 / Qt」セクション参照。
+`sizeHint`・`minimumSizeHint`・`heightForWidth` を内部に閉じた専用ウィジェット(例: `TagChipBox(QWidget)`)へ切り出せば、過大な最小サイズが親へ漏れる事故を構造的に断てる。**Qt においてウィジェット分割と合成は基本設計であり、「大規模なリファクタリング」ではない。** コストを過大評価せず、第一級の選択肢として検討する。
 
-## Best Practices
+詳細は `docs/lessons-learned.md` の「PySide6 / Qt」セクションを参照する。
 
-**DO:**
-- Use `@Slot()` decorator on all slot methods
-- Add type hints to all methods
-- Separate public/private with `_` prefix
-- Provide `connect_to_*` methods for connections
-- Log important events with loguru
-- Apply styling from interface-design decisions
-- **Diagnose layout issues by measurement** (`height()` / `sizeHint()` / `minimumSizeHint()`) before changing layout
-- **Isolate variable-height wrap layouts (FlowLayout) in a height-capped inner QScrollArea**; extract complex layout parts into a dedicated widget to encapsulate sizing
+## ベストプラクティス
 
-**DON'T:**
-- Access `widget._ui.button` from outside
-- Store shared state in widgets
-- Mix business logic into widgets
-- Run long operations on UI thread (use workers)
-- Rely on auto-connection (explicit `connect()` only)
-- Make design decisions here (use interface-design)
-- **Trade layout symptoms by trial-and-error** (top-pack ⇄ bottom-anchor ⇄ hug) without finding the root cause
-- **Put a `heightForWidth` layout (FlowLayout) directly in a `widgetResizable=True` QScrollArea** — its inflated `minimumSizeHint` propagates and bloats the scroll container
+### 推奨事項
 
-## Testing
+- すべてのスロットメソッドに `@Slot()` デコレーターを付ける。
+- すべてのメソッドに型ヒントを記述する。
+- 公開・非公開メソッドを `_` 接頭辞で明確に区別する。
+- ウィジェット間接続には `connect_to_*` メソッドを用意する。
+- 重要なイベントは `loguru` でログ出力する。
+- `interface-design` で決めたデザイン方針をスタイルに反映する。
+- レイアウト変更の前に `height()`・`sizeHint()`・`minimumSizeHint()` を**実測して原因を診断**する。
+- 可変高さの折り返しレイアウト(`FlowLayout`)は**高さ上限付きの内側 `QScrollArea` に隔離**し、複雑なレイアウト部品は専用ウィジェットへ切り出してサイズ計算をカプセル化する。
 
-**pytest-qt pattern:**
+### 禁止事項
+
+- 外部から `widget._ui.button` のような内部 UI 要素へ直接アクセスしない。
+- ウィジェット内部に共有状態を保持しない。
+- ビジネスロジックをウィジェットに混在させない。
+- 長時間かかる処理を UI スレッドで実行しない(ワーカーを使う)。
+- 自動接続(auto-connection)に頼らず、明示的な `connect()` を使う。
+- 本スキル内でデザイン判断を行わない(`interface-design` を使う)。
+- 根本原因を特定せずに、試行錯誤でレイアウト症状を入れ替えない(上詰め・下固定・縦フィットの切り替え)。
+- `heightForWidth` レイアウト(`FlowLayout`)を `widgetResizable=True` の `QScrollArea` へ直接配置しない。過大な `minimumSizeHint` が伝播してスクロールコンテナが肥大化する。
+
+## テスト
+
+`pytest-qt` を使ったテストの基本パターンは次のとおりである。
+
 ```python
 @pytest.fixture
 def widget(qtbot):
@@ -350,24 +368,26 @@ def test_signal_emission(qtbot, widget):
     assert blocker.args[0] == "test data"
 ```
 
-## Memory Integration
+## メモリ連携
 
-**Before implementation:**
+**実装前:**
+
 ```
 1. Grep("current-project-status")
-2. Check for existing widget patterns
-3. Review interface-design system.md if exists
+2. 既存のウィジェットパターンを確認する
+3. interface-design の system.md があれば確認する
 ```
 
-**After implementation:**
+**実装後:**
+
 ```
-1. Grep - Record widget structure
+1. Grep - ウィジェット構造を記録する
 ```
 
-## Examples
+## 実装例
 
-See [examples.md](./examples.md) for detailed widget implementation scenarios.
+詳細なウィジェット実装シナリオは [examples.md](./examples.md) を参照する。
 
-## Reference
+## リファレンス
 
-See [reference.md](./reference.md) for complete PySide6 API reference and Qt Designer workflow.
+PySide6 API の完全なリファレンスと Qt Designer ワークフローは [reference.md](./reference.md) を参照する。

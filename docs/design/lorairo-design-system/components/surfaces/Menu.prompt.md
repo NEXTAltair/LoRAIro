@@ -1,4 +1,4 @@
-A dropdown / context menu anchored to a trigger. Clicking the trigger toggles it; ESC or an outside click closes it; selecting a row fires `onSelect` and closes. Use it for the "サムネイル ▾" sort menu, thumbnail right-click actions (skip / duplicate / delete), and row overflow menus.
+トリガー要素を起点に開くドロップダウン/コンテキストメニューである。トリガーをクリックすると開閉が切り替わり、ESC キーまたはメニュー外のクリックで閉じる。項目を選択すると `onSelect` を発火して閉じる。「サムネイル ▾」の並び替えメニュー、サムネイルの右クリック操作(skip / duplicate / delete)、行のオーバーフローメニューなどに使用する。
 
 ```jsx
 <Menu
@@ -13,4 +13,4 @@ A dropdown / context menu anchored to a trigger. Clicking the trigger toggles it
 />
 ```
 
-Items are `{ label, value, glyph, shortcut, disabled, danger }` or `{ separator: true }`. Keep glyphs to the product's functional Unicode set (▾ ▸ × ↺ …) — never emoji. Use `align="right"` when the trigger sits near the right edge, and `open` / `onOpenChange` to control it externally.
+各項目には `{ label, value, glyph, shortcut, disabled, danger }` または `{ separator: true }` を指定する。グリフにはプロダクトの機能的な Unicode 記号(`▾ ▸ × ↺ …`)のみを用い、絵文字は使わない。トリガーが右端にある場合は `align="right"` を指定し、外部から開閉を制御する場合は `open` と `onOpenChange` を使う。

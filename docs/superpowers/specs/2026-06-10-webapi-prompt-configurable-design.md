@@ -1,18 +1,18 @@
 # WebAPI アノテーションプロンプト設定化 — 設計仕様
 
 **日付:** 2026-06-10  
-**対象リポジトリ:** LoRAIro + image-annotator-lib (submodule)  
+**対象リポジトリ:** LoRAIro および image-annotator-lib(サブモジュール)  
 **ステータス:** Draft
 
 ---
 
 ## 背景と目的
 
-WebAPI アノテーションのシステムプロンプト (`BASE_PROMPT`) は現在 iam-lib 内にハードコードされており変更できない。また `config/lorairo.toml` の `[prompts] additional` フィールドと GUI 入力欄は既に実装されているが、iam-lib に渡されておらず機能していない。
+WebAPI アノテーションのシステムプロンプト(`BASE_PROMPT`)は現在 `iam-lib` 内にハードコードされており、変更できない。また、`config/lorairo.toml` の `[prompts] additional` フィールドと GUI 入力欄はすでに実装されているが、`iam-lib` に渡されておらず機能していない。
 
 **目的:**
-1. `BASE_PROMPT` を最新の要件に合わせて書き直す（ポーズ・光源・構図・スタイルを重視）
-2. ユーザーが追加できるプロンプト (`prompts.additional`) を実際にアノテーションへ反映させる
+1. `BASE_PROMPT` を最新の要件(ポーズ、光源、構図、スタイルの重視)に合わせて書き直す。
+2. ユーザーが追加できるプロンプト(`prompts.additional`)を実際のアノテーション処理へ反映させる。
 
 ---
 
@@ -41,36 +41,36 @@ Agent(system_prompt=...)
 
 ### 基本方針
 
-- `additional_prompt: str | None = None` でデフォルト `None` → 後方互換を維持
-- `additional_prompt` が空文字列 (`""`) の場合は `None` と同等に扱う（追記しない）
-- iam-lib 側の結合は `_build_system_prompt()` 1 箇所のみ
-- GUI・設定保存はすでに動作しているため変更不要
+- 引数を `additional_prompt: str | None = None` とし、デフォルトを `None` にして後方互換を維持する。
+- `additional_prompt` が空文字列(`""`)の場合は `None` と同等に扱い、追記しない。
+- `iam-lib` 側での結合処理は `_build_system_prompt()` の 1 箇所のみで行う。
+- GUI と設定保存はすでに動作しているため変更しない。
 
 ---
 
 ## 変更ファイル一覧
 
-### iam-lib 側（5 ファイル）
+### `iam-lib` 側(5 ファイル)
 
 | ファイル | 変更内容 |
 |---|---|
-| `model_class/annotator_webapi/webapi_shared.py` | `BASE_PROMPT` を全面書き直し |
-| `api.py` | `annotate()` に `additional_prompt: str \| None = None` を追加 |
-| `core/annotation_runner.py` | `run_annotation()` / `_execute_model_annotation()` / `get_annotator_instance()` / `_create_annotator_instance()` に引数追加 |
-| `webapi/annotator.py` | `WebApiAnnotator.__init__()` / `_run_inference()` に引数追加・保存 |
-| `webapi/provider_manager.py` | `_build_system_prompt()` / `run_inference_with_model_async()` / `run_inference_with_model()` に引数追加 |
+| `model_class/annotator_webapi/webapi_shared.py` | `BASE_PROMPT` を全面的に書き直す |
+| `api.py` | `annotate()` に `additional_prompt: str \| None = None` を追加する |
+| `core/annotation_runner.py` | `run_annotation()`、`_execute_model_annotation()`、`get_annotator_instance()`、`_create_annotator_instance()` に引数を追加する |
+| `webapi/annotator.py` | `WebApiAnnotator.__init__()` と `_run_inference()` に引数を追加し、値を保持する |
+| `webapi/provider_manager.py` | `_build_system_prompt()`、`run_inference_with_model_async()`、`run_inference_with_model()` に引数を追加する |
 
-### LoRAIro 側（1 ファイル）
+### LoRAIro 側(1 ファイル)
 
 | ファイル | 変更内容 |
 |---|---|
-| `src/lorairo/annotations/annotator_adapter.py` | `annotate()` 内で `config_service.get_setting("prompts", "additional", "")` を読み、`annotate(..., additional_prompt=...)` へ渡す |
+| `src/lorairo/annotations/annotator_adapter.py` | `annotate()` 内で `config_service.get_setting("prompts", "additional", "")` を読み込み、`annotate(..., additional_prompt=...)` へ渡す |
 
 ---
 
-## 新しい BASE_PROMPT
+## 新しい `BASE_PROMPT`
 
-tagger モデル（WD-Tagger 等）は被写体の識別は得意だが、ポーズ・光源・構図・スタイルが弱い。WebAPI がその弱点を補う役割分担にする。
+WD-Tagger などのタガーモデルは被写体の識別を得意とする一方、ポーズ、光源、構図、スタイルの記述が弱い。そこで、WebAPI がその弱点を補う役割分担とする。
 
 ```
 You are an expert image annotation assistant for AI training datasets.
@@ -170,7 +170,7 @@ def _build_system_prompt(
     return base
 ```
 
-### `AnnotatorLibraryAdapter.annotate()` の変更（LoRAIro 側）
+### `AnnotatorLibraryAdapter.annotate()` の変更(LoRAIro 側)
 
 ```python
 def annotate(
@@ -197,39 +197,41 @@ def annotate(
 
 ## エラーハンドリング
 
-- `additional_prompt` が空文字列や空白のみの場合は `None` と同等に扱い、BASE_PROMPT のみ使用する
-- 設定取得に失敗した場合（設定ファイルが不正等）は `additional_prompt=None` でフォールバックし、エラーログを出力する
-- iam-lib 側はプロンプト結合以上の処理を行わないため、追加の例外処理は不要
+- `additional_prompt` が空文字列や空白のみの場合は `None` と同等に扱い、`BASE_PROMPT` のみを使用する。
+- 設定ファイルの不正などで設定取得に失敗した場合は、`additional_prompt=None` へフォールバックしてエラーログを出力する。
+- `iam-lib` 側はプロンプトの結合以上の処理を行わないため、追加の例外処理は設けない。
 
 ---
 
 ## テスト方針
 
-### iam-lib 側
-- `_build_system_prompt()` の単体テスト:
-  - `additional_prompt=None` → BASE_PROMPT のみ
-  - `additional_prompt=""` → BASE_PROMPT のみ（空は無視）
-  - `additional_prompt="custom text"` → BASE_PROMPT + "\n\n" + "custom text"
-  - `capabilities={RATINGS}` + `additional_prompt` → 全て結合
-- `WebApiAnnotator` の既存テストが通ることを確認（後方互換）
+### `iam-lib` 側
+
+- `_build_system_prompt()` の単体テストで以下を検証する。
+  - `additional_prompt=None` のとき、`BASE_PROMPT` のみが返ること。
+  - `additional_prompt=""` のとき、空文字が無視されて `BASE_PROMPT` のみが返ること。
+  - `additional_prompt="custom text"` のとき、`BASE_PROMPT + "\n\n" + "custom text"` が返ること。
+  - `capabilities={RATINGS}` と `additional_prompt` を併用したとき、すべて結合されること。
+- `WebApiAnnotator` の既存テストが通り、後方互換が保たれていることを確認する。
 
 ### LoRAIro 側
-- `AnnotatorLibraryAdapter.annotate()` で `additional_prompt` が正しく渡されることを確認（mock annotate）
-- config に `additional = "test"` が設定されている場合に渡されることを確認
+
+- `annotate` をモック化し、`AnnotatorLibraryAdapter.annotate()` で `additional_prompt` が正しく渡されることを確認する。
+- 設定に `additional = "test"` がある場合にその値が渡されることを確認する。
 
 ---
 
 ## 後方互換性
 
-- 全引数に `additional_prompt: str | None = None` でデフォルト値を設定
-- 既存の呼び出し側（Batch API 等）は引数なしでそのまま動作する
-- BASE_PROMPT の内容変更はアノテーション結果に影響するが、API シグネチャは後方互換
+- すべての対象関数に `additional_prompt: str | None = None` のデフォルト引数を設ける。
+- Batch API など既存の呼び出し側は引数なしでそのまま動作する。
+- `BASE_PROMPT` の内容変更はアノテーション結果に影響するが、API シグネチャの後方互換は維持される。
 
 ---
 
-## 対象外（スコープ外）
+## 対象外(スコープ外)
 
-- GUI 入力欄の変更（既に存在する）
-- 設定ファイル構造の変更（`[prompts] additional` は既に存在する）
-- Batch API プロンプト (`webapi/batch/adapters/`) は別管理のため今回は変更しない
-- `SYSTEM_PROMPT` (未使用定数) の削除は今回行わない
+- GUI 入力欄の変更(すでに実装済み)。
+- 設定ファイル構造の変更(`[prompts] additional` はすでに存在する)。
+- Batch API プロンプト(`webapi/batch/adapters/`)の変更(別管理のため対象外)。
+- 未使用定数 `SYSTEM_PROMPT` の削除。

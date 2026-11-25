@@ -1,70 +1,60 @@
 ---
 type: ADR
-title: Tag/Caption Soft-Reject And Export Resolution
+title: タグ/キャプションのソフトリジェクトとエクスポート解決
 status: Accepted
 timestamp: 2026-06-11
 tags: []
 ---
-# ADR 0065: Tag/Caption Soft-Reject And Export Resolution
+# ADR 0065: タグ/キャプションのソフトリジェクトとエクスポート解決
 
-## Context
+## 背景
 
-Tag and caption annotations can be produced by multiple models for the same image. Tags were exported by concatenating every row, so identical strings from different models appeared more than once. Captions were also concatenated into one `.caption` file, which creates invalid training text when several models remain.
+タグとキャプションのアノテーションは、同一画像に対して複数モデルから生成され得る。これまでタグは全行をそのまま連結してエクスポートしていたため、異なるモデルが同じ文字列を出力した場合に重複が生じていた。キャプションも 1 つの `.caption` ファイルへ連結していたため、複数モデルの結果が残ると学習用テキストとして不正な内容になっていた。
 
-Physical deletion is not a durable reject operation. A rejected tag or caption can be inserted again by a later annotation run, and GUI triage cannot undo the decision.
+物理削除は永続的な拒否操作にならない。削除したタグやキャプションは後続のアノテーション実行で再登録される可能性があり、GUI のトリアージでも判断を取り消せない。
 
-## Decision
+## 決定
 
-`tags` and `captions` have a nullable `rejected_at` timestamp.
+`tags` と `captions` に NULL 許容の `rejected_at` タイムスタンプを追加する。
 
-- `NULL` means the row is adopted.
-- Non-`NULL` means the row is soft-rejected and excluded from adopted reads and export.
-- `rejected_at` only means "this tag or caption is excluded for this image" (= *when* it was excluded). It is target-independent.
-- Export-target vocabulary differences are not represented with `rejected_at`.
-- No per-row by export-target adoption matrix is introduced.
-- Annotation upsert does not revive a rejected row for the same image/model/content identity.
-- Existing tag removal operations mark rows rejected instead of deleting them.
-- Export resolves adopted tags by string union with duplicate removal. Manually edited tags win when the same string appears multiple times.
-- Export resolves adopted captions to one row. Manually edited captions win; otherwise the newest adopted row wins.
+- `NULL` はその行が採用されていることを意味する。
+- 非 `NULL` はその行がソフトリジェクトされており、採用データの読み取りおよびエクスポートから除外されることを意味する。
+- `rejected_at` が表すのは「この画像に対して、このタグまたはキャプションが除外されたこと」(いつ除外されたか)のみであり、出力ターゲットに依存しない。
+- エクスポート先ごとの語彙差異は `rejected_at` では表現しない。
+- 行ごと x エクスポート先ごとの採用状態マトリクスは導入しない。
+- アノテーションの upsert 処理では、同一の image/model/content に対応するリジェクト済み行を復活させない。
+- 既存のタグ削除操作は、行を物理削除するのではなくリジェクト済みとしてマークする。
+- エクスポート時の採用タグは、文字列の和集合を取り重複を除去して解決する。同一文字列が複数存在する場合は手動編集タグを優先する。
+- エクスポート時の採用キャプションは 1 行に解決する。手動編集キャプションがあればそれを優先し、なければ最新の採用行を優先する。
 
-### Amendment (Issue #1003): `reject_reason` — *why* a row was rejected
+### 改訂 (Issue #1003): `reject_reason` (リジェクト理由の記録)
 
-`tags` and `captions` also have a nullable `reject_reason` string column. It is orthogonal to
-`rejected_at` (`rejected_at` = *when*, `reject_reason` = *why*) and only carries meaning when
-`rejected_at` is non-`NULL`.
+`tags` と `captions` に、さらに NULL 許容の文字列カラム `reject_reason` を追加する。これは `rejected_at` と直交する概念であり(`rejected_at` = いつ、`reject_reason` = なぜ)、`rejected_at` が非 `NULL` の場合にのみ意味を持つ。
 
-| Kind | `rejected_at` | `reject_reason` | Display | Restore path |
+| 種別 | `rejected_at` | `reject_reason` | 表示 | 復元経路 |
 |---|---|---|---|---|
-| adopted | `NULL` | `NULL` | normal chip | — |
-| disabled | set | `not_needed` | strike-through grey chip (kept inline) | click dashed chip |
-| excluded | set | `incorrect` | hidden | none (kept in DB, no UI path) |
-| replaced | set | `replaced` | hidden | none (migrated to the replacement tag) |
+| adopted | `NULL` | `NULL` | 通常チップ | - |
+| disabled | 設定済み | `not_needed` | 取り消し線付きグレーチップ(インライン維持) | 破線チップをクリック |
+| excluded | 設定済み | `incorrect` | 非表示 | なし(DB には保持、UI 経路なし) |
+| replaced | 設定済み | `replaced` | 非表示 | なし(置換先タグへ移行済み) |
 
-- **Export reads are unchanged**: adopted extraction still filters `rejected_at IS NULL`, so all
-  three `reject_reason` values are excluded from export. `reject_reason` never influences export;
-  it exists only for display reconstruction (disabled vs hidden) and to record intent.
-- **Write paths** set `reject_reason` alongside `rejected_at`: single chip disable → `not_needed`;
-  `remove_tag_from_images_batch` (✕ batch) → `incorrect` (default); `replace_tag_for_images_batch`
-  (source tag) → `replaced`; restore → both back to `NULL`. Captions get the column and a default
-  of `incorrect` for symmetry (caption chip UI is not implemented yet).
-- **Display reconstruction** is the regression fix: `TagPanelWidget` rebuilds its disabled/hidden
-  display state from DB `reject_reason` on every reload instead of relying on in-memory sets, so the
-  disabled-vs-excluded distinction survives navigating to another image and back.
-- **Migration**: existing `rejected_at IS NOT NULL` rows are backfilled to `not_needed` so the
-  post-migration display is unchanged (all previously-rejected tags currently render as struck-through).
+- **エクスポートの読み取りは変更しない**: 採用データの抽出条件は引き続き `rejected_at IS NULL` であり、3 種類の `reject_reason` はいずれもエクスポートから除外される。`reject_reason` はエクスポート結果に一切影響せず、表示状態の再構築(無効化と非表示の区別)および操作意図の記録のみを目的とする。
+- **書き込み経路**は `rejected_at` と同時に `reject_reason` を設定する。単一チップの無効化は `not_needed`、`remove_tag_from_images_batch`(一括削除)は `incorrect`(既定)、`replace_tag_for_images_batch`(置換元タグ)は `replaced` とし、復元時は両カラムを `NULL` に戻す。キャプションにも対称性のため同カラムと既定値 `incorrect` を持たせる(キャプションチップ UI は未実装)。
+- **表示状態の再構築**がリグレッション修正の要である。`TagPanelWidget` はインメモリ集合に頼るのではなく、再読み込みのたびに DB の `reject_reason` から無効化/非表示の表示状態を再構築する。これにより、別画像へ移動して戻った後も無効化と除外の区別が維持される。
+- **マイグレーション**: 既存の `rejected_at IS NOT NULL` 行は `not_needed` でバックフィルする。これにより、移行前と変わらず従来のリジェクト済みタグがすべて取り消し線付きで表示される。
 
-## Rationale
+## 根拠
 
-Soft-reject preserves user judgement across model reruns and keeps reject operations undoable for later GUI workflows. A nullable timestamp matches the existing `ErrorRecord.resolved_at` vocabulary while avoiding a second active state such as explicit accept.
+ソフトリジェクトにより、モデルの再実行をまたいでユーザーの判断を保持でき、将来の GUI ワークフローでリジェクトの取り消しも可能になる。NULL 許容タイムスタンプの採用は既存の `ErrorRecord.resolved_at` と語彙を揃えるものであり、明示的承認といった余分なアクティブ状態を増やさずに済む。
 
-Target-specific Danbooru/Pony vocabulary and style choices should be derived from tag DB format/alias conversion and export rules. Encoding those choices into `rejected_at` would duplicate derivable information and create an N by M state matrix.
+Danbooru/Pony などのターゲット固有の語彙やスタイル選択は、タグ DB のフォーマット/エイリアス変換とエクスポートルールから導出すべきである。これらを `rejected_at` に埋め込むと、導出可能な情報が重複し、N x M の状態マトリクスが生まれてしまう。
 
-Manual edits should be canonical when they collide with AI output because they represent direct user intent. Caption UI selection is still expected to grow in the results triage design, so the export fallback is deterministic without pretending to be the final UX policy.
+手動編集はユーザーの直接的な意図を表すため、AI 出力と衝突した場合は正規値として優先すべきである。キャプションの UI 選択機能は結果トリアージ設計の中で今後も拡張される見込みであるため、最終的な UX ポリシーを先取りせず、決定論的なエクスポートフォールバックを定めている。
 
-## Consequences
+## 影響
 
-Queries that present adopted tags or captions should filter `rejected_at IS NULL` by default. Code that needs audit/history rows must opt into rejected rows explicitly. Future caption selection UI should update `rejected_at` rather than physically deleting rows.
+採用済みタグやキャプションを表示するクエリは、既定で `rejected_at IS NULL` で絞り込む必要がある。監査や履歴参照のためにリジェクト済み行が必要なコードは、明示的にそれらを含める指定を行う。将来のキャプション選択 UI も、行の物理削除ではなく `rejected_at` の更新で実装する。
 
-Future export profiles may add target-specific format selection, category exclusion, or generated quality tags, but those profiles must not reinterpret `rejected_at` as a target-specific adoption state.
+将来のエクスポートプロファイルでは、ターゲット固有のフォーマット選択、カテゴリ除外、品質タグ生成などを追加できる。ただし、それらのプロファイルが `rejected_at` をターゲット固有の採用状態として再解釈してはならない。
 
-`reject_reason` (Issue #1003) may later feed analytics (e.g. extract `incorrect` vs `replaced` rows for review), but it must remain export-neutral: adopted extraction stays `rejected_at IS NULL` and never branches on `reject_reason`.
+`reject_reason`(Issue #1003)は将来的に分析用途(例: レビュー用に `incorrect` と `replaced` の行を抽出する)へ活用できるが、エクスポートに対しては常に中立を保つ必要がある。採用抽出は `rejected_at IS NULL` のままとし、`reject_reason` による分岐は行わない。

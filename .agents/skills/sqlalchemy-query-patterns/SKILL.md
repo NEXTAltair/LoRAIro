@@ -3,7 +3,7 @@ name: sqlalchemy-query-patterns
 version: "1.0.0"
 description: SQLAlchemy の効率的なクエリパターン集。N+1回避、サブクエリ、バルク操作、インデックス活用、EXPLAIN解析など、LoRAIroのSQLiteデータベースに特化したクエリ最適化ガイド。Use when writing new queries, optimizing slow queries, or reviewing database access patterns.
 metadata:
-  short-description: SQLAlchemy効率クエリ（N+1回避、バルク操作、インデックス、EXPLAIN）。
+  short-description: SQLAlchemy効率クエリ(N+1回避、バルク操作、インデックス、EXPLAIN)。
 allowed-tools:
   # Code exploration
   - Grep
@@ -21,18 +21,17 @@ dependencies:
   - lorairo-repository-pattern
 ---
 
-# SQLAlchemy Efficient Query Patterns
+# SQLAlchemy 効率クエリパターン集
 
-LoRAIro の SQLite データベースに特化した、効率的な SQLAlchemy クエリパターン集。
+LoRAIro の SQLite データベースに特化した、効率的な SQLAlchemy クエリの実装パターン集である。
 
-## When to Use
+## 適用場面
 
-Use this skill when:
-- 新しいクエリメソッドを作成する
-- 既存クエリのパフォーマンスを改善する
-- N+1 クエリ問題を検出・修正する
-- バルク操作を実装する
-- クエリの実行計画を確認する
+- 新しいクエリメソッドを作成するとき
+- 既存クエリのパフォーマンスを改善するとき
+- N+1 クエリ問題を検出・修正するとき
+- バルク操作を実装するとき
+- クエリの実行計画を確認するとき
 
 ## LoRAIro データベース構成
 
@@ -53,31 +52,32 @@ ProviderBatchJob ── ProviderBatchItem (1:N)           - Provider Batch API �
 ```
 
 **ファイル構成:**
-- Schema: `src/lorairo/database/schema.py`
-- Repositories (ADR 0035): `src/lorairo/database/repository/` (`base.py`, `image.py`, `annotation_record.py`, `model.py`, `project.py`, `error_record.py`, `provider_batch.py`, `crop_relation.py`, `generation_metadata.py`)
-- Manager: `src/lorairo/database/db_manager.py`
-- Core: `src/lorairo/database/db_core.py`
 
-## 1. N+1 クエリ回避
+- スキーマ定義: `src/lorairo/database/schema.py`
+- リポジトリ群(ADR 0035): `src/lorairo/database/repository/`(`base.py`、`image.py`、`annotation_record.py`、`model.py`、`project.py`、`error_record.py`、`provider_batch.py`、`crop_relation.py`、`generation_metadata.py`)
+- マネージャー: `src/lorairo/database/db_manager.py`
+- コア基盤: `src/lorairo/database/db_core.py`
+
+## 1. N+1 クエリの回避
 
 ### 問題: N+1 クエリ
 
 ```python
-# ❌ BAD: N+1 クエリ（画像ごとにタグを個別取得）
+# ❌ BAD: N+1 クエリ(画像ごとにタグを個別取得)
 with session_factory() as session:
     images = session.execute(select(Image)).scalars().all()
     for img in images:
-        tags = img.tags  # 画像ごとに追加クエリ発行！
+        tags = img.tags  # 画像ごとに追加クエリ発行!
 ```
 
-### 解決策 1: selectinload（推奨・LoRAIro標準）
+### 解決策 1: `selectinload`(推奨・LoRAIro 標準)
 
 ```python
 from sqlalchemy.orm import selectinload
 
-# ✅ GOOD: IN句で一括取得（2クエリ）
+# ✅ GOOD: IN句で一括取得(2クエリ)
 def get_images_with_tags(self) -> list[Image]:
-    """画像一覧をタグ付きで取得（selectinload）。
+    """画像一覧をタグ付きで取得(selectinload)。
 
     Returns:
         タグをeager loadした画像リスト。
@@ -91,12 +91,12 @@ def get_images_with_tags(self) -> list[Image]:
         return list(session.execute(stmt).scalars().all())
 ```
 
-### 解決策 2: joinedload（1対1 / 少数リレーション向け）
+### 解決策 2: `joinedload`(1 対 1 または少数リレーション向け)
 
 ```python
 from sqlalchemy.orm import joinedload
 
-# ✅ GOOD: JOINで1クエリ（子が少ない場合に有効）
+# ✅ GOOD: JOINで1クエリ(子が少ない場合に有効)
 def get_image_with_model(self, image_id: int) -> Image | None:
     """画像とモデル情報をJOINで一括取得。
 
@@ -115,7 +115,7 @@ def get_image_with_model(self, image_id: int) -> Image | None:
         return session.execute(stmt).unique().scalar_one_or_none()
 ```
 
-### 解決策 3: 複数リレーション同時ロード
+### 解決策 3: 複数リレーションの同時ロード
 
 ```python
 # ✅ GOOD: タグ・キャプション・スコアを一括ロード
@@ -142,29 +142,29 @@ def get_image_full(self, image_id: int) -> Image | None:
         return session.execute(stmt).unique().scalar_one_or_none()
 ```
 
-### 使い分けガイド
+### ローダーの使い分けガイド
 
-| パターン | 用途 | SQL | LoRAIro での例 |
+| パターン | 用途 | 発行される SQL | LoRAIro での例 |
 |---|---|---|---|
-| `selectinload` | 1:N リレーション | `SELECT ... WHERE id IN (...)` | Image→Tags, Image→Captions |
-| `joinedload` | 1:1 / N:1 リレーション | `LEFT JOIN` | Score→Model |
-| `subqueryload` | 大量データの1:N | サブクエリ | 大規模バッチ処理 |
-| `raiseload` | アクセス禁止（検出用） | N/A | デバッグ時のN+1検出 |
+| `selectinload` | 1:N リレーション | `SELECT ... WHERE id IN (...)` | `Image` → `Tags`、`Image` → `Captions` |
+| `joinedload` | 1:1・N:1 リレーション | `LEFT JOIN` | `Score` → `Model` |
+| `subqueryload` | 大量データの 1:N | サブクエリ | 大規模バッチ処理 |
+| `raiseload` | アクセス禁止(検出用) | 該当なし | デバッグ時の N+1 検出 |
 
-## 2. 効率的な SELECT パターン
+## 2. 効率的な `SELECT` パターン
 
-### 必要なカラムだけ取得
+### 必要なカラムだけ取得する
 
 ```python
-# ❌ BAD: 全カラム取得（不要なデータもメモリに載る）
+# ❌ BAD: 全カラム取得(不要なデータもメモリに載る)
 images = session.execute(select(Image)).scalars().all()
 
 # ✅ GOOD: 必要なカラムだけ取得
 stmt = select(Image.id, Image.phash, Image.file_name).where(Image.is_active == True)
-rows = session.execute(stmt).all()  # Row オブジェクト（軽量）
+rows = session.execute(stmt).all()  # Row オブジェクト(軽量)
 ```
 
-### EXISTS で存在チェック
+### `EXISTS` で存在チェックする
 
 ```python
 from sqlalchemy import exists
@@ -173,7 +173,7 @@ from sqlalchemy import exists
 images = session.execute(select(Image).where(...)).scalars().all()
 has_images = len(images) > 0
 
-# ✅ GOOD: EXISTS サブクエリ（即座にbool返却）
+# ✅ GOOD: EXISTS サブクエリ(即座にbool返却)
 def has_unprocessed_images(self) -> bool:
     """未処理画像の存在を高速チェック。
 
@@ -192,7 +192,7 @@ def has_unprocessed_images(self) -> bool:
         return bool(session.execute(stmt).scalar())
 ```
 
-### COUNT の効率化
+### `COUNT` を SQL 側で集計する
 
 ```python
 # ❌ BAD: Pythonでlen()
@@ -218,15 +218,15 @@ def count_images_by_model(self, model_id: int) -> int:
 
 ## 3. バルク操作
 
-### バルク INSERT
+### バルク `INSERT`
 
 ```python
-# ❌ BAD: 1件ずつ追加（N回のINSERT）
+# ❌ BAD: 1件ずつ追加(N回のINSERT)
 for tag_data in tag_list:
     session.add(Tag(**tag_data))
     session.commit()
 
-# ✅ GOOD: バルクINSERT（1回のINSERT）
+# ✅ GOOD: バルクINSERT(1回のINSERT)
 def bulk_add_tags(self, tags: list[dict[str, Any]]) -> int:
     """タグを一括挿入。
 
@@ -242,7 +242,7 @@ def bulk_add_tags(self, tags: list[dict[str, Any]]) -> int:
         return len(tags)
 ```
 
-### バルク UPDATE
+### バルク `UPDATE`
 
 ```python
 # ❌ BAD: 1件ずつUPDATE
@@ -251,7 +251,7 @@ for image_id, score in updates.items():
     img.aesthetic_score = score
     session.commit()
 
-# ✅ GOOD: バルクUPDATE（WHERE IN句）
+# ✅ GOOD: バルクUPDATE(WHERE IN句)
 def bulk_update_scores(
     self,
     score_updates: list[dict[str, Any]],
@@ -270,13 +270,13 @@ def bulk_update_scores(
         return len(score_updates)
 ```
 
-### バルク UPSERT（INSERT OR REPLACE）
+### バルク `UPSERT`(`INSERT OR REPLACE`)
 
 ```python
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 def upsert_tags(self, tags: list[dict[str, Any]]) -> int:
-    """タグのUPSERT（存在すれば更新、なければ挿入）。
+    """タグのUPSERT(存在すれば更新、なければ挿入)。
 
     SQLite の ON CONFLICT を使用。
 
@@ -300,12 +300,12 @@ def upsert_tags(self, tags: list[dict[str, Any]]) -> int:
         return len(tags)
 ```
 
-## 4. サブクエリとCTE
+## 4. サブクエリと CTE
 
 ### 相関サブクエリ
 
 ```python
-# 最新スコアのみ取得（画像ごとに最新の1件）
+# 最新スコアのみ取得(画像ごとに最新の1件)
 def get_latest_scores(self) -> list[Row]:
     """各画像の最新スコアを取得。
 
@@ -327,7 +327,7 @@ def get_latest_scores(self) -> list[Row]:
         return list(session.execute(stmt).all())
 ```
 
-### CTE（Common Table Expression）
+### CTE(Common Table Expression)
 
 ```python
 from sqlalchemy import cte
@@ -361,16 +361,16 @@ def get_images_with_tag_count(self, min_tags: int = 5) -> list[Row]:
         return list(session.execute(stmt).all())
 ```
 
-## 5. 動的フィルタ構築
+## 5. 動的フィルタの構築
 
-### 条件の動的組み立て
+### 検索条件の動的組み立て
 
 ```python
 from dataclasses import dataclass, field
 
 @dataclass
 class ImageSearchCriteria:
-    """画像検索条件（型安全）。"""
+    """画像検索条件(型安全)。"""
 
     tags: list[str] = field(default_factory=list)
     min_score: float | None = None
@@ -381,7 +381,7 @@ class ImageSearchCriteria:
     offset: int = 0
 
 def search_images(self, criteria: ImageSearchCriteria) -> list[Image]:
-    """条件に基づく画像検索（動的フィルタ）。
+    """条件に基づく画像検索(動的フィルタ)。
 
     Args:
         criteria: 検索条件。
@@ -456,12 +456,12 @@ class Tag(Base):
     )
 ```
 
-### SQLite WAL モード
+### SQLite の WAL モード設定
 
 ```python
 from sqlalchemy import event
 
-# db_core.py で設定（読み取り並行性向上）
+# db_core.py で設定(読み取り並行性向上)
 @event.listens_for(engine, "connect")
 def set_sqlite_pragma(dbapi_conn, connection_record):
     cursor = dbapi_conn.cursor()
@@ -471,12 +471,12 @@ def set_sqlite_pragma(dbapi_conn, connection_record):
     cursor.close()
 ```
 
-### EXPLAIN で実行計画を確認
+### `EXPLAIN` で実行計画を確認する
 
 ```python
 # デバッグ用: クエリの実行計画を表示
 def explain_query(self, stmt: Select) -> list[str]:
-    """クエリの実行計画を取得（デバッグ用）。
+    """クエリの実行計画を取得(デバッグ用)。
 
     Args:
         stmt: 解析対象のSELECT文。
@@ -498,13 +498,13 @@ def explain_query(self, stmt: Select) -> list[str]:
 
 ## 7. ページネーション
 
-### Keyset ページネーション（推奨）
+### Keyset ページネーション(推奨)
 
 ```python
-# ❌ BAD: OFFSET ページネーション（大量データで遅い）
+# ❌ BAD: OFFSET ページネーション(大量データで遅い)
 stmt = select(Image).offset(10000).limit(100)
 
-# ✅ GOOD: Keyset ページネーション（一定速度）
+# ✅ GOOD: Keyset ページネーション(一定速度)
 def get_images_page(
     self,
     last_id: int | None = None,
@@ -517,7 +517,7 @@ def get_images_page(
         page_size: 1ページの件数。
 
     Returns:
-        画像リスト（page_size件）。
+        画像リスト(page_size件)。
     """
     with self.session_factory() as session:
         stmt = select(Image).order_by(Image.id)
@@ -529,33 +529,36 @@ def get_images_page(
 
 ## 8. アンチパターン集
 
-| アンチパターン | 問題 | 正しいアプローチ |
+| アンチパターン | 問題点 | 正しいアプローチ |
 |---|---|---|
-| `session.query(X).all()` + Python フィルタ | 全件メモリロード | `WHERE` 句で DB 側フィルタ |
-| `len(query.all())` | 全件取得してカウント | `func.count()` |
-| ループ内 `session.get()` | N+1 クエリ | `selectinload` / `IN` 句 |
-| `OFFSET` 大量ページング | 深いページほど遅い | Keyset ページネーション |
-| `SELECT *` 常用 | 不要データ転送 | 必要カラム明示 |
-| コミット多発 | トランザクションオーバーヘッド | バッチでまとめてコミット |
-| 文字列連結 SQL | SQLインジェクション | ORM / パラメータバインド |
+| `session.query(X).all()` + Python 側フィルタ | 全件をメモリに読み込む | `WHERE` 句で DB 側フィルタを行う |
+| `len(query.all())` | 全件を取得してから件数を数える | `func.count()` を使う |
+| ループ内の `session.get()` | N+1 クエリが発生する | `selectinload` または `IN` 句を使う |
+| `OFFSET` による大量ページング | 深いページほど低速になる | Keyset ページネーションを使う |
+| `SELECT *` の常用 | 不要なカラムまで転送する | 必要なカラムを明示する |
+| コミットの多発 | トランザクションのオーバーヘッドが増える | バッチ単位でまとめてコミットする |
+| 文字列連結による SQL 組み立て | SQL インジェクションの危険がある | ORM またはパラメータバインドを使う |
 
-## Quick Reference
+## クイックリファレンス
 
 **Eager Loading:**
+
 ```python
-selectinload(Image.tags)       # 1:N → IN句（推奨）
+selectinload(Image.tags)       # 1:N → IN句(推奨)
 joinedload(Score.model)        # N:1 → JOIN
 subqueryload(Image.tags)       # 1:N → サブクエリ
 ```
 
 **バルク操作:**
+
 ```python
 session.execute(Table.insert(), data_list)   # バルクINSERT
 session.bulk_update_mappings(Model, updates)  # バルクUPDATE
 sqlite_insert().on_conflict_do_update(...)    # UPSERT
 ```
 
-**集計:**
+**集計と存在確認:**
+
 ```python
 func.count(), func.sum(), func.avg()  # 集計関数
 func.distinct()                        # 重複排除
@@ -563,6 +566,7 @@ exists().where(...)                    # 存在チェック
 ```
 
 **フィルタ構築:**
+
 ```python
 and_(*conditions)   # AND結合
 or_(*conditions)    # OR結合

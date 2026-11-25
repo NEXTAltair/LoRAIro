@@ -1,45 +1,44 @@
-# WebAPI/Vision LLM スコア表示尺度修正 Implementation Plan
+# WebAPI/Vision LLM スコア表示尺度修正 実装計画
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** WebAPI/Vision LLM が返す 0-10 スケールのスコア (`openai/o1: 7.5` 等) が `10.0` に張り付くバグを修正し、aesthetic scorer より低い重みで表示スコア平均に組み込む。
+**Goal:** WebAPI/Vision LLM が返す 0-10 スケールのスコア(`openai/o1: 7.5` など)が `10.0` に張り付くバグを修正する。あわせて、aesthetic scorer より低い重みで表示スコア平均へ組み込む。
 
-**Architecture:** `score_scaler.py` に `"/" in model` でWebAPI モデルを識別する関数と `display_weight_for()` を追加。`calibrate_to_display` の未知モデル fallback を分岐させ、WebAPI には identity (`_clamp_display(raw)`) を適用。`_derive_display_score` を weighted average に変更。
+**Architecture:** `score_scaler.py` に、`"/" in model` で WebAPI モデルを識別する関数と `display_weight_for()` を追加する。`calibrate_to_display` の未知モデル向けフォールバックを分岐させ、WebAPI には恒等変換(`_clamp_display(raw)`)を適用する。さらに `_derive_display_score` を加重平均へ変更する。
 
-**Tech Stack:** Python 3.13, SQLAlchemy ORM, pytest, `src/lorairo/domain/score_scaler.py`, `src/lorairo/database/repository/image.py`
+**Tech Stack:** Python 3.13、SQLAlchemy ORM、pytest、`src/lorairo/domain/score_scaler.py`、`src/lorairo/database/repository/image.py`
 
 ---
 
-## 背景・制約
+## 背景と制約
 
-- `WebApiAnnotator._format_predictions` は常に `scores = {"overall": float_score}` を生成し、`BASE_PROMPT` が LLM に 1.00–10.00 スケールを指定するため、WebAPI スコアは 0-10 スケール
-- 現在の未知モデル fallback: `raw * 10 → clamp(0-10)` → `7.5 * 10 = 75 → 10.0` (バグ)
-- **識別方針**: `"/" in model_name` = LiteLLM `provider/model` 形式 (Phase 1.10+)。旧形式名 (`claude-3-5-sonnet-20240620` 等、スラッシュなし) は識別不能で引き続き fallback。これは許容済み
-- DB は read-time derived なのでコード修正のみで即正常化（再保存不要）
-- `score_scaler.py` は Qt フリー・lib 依存なしの純粋ドメイン関数群の方針を維持
+- `WebApiAnnotator._format_predictions` は常に `scores = {"overall": float_score}` を生成する。`BASE_PROMPT` が LLM に 1.00–10.00 スケールを指定するため、WebAPI スコアは 0-10 スケールとなる。
+- 現在の未知モデル向けフォールバックは `raw * 10` を 0-10 へクランプする処理である。そのため、`7.5 * 10 = 75` が `10.0` に張り付くバグが発生している。
+- **識別方針:** `"/" in model_name` を LiteLLM の `provider/model` 形式(Phase 1.10 以降)とみなす。旧形式名(`claude-3-5-sonnet-20240620` など、スラッシュなし)は識別できないため、引き続きフォールバック対象とする。この制限は許容済みである。
+- DB の表示スコアは読み込み時に導出(read-time derived)されるため、コード修正のみで即座に正常化する。再保存は不要である。
+- `score_scaler.py` は Qt 非依存かつ外部ライブラリ非依存の純粋なドメイン関数群として維持する。
 
 ## ファイル構成
 
 | ファイル | 変更内容 |
 |---|---|
-| `src/lorairo/domain/score_scaler.py` | ① `_is_webapi_vision_scorer` 追加、② `WEBAPI_VISION_SCORE_WEIGHT` 定数、③ `calibrate_to_display` WebAPI 分岐、④ `display_weight_for` 追加、⑤ `is_ai_scored_model` / `positive_key_for` WebAPI 対応 |
-| `src/lorairo/database/repository/image.py` | `_derive_display_score` を weighted average に変更、`display_weight_for` import 追加 |
+| `src/lorairo/domain/score_scaler.py` | 1. `_is_webapi_vision_scorer` の追加、2. `WEBAPI_VISION_SCORE_WEIGHT` 定数の追加、3. `calibrate_to_display` の WebAPI 分岐追加、4. `display_weight_for` の追加、5. `is_ai_scored_model` と `positive_key_for` の WebAPI 対応 |
+| `src/lorairo/database/repository/image.py` | `_derive_display_score` の加重平均化、`display_weight_for` のインポート追加 |
 | `tests/unit/domain/test_score_scaler.py` | WebAPI モデルのテストケース追加 |
-| `tests/unit/database/test_db_repository_annotations.py` | WebAPI スコア混在時の weighted average テスト追加 |
+| `tests/unit/database/test_db_repository_annotations.py` | WebAPI スコア混在時の加重平均テスト追加 |
 
 ---
 
-## Task 1: `score_scaler.py` — WebAPI 識別 + calibration 修正
+## Task 1: `score_scaler.py` — WebAPI 識別とキャリブレーション修正
 
 **Files:**
 - Modify: `src/lorairo/domain/score_scaler.py`
 
 ### 追加・変更するコードの概要
 
-`_is_webapi_vision_scorer`、`WEBAPI_VISION_SCORE_WEIGHT`、`display_weight_for` を追加。
-`calibrate_to_display`・`is_ai_scored_model`・`positive_key_for` を WebAPI 対応に変更。
+`_is_webapi_vision_scorer`、`WEBAPI_VISION_SCORE_WEIGHT`、`display_weight_for` を追加する。あわせて、`calibrate_to_display`、`is_ai_scored_model`、`positive_key_for` を WebAPI 対応へ変更する。
 
-- [ ] **Step 1: `test_score_scaler.py` に WebAPI 向け failing test を追記**
+- [ ] **Step 1: `test_score_scaler.py` に WebAPI 向けの失敗するテストを追記する**
 
 ```python
 # tests/unit/domain/test_score_scaler.py の末尾に追加
@@ -105,20 +104,20 @@ def test_display_weight_for_local_scorer_is_one() -> None:
     assert display_weight_for("WaifuAesthetic") == pytest.approx(1.0)
 ```
 
-- [ ] **Step 2: テストが失敗することを確認**
+- [ ] **Step 2: テストが失敗することを確認する**
 
 ```bash
 cd /workspaces/LoRAIro
 uv run pytest tests/unit/domain/test_score_scaler.py -k "webapi or display_weight" -v
 ```
 
-期待: `ImportError` または `AssertionError` で FAIL
+期待結果: `ImportError` または `AssertionError` で失敗する。
 
-- [ ] **Step 3: `score_scaler.py` に変更を実装**
+- [ ] **Step 3: `score_scaler.py` に変更を実装する**
 
-`src/lorairo/domain/score_scaler.py` を開き、以下を追加・変更する。
+`src/lorairo/domain/score_scaler.py` を開き、以下の 6 点を追加・変更する。
 
-**① module-level に定数追加** (既存の `DISPLAY_MAX` 定義の直後):
+**1. モジュールレベル定数の追加**(既存の `DISPLAY_MAX` 定義の直後)
 
 ```python
 WEBAPI_VISION_SCORE_WEIGHT: float = 0.5
@@ -126,7 +125,7 @@ WEBAPI_VISION_SCORE_WEIGHT: float = 0.5
 aesthetic scorer (重み 1.0) より信頼度が低いため割り引く。"""
 ```
 
-**② `_AI_SCORE_SPEC` dict の直後に識別関数追加**:
+**2. 識別関数の追加**(`_AI_SCORE_SPEC` 辞書の直後)
 
 ```python
 def _is_webapi_vision_scorer(model: str) -> bool:
@@ -139,7 +138,7 @@ def _is_webapi_vision_scorer(model: str) -> bool:
     return "/" in model
 ```
 
-**③ `is_ai_scored_model` を変更**:
+**3. `is_ai_scored_model` の変更**
 
 ```python
 def is_ai_scored_model(model: str) -> bool:
@@ -147,7 +146,7 @@ def is_ai_scored_model(model: str) -> bool:
     return model in _AI_SCORE_SPEC or _is_webapi_vision_scorer(model)
 ```
 
-**④ `positive_key_for` を変更**:
+**4. `positive_key_for` の変更**
 
 ```python
 def positive_key_for(model: str) -> str | None:
@@ -164,7 +163,7 @@ def positive_key_for(model: str) -> str | None:
     return None
 ```
 
-**⑤ `calibrate_to_display` の fallback 分岐を変更** (既存 `spec is None` のブロック):
+**5. `calibrate_to_display` のフォールバック分岐の変更**(既存 `spec is None` のブロック)
 
 ```python
     if spec is None:
@@ -175,7 +174,7 @@ def positive_key_for(model: str) -> str | None:
         return _clamp_display(raw * DISPLAY_MAX)
 ```
 
-**⑥ `display_weight_for` 関数を追加** (`known_models` の前):
+**6. `display_weight_for` 関数の追加**(`known_models` の前)
 
 ```python
 def display_weight_for(model: str) -> float:
@@ -190,16 +189,16 @@ def display_weight_for(model: str) -> float:
     return 1.0
 ```
 
-- [ ] **Step 4: テストがパスすることを確認**
+- [ ] **Step 4: テストが通ることを確認する**
 
 ```bash
 cd /workspaces/LoRAIro
 uv run pytest tests/unit/domain/test_score_scaler.py -v
 ```
 
-期待: 全テスト PASS
+期待結果: 全テストが通る。
 
-- [ ] **Step 5: コミット**
+- [ ] **Step 5: コミットする**
 
 ```bash
 git add src/lorairo/domain/score_scaler.py tests/unit/domain/test_score_scaler.py
@@ -208,15 +207,15 @@ git commit -m "fix: WebAPI Vision LLM スコア calibration identity + display_w
 
 ---
 
-## Task 2: `image.py` — `_derive_display_score` を weighted average に変更
+## Task 2: `image.py` — `_derive_display_score` を加重平均へ変更
 
 **Files:**
 - Modify: `src/lorairo/database/repository/image.py`
 - Test: `tests/unit/database/test_db_repository_annotations.py`
 
-- [ ] **Step 1: `test_db_repository_annotations.py` に WebAPI 混在テストを追記**
+- [ ] **Step 1: `test_db_repository_annotations.py` に WebAPI 混在テストを追記する**
 
-`TestDeriveDisplayScore` クラスの末尾（`test_legacy_two_rows_same_model_uses_latest` の後）に追加:
+`TestDeriveDisplayScore` クラスの末尾(`test_legacy_two_rows_same_model_uses_latest` の後)に以下を追加する。
 
 ```python
     @pytest.mark.unit
@@ -257,20 +256,20 @@ git commit -m "fix: WebAPI Vision LLM スコア calibration identity + display_w
         assert ImageRepository._derive_display_score(image) == pytest.approx(10.0)
 ```
 
-- [ ] **Step 2: テストが失敗することを確認**
+- [ ] **Step 2: テストが失敗することを確認する**
 
 ```bash
 cd /workspaces/LoRAIro
 uv run pytest tests/unit/database/test_db_repository_annotations.py::TestDeriveDisplayScore -v
 ```
 
-期待: 新規 3 テストのうち `test_webapi_score_identity_and_weighted` が FAIL (7.5 ではなく 10.0 が返る)、他 2 つも FAIL
+期待結果: 新規 3 テストのうち `test_webapi_score_identity_and_weighted` は `7.5` ではなく `10.0` が返り失敗する。他の 2 テストも失敗する。
 
-- [ ] **Step 3: `image.py` の import と `_derive_display_score` を変更**
+- [ ] **Step 3: `image.py` のインポートと `_derive_display_score` を変更する**
 
-**import 行の変更** (ファイル先頭付近):
+**インポート行の変更**(ファイル先頭付近)
 
-現在:
+変更前:
 ```python
 from ...domain.score_scaler import calibrate_to_display
 ```
@@ -280,9 +279,9 @@ from ...domain.score_scaler import calibrate_to_display
 from ...domain.score_scaler import calibrate_to_display, display_weight_for
 ```
 
-**`_derive_display_score` の `display_values` 以降のロジック変更**:
+**`_derive_display_score` の `display_values` 以降のロジック変更**
 
-現在:
+変更前:
 ```python
         display_values: list[float] = []
         for score_row in latest_by_model.values():
@@ -310,27 +309,27 @@ from ...domain.score_scaler import calibrate_to_display, display_weight_for
         return weighted_sum / total_weight
 ```
 
-- [ ] **Step 4: 新規テストと既存テストが全てパスすることを確認**
+- [ ] **Step 4: 新規テストと既存テストがすべて通ることを確認する**
 
 ```bash
 cd /workspaces/LoRAIro
 uv run pytest tests/unit/database/test_db_repository_annotations.py::TestDeriveDisplayScore -v
 ```
 
-期待:
-- 既存テスト: 全 PASS (aesthetic scorer のみ = weight 1.0 なので平均値は変わらない)
-- 新規テスト: 全 PASS
+期待結果:
+- 既存テストはすべて通る(aesthetic scorer のみであれば重みが 1.0 のため平均値は変わらない)。
+- 新規テストもすべて通る。
 
-- [ ] **Step 5: ドメイン全体テストでリグレッションがないか確認**
+- [ ] **Step 5: ドメイン全体のテストでリグレッションがないことを確認する**
 
 ```bash
 cd /workspaces/LoRAIro
 uv run pytest tests/unit/domain/ tests/unit/database/ -v
 ```
 
-期待: 全 PASS
+期待結果: 全テストが通る。
 
-- [ ] **Step 6: コミット**
+- [ ] **Step 6: コミットする**
 
 ```bash
 git add src/lorairo/database/repository/image.py \
@@ -345,18 +344,18 @@ git commit -m "fix: _derive_display_score を WebAPI スコア weighted average 
 **Files:**
 - Modify: `src/lorairo/services/annotation_save_service.py`
 
-> **背景:** 現在 `is_ai_scored_model("openai/o1")` → False のため、WebAPI scores の全キーを保存する経路に入る。Task 1 の修正で `is_ai_scored_model("openai/o1")` → True になるため、`_append_scores` が "overall" キーのみを保存する経路に切り替わる。DB に入る値は同じだが、経路の一貫性を確保する。
+> **背景:** 現状では `is_ai_scored_model("openai/o1")` が `False` を返すため、WebAPI スコアの全キーを保存する経路に入る。Task 1 の修正により `is_ai_scored_model("openai/o1")` が `True` になると、`_append_scores` は `"overall"` キーのみを保存する経路へ切り替わる。DB に保存される値は変わらないが、処理経路の一貫性を確保できる。
 
-- [ ] **Step 1: `_append_scores` の動作確認テストを追記**
+- [ ] **Step 1: `_append_scores` の動作確認テストを追記する**
 
-`tests/unit/services/` 以下にすでに `_append_scores` を直接テストするファイルがある場合はそこへ、なければ `test_annotation_save_service.py` の既存テストクラスへ追加する。
+`tests/unit/services/` 配下に `_append_scores` を直接テストする既存ファイルがある場合はそこへ追記する。見つからない場合は `test_annotation_save_service.py` の既存テストクラスへ追加する。
 
 ```bash
 cd /workspaces/LoRAIro
 find tests/ -name "*annotation_save*" -o -name "*save_service*" 2>/dev/null
 ```
 
-見つかったファイル（例: `tests/unit/services/test_annotation_save_service.py`）に追記:
+見つかったファイル(例: `tests/unit/services/test_annotation_save_service.py`)に以下を追記する。
 
 ```python
 @pytest.mark.unit
@@ -377,18 +376,18 @@ def test_append_scores_webapi_saves_overall_key(annotation_save_service_fixture)
     assert result["scores"][0]["model_id"] == 99
 ```
 
-> **注:** fixture の名前は対象ファイルの既存 fixture に合わせること。もし `_append_scores` が private で直接テストが困難な場合は Step 1 をスキップし Step 2 へ進む。
+> **注:** フィクスチャ名は対象ファイルの既存フィクスチャに合わせる。`_append_scores` がプライベートメソッドで直接テストが困難な場合は、Step 1 をスキップして Step 2 へ進む。
 
-- [ ] **Step 2: CI-equivalent filter を実行してリグレッションなしを確認**
+- [ ] **Step 2: CI 相当フィルタでリグレッションがないことを確認する**
 
 ```bash
 cd /workspaces/LoRAIro
 uv run pytest -m "not gui_show and not calls_real_webapi and not downloads_and_runs_model and not slow" --timeout=60 -q
 ```
 
-期待: 全 PASS
+期待結果: 全テストが通る。
 
-- [ ] **Step 3: コミット**
+- [ ] **Step 3: コミットする**
 
 ```bash
 git add tests/unit/services/test_annotation_save_service.py
@@ -397,18 +396,18 @@ git commit -m "test: WebAPI annotation_save_service _append_scores overall key �
 
 ---
 
-## Task 4: `MAPPING_VERSION` を bump して drift-guard を更新
+## Task 4: `MAPPING_VERSION` を更新して drift-guard を反映
 
 **Files:**
 - Modify: `src/lorairo/domain/score_scaler.py`
 
-> `calibrate_to_display` のマッピングロジックを変更したため `MAPPING_VERSION` を bump する (モジュール docstring の規約)。
+> `calibrate_to_display` のマッピングロジックを変更したため、モジュール docstring の規約に従って `MAPPING_VERSION` を更新する。
 
-- [ ] **Step 1: `MAPPING_VERSION` を変更**
+- [ ] **Step 1: `MAPPING_VERSION` を変更する**
 
-`src/lorairo/domain/score_scaler.py` の先頭付近:
+`src/lorairo/domain/score_scaler.py` の先頭付近を以下のように変更する。
 
-現在:
+変更前:
 ```python
 MAPPING_VERSION: str = "score-scaler-v1"
 ```
@@ -418,25 +417,25 @@ MAPPING_VERSION: str = "score-scaler-v1"
 MAPPING_VERSION: str = "score-scaler-v2"
 ```
 
-- [ ] **Step 2: `test_mapping_version_is_set` が引き続き PASS することを確認**
+- [ ] **Step 2: `test_mapping_version_is_set` が引き続き通ることを確認する**
 
 ```bash
 cd /workspaces/LoRAIro
 uv run pytest tests/unit/domain/test_score_scaler.py::test_mapping_version_is_set -v
 ```
 
-期待: PASS
+期待結果: テストが通る。
 
-- [ ] **Step 3: 全テストを CI-equivalent filter で実行**
+- [ ] **Step 3: CI 相当フィルタで全テストを実行する**
 
 ```bash
 cd /workspaces/LoRAIro
 uv run pytest -m "not gui_show and not calls_real_webapi and not downloads_and_runs_model and not slow" --timeout=60 -q
 ```
 
-期待: 全 PASS
+期待結果: 全テストが通る。
 
-- [ ] **Step 4: コミット**
+- [ ] **Step 4: コミットする**
 
 ```bash
 git add src/lorairo/domain/score_scaler.py
@@ -445,25 +444,25 @@ git commit -m "chore: MAPPING_VERSION を score-scaler-v2 へ bump (#644)"
 
 ---
 
-## 制限事項 (ドキュメント)
+## 制限事項
 
-本修正で対応できる範囲とできない範囲:
+本修正で対応できる範囲と対応できない範囲を以下に示す。
 
 | 状況 | 結果 |
 |---|---|
-| `openai/o1` (slash あり、新形式) | ✅ `7.5 → 7.5` に正常化 |
-| `anthropic/claude-3-5-sonnet-20241022` (slash あり) | ✅ 正常化 |
-| `claude-3-5-sonnet-20240620` (slash なし、旧形式) | ❌ 引き続き `7.5 → 10.0` (Phase 1.10 以前の登録行) |
-| ローカル ML scorer (`aesthetic_shadow_v1` 等) | ✅ 従来の knot 補間を維持 |
+| `openai/o1`(スラッシュあり、新形式) | ✅ `7.5` がそのまま `7.5` に正常化される |
+| `anthropic/claude-3-5-sonnet-20241022`(スラッシュあり) | ✅ 正常化される |
+| `claude-3-5-sonnet-20240620`(スラッシュなし、旧形式) | ❌ 引き続き `7.5` が `10.0` になる(Phase 1.10 以前の登録行) |
+| ローカル ML scorer(`aesthetic_shadow_v1` など) | ✅ 従来のノット補間を維持する |
 
-旧形式名の行 (~180 行) は再アノテーション (モデル再選択 → 新形式 ID で保存) によって正常化される。
+旧形式名の行(約 180 行)は、モデルを再選択して再アノテーションし、新形式 ID で保存し直すことで正常化される。
 
 ---
 
 ## 動作確認チェックリスト
 
-実装完了後に手動で確認:
+実装完了後に、以下の項目を手動で確認する。
 
-1. `main_dataset_20250707_001` で `image_id 18254` (`model=openai/o1, score=7.5`) の表示スコアが `7.5` になっていること
-2. aesthetic scorer のみを持つ画像の `score_value` が変わっていないこと (既存テスト保護)
-3. aesthetic scorer + WebAPI 混在画像の `score_value` が weighted average になっていること
+1. `main_dataset_20250707_001` の `image_id 18254`(`model=openai/o1, score=7.5`)で、表示スコアが `7.5` になっていること。
+2. aesthetic scorer のみを持つ画像の `score_value` が変わっていないこと(既存テストで保護)。
+3. aesthetic scorer と WebAPI が混在する画像の `score_value` が加重平均になっていること。

@@ -8,87 +8,74 @@ metadata:
 
 # lorairo-cli-db-access
 
-LoRAIro のプロジェクト DB (`lorairo_data/<project>/image_database.db`) に対する
-調査・編集は **lorairo-cli を第一選択** にする。
+LoRAIro のプロジェクト DB(`lorairo_data/<project>/image_database.db`)を調査・編集するときは、**`lorairo-cli` を第一選択**とする。
 
-## なぜ sqlite3 直叩きを避けるか
+## `sqlite3` の直接実行を避ける理由
 
-- devcontainer の `lorairo_data/` は Windows 9p bind mount 上にあり、稼働中の DB へ
-  `sqlite3` で直接クエリすると `disk I/O error (10)` になる (2026-07-02 実測)
-- SQLite は single concurrent writer。GUI 稼働中の直接書き込みは WAL 破損リスク
-- CLI は busy_timeout (既定 30s) 待ち → CONFLICT (retryable) のロック制御と
-  作業集合上限 (500件) / count-first の安全装置を持つ
+- Dev Container 内の `lorairo_data/` は Windows の 9p bind mount 上にある。稼働中の DB へ `sqlite3` で直接クエリを実行すると、`disk I/O error (10)` が発生する(2026-07-02 実測)。
+- SQLite は同時に 1 つのライターしか許容しない。GUI の稼働中に直接書き込むと、WAL が破損するリスクがある。
+- `lorairo-cli` は `busy_timeout`(既定 30 秒)による待機と、リトライ可能な `CONFLICT` 応答によるロック制御を備えている。さらに、作業集合の上限(500 件)や件数先行確認(count-first)といった安全装置も持つ。
 
-## 基本形
+## 基本的な使い方
 
-プロジェクトルートから実行する (`.venv` は uv が解決)。**GUI (lorairo) 稼働中は必ず
-`--no-sync` を付ける** (下記「GUI 稼働中の venv 部分破損」参照):
+コマンドはプロジェクトルートから実行する(`.venv` は `uv` が解決する)。**GUI(`lorairo`)の稼働中は必ず `--no-sync` を付ける**(後述の「GUI 稼働中の venv 部分破損」を参照)。
 
 ```bash
-uv run --no-sync lorairo-cli --json <group> <command> [args]   # JSONL 出力 (エージェント向け)
+uv run --no-sync lorairo-cli --json <group> <command> [args]   # JSONL 出力(エージェント向け)
 uv run --no-sync lorairo-cli <group> <command> --help          # 各コマンドの引数確認
 uv run --no-sync lorairo-cli list-commands                     # 機械可読なコマンド一覧
-uv run --no-sync lorairo-cli describe "<group> <command>"      # エージェント/CI 向けコマンド仕様 (空白を含む場合はクォート必須)
+uv run --no-sync lorairo-cli describe "<group> <command>"      # エージェント・CI 向けコマンド仕様(空白を含む場合はクォート必須)
 ```
 
-主なコマンド群:
+主なコマンド群は次のとおりである。
 
-| group | 用途 |
+| コマンド群 | 用途 |
 |---|---|
-| `project` | プロジェクト一覧・作成 |
-| `images` | `list` / `search` (read-only, JSON search schema) / `show` / `register` / `update` / `reanalyze-generation` / `crop` |
-| `tags` | タグ編集 (`add` / `remove` / `replace` / `translations` / `alias`, agent-friendly) |
-| `annotate` / `batch` | アノテーション実行 (`run` / `review` / `import-batch`) / Provider Batch job |
-| `dataset` | Kohya-ss データセット (`import` / `export` / `show` / `diff` / `copy-tags`) |
-| `models` | モデルレジストリ参照・同期 |
-| `errors` | エラーレコード管理 |
-| `export` | データセットエクスポート |
-| `maintenance` | 読み取り専用 DB メンテナンス点検 (`check`) |
-| `status` | システム状態 |
+| `project` | プロジェクトの一覧取得・作成 |
+| `images` | `list`・`search`(読み取り専用、JSON 検索スキーマ)・`show`・`register`・`update`・`reanalyze-generation`・`crop` |
+| `tags` | タグの編集(`add`・`remove`・`replace`・`translations`・`alias`。エージェント向けの操作に対応) |
+| `annotate` / `batch` | アノテーションの実行(`run`・`review`・`import-batch`)と Provider Batch ジョブの管理 |
+| `dataset` | Kohya-ss データセットの操作(`import`・`export`・`show`・`diff`・`copy-tags`) |
+| `models` | モデルレジストリの参照・同期 |
+| `errors` | エラーレコードの管理 |
+| `export` | データセットのエクスポート |
+| `maintenance` | 読み取り専用の DB メンテナンス点検(`check`) |
+| `status` | システム状態の確認 |
 
 ## 運用ルール
 
-1. **count-first**: 件数確認が既定。500 件超は `RESULT_SET_TOO_LARGE` になるので
-   条件を絞ってから fetch する
-2. **GUI 併用時**: 読み取りは安全。書き込みは GUI と競合させない。CLI 書き込み後は
-   GUI 側で再検索/リロードしないと反映されない
-3. **CONFLICT が返ったら** リトライ可能 (ロック競合)。連打せず間隔を置く
+1. **件数先行確認(count-first)**: 既定では件数確認を優先する。結果が 500 件を超えると `RESULT_SET_TOO_LARGE` になるため、条件を絞り込んでから取得する。
+2. **GUI 併用時の注意**: 読み取りは安全である。書き込みは GUI の操作と競合させない。なお、CLI から書き込んだ内容は、GUI 側で再検索またはリロードするまで反映されない。
+3. **`CONFLICT` 応答時の対応**: ロック競合によるリトライ可能なエラーである。連続実行を避け、少し間隔を空けて再試行する。
 
-## GUI 稼働中の venv 部分破損 (Windows, #1190)
+## GUI 稼働中の venv 部分破損(Windows、#1190)
 
-GUI (`lorairo`) が共有 venv から起動していると `Scripts\lorairo.exe` をロックする。
-この状態で `uv run lorairo-cli ...` (暗黙 sync あり) を実行すると、uv が editable
-install の entry point 再生成で `lorairo.exe` の削除に失敗して sync が中断し、先に
-削除された **`lorairo-cli.exe` が消失したまま venv が部分破損**する (2026-07-05 実測)。
+GUI(`lorairo`)が共有 venv から起動している間、Windows は `Scripts\lorairo.exe` をロックする。この状態で暗黙の同期を伴う `uv run lorairo-cli ...` を実行すると、`uv` が editable install のエントリーポイントを再生成する過程で `lorairo.exe` の削除に失敗する。その結果、同期が中断し、先に削除された **`lorairo-cli.exe` が消えたまま venv が部分破損**する(2026-07-05 実測)。
 
-- **予防**: GUI 稼働中の CLI 実行は常に `uv run --no-sync lorairo-cli ...`
-  (`--no-sync` は venv を書き換えないため常用しても安全)
-- **破損時の症状**: `Failed to spawn: lorairo-cli / program not found`
-- **応急処置** (GUI を止めずに使う):
+- **予防**: GUI 稼働中の CLI 実行には、常に `uv run --no-sync lorairo-cli ...` を使う。`--no-sync` は venv を書き換えないため常用しても安全である。
+- **破損時の症状**: `Failed to spawn: lorairo-cli / program not found` が発生する。
+- **応急処置**(GUI を止めずに実行する場合):
   ```powershell
   uv run --no-sync python -c "from lorairo.cli.main import main; main()" --json images show -p <project> --image-ids <id>
   ```
-- **復旧**: GUI 終了後に `uv sync --dev`
+- **復旧**: GUI を終了してから `uv sync --dev` を実行する。
 
-## CLI で表現できないクエリの fallback
+## CLI で表現できないクエリのフォールバック
 
-集計 SQL (GROUP BY 等) が CLI に無い場合のみ、**DB ファイルをコピーしてから**
-読み取り専用で sqlite3 を使う。稼働中の実体ファイルには絶対に直接触れない:
+`GROUP BY` などの集計 SQL が CLI に用意されていない場合に限り、**DB ファイルをコピーしてから**読み取り専用で `sqlite3` を実行する。稼働中の実体ファイルには決して直接触れてはならない。
 
 ```bash
-# WAL 併用時は -wal / -shm も併せてコピーする (Issue #1216)。.db だけコピーすると
-# 直近書き込み (未 checkpoint 分) が欠け、除去直後の検証等で未反映に見える誤検出が起きる。
+# WAL 併用時は -wal / -shm も併せてコピーする(Issue #1216)。.db だけコピーすると
+# 直近の書き込み(未 checkpoint 分)が欠け、除去直後の検証などで未反映に見える誤検出が起きる。
 cp lorairo_data/<project>/image_database.db     /tmp/.../scratchpad/db_copy.db
 cp lorairo_data/<project>/image_database.db-wal /tmp/.../scratchpad/db_copy.db-wal 2>/dev/null || true
 cp lorairo_data/<project>/image_database.db-shm /tmp/.../scratchpad/db_copy.db-shm 2>/dev/null || true
 sqlite3 /tmp/.../scratchpad/db_copy.db "SELECT tag, COUNT(*) FROM tags GROUP BY tag ..."
 ```
 
-コピーは点時点スナップショットであり、GUI の最新状態とはずれ得ることを結果に明記する。
-CLI 読み取り (`lorairo-cli images search/show`) は WAL 込みで正しく見えるため、直近書き込みの
-反映確認は CLI を優先する。
+コピーは特定時点のスナップショットであり、GUI の最新状態とずれる可能性がある。報告時にはその旨を明記する。一方、CLI の読み取りコマンド(`lorairo-cli images search` や `show`)は WAL を含めて正しく参照できるため、直近の書き込み反映を確認する場合は CLI を優先する。
 
 ## 参照
 
-- `docs/cli.md` — CLI 全体ドキュメント
-- `docs/cli-rating-preflight.md` — rating 付与ワークフロー
+- `docs/cli.md`: CLI 全体ドキュメント
+- `docs/cli-rating-preflight.md`: rating 付与ワークフロー

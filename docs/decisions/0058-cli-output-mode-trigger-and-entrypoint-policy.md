@@ -11,128 +11,95 @@ tags: []
 
 ## Context
 
-ADR 0057 は CLI の機械可読 (JSONL) 出力契約とエラー契約を定めたが、**いつ JSONL を出すか (出力モードの
-トリガ)** と **CLI/GUI のエントリポイント方針** は未定で、0057 はその決定に依存して保留されていた。本 ADR が
-それを確定する。
+ADR 0057 では、CLI の機械可読(JSONL)出力契約とエラー契約を定めた。しかし、**どの条件で JSONL を出力するか(出力モードのトリガ)**と、**CLI・GUI のエントリポイント方針**が未定だったため、ADR 0057 はその決定に依存する形で保留されていた。本 ADR はこれら 2 点を確定する。
 
-LoRAIro は既に `lorairo` (GUI) と `lorairo-cli` (CLI) の 2 entry を持ち、CLI は Typer 製で rich 人間向け
-出力が育っている (`console.print` 158 箇所等)。sibling の `genai-tag-db-tools` は単一 entry `tag-db` +
-`--gui` フラグで、help は GUI を import せず headless-safe (tag-db ADR 0002)。ただし **LoRAIro は GUI 主体**
-のアプリであり、CLI/DB ツール主体の tag-db とは性質が異なる。
+LoRAIro にはすでに `lorairo`(GUI)と `lorairo-cli`(CLI)の 2 つのエントリポイントが存在する。CLI は Typer 製であり、`console.print` が 158 箇所で使われるなど Rich による人間向け出力が整備されている。
+
+一方、兄弟パッケージの `genai-tag-db-tools`(tag-db)は単一エントリポイント `tag-db` と `--gui` フラグを採用しており、ヘルプ表示時に GUI をインポートせずヘッドレス環境でも安全に動作する(tag-db ADR 0002)。ただし **LoRAIro は GUI 主体のアプリケーション**であり、CLI・DB ツール主体の tag-db とは性質が異なる。
 
 ## Scope / Non-Goals
 
-本 ADR は出力モードの **トリガとエントリ方針の決定** を固定する。Click/Typer の具体的な起動・パース機構
-(`standalone_mode`、`no_args_is_help` の内部挙動、オプションの位置解決の実装) は実装 Issue (#640) で確定し、
-本 ADR は「raw argv/env で Click パース前にモードを解決する」という要件レベルの決定に留める。
+本 ADR では、出力モードの**トリガとエントリポイント方針の決定**を固定する。Click / Typer の具体的な起動・パース機構(`standalone_mode`、`no_args_is_help` の内部挙動、オプションの位置解決の実装)は実装 Issue(#640)で確定する。本 ADR は「生の `argv` と環境変数から Click のパース前にモードを解決する」という要件レベルの決定にとどめる。
 
 ## Decision
 
-### 1. 出力モードのトリガ = 明示 `--json` グローバルフラグ
+### 1. 出力モードのトリガは明示的な `--json` グローバルフラグとする
 
-`lorairo-cli` にグローバルな **tri-state `--json` / `--no-json` フラグ**を追加する (callback `_configure`、
-`--log-level` と同列)。既定は未指定 (None)。`--json` で ADR 0057 の JSONL 機械可読契約に切り替え、
-`--no-json` で rich 人間向けを明示する。
+`lorairo-cli` に、コールバック `_configure`(`--log-level` と同列)で扱うグローバルな**3 状態(tri-state)の `--json` / `--no-json` フラグ**を追加する。既定値は未指定(`None`)とし、`--json` で ADR 0057 の JSONL 機械可読契約へ切り替え、`--no-json` で Rich による人間向け出力を明示する。
 
-env `LORAIRO_CLI_JSON=1` を併設し、agent / CI が環境変数でも JSONL を有効化できる (既存 `LORAIRO_CLI_MODE`
-と同じ流儀)。**解決順序は「明示フラグ > env > 既定 rich」**: `--json` / `--no-json` が指定されればそれが
-勝ち、未指定のときだけ env を見る。env が JSONL を有効化していても `--no-json` で rich に上書きできる
-(共有 shell で env が export 済みでも個別コマンドで rich に戻せる)。正の `--json` 単独では env-on を
-打ち消せないため、tri-state にして「明示フラグが env より優先」を実装可能にする。
+あわせて環境変数 `LORAIRO_CLI_JSON=1` を用意し、エージェントや CI が環境変数からも JSONL を有効化できるようにする(既存の `LORAIRO_CLI_MODE` と同じ流儀)。
 
-**モードは中央エラー境界 (ADR 0057 §7) が raw `sys.argv` / env から、Click のパース前に解決する**。Click は
-callback (`_configure`) より前に context を構築・パースするため、`--json` を callback option としてだけ
-扱うと `lorairo-cli --json bad-option` のような parse 時 usage error がモード確定前に境界へ到達し、JSONL
-ではなく人間向けエラーになってしまう。これを防ぐため境界は argv/env を自前で先読みしてモードを確定して
-から Click を起動する (callback の `--json` / `--no-json` 宣言は help/補完表示用を兼ねる)。この先読みは
-位置非依存で、`--json` / `--no-json` は **グローバル位置でもサブコマンド後でも**受理される
-(`lorairo-cli --json annotate run` も `lorairo-cli annotate run --json` も同義。Click の global-option-only
-制約による `NoSuchOption` を prescan が回避する)。
+- **解決順序は「明示フラグ > 環境変数 > 既定の Rich」**とする。`--json` または `--no-json` が指定されていればそれが優先され、未指定の場合のみ環境変数を参照する。
+- 環境変数で JSONL が有効化されていても、`--no-json` を指定すれば Rich 出力へ上書きできる(共有シェルで環境変数がエクスポート済みでも、個別コマンドだけ Rich へ戻せる)。正の `--json` フラグ単独では環境変数による有効化を打ち消せないため、3 状態とすることで「明示フラグ優先」を実現する。
 
-**TTY 自動判定でフォーマット契約を切り替えない**。pipe したら勝手に JSONL になる "magic" 挙動は採らない。
+**出力モードは、中央エラー境界(ADR 0057 §7)が生の `sys.argv` と環境変数から Click のパース前に解決する。** Click はコールバック(`_configure`)の実行前にコンテキストを構築して引数をパースする。そのため、`--json` をコールバックオプションとしてのみ扱うと、`lorairo-cli --json bad-option` のようなパース時の usage error がモード確定前に境界へ到達し、JSONL ではなく人間向けエラーが出力されてしまう。
 
-### 2. 装飾 (色 / progress) は presentation として TTY で自動抑制
+これを防ぐため、中央エラー境界は `argv` と環境変数を自前で先読みしてモードを確定してから Click を起動する(コールバック側の `--json` / `--no-json` 宣言はヘルプ表示や補完用を兼ねる)。この先読みは引数位置に依存せず、`--json` / `--no-json` は**グローバル位置でもサブコマンドの後でも**受理される(`lorairo-cli --json annotate run` と `lorairo-cli annotate run --json` は同義となる。これにより Click のグローバルオプション位置制約による `NoSuchOption` を回避する)。
 
-**フォーマット契約 (rich/JSONL) と装飾 (色・progress バー) を分離する**。色・progress は stdout/stderr が
-TTY でないとき自動抑制する (gh CLI と同様の presentation 最適化)。これはフォーマット契約の切替とは独立。
+なお、**TTY の自動判定によってフォーマット契約を切り替えることはしない**。パイプ接続しただけで自動的に JSONL へ切り替わるような暗黙の挙動は採用しない。
 
-`--json` 時は当然 stdout に装飾を一切出さない (ADR 0057 の stdout 純度契約)。progress は ADR 0057 のとおり
-stderr 限定で、非 TTY ではさらに抑制される。
+### 2. 色や進捗などの装飾は表示最適化として TTY 判定で自動抑制する
 
-### 3. エントリポイントは 2 本分離を維持 (統一しない)
+**フォーマット契約(Rich か JSONL か)と、装飾(色・進捗バー)を分離する。** 色と進捗バーは、stdout や stderr が TTY でない場合に自動で抑制する(`gh` CLI と同様の表示最適化)。これはフォーマット契約の切り替えとは独立した挙動とする。
 
-`lorairo` = GUI entry、`lorairo-cli` = CLI / agent entry の **2 本を維持**する。引数 (`--gui` 等) で
-GUI/CLI をモード分岐しない。
+`--json` 指定時は当然ながら stdout に装飾を一切出力しない(ADR 0057 の stdout 純度契約)。進捗バーは ADR 0057 のとおり stderr に限定され、非 TTY 環境ではさらに抑制される。
 
-LoRAIro は GUI 主体のアプリであり、GUI に専用 entry を与えるのが自然。tag-db の「単一 entry + `--gui`」は
-CLI 主体ツールの形であり、LoRAIro には合わない (この点だけ tag-db ADR 0002 と意図的に分岐する)。
+### 3. エントリポイントは 2 本分離を維持する(統一しない)
 
-### 4. CLI は headless で動作する (GUI 非依存)
+`lorairo`(GUI エントリ)と `lorairo-cli`(CLI・エージェント用エントリ)の **2 本構成を維持**する。`--gui` などの引数による GUI / CLI のモード分岐は導入しない。
 
-`lorairo-cli` 経路は GUI (QtWidgets / QtGui / QApplication / 表示プラットフォーム) を要さず、display の
-無い環境 (server / CI / agent) で動く。entry が分離し GUI を起動しないことでこれは構造的に満たされる。
+LoRAIro は GUI 主体のアプリであるため、GUI に専用のエントリポイントを与える方が自然である。tag-db の「単一エントリ+`--gui`」は CLI 主体ツール向けの構成であり LoRAIro には合わないため、この点のみ tag-db ADR 0002 と意図的に方針を分ける。
 
-**QtCore (QObject 等) の import は許容する**。QtCore は headless-safe な非 GUI モジュール (Qt 公式: display
-も QApplication も要さず server / CLI 用途向け) であり、import を禁止しても得られるのは僅かな起動時間短縮の
-みで、PySide6 は GUI アプリとして常にインストール済みのため install / footprint の利点も無い。よって
-「PySide6 を一切 import しない」という不変条件は課さず、「GUI / display を要さない」headless 動作だけを
-要件とする (重い import-ban の enforcement test も課さない)。
+### 4. CLI はヘッドレス環境で動作する(GUI 非依存)
 
-### 5. help / `-h` / no-args は人間向け launcher meta 例外
+`lorairo-cli` 経路は GUI(`QtWidgets`、`QtGui`、`QApplication`、表示プラットフォーム)を必要とせず、ディスプレイのない環境(サーバ、CI、エージェント実行環境)で動作する。エントリポイントを分離して GUI を起動しないことで、この要件は構造的に満たされる。
 
-`lorairo-cli` の `--help` / `-h` / 引数なし (Typer `no_args_is_help`) は人間向け help を stdout に出し
-exit 0 で終わる。callback (`_configure`) は走らず (Issue #540)、`--json` 指定下でも help は人間向けのまま。
-ADR 0057 の「コマンド実行は `result` / `error` で終わる」不変条件の**文書化例外**とする。
+一方で、**`QtCore`(`QObject` など)のインポートは許容する。** `QtCore` は Qt 公式でもディスプレイや `QApplication` を不要とするヘッドレス安全な非 GUI モジュールである。これを禁止しても得られるのはわずかな起動時間短縮にとどまり、PySide6 は GUI アプリとして常にインストール済みであるためインストールサイズ上の利点もない。したがって、「PySide6 を一切インポートしない」という厳格な不変条件は課さず、「GUI やディスプレイを要さないヘッドレス動作」のみを要件とする(重いインポート禁止テストも設けない)。
 
-対して `version` / `status` は `@app.command()` の**実コマンド**であり、`--json` 時は他コマンド同様 JSONL
-(`result`) を出す。meta の help と実コマンドを区別する。
+### 5. `help`、`-h`、引数なしは人間向けのメタ例外とする
 
-### 6. legacy `project list --format json` を deprecate し JSONL に一本化
+`lorairo-cli` の `--help`、`-h`、および引数なし実行(Typer の `no_args_is_help`)は、人間向けのヘルプを stdout へ出力して終了コード 0 で終了する。このときコールバック(`_configure`)は実行されず(Issue #540)、`--json` を指定した場合でもヘルプは人間向け表示のままとなる。これは ADR 0057 の「すべてのコマンド実行は `result` または `error` で終わる」という不変条件に対する**文書化された例外**とする。
 
-現状 `project list --format json` は pretty JSON 配列を出す唯一の構造化出力だが、これは ADR 0057 の JSONL
-契約 (`item` + 終端 `result`) と非互換。**機械可読出力の SSoT は `--json` / env による JSONL 契約に
-一本化**し、`--format json` は deprecate する。2 つの非互換な機械可読形式を併存させない。
+対照的に、`version` と `status` は `@app.command()` として定義された**実コマンド**であるため、`--json` 指定時は他コマンドと同様に JSONL(`result`)を出力する。メタ操作としてのヘルプと実コマンドを明確に区別する。
 
-- `--json` / env が有効なときは `project list` も他の list 系同様 JSONL (`item` + `result`) を出す。
-  `--format json` が同時指定されても **JSONL 契約が勝つ** (legacy 形式は無視する)。
-- `--format json` (pretty 配列) は非推奨とし将来削除する。`--format table` は `--json` 非指定時の人間向け
-  既定 (rich 表示) として残す。
+### 6. 旧形式の `project list --format json` を非推奨とし JSONL へ一本化する
+
+現行の `project list --format json` は整形済み(pretty)JSON 配列を返す唯一の構造化出力だが、ADR 0057 の JSONL 契約(`item` と終端 `result`)とは非互換である。**機械可読出力の SSoT を `--json` および環境変数による JSONL 契約へ一本化**し、`--format json` は非推奨(deprecate)とする。非互換な 2 つの機械可読形式を併存させない。
+
+- `--json` または環境変数が有効な場合、`project list` も他の list 系コマンドと同様に JSONL(`item` と `result`)を出力する。`--format json` が同時に指定されても **JSONL 契約を優先**し、旧形式は無視する。
+- `--format json`(整形済み JSON 配列)は非推奨とし、将来的に削除する。`--format table` は `--json` 非指定時の人間向け既定表示(Rich)として残す。
 
 ## Rationale
 
-- **明示 `--json`**: agent は `describe` / docs で契約を知り明示的に script するため、magic 自動判定より
-  明示フラグの方が安定・テスト容易。gh / docker と同じ慣習。
-- **装飾とフォーマットの分離**: 「色を pipe で消す」は presentation の最適化、「JSONL に切替」は契約の選択。
-  混ぜると pipe 時に契約が勝手に変わり人間が驚く。分離すれば両方を予測可能に扱える。
-- **entry 分離維持**: LoRAIro は GUI 主体。GUI に専用 entry を与え、CLI を headless 動作 (GUI 非依存) に
-  保つ方が、単一 entry に統合して GUI を遅延 import するより堅い (構造保証 + 既存 entry を壊さない)。
-  QtCore は headless-safe なので import 自体は問題にしない (「Qt-free」でなく「GUI-free」が実益のある不変条件)。
-- **help 例外**: help は人間がコマンドを発見する meta 操作で、機械契約の対象外。tag-db ADR 0002/0003 と
-  同じ思想。
-- **legacy `--format json` の deprecate**: epic の目的は単一の機械可読契約。pretty 配列の legacy 形式を
-  残すと 2 つの非互換な機械契約が併存し agent が混乱するため、JSONL に一本化する。
+- **明示的な `--json` フラグ**:エージェントは `describe` やドキュメントから契約を把握したうえで明示的にコマンドを呼び出すため、暗黙の自動判定より明示フラグの方が安定し、テストもしやすい。`gh` や `docker` と同じ慣習でもある。
+- **装飾とフォーマット契約の分離**:「パイプ時に色を消す」のは表示の最適化であり、「JSONL へ切り替える」のは契約の選択である。両者を混ぜるとパイプ接続時に出力契約が勝手に変わり、人間にとって予測不能になる。分離することで双方の挙動を予測可能に保てる。
+- **エントリポイント分離の維持**:GUI 主体である LoRAIro では、GUI に専用エントリを与え、CLI をヘッドレス動作(GUI 非依存)に保つ方が、単一エントリに統合して GUI を遅延インポートするより堅牢である(構造的な保証と既存エントリの互換性維持)。また、`QtCore` はヘッドレス安全であるため、「Qt 非依存」ではなく「GUI 非依存」を実益のある不変条件とする。
+- **ヘルプの例外扱い**:ヘルプは人間がコマンドを探索するためのメタ操作であり、機械契約の対象外である。これは tag-db ADR 0002 / 0003 と同じ思想に基づく。
+- **旧 `--format json` の非推奨化**:epic の目的は単一の機械可読契約を確立することにある。整形済み配列の旧形式を残すと非互換な契約が併存してエージェントを混乱させるため、JSONL へ一本化する。
 
 ## Consequences
 
-- `lorairo-cli` に `--json` グローバルフラグ + env を実装し、ADR 0057 の `_emit` / 出力経路がこのモードを
-  SSoT として参照する。中央エラー境界 (ADR 0057 §7) のモード分岐もこのフラグを見る。
-- 色 / progress の TTY 抑制ロジックを `_console` / 出力層に入れる。
-- entry は現状維持のため **console_scripts 変更なし** (`lorairo` / `lorairo-cli` 据え置き)。破壊的変更なし。
-- `version` / `status` を `--json` 対応に改修する (現状は rich 固定)。
-- `project list --format json` (legacy pretty 配列) を deprecate し、`project list` を `--json` JSONL に
-  対応させる。`--format json` は将来削除予定。
-- 出力モードは中央境界が raw argv/env から Click パース前に解決する実装が必要 (callback 依存にしない)。
-- ADR 0057 の保留理由 (トリガ未定) が解消され、0057 と本 ADR は対で Accepted へ進める。
+- `lorairo-cli` に `--json` グローバルフラグと環境変数を実装し、ADR 0057 の `_emit` や出力経路がこのモードを SSoT として参照する。中央エラー境界(ADR 0057 §7)のモード分岐も同じフラグを参照する。
+- 色および進捗バーの TTY 抑制ロジックを `_console` および出力層へ組み込む。
+- エントリポイントは現状維持とするため、`console_scripts`(`lorairo` と `lorairo-cli`)への変更や破壊的変更は発生しない。
+- 現在 Rich 出力固定になっている `version` と `status` を `--json` 対応へ改修する。
+- `project list --format json`(旧形式の整形済み JSON 配列)を非推奨とし、`project list` を `--json` による JSONL 出力へ対応させる。`--format json` は将来削除する予定である。
+- 出力モードはコールバックへ依存せず、中央エラー境界が生の `argv` と環境変数から Click のパース前に解決する実装が必要になる。
+- ADR 0057 の保留理由(トリガ未定)が解消され、ADR 0057 と本 ADR は対で Accepted へ進む。
 
 ## 関連
 
-- ADR 0057 (CLI Machine-Readable JSONL Output and Error Contract) — 本 ADR が出力モードのトリガ (`--json`) を供給し、0057 の前提依存を解消する
-- ADR 0020 (CLI Message Language Policy) — 人間向け / 機械向けメッセージの言語方針
-- ADR 0049 (Apply CLI Image List Limit in the Repository Query) — read/list 系の挙動
-- tag-db ADR 0002 (CLI/GUI Entrypoint Policy) — 思想の参照元 (LoRAIro は GUI 主体ゆえ entry を分離する点が差分)
+- ADR 0057(CLI Machine-Readable JSONL Output and Error Contract)— 本 ADR が出力モードのトリガ(`--json`)を供給し、ADR 0057 の前提依存を解消する
+- ADR 0020(CLI Message Language Policy)— 人間向けおよび機械向けメッセージの言語方針
+- ADR 0049(Apply CLI Image List Limit in the Repository Query)— read / list 系の挙動
+- tag-db ADR 0002(CLI/GUI Entrypoint Policy)— 思想の参照元(LoRAIro は GUI 主体であるためエントリを分離する点が差分)
+
 ## 2026-09-06 追補: 部分失敗の終了コード (#1313)
 
-ADR 0057の登録・取込み・エラー解決の部分失敗契約は、明示`--json`の有無にかかわらず同じ終了コードを使う。
-正常・空・正常skipは0、部分失敗／全失敗は1。JSONLは件数を保持したresult行へstatus/okを出力し、
-人間向け表示は既存サマリを維持する。モード選択とエントリポイントは変更しない。
-以前の部分失敗exit 0に依存するスクリプトの移行については [CLIドキュメント](../cli.md) を参照。
+ADR 0057 で定める登録・取込み・エラー解決の部分失敗契約では、明示的な `--json` の有無にかかわらず同一の終了コードを使用する。
+
+- 正常・空集合・正常スキップは `0`、部分失敗および全件失敗は `1` とする。
+- JSONL 出力では件数を保持した `result` 行に `status` と `ok` を出力し、人間向け表示では既存のサマリ形式を維持する。
+- モード選択とエントリポイントの方針は変更しない。
+
+従来の部分失敗における終了コード `0` に依存したスクリプトの移行については、[CLIドキュメント](../cli.md) を参照すること。

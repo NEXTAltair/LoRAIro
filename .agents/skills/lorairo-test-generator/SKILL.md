@@ -3,7 +3,7 @@ name: lorairo-test-generator
 version: "1.0.0"
 description: Generate pytest unit, integration, and GUI tests for LoRAIro with fixtures, mocks, 75%+ coverage, and pytest-qt for PySide6. Use when creating test suites or ensuring code quality.
 metadata:
-  short-description: LoRAIro向けpytest/pytest-qtテスト生成（fixtures、mocks、カバレッジ重視）。
+  short-description: LoRAIro向けpytest/pytest-qtテスト生成(fixtures、mocks、カバレッジ重視)。
 allowed-tools:
   # Code exploration
   - Grep
@@ -17,23 +17,23 @@ allowed-tools:
   - Bash
 ---
 
-# Test Generation for LoRAIro
+# LoRAIro 向けテスト生成ガイド
 
-pytest+pytest-qt test generation with fixtures, mocks, and 75%+ coverage for LoRAIro project.
+LoRAIro プロジェクト向けに、`pytest` と `pytest-qt` を使ったテストを生成するためのガイドである。フィクスチャと mock を活用し、75% 以上のカバレッジを維持する。
 
-## When to Use
+## 適用場面
 
-Use this skill when:
-- **Creating tests**: After implementing new features
-- **Improving coverage**: Increasing existing test coverage
-- **Regression testing**: After refactoring code
-- **GUI testing**: Implementing PySide6 widget tests
+- **テストの新規作成**: 新機能を実装した直後にテストを追加するとき
+- **カバレッジの改善**: 既存コードのテストカバレッジを引き上げるとき
+- **回帰テスト**: リファクタリング後に既存挙動を検証するとき
+- **GUI テスト**: PySide6 ウィジェットのテストを実装するとき
 
-## Test Categories
+## テストカテゴリ
 
-### pytest Markers
+### pytest マーカー
 
-**Three test levels:**
+テストは次の 3 つのレベルに分類する。
+
 ```python
 # Unit tests: Single function/class, business logic
 @pytest.mark.unit
@@ -55,7 +55,7 @@ def test_widget_interaction(qtbot):
     assert widget.isVisible()
 ```
 
-### Running Tests
+### テストの実行コマンド
 
 ```bash
 # All tests
@@ -70,14 +70,11 @@ uv run pytest -m gui
 uv run pytest --cov=src --cov-report=html
 ```
 
-### Native Dependency Smoke Tests
+### ネイティブ依存のスモークテスト
 
-LoRAIro shares one canonical `.venv` at `/workspaces/LoRAIro/.venv`, including when commands run from
-`.agents/worktree/` checkouts. Treat default-sync `uv run`, `uv sync`, dependency upgrades, and torch/NVIDIA
-wheel repairs as shared environment mutations; do not run them concurrently across workers.
+LoRAIro は `.agents/worktree/` 配下のチェックアウトを含め、`/workspaces/LoRAIro/.venv` にある単一の共有 `.venv` を利用する。暗黙の同期を伴う `uv run`、`uv sync`、依存パッケージの更新、および `torch`・NVIDIA wheel の修復は共有環境の変更に該当する。複数のワーカーから並列実行してはならない。
 
-Run a torch/CUDA smoke test after dependency updates, after failures involving local annotators, or when errors
-mention missing native libraries such as `libcudnn.so.9`, `libcusparseLt.so.0`, `libtorch_cuda.so`, or `triton`:
+依存更新の後や、ローカルアノテーター関連の失敗時、あるいは `libcudnn.so.9`・`libcusparseLt.so.0`・`libtorch_cuda.so`・`triton` などのネイティブライブラリ不足を示すエラーが出たときは、次の `torch` / CUDA スモークテストを実行する。
 
 ```bash
 uv run --no-sync python -c "import torch, torchvision; print(torch.__version__, torchvision.__version__, torch.cuda.is_available())"
@@ -85,25 +82,22 @@ find .venv/lib/python*/site-packages -name 'libcudnn.so*' -o -name 'libcusparseL
 uv pip check
 ```
 
-Known failure mode: `uv` can leave NVIDIA/PyTorch packages in an inconsistent state where package metadata and
-`RECORD` say `nvidia-cudnn-cu13` or `nvidia-cusparselt-cu13` is installed, but the actual `.so` files are missing.
-`uv pip check` may not detect this because dependencies are still installed from the resolver's perspective.
+**既知の障害モード**: `uv` の操作によって NVIDIA・PyTorch パッケージが不整合な状態になることがある。パッケージのメタデータや `RECORD` 上では `nvidia-cudnn-cu13` や `nvidia-cusparselt-cu13` がインストール済みとなっているのに、実際の `.so` ファイルが欠損しているケースである。依存関係リゾルバー上は導入済みとみなされるため、`uv pip check` では検出できない場合がある。
 
-Repair order:
-1. Prefer non-mutating checks first (`uv run --no-sync ...`, `find`, `uv pip check`).
-2. If only specific NVIDIA shared objects are missing, force-reinstall the narrow package(s), for example
-   `uv pip install --force-reinstall nvidia-cudnn-cu13 nvidia-cusparselt-cu13`.
-3. Reinstall `torch` / `torchvision` from the configured PyTorch CUDA index only when the narrow repair fails.
-4. If repeated narrow repairs expose more missing native libraries, or installed metadata repeatedly disagrees with
-   actual files, stop repairing piecemeal and tell the user that the shared `.venv` likely needs to be rebuilt.
-5. Do not remove or recreate the shared `.venv` from an agent session unless the user explicitly asks for shared
-   environment maintenance. The user is the authority on whether other sessions are still using the shared `.venv`.
+**修復手順:**
 
-## Core Patterns
+1. まず環境を変更しない確認コマンドを優先して実行する(`uv run --no-sync ...`、`find`、`uv pip check`)。
+2. 特定の NVIDIA 共有ライブラリだけが欠損している場合は、対象パッケージのみを強制再インストールする(例: `uv pip install --force-reinstall nvidia-cudnn-cu13 nvidia-cusparselt-cu13`)。
+3. 局所的な修復で解決しない場合に限り、設定済みの PyTorch CUDA インデックスから `torch` と `torchvision` を再インストールする。
+4. 局所修復を繰り返しても別のネイティブライブラリ欠損が次々と現れる場合や、インストール済みメタデータと実ファイルの不整合が続く場合は、個別修復を打ち切る。そのうえで、共有 `.venv` の再構築が必要である旨をユーザーへ報告する。
+5. ユーザーから共有環境の保守を明示的に依頼されない限り、エージェントセッションから共有 `.venv` を削除・再作成しない。他のセッションが共有 `.venv` を使用中かどうかはユーザーが判断する。
 
-### 1. Unit Tests
+## コアパターン
 
-**Repository test example:**
+### 1. ユニットテスト
+
+**リポジトリのテスト例:**
+
 ```python
 @pytest.fixture
 def test_repository(test_db_engine):
@@ -122,7 +116,8 @@ def test_add_image(test_repository):
     assert result.path == "/test/image.jpg"
 ```
 
-**Service test with mocks:**
+**mock を使ったサービスのテスト例:**
+
 ```python
 @pytest.fixture
 def mock_repository():
@@ -137,9 +132,10 @@ def test_process_batch(mock_repository):
     assert len(result) == 1
 ```
 
-### 2. Integration Tests
+### 2. 統合テスト
 
-**Full workflow test:**
+**一連のワークフローを検証する例:**
+
 ```python
 @pytest.mark.integration
 def test_full_workflow(test_repository):
@@ -155,9 +151,10 @@ def test_full_workflow(test_repository):
     assert isinstance(results, list)
 ```
 
-### 3. GUI Tests (pytest-qt)
+### 3. GUI テスト(`pytest-qt`)
 
-**Widget test:**
+**ウィジェットのテスト例:**
+
 ```python
 @pytest.fixture
 def thumbnail_widget(qtbot):
@@ -180,9 +177,10 @@ def test_button_click(qtbot, thumbnail_widget):
     assert thumbnail_widget._images_loaded is True
 ```
 
-### 4. Fixtures
+### 4. フィクスチャ
 
-**Common fixtures:**
+**共通フィクスチャの例:**
+
 ```python
 @pytest.fixture(scope="session")
 def test_data_dir():
@@ -198,27 +196,29 @@ def batch_size(request):
     return request.param
 ```
 
-## Best Practices
+## ベストプラクティス
 
-**DO:**
-- Use AAA pattern (Arrange, Act, Assert)
-- Single assertion per test (or tightly coupled assertions on one outcome)
-- Use fixtures for setup/teardown
-- Apply appropriate pytest markers (`unit`, `integration`, `gui`, `cli`, `bdd`)
-- Mock `QMessageBox` (`monkeypatch`) in GUI tests so modal dialogs never block headless runs
-- Use `qtbot.waitSignal()` or `qtbot.waitUntil()` instead of fixed `qtbot.wait()`
-- Respect package test boundaries (ADR 0024: run LoRAIro main tests with `make test`, `image-annotator-lib` with `make test-iam-lib`, `genai-tag-db-tools` with `make test-genai-tag`)
-- Maintain 75%+ code coverage
+### 推奨事項
 
-**DON'T:**
-- Create dependencies between tests
-- Call external APIs or download models in standard test runs (`not downloads_and_runs_model and not calls_real_webapi`)
-- Leave `QMessageBox.question` / `warning` / `critical` unmocked
-- Hardcode paths (use `tests/resources/` or `tmp_path`)
-- Use print statements (use logger or assert messages)
-- Write slow unit tests (keep under 1 second)
+- AAA パターン(Arrange・Act・Assert)で構成する。
+- 1 テストにつき 1 つのアサーション、または 1 つの結果に密接に関連するアサーションに絞る。
+- セットアップと後片付けにはフィクスチャを使う。
+- 適切な pytest マーカー(`unit`、`integration`、`gui`、`cli`、`bdd`)を付与する。
+- ヘッドレス実行がモーダルダイアログで停止しないよう、GUI テストでは `QMessageBox` を `monkeypatch` で mock 化する。
+- 固定時間の `qtbot.wait()` ではなく、`qtbot.waitSignal()` または `qtbot.waitUntil()` を使う。
+- パッケージごとのテスト境界を守る(ADR 0024: LoRAIro 本体は `make test`、`image-annotator-lib` は `make test-iam-lib`、`genai-tag-db-tools` は `make test-genai-tag`)。
+- コードカバレッジを 75% 以上に維持する。
 
-## Coverage Requirements
+### 禁止事項
+
+- テスト間の実行順序や状態に依存させない。
+- 標準テスト実行で外部 API を呼び出したり、モデルをダウンロードしたりしない(`not downloads_and_runs_model and not calls_real_webapi`)。
+- `QMessageBox.question`・`warning`・`critical` を mock しないまま放置しない。
+- ファイルパスをハードコードしない(`tests/resources/` または `tmp_path` を使う)。
+- `print` 文を使わず、`logger` または `assert` メッセージを使う。
+- 遅いユニットテストを書かない(1 秒未満に収める)。
+
+## カバレッジ要件
 
 ```bash
 # Generate coverage report
@@ -231,7 +231,7 @@ uv run --no-sync pytest --cov=src --cov-report=html
 # - Target: Unit 90%+, Integration 80%+, GUI 70%+
 ```
 
-## Project Structure
+## テストディレクトリ構成
 
 ```
 tests/
@@ -250,39 +250,38 @@ tests/
 └── bdd/                     # pytest-bdd feature scenarios
 ```
 
-## Test Sync (diff-driven, 旧 /test sync)
+## テスト同期(差分駆動、旧 `/test sync`)
 
-コード変更後に、テストの**追加・修正・削除**を差分から判定して同期する。新規実装直後だけでなく、
-リファクタやシグネチャ変更の後にも使う。
+コードを変更したあと、差分からテストの**追加・修正・削除**を判定して同期する。新規実装の直後だけでなく、リファクタリングやシグネチャ変更のあとにも活用する。
 
 ### 手順
 
-1. **変更検出**: 変更されたソースを特定し、種別を分類する。
+1. **変更の検出**: 変更されたソースファイルを特定し、変更種別を分類する。
    ```bash
    git diff --name-status HEAD~1..HEAD -- 'src/**/*.py'
    ```
-   - `A` (Added) → 対応テストを**追加**
-   - `M` (Modified) → シグネチャ/振る舞い変更ならテストを**修正**（内部実装のみなら実行で確認、変更不要のことが多い）
-   - `D` (Deleted) → 対応テストを**削除**（削除前にユーザー確認）
-2. **影響範囲の特定**: `Grep` で変更シンボルの参照元を追い、波及するテストを洗う。
+   - `A`(Added): 対応するテストを**追加**する。
+   - `M`(Modified): シグネチャや振る舞いが変わった場合はテストを**修正**する。内部実装のみの変更であればテスト実行で確認し、変更不要なことが多い。
+   - `D`(Deleted): 対応するテストを**削除**する(削除前にユーザーへ確認する)。
+2. **影響範囲の特定**: `Grep` で変更シンボルの参照元を追い、影響を受けるテストを洗い出す。
 3. **テストファイル対応表**:
    - `src/lorairo/database/repository/foo.py` → `tests/unit/database/repository/test_foo_repository.py`
    - `src/lorairo/services/foo.py` → `tests/unit/services/test_foo.py`
    - `src/lorairo/gui/tab/foo_tab.py` → `tests/unit/gui/tab/test_foo_tab.py`
    - `src/lorairo/gui/widgets/bar.py` → `tests/unit/gui/widgets/test_bar.py`
-4. **同期アクション実行**: 追加は本 skill の Core Patterns に従い生成。修正は変更 API に合わせ更新。削除は確認後に実施。
-5. **検証**: 新規/修正テストと回帰テストを `make test` または `uv run --no-sync pytest -m "not downloads_and_runs_model and not calls_real_webapi"` で確認（定義は `scripts/dev_tasks.py` および `pyproject.toml`）。
+4. **同期アクションの実行**: 追加は本スキルのコアパターンに従って生成し、修正は変更後の API に合わせて更新する。削除は確認後に実施する。
+5. **検証**: 新規・修正テストおよび回帰テストを `make test`、または `uv run --no-sync pytest -m "not downloads_and_runs_model and not calls_real_webapi"` で確認する(コマンド定義は `scripts/dev_tasks.py` と `pyproject.toml` にある)。
 
-クイック品質チェック（Ruff/mypy/pytest）は `make lint` / `make mypy` / `make test` で直接実行する。
+Ruff・mypy・pytest による簡易品質チェックは、`make lint`・`make mypy`・`make test` で直接実行する。
 
-## Before Writing Tests
+## テストを書く前の確認
 
-類似のテストパターン・既存 fixture を確認する（`tests/conftest.py`、近接する `test_*.py`）。再利用価値のあるテスト戦略・モック方針は `docs/lessons-learned.md` に記録する。
+事前に `tests/conftest.py` や近接する `test_*.py` を読み込み、類似のテストパターンや既存フィクスチャを確認する。再利用価値のあるテスト戦略や mock 方針は `docs/lessons-learned.md` に記録する。
 
-## Examples
+## 実装例
 
-See [examples.md](./examples.md) for detailed test implementation scenarios.
+詳細なテスト実装シナリオは [examples.md](./examples.md) を参照する。
 
-## Reference
+## リファレンス
 
-See [reference.md](./reference.md) for complete pytest and pytest-qt API reference.
+`pytest` および `pytest-qt` の完全な API リファレンスは [reference.md](./reference.md) を参照する。

@@ -11,49 +11,41 @@ tags: []
 
 ## Context
 
-`lorairo-cli` は Typer + rich で実装された人間向け CLI である。出力は `console.print` による
-色マークアップ付きの装飾テキスト、Rich Table、Progress バーで構成され、唯一 `project list --format json`
-のみが構造化出力を返す。エラーは各コマンドに `console.print("[red]Error:...]")` + `typer.Exit(...)` が
-散在し、exit code の使い分け (`Exit(1)` / `Exit(2)`) がコマンドごとに揺れている。装飾・進捗・エラーが
-すべて stdout に混在しており、AI エージェントや自動化スクリプトが出力をパースできない。
+`lorairo-cli` は Typer と Rich で実装された人間向けの CLI である。出力は `console.print` による色マークアップ付きの装飾テキスト、Rich Table、Progress バーで構成されており、構造化出力を返すのは `project list --format json` のみである。
 
-sibling package の `genai-tag-db-tools` (tag-db) は agent-friendly CLI 契約 (stdout=JSONL / stderr=logs、
-安定エラーコードによる構造化 error、コマンド introspection) を確立済みで、AI エージェントが安定して駆動
-できる CLI を実現している。LoRAIro CLI にも同等の機械可読契約を定義し、人間向け対話 UX を損なわずに
-エージェント駆動を可能にする。
+エラー処理も各コマンドに `console.print("[red]Error:...]")` と `typer.Exit(...)` が散在しており、終了コード(`Exit(1)` と `Exit(2)`)の使い分けがコマンドごとに揺れている。装飾・進捗・エラーがすべて標準出力(stdout)へ混在しているため、AI エージェントや自動化スクリプトが出力を安定してパースできない。
 
-本 ADR は **「機械可読出力が選択された経路」の出力契約とエラー契約**を固定する。どの条件で機械可読出力と
-人間向け rich 出力を切り替えるか (トリガ) およびエントリポイント方針 (`lorairo` / `lorairo-cli` の二分、
-help/version 挙動) は **ADR 0058** で定義する (出力モード = 明示 `--json` フラグ、entry は 2 本分離維持)。
-本 ADR はそれらの決定を前提に、契約の中身を確定する。
+一方、兄弟パッケージの `genai-tag-db-tools`(tag-db)では、エージェント向け CLI 契約がすでに確立されている。具体的には、stdout を JSONL、stderr をログへ分離し、安定したエラーコードによる構造化エラーとコマンドイントロスペクションを提供している。LoRAIro CLI にも同等の機械可読契約を定義し、人間向けの対話 UX を損なわずにエージェント駆動を可能にする。
+
+本 ADR では、**機械可読出力が選択された経路における出力契約とエラー契約**を固定する。機械可読出力と人間向け Rich 出力を切り替える条件(トリガ)やエントリポイント方針(`lorairo` と `lorairo-cli` の二分、help / version の挙動)は **ADR 0058** で定義している(出力モードは明示的な `--json` フラグ、エントリポイントは 2 本分離を維持)。本 ADR はそれらの決定を前提として契約の中身を確定する。
 
 ## Scope / Non-Goals
 
-本 ADR は CLI 機械可読出力の **決定とコントラクト** (stdout/stderr 分離、3 kind、不変条件、500 キャップ、
-14 エラーコード集合とフラグ、exit code、中央境界の責務) を固定する。**具体的な実装メカニズムは網羅しない**:
-Click/Typer の起動・パースの細部、per-SDK / per-library の例外形状 (例: `google-genai` の
-`google.genai.errors.APIError` の status code) の完全な分類、各コマンドの projection フィールド定義などは、
-実装 Issue (#640 / #641) と生成される `docs/cli.md` (wire スキーマの SSoT) で確定する。本 ADR 中の
-`classify_exception` 等の例示は代表例であり、exhaustive な実装仕様ではない。
+本 ADR が固定するのは、CLI 機械可読出力の**決定事項と契約**である(stdout / stderr の分離、3 種類の `kind`、不変条件、500 枚上限、14 エラーコード集合とフラグ、終了コード、中央エラー境界の責務)。
+
+以下の具体的な実装メカニズムは本 ADR では網羅せず、実装 Issue(#640、#641)および自動生成される `docs/cli.md`(ワイヤスキーマの SSoT)で確定する。
+
+- Click / Typer の起動およびパースの細部
+- 各 SDK・ライブラリ固有の例外形状(例:`google-genai` の `google.genai.errors.APIError` のステータスコード)の網羅的な分類
+- 各コマンドの射影(projection)フィールド定義
+
+なお、本 ADR 中の `classify_exception` などの記述は代表例であり、網羅的な実装仕様ではない。
 
 ## Decision
 
-### 1. stdout = JSONL 専用 / stderr = ログ・進捗・装飾
+### 1. stdout は JSONL 専用、stderr はログ・進捗・装飾専用とする
 
-stdout には機械可読 JSONL のみを出力する。1 行 = 1 つの valid JSON object。シリアライズは単一の
-`_emit` ヘルパーを経由し `json.dumps(line, ensure_ascii=False, allow_nan=False, default=str)` で行う
-(`ensure_ascii=False` で日本語タグを保持、`default=str` は `Path` / `datetime` 等の非自明な値のフォールバック、
-`allow_nan=False` で非有限 float を弾く)。非有限な score / metric (`NaN` / `Infinity`) は標準 JSON で不正な
-ため、`_emit` は emit 前に `None` へ正規化する (混入しても stdout 行の JSON 妥当性を壊さない)。
+stdout には機械可読な JSONL のみを出力し、1 行につき 1 つの有効な JSON オブジェクトとする。
 
-**`kind` とエラー `code` は安定した wire 値を持たねばならない**。これらは `StrEnum` (または素の `str`) で
-定義し、`"INVALID_INPUT"` のような契約値にシリアライズされることを保証する。通常の `Enum` を `default=str`
-に頼ると `"ErrorCode.INVALID_INPUT"` のような不安定値になり、`code` で分岐するエージェントが壊れるため禁止する。
+- シリアライズは単一の `_emit` ヘルパーを経由し、`json.dumps(line, ensure_ascii=False, allow_nan=False, default=str)` を用いる。
+  - `ensure_ascii=False` により日本語タグをそのまま保持する。
+  - `default=str` は `Path` や `datetime` などの非自明な値に対するフォールバックとして機能する。
+  - `allow_nan=False` により非有限の浮動小数点数を弾く。
+- 非有限のスコアやメトリクス(`NaN`、`Infinity`)は標準 JSON で不正となるため、`_emit` は出力前に `None` へ正規化する。これにより、非有限値が混入しても stdout の JSON 妥当性を壊さない。
+- **`kind` とエラー `code` は安定したワイヤ値を持たなければならない**。これらは `StrEnum`(または素の `str`)で定義し、`"INVALID_INPUT"` のような契約値へシリアライズされることを保証する。通常の `Enum` を `default=str` に委ねると `"ErrorCode.INVALID_INPUT"` のような不安定な値になり、`code` で分岐するエージェントが壊れるため禁止する。
+- ログ(Loguru)、進捗バー(Rich Progress)、人間向けの装飾はすべて stderr へ出力する。stdout は機械契約専用とし、人間向けレンダリングと混在させない。
 
-ログ (loguru)、進捗バー (rich Progress)、人間向け装飾はすべて stderr に出す。stdout は機械契約専用とし、
-人間向けレンダリングと混在させない。
-
-### 2. stdout の kind は 3 種: `item` / `result` / `error`
+### 2. stdout の `kind` は `item`、`result`、`error` の 3 種類とする
 
 ```jsonc
 // item — per-record 出力を持つコマンドの 1 レコード (N 行)。record を model_dump(mode="json") で展開。
@@ -68,22 +60,15 @@ stdout には機械可読 JSONL のみを出力する。1 行 = 1 つの valid J
  "retryable": false, "user_action_required": true, "hint": "...", "details": {...}}
 ```
 
-- **`item` を出すコマンド**: per-record の出力を持つもの。list 系コマンドに加え、`annotate run` は画像ごとに
-  curated な `item` (phash / model / tags / score 等) を 1 行ずつ流す。`export create` / `images update` の
-  ような per-record 出力を持たないバッチ操作は `item` を出さず最終 `result` のみ。
-- **進捗を表す `event` kind は採用しない**。`item` を流すコマンドは item 数が進捗を表し、`item` を持たない
-  バッチ操作は最終 `result` で足りる。進捗は §1 のとおり stderr の人間向け Progress バーに限定する。
-- **不変条件**: コマンド実行は必ず 1 行の `result` または `error` で終わる。list 系は **`--fetch` 指定時に**
-  `item` を N 行流した後に件数サマリの `result` を 1 行出す。**既定 (フラグ無し) は `item` を出さず
-  `result` (count) のみ**を出す (ADR 0060: count 既定 / `--fetch` 明示)。
+- **`item` を出力するコマンド**:レコード単位の出力を持つコマンドが対象である。list 系コマンドに加え、`annotate run` では画像ごとに精査された `item`(phash、model、tags、score など)を 1 行ずつ出力する。一方、`export create` や `images update` のようにレコード単位の出力を持たないバッチ操作は `item` を出さず、最終の `result` のみを出力する。
+- **進捗を表す `event` kind は採用しない**:`item` を流すコマンドでは出力された `item` 数がそのまま進捗を表し、`item` を持たないバッチ操作は最終の `result` で十分である。進捗表示は §1 のとおり stderr の人間向け Progress バーに限定する。
+- **不変条件**:すべてのコマンド実行は、必ず 1 行の `result` または `error` で終了する。list 系コマンドは **`--fetch` 指定時のみ** `item` を N 行出力した後に件数サマリの `result` を 1 行出す。**既定(フラグなし)では `item` を出さず、`result`(件数)のみ**を出力する(ADR 0060:件数既定 / `--fetch` 明示)。
 
-### 3. バッチ操作は 1 回 500 枚ハードキャップ (GUI staging と整合)
+### 3. バッチ操作は 1 回あたり 500 枚のハードキャップを設ける(GUI ステージングと整合)
 
-変更を伴うバッチ操作 (`annotate run` / `export create` / `images update` のタグ一括) は、1 回の呼び出しで
-処理対象を **最大 500 枚** に制限する。GUI の StagingWidget が最大 500 枚キャップである挙動に合わせる。
+変更を伴うバッチ操作(`annotate run`、`export create`、および `images update` のタグ一括更新)は、1 回の呼び出しで処理できる対象を**最大 500 枚**に制限する。これは GUI の `StagingWidget` における最大 500 枚上限と挙動を揃えるためである。
 
-選択結果が 500 枚を超える場合、**画像 decode / 処理を一切行う前に** `RESULT_SET_TOO_LARGE` の `error` で弾く
-(ADR 0060 で `INVALID_INPUT` から統一)。`details` に超過情報を載せ、利用者に絞り込みを促す。
+選択結果が 500 枚を超える場合、**画像のデコードや処理を一切実行する前に** `RESULT_SET_TOO_LARGE` の `error` を返して拒否する(ADR 0060 で `INVALID_INPUT` から統一)。その際、`details` に超過情報を格納し、利用者へ絞り込みを促す。
 
 ```jsonc
 {"kind": "error", "ok": false, "code": "RESULT_SET_TOO_LARGE",
@@ -93,188 +78,137 @@ stdout には機械可読 JSONL のみを出力する。1 行 = 1 つの valid J
  "details": {"limit": 500, "requested": 720}}
 ```
 
-この上限は **§2 の `batch_size` (モデル処理 chunk = 同時に decode する枚数) とは別概念**で、「1 コマンドが
-処理する総数」を制限する。**500 超のときの recourse は操作で分かれる**:
+この上限は **§2 の `batch_size`(モデル処理のチャンクサイズ、すなわち同時にデコードする枚数)とは別概念**であり、「1 コマンドが処理する総数」を制限するものである。**500 枚を超えた場合の対処手段(recourse)は操作ごとに異なる**。
 
-- `annotate run`: 500 超は弾くが、ADR 0053 の sharding で 500 ずつ反復実行できる。ただし **`--unrated` /
-  `--missing-model` のような mutating フィルタ** (処理すると対象集合が縮む) では **`--offset` を増やしては
-  いけない** — shard 0 を処理すると集合が縮み、`--offset 500` が未処理レコードを飛ばす。これらは
-  **`--limit 500 --offset 0` を集合が空になるまで繰り返す** (縮む集合の先頭 500 を毎回取る) か、stable な
-  **`--image-id` / ID 範囲**で shard する。固定 ID 集合に対する反復のみ `--offset` 加算が安全。
-- `export create`: recourse なし。export の json 成果物は `metadata.json` を上書き方式で生成し、分割再実行
-  による pagination/merge が成果物を壊すため分割手段を提供しない。500 超はフィルタ絞り込みで対応する。
-- `images update` (タグ一括): 500 超は弾く。recourse は `annotate run` と同様 (DB 変更が画像ごとに冪等に
-  蓄積されるため、mutating フィルタでは `--limit 500 --offset 0` 反復、固定集合では `--image-id` / ID 範囲で
-  shard)。具体的な flag 提供は #640 で確定する。
+- **`annotate run`**:500 枚超は拒否するが、ADR 0053 の分割実行(シャーディング)を用いて 500 枚ずつ反復実行できる。ただし、**`--unrated` や `--missing-model` のような処理によって対象集合が縮むフィルタ(mutating フィルタ)**を使う場合、**`--offset` を加算してはならない**。最初の 500 件を処理すると対象集合が縮むため、`--offset 500` を指定すると未処理レコードを読み飛ばしてしまう。この場合は、**集合が空になるまで `--limit 500 --offset 0` を繰り返す**(縮んだ集合の先頭 500 件を毎回取得する)か、安定した **`--image-id` または ID 範囲**で分割する。`--offset` の加算が安全なのは、固定された ID 集合を反復する場合に限る。
+- **`export create`**:分割による代替手段は設けない。エクスポートの JSON 成果物は `metadata.json` を上書き方式で生成するため、分割再実行によるページングやマージを行うと成果物が破損する。500 枚を超える場合はフィルタによる絞り込みで対応する。
+- **`images update`(タグ一括更新)**:500 枚超は拒否する。代替手段は `annotate run` と同様である(DB 変更が画像ごとに冪等へ蓄積されるため、mutating フィルタでは `--limit 500 --offset 0` の反復、固定集合では `--image-id` または ID 範囲で分割する)。具体的なフラグ提供は #640 で確定する。
 
-この 500 キャップは ADR 0053 の「1 回の呼び出しで総数無制限に annotate を実行できる」前提を**改定**する。
-ADR 0053 の `batch_size` streaming と sharding 機構自体は維持し、前者はキャップ内のメモリ境界、後者は
-キャップを跨ぐ反復手段として活きる。
+この 500 枚上限により、ADR 0053 の「1 回の呼び出しで総数無制限にアノテーションを実行できる」という前提を**改定**する。ADR 0053 の `batch_size` ストリーミング機構と分割実行機構そのものは維持し、前者は上限内でのメモリ境界として、後者は 500 枚を跨ぐ反復手段として活かす。
 
-read / list 系コマンド (`images list` 等) も基本 500 で bound するが、**count 既定 + `--fetch` 明示**という
-別形式で実現する (ADR 0060)。処理系の「処理前ハード弾き」とは異なり、read/list は既定で件数のみを返し、
-fetch 時に total が 500 を超えたら `RESULT_SET_TOO_LARGE` で弾いて絞り込みを促す。完全な pagination 契約
-(count 既定 / fetch / limit/offset / stable 順 / pushdown) は ADR 0049 および ADR 0060 (#639) で定義する。
+なお、参照・一覧系コマンド(`images list` など)も基本は 500 件で上限管理するが、**件数既定と `--fetch` 明示**という別の形式で実現する(ADR 0060)。変更系バッチの「処理前ハード拒否」とは異なり、参照・一覧系は既定で件数のみを返し、`--fetch` 時に総数が 500 件を超えていれば `RESULT_SET_TOO_LARGE` で弾いて絞り込みを促す。完全なページング契約(件数既定、`--fetch`、`limit` / `offset`、安定順序、DB プッシュダウン)は ADR 0049 および ADR 0060(#639)で定義する。
 
-### 4. エラーコードセット = 15 種
+### 4. エラーコードセットは全 15 種類とする
 
-tag-db と共有する安定コア 11 種に、AI 推論ドメイン固有の 3 種、pagination ドメインの 1 種 (ADR 0060) を
-加えた **全 15 種**。各コードに `retryable` /
-`user_action_required` フラグを定義し、エージェントは message 文字列をパースせずこのフラグで分岐する。
-共有コア 11 種のフラグ意味は tag-db ADR 0003 の mapping を authoritative とし、本表で全コードを明示する。
+tag-db と共有する安定コア 11 種類に、AI 推論ドメイン固有の 3 種類とページングドメインの 1 種類(ADR 0060)を加えた**全 15 種類**を定義する。各コードには `retryable` および `user_action_required` フラグを付与し、エージェントは `message` 文字列をパースせず、これらのフラグで分岐判断を行う。
 
-| コード | 区分 | retryable | user_action | 主因 / エージェント反応 |
+共有コア 11 種類のフラグ意味は tag-db ADR 0003 の対応表を正本とし、以下の表に全コードを明示する。
+
+| コード | 区分 | retryable | user_action | 主因とエージェントの反応 |
 |---|---|---|---|---|
-| `INVALID_INPUT` | 共有 | false | true | 引数/選択が不正 → 入力を直す |
-| `VALIDATION_FAILED` | 共有 | false | true | 検証失敗 → 入力を直す |
-| `PRECONDITION_FAILED` | 共有 | false | true | 前提未達 → 先行操作を実行 |
-| `NOT_FOUND` | 共有 | false | true | 対象なし → 指定を見直す |
-| `ALREADY_EXISTS` | 共有 | false | true | 既存衝突 → 別名/既存を使う |
-| `CONFLICT` | 共有 | false | true | 状態衝突 → 解消して再実行 |
+| `INVALID_INPUT` | 共有 | false | true | 引数や選択が不正 → 入力を修正する |
+| `VALIDATION_FAILED` | 共有 | false | true | 検証失敗 → 入力を修正する |
+| `PRECONDITION_FAILED` | 共有 | false | true | 前提条件の未達 → 先行操作を実行する |
+| `NOT_FOUND` | 共有 | false | true | 対象が存在しない → 指定を見直す |
+| `ALREADY_EXISTS` | 共有 | false | true | 既存との衝突 → 別名または既存リソースを使う |
+| `CONFLICT` | 共有 | false | true | 状態の衝突 → 衝突を解消して再実行する |
 | `IO_ERROR` | 共有 | false | false | ファイル I/O 失敗 |
-| `NETWORK_ERROR` | 共有 | true | false | 一時的ネットワーク障害 → 再試行 |
+| `NETWORK_ERROR` | 共有 | true | false | 一時的なネットワーク障害 → 再試行する |
 | `DB_ERROR` | 共有 | false | false | DB 操作失敗 |
-| `TIMEOUT` | 共有 | true | false | タイムアウト → 再試行 |
-| `INTERNAL_ERROR` | 共有 | false | false | 想定外内部エラー |
-| `RESOURCE_EXHAUSTED` | 拡張 | true | true | OOM → `batch_size` を下げてから再試行 (identical retry は再失敗) |
-| `AUTH_ERROR` | 拡張 | false | true | API キー未設定/無効 → キーを設定 |
-| `RATE_LIMITED` | 拡張 | true | false | provider 429 → backoff して再試行 (`details.retry_after`) |
-| `RESULT_SET_TOO_LARGE` | 拡張 (ADR 0060) | false | true | 結果が 500 上限超 → 検索条件を足して絞る |
+| `TIMEOUT` | 共有 | true | false | タイムアウト → 再試行する |
+| `INTERNAL_ERROR` | 共有 | false | false | 想定外の内部エラー |
+| `RESOURCE_EXHAUSTED` | 拡張 | true | true | OOM → `batch_size` を下げてから再試行する(同一条件での再実行は再失敗する) |
+| `AUTH_ERROR` | 拡張 | false | true | API キーの未設定または無効 → キーを設定する |
+| `RATE_LIMITED` | 拡張 | true | false | プロバイダの 429 応答 → バックオフ後に再試行する(`details.retry_after` を参照) |
+| `RESULT_SET_TOO_LARGE` | 拡張(ADR 0060) | false | true | 結果が 500 件上限を超過 → 検索条件を追加して絞り込む |
 
-`retryable=true` かつ `user_action_required=true` の組は「再試行は可能だが、入力/設定を変えてから
-(例: `RESOURCE_EXHAUSTED` は `batch_size` を下げてから; これをせず identical に再実行すると再失敗する)」
-を意味する。**identical な再実行で成功し得るのは `user_action_required=false` の retryable コード
-(`NETWORK_ERROR` / `TIMEOUT` / `RATE_LIMITED`、後者は backoff 後) のみ**。エージェントはこの 2 フラグの
-組で「そのまま再試行」と「調整してから再試行」を区別する。
+`retryable=true` かつ `user_action_required=true` の組み合わせは、「再試行は可能だが、入力や設定を変更してから実行する必要がある」ことを意味する(例:`RESOURCE_EXHAUSTED` は `batch_size` を下げてから再試行する必要があり、同一条件のまま再実行すると再び失敗する)。
 
-### 5. `classify_exception`: 例外 → コード分類
+**同一条件のまま再実行して成功し得るのは、`user_action_required=false` かつ `retryable=true` のコード(`NETWORK_ERROR`、`TIMEOUT`、およびバックオフ後の `RATE_LIMITED`)のみ**である。エージェントはこの 2 フラグの組み合わせによって「そのまま再試行」と「条件を調整してから再試行」を区別する。
 
-raise された例外をエラーコードに分類する関数を新設する。2 つの技法を採用する。
+### 5. `classify_exception` による例外からエラーコードへの分類
 
-- **cause-chain walking**: `__cause__` / `__context__` を遡り、`raise X from e` で wrap された真因を拾う。
-  LoRAIro は iam-lib 例外を `typer.Exit` で包む等の多層 wrap が多いため必須。
-- **module-prefix matching**: 例外クラスをモジュール名で判定し、分類のために `torch` / 推論 SDK を
-  eager import しない。LoRAIro はこれらを lazy import 化しているため (ADR 0010 系)、eager import は
-  起動コスト増・メモリ枯渇を招く。
+送出された例外をエラーコードへ分類する関数 `classify_exception` を新設し、以下の 2 つの技法を採用する。
 
-分類例: `ImageLoadMemoryError` / iam-lib `OutOfMemoryError` / `RuntimeError("...out of memory...")`
-→ `RESOURCE_EXHAUSTED`、LoRAIro 独自の `APIKeyNotConfiguredError` (`src/lorairo/api/exceptions.py`、
-openai/claude/google で送出) および `anthropic.` / `openai.` / `google.` 系 SDK の `AuthenticationError`
-→ `AUTH_ERROR`、同 `RateLimitError` → `RATE_LIMITED`。
+- **原因チェーンの走査(cause-chain walking)**:`__cause__` と `__context__` を遡り、`raise X from e` でラップされた真因を取得する。LoRAIro では `image-annotator-lib` の例外を `typer.Exit` で包むなど多層ラップが多いため必須となる。
+- **モジュール接頭辞による判定(module-prefix matching)**:例外クラスをモジュール名で判定し、分類のために `torch` や推論 SDK を先行インポート(eager import)しない。LoRAIro はこれらを遅延インポート(lazy import)化しており(ADR 0010 系)、先行インポートは起動コスト増やメモリ枯渇を招くためである。
 
-LoRAIro はプロバイダ SDK に到達する前に自前で `APIKeyNotConfiguredError` を投げる経路があるため、SDK の
-`AuthenticationError` だけでなくこの独自例外も明示的に `AUTH_ERROR` へ写す (でないとキー未設定が generic
-な実行時コードに落ち、エージェントが「キーを設定」アクションを受け取れない)。
+代表的な分類例は以下のとおりである。
 
-### 6. exit code policy: 0 / 2 / 1
+- `ImageLoadMemoryError`、`image-annotator-lib` の `OutOfMemoryError`、`RuntimeError("...out of memory...")` → `RESOURCE_EXHAUSTED`
+- LoRAIro 独自の `APIKeyNotConfiguredError`(`src/lorairo/api/exceptions.py`、OpenAI / Claude / Google で送出)および `anthropic.` / `openai.` / `google.` 系 SDK の `AuthenticationError` → `AUTH_ERROR`
+- 同 SDK の `RateLimitError` → `RATE_LIMITED`
 
-| exit | 意味 | コード |
+LoRAIro はプロバイダ SDK に到達する前の段階で独自に `APIKeyNotConfiguredError` を送出する経路を持つ。そのため、SDK の `AuthenticationError` だけでなく、この独自例外も明示的に `AUTH_ERROR` へ分類する。これを怠ると、キー未設定が汎用的な実行時エラーへ落ちてしまい、エージェントが「キーを設定する」という対処方針を受け取れなくなる。
+
+### 6. 終了コード方針(0 / 2 / 1)
+
+| exit | 意味 | 該当コード |
 |---|---|---|
 | 0 | 成功 | — |
-| 2 | 入力・検証 | `INVALID_INPUT`, `VALIDATION_FAILED`, `RESULT_SET_TOO_LARGE` (ADR 0060) |
-| 1 | 実行時 | 上記以外すべて |
+| 2 | 入力・検証エラー | `INVALID_INPUT`, `VALIDATION_FAILED`, `RESULT_SET_TOO_LARGE`(ADR 0060) |
+| 1 | 実行時エラー | 上記以外すべて |
 
-例外の exit code はエラーコードから機械的に導出する。Click の usage error 既定が exit 2 であることと整合する。
-`RESULT_SET_TOO_LARGE` は入力 (選択/検索が広すぎる) を直す user-actionable なエラーのため exit 2
-(従来 `INVALID_INPUT` が担っていた cap 違反の exit を維持する、ADR 0060)。
+例外に対する終了コードは、エラーコードから機械的に導出する。これは Click の usage error の既定値が終了コード 2 であることと整合する。また、`RESULT_SET_TOO_LARGE` は入力(選択や検索条件が広すぎる)を修正すべきエラーであるため終了コード 2 を割り当てる(従来 `INVALID_INPUT` が担っていた上限違反の終了コードを維持、ADR 0060)。
 
-### 7. 中央集権エラー境界
+### 7. 中央集権のエラー境界
 
-各コマンドに散在する `except ... → console.print → Exit(...)` を撤廃し、エラー処理を `cli.main:main` の
-1 箇所に集約する。
+各コマンドに散在している `except ...` から `console.print` および `Exit(...)` を行う処理を撤廃し、エラー処理を `cli.main:main` の 1 箇所へ集約する。
 
-- Typer/Click app は `standalone_mode=False` で呼ぶ (または同等の wrapper を噛ます)。既定の
-  `standalone_mode=True` は Click が自前で usage error を表示し interpreter を終了させ、この境界を
-  **バイパス**して stdout に終端 `error` 行が出ない。
-- Click usage error (`UsageError` / `BadParameter`) → `INVALID_INPUT` の `error` 行 + exit 2
-- それ以外の例外 → `classify_exception` → `error` 行 emit → §6 のマップで exit
-- traceback は `INTERNAL_ERROR` のときだけ stderr へ (stdout の JSONL 純度を維持)
-- 各コマンド本体は型付き例外を raise / 伝播するだけで、エラー整形を持たない
-- 機械可読 (JSONL) / 人間向け (rich) の出力モード分岐も、この境界の 1 箇所だけで行う
+- Typer / Click アプリは `standalone_mode=False` で呼び出す(または同等のラッパーを挟む)。既定の `standalone_mode=True` では Click が独自に usage error を表示してインタプリタを終了させるため、中央境界が**バイパス**され、stdout に終端 `error` 行が出力されなくなる。
+- Click の usage error(`UsageError`、`BadParameter`)は `INVALID_INPUT` の `error` 行を出力し、終了コード 2 で終了する。
+- それ以外の例外は `classify_exception` で分類し、`error` 行を出力したうえで §6 の対応表に従い終了する。
+- トレースバックは `INTERNAL_ERROR` の場合に限り stderr へ出力し、stdout の JSONL 純度を維持する。
+- 各コマンド本体は型付きの例外を送出・伝播するのみとし、エラー整形ロジックを持たない。
+- 機械可読(JSONL)と人間向け(Rich)の出力モード分岐も、この中央境界の 1 箇所のみで行う。
 
 ## Rationale
 
-- **stdout 純度**: 機械可読契約の根幹。装飾・進捗・エラーが stdout に混じるとパース不能になる。stderr を
-  人間とログの経路に分けることで、同一コマンドが人間にもエージェントにも使える。
-- **`event` kind を持たない**: annotate は `item` をストリームするため item 数が進捗そのもので、別途
-  `event` 行は冗長。export はバッチ操作で機械的な途中経過が不要。進捗バーは人間向けに価値があるので
-  stderr に残す。tag-db の「JSONL が読みにくいならフォーマットでなくコマンドが情報を出しすぎている」
-  という設計哲学を継承し、各コマンドは curated な projection を出す。
-- **500 ハードキャップ**: GUI の staging (最大 500 枚) と挙動を統一し、全バッチ操作 (annotate / export /
-  images update) の「1 コマンドが処理する総数」を 500 に揃える。`batch_size` (モデル処理 chunk) とは
-  別概念。処理前に弾くため副作用ゼロで fail fast。annotate は ADR 0053 の sharding
-  (`--limit`/`--offset`/`--image-id`) で 500 ずつ反復でき上限が実害にならない。export は json 成果物が
-  `metadata.json` 上書き方式で安全分割できず反復手段を持たないが、実運用上 1 回の学習データセットが
-  500 枚を超えることは稀で阻害にならない。ADR 0053 の「無制限実行」前提のみを本 ADR が改定し、
-  streaming/sharding 機構は維持する。
-- **14 コード**: tag-db と 11 種を共有してエージェントの学習コストを下げる。拡張 3 種は反応が一意に異なる
-  ケース (OOM=batch 縮小再試行 / auth=キー設定 / rate=backoff) だけに限定する。`MODEL_ERROR` のような
-  総称は中身が `NETWORK_ERROR` / `NOT_FOUND` / `VALIDATION_FAILED` に分解でき、総称化するとかえって機械が
-  反応しにくくなるため採用しない。
-- **module-prefix / cause-chain**: LoRAIro は推論 SDK・torch を lazy import 化しているため、分類のための
-  eager import を避ける必要があり、多層 wrap の真因特定にも cause-chain 遡及が要る。
-- **中央集権境界**: 現状の散在 `except` が exit code 揺れの主因。1 箇所集約で契約を機械的に保証し、
-  コマンド本体を薄くできる。
-- **exit code 0/2/1**: Click の usage error 既定が exit 2 であり「2=入力問題」が自然。tag-db と揃う。
+- **stdout の純度**:機械可読契約の根幹である。装飾・進捗・エラーが stdout に混在するとパース不能になる。stderr を人間向け表示とログの経路へ分離することで、同一コマンドを人間とエージェントの双方から利用できるようになる。
+- **`event` kind を持たない理由**:`annotate` は `item` をストリーム出力するため、出力された件数自体が進捗となる。`export` はバッチ操作であり機械的な途中経過を必要としない。進捗バーは人間向けとして価値があるため stderr に残す。tag-db の「JSONL が読みにくいならフォーマットではなくコマンドが情報を出しすぎている」という設計哲学を継承し、各コマンドは精査された射影のみを出力する。
+- **500 枚のハードキャップ**:GUI のステージング上限(最大 500 枚)と挙動を統一し、すべてのバッチ操作(`annotate`、`export`、`images update`)の 1 コマンドあたり処理総数を 500 枚に揃える。`batch_size`(モデル処理チャンク)とは別概念である。処理前に弾くことで副作用ゼロのまま早期失敗(fail fast)できる。`annotate` は ADR 0053 の分割実行(`--limit`、`--offset`、`--image-id`)で 500 枚ずつ反復できるため実害がない。`export` は `metadata.json` 上書き方式のため安全な分割ができないが、実運用で 1 回の学習データセットが 500 枚を超えるケースは稀である。本 ADR は ADR 0053 の「無制限実行」前提のみを改定し、ストリーミングと分割実行の機構は維持する。
+- **14 コード設計の根拠**:tag-db と 11 種類を共有することでエージェントの学習コストを下げる。拡張 3 種類は、エージェントの反応が一意に異なるケース(OOM はバッチ縮小後の再試行、認証はキー設定、レート制限はバックオフ)のみに限定した。`MODEL_ERROR` のような総称は中身が `NETWORK_ERROR`、`NOT_FOUND`、`VALIDATION_FAILED` に分解でき、総称化するとかえって機械的な反応が難しくなるため採用しない。
+- **モジュール接頭辞判定と原因チェーン走査**:LoRAIro は推論 SDK や `torch` を遅延インポート化しているため、分類時の先行インポートを避ける必要がある。また、多層ラップされた例外から真因を特定するには原因チェーンの遡及が不可欠である。
+- **中央集権のエラー境界**:各コマンドに散在する `except` が終了コードの揺れを引き起こしていた。1 箇所へ集約することで契約を機械的に保証でき、コマンド本体も薄く保てる。
+- **終了コード 0 / 2 / 1**:Click の usage error の既定値が 2 であるため、「2 は入力問題」とする設計が自然であり、tag-db とも整合する。
 
 ## Consequences
 
-- 各コマンドの出力を「人間向け render (stderr / TTY)」と「機械向け dict (stdout JSONL)」に分離する
-  リファクタが全コマンドに必要になる (実装は別タスク)。
-- 各コマンドの散在エラーハンドリングを撤廃し中央境界へ移行する破壊的変更。exit code の意味が現状から
-  フリップ (現状の `Exit(2)`=想定外 → 本 ADR では 2=入力・検証) するため、既存の呼び出し側スクリプトに
-  影響し得る。
-- 14 コードの `classify_exception` / `ErrorInfo` モジュールを新設する。
-- 500 キャップにより 500 枚超の一括操作は不可となり、利用者は絞り込みまたは反復呼び出しで対応する。
-- broad `except Exception` はコーディング規約で原則禁止だが、CLI 境界の 1 箇所に限り本 ADR で許可する
-  (例外をエラー行に変換する境界という理由による)。
-- 契約の SSoT は**コード**に置く: `kind` / エラー `code` は `StrEnum`、各 payload は `api.*` の Pydantic
-  型 (ADR 0037) として定義する。`docs/cli.md` (新設) はそれらから生成 or 参照する human/agent 向け文書で
-  あり、wire スキーマを二重定義しない (introspection の `describe` も同じ型から生成する)。
-- annotate の 1 回処理総数が 500 に制限され、ADR 0053 の無制限実行前提が改定される。500 超の annotate は
-  `--limit`/`--offset`/`--image-id` で shard して反復する運用になる。
+- 各コマンドの出力を「人間向けレンダリング(stderr / TTY)」と「機械向け辞書出力(stdout JSONL)」へ分離するリファクタリングが全コマンドで必要になる(実装は別タスク)。
+- 各コマンドに散在していたエラーハンドリングを撤廃して中央境界へ移行する破壊的変更となる。終了コードの意味が従来から反転する(従来の `Exit(2)`=想定外から、本 ADR では 2=入力・検証エラー)ため、既存の呼び出し側スクリプトに影響し得る。
+- 14 コードを扱う `classify_exception` および `ErrorInfo` モジュールを新設する。
+- 500 枚上限により、500 枚を超える一括操作はできなくなる。利用者は条件の絞り込みまたは反復呼び出しで対応する。
+- 広範な `except Exception` はコーディング規約で原則禁止されているが、例外をエラー行へ変換する CLI 中央境界の 1 箇所に限り本 ADR で許可する。
+- 契約の SSoT は**コード**に置く。`kind` とエラー `code` は `StrEnum`、各ペイロードは `api.*` の Pydantic 型(ADR 0037)として定義する。新設する `docs/cli.md` はそれらから生成または参照するドキュメントとし、ワイヤスキーマを二重定義しない(イントロスペクションの `describe` も同じ型から生成する)。
+- `annotate` の 1 回あたり処理総数が 500 枚に制限され、ADR 0053 の無制限実行の前提が改定される。500 枚を超えるアノテーションは、`--limit`、`--offset`、`--image-id` で分割して反復実行する運用となる。
 
 ## Amendment (2026-06-06, ADR 0060 / #639)
 
-ADR 0060 (CLI Bounded Pagination and Count-First Contract) が本 ADR を以下のとおり改定した (適用済み):
+ADR 0060(CLI Bounded Pagination and Count-First Contract)により、本 ADR は以下のとおり改定された(適用済み)。
 
-- **§2 list 系の item 契約**: 「list 系は item を N 行 + 終端 result」を「既定 (フラグ無し) は item を出さず
-  result (count) のみ、`--fetch` 時に item を N 行 + 終端 result」へ具体化。
-- **§3 cap コード**: 処理系バッチ (annotate / export / images update) の 500 超過の弾きコードを
-  `INVALID_INPUT` から `RESULT_SET_TOO_LARGE` に統一。recourse (sharding 等) は不変。
-- **§3 read/list の扱い**: read/list も基本 500 で bound するが count 既定 + fetch 明示で実現する旨を具体化。
-- **§4 エラーコード**: `RESULT_SET_TOO_LARGE` (拡張、`retryable=false` / `user_action_required=true`) を
-  追加し全 15 種。
-- **§6 exit code**: `RESULT_SET_TOO_LARGE` を exit 2 (入力・検証) に割り当て。
+- **§2 list 系の `item` 契約**:「list 系は `item` を N 行出力し、終端 `result` を出す」という記述を、「既定(フラグなし)では `item` を出さず `result`(件数)のみを返し、`--fetch` 指定時に `item` を N 行出力して終端 `result` を出す」へ具体化した。
+- **§3 上限超過コード**:変更系バッチ(`annotate`、`export`、`images update`)の 500 枚超過時のエラーコードを、`INVALID_INPUT` から `RESULT_SET_TOO_LARGE` へ統一した。代替手段(分割実行など)は変更しない。
+- **§3 read / list 系の扱い**:参照・一覧系も基本 500 件で上限管理するが、件数既定と `--fetch` 明示によって実現することを明記した。
+- **§4 エラーコード**:`RESULT_SET_TOO_LARGE`(拡張、`retryable=false`、`user_action_required=true`)を追加し、全 15 種類とした。
+- **§6 終了コード**:`RESULT_SET_TOO_LARGE` を終了コード 2(入力・検証エラー)へ割り当てた。
 
 ## 関連
 
-- ADR 0020 (CLI Message Language Policy) — JSONL モードの message 言語方針と整合
-- ADR 0037 (api Facade Wiring Policy) — 契約 SSoT は `api.*` Pydantic、CLI は薄いラッパー
-- ADR 0049 (Apply CLI Image List Limit in the Repository Query) — read/list 系のページング機構
-- ADR 0060 (CLI Bounded Pagination and Count-First Contract) — read/list の bounded pagination 契約を確定し、
-  本 ADR §2/§3/§4/§6 を amend (`RESULT_SET_TOO_LARGE` 追加・cap コード統一・count 既定)
-- ADR 0053 (CLI Streaming Annotation Memory-Bounded Contract) — 本 ADR が「1 回の呼び出しで総数無制限」
-  前提を 500 キャップで改定 (streaming/sharding 機構は維持)。`RESOURCE_EXHAUSTED` / streaming とも整合
-- ADR 0058 (CLI Output Mode Trigger and Entry-Point Policy) — 出力モードのトリガ (`--json`) とエントリ方針を供給 (本 ADR の前提)
-- tag-db ADR 0003 (CLI JSONL Output & Error Contract) — 移植元の参照契約
-- tag-db ADR 0005 (CLI Command Introspection) — 後続の introspection 契約 (別 ADR)
+- ADR 0020(CLI Message Language Policy)— JSONL モードにおけるメッセージ言語方針と整合
+- ADR 0037(api Facade Wiring Policy)— 契約の SSoT は `api.*` の Pydantic 型とし、CLI は薄いラッパーとする
+- ADR 0049(Apply CLI Image List Limit in the Repository Query)— read / list 系のページング機構
+- ADR 0060(CLI Bounded Pagination and Count-First Contract)— read / list 系の有界ページング契約を確定し、本 ADR の §2 / §3 / §4 / §6 を改定(`RESULT_SET_TOO_LARGE` 追加、上限コード統一、件数既定)
+- ADR 0053(CLI Streaming Annotation Memory-Bounded Contract)— 本 ADR が「1 回の呼び出しで総数無制限」の前提を 500 枚上限で改定(ストリーミングおよび分割実行機構は維持)。`RESOURCE_EXHAUSTED` とストリーミング方針も整合
+- ADR 0058(CLI Output Mode Trigger and Entry-Point Policy)— 出力モードのトリガ(`--json`)とエントリ方針を供給(本 ADR の前提)
+- tag-db ADR 0003(CLI JSONL Output & Error Contract)— 移植元の参照契約
+- tag-db ADR 0005(CLI Command Introspection)— 後続のイントロスペクション契約(別 ADR)
+
 ## 2026-09-06 追補: 集計結果と部分失敗 (#1313)
 
-`images register` / `annotate import-batch` / `batch import` / `errors resolve` の集計完了は、
-成功件数を保持するため `kind=result` を使用する。`status=success` は `ok=true` / exit 0、
-`partial_success` と `failed` は `ok=false`。2026-11-03 の追補により部分成功は exit 3、全件失敗は exit 1。正常skipと空集合はsuccess、
-成功または正常skipを含む失敗はpartial_success、それ以外の失敗はfailed。
-legacyの未一致・parseエラー・保存エラー、Batchの未完了取込みも失敗として扱う。
-Batchの空結果はジョブ完了と同義ではなく `job_imported` を別途確認する。
-集計を返せない例外は既存の `kind=error` 契約を維持する。resultの後にerrorを重ねず、終端1行を守る。
-既存件数は維持し、失敗対象・理由を追加する。従来の部分失敗exit 0への依存は移行が必要。
-詳細と調査フィールドは [CLIの部分失敗契約](../cli.md#部分失敗と既存スクリプトの移行-1313) を参照。
+`images register`、`annotate import-batch`、`batch import`、`errors resolve` の集計完了時には、成功件数を保持するため `kind=result` を使用する。
+
+- `status=success` は `ok=true`、終了コード 0 とする。
+- `partial_success` と `failed` は `ok=false` とする。2026-11-03 の追補により、部分成功は終了コード 3、全件失敗は終了コード 1 とする。
+- 正常スキップと空集合は `success`、成功または正常スキップを含む失敗は `partial_success`、それ以外の失敗は `failed` と判定する。
+- レガシー形式の未一致・パースエラー・保存エラー、および Batch の未完了取込みも失敗として扱う。
+- Batch の空結果はジョブ完了と同義ではないため、`job_imported` を別途確認する。
+- 集計を返せない例外については、既存の `kind=error` 契約を維持する。`result` の後に `error` を重ねず、終端 1 行の不変条件を守る。
+- 既存の件数フィールドは維持しつつ、失敗対象と理由を追加する。従来の部分失敗における終了コード 0 へ依存しているスクリプトは移行が必要である。
+
+詳細と調査用フィールドについては、[CLIの部分失敗契約](../cli.md#部分失敗と既存スクリプトの移行-1313) を参照すること。
 
 ## 2026-11-03 追補: 部分成功専用の終了コード
 
-部分成功を終了コード `3` として区別する。成功は `0`、全件失敗と実行時例外は `1`、
-入力・検証失敗は `2` を維持する。JSONLの既存フィールドと正常skipの扱いは維持する。
-対象は登録・画像更新/処理・アノテーション/取込み・Batch送信/取込み・エラー解決・
-エクスポート/予行・レビュー。旧形式の画像更新は `failed_tags` と終了コードを併用する。
-成功済みや送信済み対象を終了コードだけで全件再送しない。
+部分成功を専用の終了コード `3` として区別する。成功は `0`、全件失敗および実行時例外は `1`、入力・検証失敗は `2` を維持する。JSONL の既存フィールドと正常スキップの扱いは変更しない。
+
+対象は登録、画像更新・処理、アノテーション・取込み、Batch 送信・取込み、エラー解決、エクスポート・予行、レビューである。旧形式の画像更新では `failed_tags` と終了コードを併用する。また、終了コードだけを見て成功済みや送信済みの対象を全件再送してはならない。

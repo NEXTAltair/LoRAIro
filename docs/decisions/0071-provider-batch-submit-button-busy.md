@@ -1,31 +1,24 @@
 ---
 type: ADR
-title: Provider Batch Submit Button Busy State
+title: Provider Batch 送信ボタンのビジー状態表示
 status: Accepted
 timestamp: 2026-05-30
 tags: []
 ---
-# ADR 0071: Provider Batch Submit Button Busy State
+# ADR 0071: Provider Batch 送信ボタンのビジー状態表示
 
-## Context
+## 背景
 
-Provider Batch submission updates the job list after `submit_images()` returns, but users do not
-always notice that the click was accepted while the provider upload/create call is running.
+Provider Batch の送信処理は `submit_images()` の完了後にジョブ一覧を更新する。しかし、プロバイダへのアップロードやジョブ作成の呼び出し中は、クリックが受け付けられたことにユーザーが気付きにくいという課題があった。
 
-## Decision
+## 決定
 
-The Provider Batch `送信` button represents only the synchronous submit call state. While
-`submit_images()` is running, the button is disabled, changes to `送信中...`, and uses a temporary
-busy style. After the call returns or raises, the button returns to the normal `送信` state.
+Provider Batch の `送信` ボタンは、同期的な送信呼び出しの状態のみを表現する。`submit_images()` の実行中はボタンを無効化し、ラベルを `送信中...` に変更して一時的なビジースタイルを適用する。呼び出しが正常終了または例外送出で戻った後、ボタンを通常の `送信` 状態へ戻す。
 
-## Rationale
+## 根拠
 
-This keeps the first UX improvement small and avoids adding popup, toast, banner, or row highlight
-behavior before it is proven necessary. The job table remains responsible for asynchronous provider
-job progress after the job has been registered.
+初回の UX 改善を最小限にとどめ、必要性が確認される前にポップアップ、トースト、バナー、行ハイライトといった過剰な演出を追加しないためである。ジョブ登録後の非同期なプロバイダジョブ進捗の表示責務は、引き続きジョブテーブル側が担う。
 
-## Consequences
+## 影響
 
-Tests must cover both successful submission and failure paths so the button cannot remain disabled
-after a provider or validation error. Future notification work should be added as a separate UX
-iteration instead of overloading the button with asynchronous job completion state.
+プロバイダエラーや検証エラーの後にボタンが無効化されたまま残らないよう、テストでは送信成功経路と失敗経路の双方をカバーする必要がある。将来的に通知機能を追加する場合は、送信ボタンに非同期ジョブ完了の責務を重ねるのではなく、別の UX 反復として実装する。

@@ -9,11 +9,11 @@ tags: []
 
 ## Context
 
-LoRAIro はGUI専用アプリケーションだったが、CLI ツール・サーバー環境での自動化対応（CI/CD, バッチ処理）が必要になった。コアサービスの ~90% は Qt 非依存で設計可能だが、`favorite_filters`, `signal_manager` が Qt に依存していた。
+LoRAIro は従来 GUI 専用アプリケーションだったが、CLI ツールやサーバー環境での自動化(CI/CD やバッチ処理)に対応する必要が生じた。コアサービスの約 90% は Qt 非依存として設計できる一方、`favorite_filters` と `signal_manager` が Qt に依存していた。
 
 ## Decision
 
-**Adapter Pattern + DI Container** による Qt 依存除去:
+**Adapter パターンと DI コンテナ**を組み合わせ、Qt への直接依存を取り除く。
 
 ```python
 # ServiceContainer の signal_manager プロパティ
@@ -24,18 +24,18 @@ def signal_manager(self) -> SignalManagerServiceProtocol:
     return SignalManagerService()   # GUI: QObject + Signal
 ```
 
-- `FavoriteFiltersService`: QSettings ベース → JSON に自動切り替え（API シグネチャ維持）
-- 環境切り替え: `LORAIRO_CLI_MODE` 環境変数 1つで制御
+- `FavoriteFiltersService` は、API シグネチャを維持したまま `QSettings` ベースから JSON ベースへ自動で切り替える。
+- 実行モードの切り替えは、環境変数 `LORAIRO_CLI_MODE` ひとつで制御する。
 
 ## Rationale
 
-- **既存 GUI コード修正なし**: Adapter で後方互換性を完全維持
-- **Protocol ベースの DI**: 呼び出し側が環境を意識しない（関心の分離）
-- JSON 化による初期化コストは無視できるレベル
+- **既存 GUI コードの修正が不要**: Adapter 層を挟むことで、既存コードとの後方互換性を完全に維持できる。
+- **Protocol ベースの DI**: 呼び出し側が GUI か CLI かを意識せずに済むため、関心の分離を保てる。
+- JSON 化に伴う初期化コストは無視できる水準である。
 
 ## Consequences
 
-- CLI ツールが Qt インストール不要で動作可能
-- テスト時に `LORAIRO_CLI_MODE=1` で Qt 非依存テストが容易
-- 新サービス追加時は Qt 依存の有無を意識した設計が必要
-- `NoOpSignalManager` は Signal を無視するため CLI での非同期イベントは別途対応が必要
+- CLI ツールが Qt をインストールしない環境でも動作できるようになった。
+- テスト時に `LORAIRO_CLI_MODE=1` を設定すれば、Qt 非依存のテストを容易に実行できる。
+- 新しいサービスを追加する際は、Qt への依存有無を意識した設計が求められる。
+- `NoOpSignalManager` は Signal を無視するため、CLI 環境での非同期イベント処理は別途対応する必要がある。

@@ -5,62 +5,176 @@ status: Accepted
 timestamp: 2026-06-23
 tags: [process]
 ---
-# Lessons Learned
+# 開発の教訓(Lessons Learned)
 
-LoRAIro 開発で得られた教訓。バグパターン・設計ミス・解決策の本質を記録。
+LoRAIro の開発を通じて得た教訓を、バグパターン・設計ミス・解決策の本質に絞って記録する。
 
-## Architecture
+## アーキテクチャ
 
-- **2層サービス設計**: GUI層とビジネスロジック層を分離しないとモノリスが膨張する。Qt依存のないコアサービスを先に設計し、GUIラッパーを後から追加する順序が正しい（ADR 0001, 0009参照）。
-- **MainWindow 肥大化**: 1,645行→688行(58%削減)を実現した教訓: 初期化フェーズを5段階に分け、各フェーズをServiceヘルパーに委譲する。GUIオーケストレーターは「接着剤」に留める。
-- **Service 層統合パターン** (#178): GUI/CLI/API の 3 経路から同一ビジネスロジックを呼ぶ場合、各経路で個別実装すると二重クエリ・整合性ズレ・重複バグ修正が発生する。ID 解決ロジックを `DatasetExportService.export_with_criteria()` に集約することで 3 経路の一貫性を保証した。Epic #166 では GUI/CLI/API がそれぞれ別々の export 実装を持っていたが、Service 層統合後はすべて同一メソッドを呼ぶ。
+### 2 層サービス設計
+GUI 層とビジネスロジック層を分離しないと、モノリスが肥大化する。Qt に依存しないコアサービスを先に設計し、GUI ラッパーを後から追加する順序が正しい(ADR 0001、0009 参照)。
 
-## Testing
+### `MainWindow` の肥大化対策
+1,645 行から 688 行(58% 削減)へ整理した際の教訓として、初期化フェーズを 5 段階に分け、各フェーズを Service ヘルパーへ委譲する構成が有効だった。GUI のオーケストレーターは各部品をつなぐ「接着剤」の役割にとどめる。
 
-- **統合テストの価値**: モックが通ってもprod移行で失敗するケースが発生。外部依存(DB, ファイルシステム)はモックせず実際のテストDBを使用する。
-- **pytest-qt のアンチパターン**: `qtbot.wait(固定時間)` は不安定。`qtbot.waitSignal()` または `qtbot.waitUntil(条件)` を使う。`QCoreApplication.processEvents()` 直接呼び出しも避ける。
-- **QMessageBox の忘れがち**: テスト中に `QMessageBox.question` をモックしないとテストがハングする。必ず `monkeypatch` でモックする。
-- **カバレッジ閾値は CI で検証しないと aspirational 値のまま**: `fail_under=75` が長期間 CI で未検証のまま放置され、実測 58% が顕在化（Issue #131 で coverage-gate 新設後に判明）。新しい閾値を設定する際は必ず PR で CI 実測値と同時に設定し、aspirational な値のまま設定だけして放置しないこと。
-- **デッドコードはカバレッジ分母を汚染して測定値を押し下げる**: Issue #138 で `src/` 本体から未参照の 9 モジュール / 3,957 LOC を削除して +17pt を達成。`grep` ベースの import graph 解析による定期的な dead code audit がカバレッジ改善に効果的（ADR 0016参照）。
-- **Qt 描画専用コードと torch/ML ライブラリは coverage から除外が合理的**: ADR-0016 でコアサービス層の omit を禁止しつつ、Qt 描画専用 GUI の `omit` 基準と image-annotator-lib の `source` 除外基準を確立。headless CI では torch 初期化が困難なため、ML バックエンドは `[tool.coverage.run] source` から除外して計測対象外にするのが正しい（Issue #135）。
-- **loguru の `logger` はプロセスグローバル singleton。実 file sink を追加する test は session 全体を汚染する** (Issue #578): `test_configuration_window` の `dialog._on_accepted()` は本物の `initialize_logging(build_gui_log_config(...))` を呼び、`logs/lorairo.log` 宛の file sink を追加していた。loguru の logger は session 内で状態を引き継ぐため、一度この sink が入ると以降の全 test の loguru ログが実アプリ本体ログへ追記され (full suite で +56KB / 280 行)、期待エラー/警告 (防御テストの `テスト例外` / `disk full` 等) が実運用ログに混入して調査ノイズになる。対策は `tests/conftest.py` の session-autouse fixture で `loguru.logger.add` をラップし、実 `DEFAULT_LOG_PATH` 宛の sink **だけ** を session tmp へ転送すること。`build_gui_log_config` の返り値 (file_path=実パス) は変更しないため `file_path == str(DEFAULT_LOG_PATH)` を検証する既存 test を壊さない。`DEFAULT_LOG_PATH` 自体の monkeypatch は、各 test module が import 時に名前を束縛済みで sink 側と assertion 側の値がズレるため不可。検証は実ログのバイト増分 == 0 を full suite で実測する。
-- **状態復元/マイグレーション経路はテストがクリーンスレートから始まるため取りこぼす — prior state を seed した杭1本で塞ぐ (網羅はしない)** (Issue #865): #863 の1カラム化が `restoreState` の orientation 巻き戻しで無効化されたバグは、#863 の全テスト (62 pass) をすり抜けた。発火条件は「QSettings の `settings_version == SETTINGS_VERSION` (= 復元が早期 return しない) かつ旧 (横) 保存状態がある」で、**テスト/CI の QSettings は空 → version 不一致で `_restore_window_state` が早期 return → `restoreState` がそもそも呼ばれない**ため再現不能だった (既存のスプリッターtestも Mock で実 `restoreState` を叩いていなかった)。**線引き**: ① 実際に踏んだバグには **prior state を seed したリグレッションテストを1本だけ**置く (今回 `TestRestoreSplitterStatesOrientation`: 横保存状態→縦復元で縦維持を assert、~25行・MainWindow 非構築・高速)。② **復元経路を網羅 seed する大掛かりなテストは過剰** — QSettings 復元対象はほぼ見た目の状態 (スプリッターサイズ/ウィンドウ位置) で低重大度、`SETTINGS_VERSION` bump 規約 (上記 Qt 節) の方が費用対効果が高い安全網。「新規起動で OK」≠「既存状態からのアップグレードで OK」を意識しつつ、杭は踏んだ分だけ打つ。
-- **`sys.modules` ベースの lib mock を `tests/conftest.py` で行う場合、その lib の `tests/` を pytest `testpaths` に含めてはならない** (Issue #247, ADR 0024): `tests/conftest.py` がモジュールレベルで `sys.modules["image_annotator_lib"]` を `types.ModuleType` モックに差し替えていると、ルート pytest が `local_packages/image-annotator-lib/tests/` まで collection した瞬間に mock が lib 自身のテストに継承され、`parent_module = <MagicMock>` で `AttributeError: __spec__` が collection 時点で 29 件発生する。さらに submodule の同名テスト (`test_worker_service.py`) との basename 衝突も単一 pytest セッションでは `import file mismatch` になる。教訓: **conftest の責務境界 = pytest セッション境界 = package 境界を一致させる**。conftest mock を維持したまま、`testpaths = ["tests"]` に限定し local package のテストは package root の独立 pytest セッション (別 CI job / `make test-iam-lib` / `make test-genai-tag`) で実行する。条件分岐 conftest や `--ignore` 局所回避は根本解にならない。
+### サービス層への処理統合(Issue #178 / Epic #166)
+GUI・CLI・API の 3 経路から同じビジネスロジックを呼ぶ場合、経路ごとに個別実装すると二重クエリ、整合性のずれ、重複するバグ修正が発生する。
+ID 解決ロジックを `DatasetExportService.export_with_criteria()` に集約したことで、3 経路すべてが一貫した挙動になった。
+
+## テスト
+
+### 統合テストでは実 DB を使う
+モックを使ったテストが通っても本番環境で失敗するケースがある。DB やファイルシステムなどの外部依存はモックに頼らず、実際のテスト用 DB を使って検証する。
+
+### `pytest-qt` のアンチパターンを避ける
+`qtbot.wait(固定時間)` は不安定になりやすい。代わりに `qtbot.waitSignal()` や `qtbot.waitUntil(条件)` を使う。`QCoreApplication.processEvents()` の直接呼び出しも避ける。
+
+### `QMessageBox` は必ずモック化する
+テスト中に `QMessageBox.question` などがモックされていないと、ダイアログ待ちでテストがハングする。必ず `monkeypatch` でモック化する。
+
+### カバレッジ閾値は CI の実測とセットで設定する(Issue #131)
+`fail_under=75` が長期間 CI で未検証のまま放置され、coverage-gate 新設時に実測 58% が露呈した。新しい閾値を導入する際は、理想値だけを先に書かず、必ず PR 上で CI の実測値とあわせて検証・設定する。
+
+### デッドコードはカバレッジ分母を汚染する(Issue #138 / ADR 0016)
+`src/` 本体から参照されていない 9 モジュール(3,957 行)を削除しただけでカバレッジが +17 ポイント改善した。`grep` ベースの import グラフ解析による定期的なデッドコード棚卸しが有効である。
+
+### 描画専用 Qt コードと ML バックエンドの除外基準(Issue #135 / ADR 0016)
+コアサービス層の `omit` を禁止しつつ、描画専用 GUI コードの `omit` 基準と `image-annotator-lib` の `source` 除外基準を定めた。ヘッドレス CI では `torch` の初期化が困難なため、ML バックエンドは `[tool.coverage.run] source` から除外して計測対象外とするのが合理的である。
+
+### loguru の実ファイル sink がテストセッション全体を汚染する(Issue #578)
+- **現象**: `test_configuration_window` の `dialog._on_accepted()` が本物の `initialize_logging(build_gui_log_config(...))` を呼び、`logs/lorairo.log` 向けのファイル sink を追加していた。loguru の `logger` はプロセスグローバルのシングルトンであるため、以降の全テストのログ(防御テストの想定例外 `テスト例外` や `disk full` など)が実アプリログへ混入した(全テスト実行で +56KB / 280 行)。
+- **対策**: `tests/conftest.py` の session-autouse フィクスチャで `loguru.logger.add` をラップし、実 `DEFAULT_LOG_PATH` 宛の sink **だけ** をセッション一時ディレクトリへ転送する。
+- **注意点**: `build_gui_log_config` の戻り値(`file_path=実パス`)は変えないため、`file_path == str(DEFAULT_LOG_PATH)` を検証する既存テストを壊さない。`DEFAULT_LOG_PATH` 自体の monkeypatch は、各テストモジュールが import 時に値を束縛済みのため機能しない。検証は全テスト実行で実ログのバイト増分が 0 であることを実測する。
+
+### 状態復元・マイグレーション経路の取りこぼし対策(Issue #865)
+- **現象**: Issue #863 の 1 カラム化が `restoreState` の orientation 巻き戻しで無効化されたバグは、62 件のテストをすべてすり抜けた。テスト・CI 環境の `QSettings` は空のため `settings_version != SETTINGS_VERSION` で早期 return し、そもそも `restoreState` が呼ばれていなかった(既存のスプリッターテストもモックで実 `restoreState` を呼んでいなかった)。
+- **線引き**:
+  1. 実際に踏んだバグには、事前状態を仕込んだリグレッションテストを 1 本だけ置く(例: `TestRestoreSplitterStatesOrientation` — 横方向の保存状態から縦方向が維持されることを検証、約 25 行、`MainWindow` 非構築で高速)。
+  2. 復元経路を網羅的にテストするのは過剰である。`QSettings` の復元対象は主に見た目の状態で重大度が低く、`SETTINGS_VERSION` を上げる規約のほうが費用対効果が高い。「新規起動で動く」ことと「既存状態からのアップグレードで動く」ことは別物だと意識しつつ、必要な箇所にピンポイントでテストを置く。
+
+### `sys.modules` モックと pytest セッション境界の一致(Issue #247 / ADR 0024)
+- **現象**: `tests/conftest.py` がモジュールレベルで `sys.modules["image_annotator_lib"]` を `types.ModuleType` のモックに差し替えている。ルート pytest が `local_packages/image-annotator-lib/tests/` まで収集すると、そのモックがライブラリ自身のテストに継承され、`parent_module = <MagicMock>` による `AttributeError: __spec__` が収集時点で 29 件発生する。さらにサブモジュールの同名テスト(`test_worker_service.py`)とのファイル名衝突で `import file mismatch` も起きる。
+- **教訓**: `conftest` の責務境界・pytest セッション境界・パッケージ境界を一致させる。`testpaths = ["tests"]` に限定し、ローカルパッケージのテストは各パッケージルートで独立した pytest セッション(別 CI ジョブ、`make test-iam-lib`、`make test-genai-tag`)として実行する。条件分岐 conftest や `--ignore` による局所回避は根本解にならない。
 
 ## PySide6 / Qt
 
-- **UIファイル生成を忘れると連鎖エラー**: `.ui` ファイル変更後に `uv run python scripts/generate_ui.py` を実行しないと、`MainWindow_ui.py` が古いままで `filterSearchPanel` 等のウィジェットが見つからず起動失敗する。
-- **Signalの二重発火**: Worker完了Signalを複数箇所で接続すると同一イベントが重複処理される。接続は1箇所に統一し、Worker生成時に接続する。
-- **同期処理ボタンの再入と送信後の状態クリア** (Issue #571): `_set_submit_button_busy()` 内の `QApplication.processEvents()` はキュー済みクリックを再配信するため、送信ボタン無効化だけでは同期 submit 中の再入を防げない。`submit_job()` 冒頭の `_submit_in_progress` 再入フラグで塞ぐ。送信成功時は送信済み対象を共有ステージングから除外して再送信を構造的に防ぐが、注意点が2つある: (1) `image_ids` は submit 直前の snapshot なので `clear()` で全消去すると processEvents 中に追加された未送信画像まで失う → `remove_image_ids(送信済みID)` で送信分のみ除外する。(2) `submit_images` 成功 = provider job 作成済みで不可逆なので、後続の表示更新 (`select_job`→`refresh_detail`) が repository 例外を投げても送信成功を覆してはならない → ステージング除外と成功表示を先に確定し、表示更新は局所 try で隔離する。
-- **`QSplitter.restoreState()` は sizes だけでなく orientation も復元する** (Issue #865): `.ui` (setupUi) で `setOrientation(Vertical)` にしても、起動後の `_restore_window_state → _restore_splitter_states` が QSettings の**旧 (横) 保存状態**を `restoreState()` で復元すると orientation が Horizontal に巻き戻り、レイアウト変更 (#863 の1カラム化) が**実機で無効化**される。検証: 縦スプリッターに横保存状態を restore → `orientation()` が Horizontal になる。**orientation の SSoT は `.ui` であり QSettings ではない** → `restoreState()` 後に `setOrientation(designed)` を再適用する (復元前に `splitter.orientation()` を退避)。加えて、永続化される (saveState/restoreState 対象の) レイアウト属性を変えたら `SETTINGS_VERSION` を bump し旧状態を破棄する**軽量規約**を守る。教訓2点: ① **「静的ソースが正しい」≠「実行時が正しい」** — ユーザーが繰り返し「直っていない」と言い自分が「コードは正しい」と確信したら、静的成果物の再確認をやめ**実行時の振る舞いを直接叩いて falsify する** (今回 `restoreState` を実機で叩いて3秒で原因判明)。② 状態復元/マイグレーション系のバグは**テスト環境がクリーンスレートから始まるため復元ブランチに入らず取りこぼす** (詳細は Testing セクション)。
-- **ユーザー操作起点の worker は「無制限並行 + 直列シャットダウン待ち」で二重に破綻する** (Issue #1024/#1027, PR #1044): 画像選択やタグ操作のたびに新 QThread worker を起動し旧世代を「結果破棄」だけで放置すると、worker が短時間で十数本累積して SQLite を取り合い、1本あたりの処理が分オーダーまで劣化する (実測: 16本累積で1本の prefetch が78秒)。さらにシャットダウンで1本ずつ直列に grace 待ち (2秒+terminate 1秒×N) すると worker 数に比例してハングする (実測53秒)。定石は3点セット: ① **single-flight** — 実行は常に1本、追加要求は最新1件だけ pending 保持し、旧 worker へは**待機しない**協調キャンセル要求 (GUI スレッドで thread.wait しない)。② **協調キャンセルのチェックポイント** — DB 呼び出し中のスレッドは `QThread.terminate()` でも殺せない (native sqlite 呼び出し中は 16/16 全件失敗が実測) ため、DB 往復の**合間**にキャンセルチェックを入れて初めてキャンセルが効く。③ **シャットダウンは一括ブロードキャスト + 全体共有 deadline** — cancel/quit を全 worker へ先に配ってから deadline まで待ち、残りは terminate を試みず見捨てる。見捨てる QThread は widget 所有の manager と共に参照が消えると "QThread: Destroyed while thread is still running" abort になるため、プロセスグローバル registry へ参照を退避する。
-- **QRunnable の Python 参照保持漏れで「Signal source has been deleted」** (Issue #1040/#1047, PR #1042): QRunnable は autoDelete で C++ に所有権が移るが、属性の親なし QObject (signals ホルダー) は **Python 側参照が切れると GC 対象**になる。widget が task を `pool.start()` するだけで参照を保持しないと、実行中に GC が走って `run()` 内の emit が `RuntimeError: Signal source has been deleted` になる (except 節の emit で二重例外)。GC タイミング依存で散発するため再現困難。定石2点セット: ① widget 側に in-flight 参照 (`dict[request_id, task]`) を持たせ start 前に登録 / 完了・失敗ハンドラで discard、② `run()` の emit を `try/except RuntimeError` でガード。リグレッションテストは `shiboken6.delete(task.signals)` で破棄状態を決定的に再現できる。同パターンは grep (`QRunnable`) で横展開監査すること (#1040 の監査で count_estimate.py にも同型を発見 → #1047)。
-- **FlowLayout を `widgetResizable=True` の QScrollArea に入れると minimumSizeHint が暴れる** (Issue #831/#833/#835): `heightForWidth` 型レイアウト (タグチップの FlowLayout 等) は **`minimumSizeHint` を「最小幅で全アイテム縦積み」した過大値**で報告する。これを `widgetResizable=True` のスクロール領域に間接的に含めると、Qt が container を minimumSize まで引き伸ばし、コンテンツ末尾 (例: スコアカード下) に**ビューポートを超える異常な余白 + 不要スクロール**が出る。**症状(余白)の対症療法を繰り返してはいけない** — トップ詰め⇄ボトム固定⇄縦ハグは「余白↔セクション間の隙間↔アイテムのクリップ」を交換するだけで堂々巡りになる。**最初に `inner.height()` / `widget.minimumSizeHint()` を実測して「なぜ container がビューポートより高いのか」を特定する**こと。根本対処は、可変高さの折り返し領域を**高さ上限付きの内側 QScrollArea に隔離**して、親の高さがアイテム数に依存しないよう有界化する (`min(heightForWidth(実幅), 上限)` で箱高さを明示)。手動 `setFixedHeight(sizeHint)` での縦ハグは FlowLayout の `sizeHint` 過小報告でアイテムをクリップし timing 依存になるため避ける。**より素直な設計は専用ウィジェットへの切り出し**: 折り返し領域 + 高さ制御を `TagChipBox(QWidget)` 等に分離し `sizeHint`/`minimumSizeHint` をその中で閉じれば、過大な最小サイズが親へ漏れる伝播事故を構造的に断てる。Qt ではウィジェット分割 + composition は基本であり「大幅リファクタ」ではない (コストを過大評価しないこと、[[feedback_qt_widget_extraction_cheap]])。**続報 (Issue #1025, PR #1045)**: #835 の「外箱の高さ有界化」だけでは不十分で、同じ箱で空白スクロールが再発した。追加の伝播経路が2つ: ① **内側 container の縦 SizePolicy が `Minimum` (ShrinkFlag なし) だと、FlowLayout の sizeHint (「sizeHint 幅で全チップ縦積み」の過大値、実測 40チップで996px) が container の最小高さとして固定され**、widgetResizable な QScrollArea が実幅の必要高さ (実測46px) まで縮められず、差分がチップ下の空白スクロール領域になる → 縦は `Preferred` にする。② **chip 再構築直後の同期高さ計測は、新 widget がレイアウト未 activation で hidden のため `QWidgetItem.sizeHint()` が (0,0) を返し** `heightForWidth=0` → 箱が潰れる (次の resizeEvent で偶然回復する timing 依存) → 同期計測の前に hidden widget を明示的に可視化するか、activation 後に測る。いずれも offscreen 実測 (`container.height()` / `sizeHint()` / scrollbar range のログ) で30分で確定した — 教訓どおり実測ファーストが最短。
+### `.ui` 変更後の UI 生成忘れ
+`.ui` ファイルを変更したあとに `uv run python scripts/generate_ui.py` を実行しないと、`MainWindow_ui.py` が古いままになり、`filterSearchPanel` などのウィジェットが見つからず起動に失敗する。
 
-## Database / SQLAlchemy
+### Signal の二重発火
+ワーカー完了 Signal を複数箇所で接続すると、同一イベントが重複処理される。接続箇所は 1 箇所に統一し、ワーカー生成時に接続する。
 
-- **セッション管理の落とし穴**: バッチ処理中のセッションをWorker間で共有するとデッドロックが発生する。Worker毎に独立したセッションを使用する。
-- **バッチタグ追加のアトミック性**: タグ追加をループで個別コミットすると、エラー時に中間状態が残る。`Session.add_all()` + 一括コミットでアトミック性を保証する（ADR 0012参照）。
-- **書き込み・読み込みの対称性**: カラムと子テーブルに同一意味のデータを並存させる二重管理は禁止。書き込み API と読み込み API が同一テーブルを参照することを PR レビューで必ず確認する。Issue #118 (NSFW 判定) と Issue #119 (manual_rating フィルタ) は同パターンで発生した（ADR 0015参照）。
-- **`ratings.normalized_rating` は送信判定の唯一参照値**: `ratings.raw_rating_value` は保存元トレース用の補助情報で、`X` / `XXX` フィルタは `normalized_rating` のみで行う。`PG`/`PG-13`/`R`/`UNRATED`/`None` は rating eligibility 通過。
-- **User DB 初期化順序**: Base DBが存在しない環境でもUser DBは単独で動作する必要がある。`init_user_db()` は Base DB の有無に依存しない設計にする。
-- **プロジェクト概念のスキーマ正規化** (ADR 0017): ファイル名から推論する暗黙構造は破綻する。`lorairo_data/<name>_<timestamp>/` ディレクトリ構造だけでプロジェクトを識別していたため、Issue #166 で `repository.get_images_by_filter()` 引数なし全件取得 (21k 件) バグが発生。`projects` テーブル + `Image.project_id` FK 化で `WHERE project_id = ?` インデックス検索に置換し根本解決。DB を第一級エンティティとして設計することで、LIKE 句マッチや全件スキャンを構造的に排除できる。
-- **`StaticPool` + マルチスレッド GUI は危険 — 実ファイル DB は `QueuePool` 一択** (Issue #1002 / genai-tag-db-tools #116): `poolclass=StaticPool` は 1 本の生 SQLite コネクションを全セッションで共有する。`connect_args={"check_same_thread": False}` は Python 側のスレッドチェックを無効化するだけで、根底の `sqlite3.Connection` への真の同時アクセスは防げない。GUI メインスレッドと `RefinementWorker` (QThread) が同一エンジンを共有すると `sqlite3.InterfaceError: bad parameter or other API misuse` が散発し、例外が飛ばないケースでは `_populate_rejected_tags()` 等が古い結果を返して「編集が消えた」ように見えた。`StaticPool` は **接続ごとに別 DB になる `:memory:` テストでのみ必須**（単一コネクション保持が要る）で、実ファイル DB では既定の `QueuePool`（スレッドごとに独立コネクション）を使う。`create_db_engine()` は `":memory:" in database_url` の時だけ `StaticPool` を指定する分岐にする。WAL journal + busy_timeout (Issue #767) は「複数コネクションの安全な共存」設定であり、`StaticPool` 下では実質無意味で、`QueuePool` 化して初めて意味を持つ。同一アンチパターンが LoRAIro `db_core.py` と submodule `genai-tag-db-tools/db/runtime.py` の両方にあり、両方を修正した。
+### 同期処理ボタンの再入と送信後の状態クリア(Issue #571)
+- **現象**: `_set_submit_button_busy()` 内の `QApplication.processEvents()` がキュー済みのクリックを再配信するため、ボタンの無効化だけでは同期送信中の再入を防げない。
+- **対策**: `submit_job()` の冒頭に `_submit_in_progress` 再入フラグを置く。
+- **送信成功後の注意点**:
+  1. `image_ids` は送信直前のスナップショットである。`clear()` で全消去すると `processEvents` 中に追加された未送信画像まで消えるため、`remove_image_ids(送信済み ID)` で送信分だけを除外する。
+  2. `submit_images` の成功時点でプロバイダー側のジョブ作成は不可逆である。後続の表示更新(`select_job` → `refresh_detail`)がリポジトリ例外を投げても送信成功を覆してはならない。ステージング除外と成功表示を先に確定し、表示更新は局所的な `try` で隔離する。
 
-## Integration
+### `QSplitter.restoreState()` が orientation まで巻き戻す問題(Issue #865)
+- **現象**: `.ui`(`setupUi`)で `setOrientation(Vertical)` に設定しても、起動後の `_restore_window_state` → `_restore_splitter_states` が `QSettings` の旧(横方向)保存状態を `restoreState()` で復元すると、`orientation` が `Horizontal` に巻き戻り、Issue #863 の 1 カラム化が実機で無効化された。
+- **対策**: `orientation` の正本(SSoT)は `.ui` であり `QSettings` ではない。復元前に `splitter.orientation()` を退避し、`restoreState()` のあとに `setOrientation(設計値)` を再適用する。また、永続化対象のレイアウト属性を変更した際は `SETTINGS_VERSION` を上げて旧状態を破棄する規約を守る。
+- **教訓**:
+  1. 「静的ソースが正しい」ことと「実行時に正しく動く」ことは別である。ユーザーから「直っていない」と繰り返し報告されたときは、静的確認をやめて実行時の挙動を直接検証して仮説を反証する(今回は実機で `restoreState` を叩き 3 秒で原因を特定した)。
+  2. 状態復元やマイグレーション経路のバグは、クリーンスレートで始まる通常のテストでは再現しない。
 
-- **Annotator Lib との境界**: annotation_runner.py (`AnnotationRunner`) でアダプターパターンを使い、image-annotator-lib の内部型 (`PHashAnnotationResults`) をLoRAIro内部型に変換する。Lib の型変更がLoRAIro全体に波及しない設計が重要。
-- **Torch インポートの遅延**: Torch を起動時にインポートするとGUI表示が数秒遅延する。`importlib.import_module()` による遅延インポートで起動時間を短縮する（ADR 0010参照）。
-- **アノテーターWorker のコード崩壊インシデント（2026-02-09）**: 大規模リファクタリング中にWorker実装が意図せず削除された。原因: `replace_symbol_body` ツールの適用範囲が予期以上に広かった。対策: シンボル置換後は必ずdiffで変更範囲を確認する。
-- **フィルタ必須化による構造的誤操作防止** (ADR 0019): LoRA 学習データ作成用途の `export create` では「全件エクスポート」が正常ケースとして存在しない。フィルタなし呼び出しを `exit_code=2` で即座に拒否することで、21k 件の誤エクスポートを設計レベルで防止した。ランタイム警告やドライラン強制より「そもそも呼べない設計」の方がシンプルで一貫性がある。非対話環境 (CI/cron) でも安全に機能する。
-- **BaseAnnotator hierarchy: WebAPI と Local ML で device 判定責務を分離** (Issue #35, ADR 0023 Phase 1.x): ADR 0023 Phase 1 で WebAPI 経路は `WebApiAnnotator` 1 種に統一され、device は `"api"` 固定で扱う設計になった。しかし `BaseAnnotator.__init__` が `_validate_device` (`determine_effective_device`) を踏む構造のままだと、将来 WebAPI 系クラスが `super().__init__()` を呼んだ瞬間に CUDA 判定が走り、CPU-only コンテナで「CUDA非対応PyTorch」WARNING が出る (Issue #35)。device 判定はローカル ML 系 base class (Transformers/ONNX/TF/Clip/Pipeline) の責務として分離するのが構造的解。`BaseAnnotator.device` は str sentinel (`""`) で初期化し、サブクラスが上書きする契約とする。
-- **整数 bin tag (`[CAFE]score_N` / `[IAP]score_N` / `[WD]score_N`) を library 側から削除** (Issue #281, iam-lib ADR 0002): image-annotator-lib ADR 0002 で arbitrary policy として lib 標準出力から排除した。LoRAIro 側 consumer を inventory した結果 0 件 (Issue #281 調査時点)。再導入が必要になった consumer は raw `scores` から派生実装する。lib 側で配布元保証のない integer bin 化を行わないことで、検索 / Export contract を model 配布元と一致させる。
-- **score (数値) と score_label (categorical) を別テーブルに分離する** (Issue #281, ADR 0027): canonical scorer (aesthetic_shadow / cafe_aesthetic) は `scores={hq, lq}` 等の **複数 row** と単一 categorical label を返す。`Score` テーブルに `label` 列を追加すると 2 行に同じ label を入れるか null を許容するか非自明になり、データセマンティクス歪み。`(image_id, model_id, label)` を独立した `score_labels` テーブルに分離することで、`Tag`/`Caption`/`Rating` と parallel な構造で扱える (ADR 0015 の Manual Rating Storage Unification と同じ設計判断)。
-- **ADR と実装の整合は明示的検査でないと drift する** (Issue #35, PR #40): ADR 0023 Phase 1 で「`available_api_models.toml` キャッシュは廃止」「WebAPI 用 user TOML override は廃止」「`api_model_id` 互換シムを残さない」と決まっていたが、Phase 1 の PR #38 で実装変更だけ走り dead code / 互換シムが大量に残置された (`load_available_api_models` 関数、`AVAILABLE_API_MODELS_CONFIG_PATH` 公開 API、`_resolve_model_class` の `class = "WebApiAnnotator"` 受け入れ経路、metadata の `api_model_id` 重複キー等)。Codex P1 review で broken path として検出されてから完全掃除した。教訓: ADR 決定後の実装 PR では「ADR 各条項 → 該当コード / public API」のチェックリスト照合を行い、削除/置換漏れがないかを diff レビューで明示的に確認する。Phase 完了マイルストーンで grep ベースの ADR 違反検出を行うと再発防止になる。
-- **lib と LoRAIro の error 構造化伝搬は文字列 prefix で疎結合に保つ** (Issue #42, ADR 0023 Phase 1.5): image-annotator-lib の `SafetyRefusalError` / `ContentPolicyRefusalError` を LoRAIro の `error_records` に伝搬する際、`UnifiedAnnotationResult.error` を `f"{ExceptionType}: {msg}"` 文字列にして LoRAIro 側で `startswith` 判定する方式を採用した。型を直接 import して `isinstance()` チェックすると、submodule pinning で lib 側 PR がマージ前に LoRAIro 側 import が壊れる、または bidirectional version coupling で submodule pointer bump タイミングが厳しくなる。文字列 prefix なら lib 側で例外型が増えても LoRAIro 側は prefix 一覧を更新するだけで済み、merge order 制約も緩やかになる。新しい error 種を追加する際は両側で prefix を ADR で合意し、`error_records.error_type` カラムにそのまま入れる慣習を守る。
-- **SSoT スキーマ変更時は「読み取り側」だけでなく「送信側の値経路」も同時に切替える** (Issue #245, ADR 0023 Phase 1.11): Phase 1.11 で `Model.litellm_model_id` を UNIQUE NOT NULL registry key SSoT に昇格させた際、`get_models_by_litellm_ids` など読み取り側の lookup だけ切替えて、GUI → Worker → Logic → lib への送信値は `Model.name` のまま残してしまった。新規 sync 経路の行は `name == litellm_model_id` で偶然動くが、migration 経路 (例: `name='openai/gpt-4o', litellm_model_id='openrouter/openai/gpt-4o'`) では送信値が registry key に一致せず lookup miss する潜在バグになる。同種の SSoT 切替を行う際は (1) DB スキーマ変更、(2) 読み取り API 切替、(3) 内部キーの送信経路切替、(4) UX 上の disambiguation (GUI ラベル / CLI 入力解決) を必ず同じ ADR でセットにして実装する。GUI ラベルは `{name} ({provider})` 形式 + tooltip に正規 ID 併記、CLI は `litellm_model_id` 必須 + 曖昧マッチで Error + 候補一覧表示が定石。
-- **`except` ブロック内で `asyncio.run()` を呼ぶと coroutine 内例外に偽の `__context__` が連鎖する** (Issue #302): `try: asyncio.get_running_loop() except RuntimeError: asyncio.run(...)` 構造は、probe の `RuntimeError("no running event loop")` が handled 状態のまま `asyncio.run` を実行するため、その動的範囲で coroutine 内に raise される素の例外 (`__cause__` 無し) の `__context__` にこの `RuntimeError` が連鎖する。例外 cause chain を診断表示する仕組み (Issue #274 の `_format_exception_chain`) があると、無関係な `no running event loop` が「根本原因」として混入し誤診を招く (実機 WebAPI 429 失敗の診断で発覚)。loop 検出 probe は bool を返す helper に分離し、`except` の `RuntimeError` を完全に消費してから `asyncio.run()` を `except` ブロック外で実行する。`__cause__` を持つ chain では walker が `__cause__` を優先するため漏れに到達せず、mock test で `raise from` を使うとこの種のバグを見逃す。
-- **Provider Batch rating preflight は task_type SSoT 経由で既存 schema を再利用する** (Issue #507, ADR 0031 amendment / ADR 0038): `/v1/moderations` Batch を「専用 moderation review system」として独立 schema 化すると、既存 provider_batch_jobs / provider_batch_items / ratings table と二重管理になる。`provider_batch_items.task_type = "rating_preflight"` + `provider_batch_jobs.model_id = <omni-moderation-latest>` で annotation batch と区別し、結果は既存 `ratings.normalized_rating` に X / XXX として落とすことで、後続 annotation worker の `filter_excluded_by_rating()` が同じ SSoT で送信判定できる。fake `ProviderBatchAdapter` 注入による deterministic E2E (`tests/integration/test_provider_batch_rating_preflight_e2e.py`) で submit → import → ratings 保存 → annotation 除外までを 1 test で wiring 検証する。実 OpenAI Moderations Batch contract は image-annotator-lib `tests/runtime_validation/` 配下で manual smoke する (ADR 0026)。
-- **外部 tag_db の正規化変換は interactive path ではなく書込境界 (バッチ) に置く** (Issue #769, ADR 0068 改訂): #772 で GUI 詳細表示時に `convert_tags` を **タグ1件ずつ** 呼び preferred 解決した結果、画像1枚の表示で「タグ数 × tag_db リポジトリ数 × 2 (get_format_id + lookup)」の DB ラウンドトリップが発生し、Windows ネイティブの実 HF tag_db でサムネイル選択→詳細表示が許容外に遅延した (per-widget キャッシュは初表示コストを消せない)。`convert_tags`/`search_tags_bulk` は本来「全タグ1クエリ」のバッチ設計なのに per-tag 呼び出しで無効化していた。対策: canonical 解決を保存境界 (`_save_tags`、1画像=1 bulk lookup) へ移し、`Tag.tag` に danbooru canonical を焼き込んで **表示/export は verbatim** にした。教訓: 外部 DB を引く正規化を「都度・interactive・per-item」で呼ぶと実 DB 規模で破綻する。変換は書込時に1回・バッチで確定させ、読取/表示は変換ゼロにする。バッチ API (`search_tags_bulk`) を per-item ループで呼んでいないか必ず確認する。手動編集値 (`is_edited_manually=True`) は canonical 化せずユーザー表記を尊重する。
-- **同期 / Batch 両経路で Pydantic schema を SSoT として共有、PydanticAI は同期 agent runtime に限定する** (Issue #518, ADR 0023 / ADR 0038): WebAPI annotation の structured output schema は `AnnotationSchema` (Pydantic BaseModel) を SSoT とする。同期は PydanticAI が `Agent(output_type=normalize_annotation_output)` で callable を tool 化 / Batch は `AnnotationSchema.model_json_schema()` から純粋 Pydantic で OpenAI function-tool schema を直接生成。PydanticAI は agent runtime であり schema definition の責務は Pydantic 側にあるため、Batch で agent runtime ごと持ち込むと provider batch lifecycle (file upload / job poll / artifact download) と sync agent execution 抽象が衝突する。`/v1/chat/completions` Batch を `/v1/responses` ではなく選択した理由は同期経路と endpoint / tool schema / response shape を完全一致させることで test fixture / refusal detection / `normalize_annotation_output()` を両経路で再利用するため。refusal は同期では `SafetyRefusalError` exception、Batch では `finish_reason=content_filter` / `message.refusal` non-null を `BatchItemError(code="provider_safety_refusal")` に正規化することで `error_records` / `provider_batch_items.error_type` 両 SSoT で対称的に扱える。
-- **デザインツール生成 UI を「実行時 confidence が取れる」前提で実装した conf-min スライダー** (Issue #851 撤去): DS (AnnotateScreen ModelPicker) 由来の conf-min スライダーを、推論後に per-tag confidence を閾値フィルタする前提で `StageModelPickerDialog` → `annotate_tab` → `main_window` → `worker_service` → `controller` → `AnnotationWorker` の 5 層に配線した。だが (1) image-annotator-lib はタグ閾値を推論時に静的 `tag_threshold` (default 0.35) で適用してから返し confidence を捨てる (保存は `confidence_score=None`)、(2) 公開 `annotate()` に実行時 per-model 閾値を渡す口がない。よって「推論後にフィルタする」という配線レイヤー自体が誤りで、どう繋いでも効かず `AnnotationWorker` に PENDING のまま死蔵された。撤去し、実行時 per-model 閾値が要るなら lib `annotate()` 拡張 (per-model `tag_threshold` override) を前提とする someday issue (#851) へ再定義した。教訓: デザインツールが置いた UI コントロールは、裏付けるデータ経路 (ここでは per-tag confidence) が実在するかを実装前に確認する。「いつか配線する」と 5 層通すと、データ自体が無い前提ミスが PENDING の体裁で固定化される。confidence ベース機能は lib が確率を捨てる以上 LoRAIro 単独では成立しない (AI タグ confidence は常に None)。
+### ユーザー操作起点ワーカーの多重起動とシャットダウンハング(Issue #1024 / #1027 / PR #1044)
+- **現象**: 画像選択やタグ操作のたびに新しい `QThread` ワーカーを起動し、旧ワーカーを「結果を捨てるだけ」で放置すると、短時間で十数本が累積して SQLite を取り合い、1 本あたりの処理が分単位まで劣化する(実測: 16 本累積で 1 本の prefetch が 78 秒)。さらに終了時に 1 本ずつ直列で猶予待ち(2 秒 + terminate 1 秒 × N)を行うと、ワーカー数に比例してアプリがハングする(実測 53 秒)。
+- **対策(3 点セット)**:
+  1. **Single-flight**: 実行中ワーカーは常に 1 本だけにする。追加要求は最新 1 件だけを保留し、旧ワーカーへは待機なしの協調キャンセルを送る(GUI スレッドで `thread.wait()` しない)。
+  2. **協調キャンセルのチェックポイント**: ネイティブの SQLite 呼び出し中のスレッドは `QThread.terminate()` でも止められない(実測で 16/16 全件失敗)。DB 往復の合間にキャンセル確認を入れて初めてキャンセルが効く。
+  3. **一括ブロードキャストと共有デッドラインによる終了**: まず全ワーカーへ cancel / quit を一斉送信し、全体で共有するデッドラインまで待つ。残ったスレッドは `terminate` せず見捨てる。その際、ウィジェット所有のマネージャーと共に参照が消えると `QThread: Destroyed while thread is still running` で異常終了するため、プロセスグローバルのレジストリへ参照を退避する。
+
+### `QRunnable` の Python 参照保持漏れによる `Signal source has been deleted`(Issue #1040 / #1047 / PR #1042)
+- **現象**: `QRunnable` は `autoDelete` で C++ 側に所有権が移るが、親を持たない `QObject` 属性(シグナル保持用オブジェクト)は Python 側の参照が切れると GC 対象になる。ウィジェットが `pool.start()` するだけで参照を持たないと、実行中に GC が走って `run()` 内の `emit` が `RuntimeError: Signal source has been deleted` を起こす(`except` 節の `emit` で二重例外になる)。GC タイミング依存のため再現が難しい。
+- **対策(2 点セット)**:
+  1. ウィジェット側に実行中タスクの参照(`dict[request_id, task]`)を持たせ、起動前に登録して完了・失敗ハンドラで削除する。
+  2. `run()` 内の `emit` を `try/except RuntimeError` で保護する。
+- **検証と横展開**: `shiboken6.delete(task.signals)` を使えば破棄状態を決定的に再現できる。同種の問題を見つけたら `QRunnable` を grep して横展開監査を行う(#1040 の監査で `count_estimate.py` にも同型を発見し #1047 で修正)。
+
+### `FlowLayout` と `widgetResizable=True` の `QScrollArea` による余白暴走(Issue #831 / #833 / #835 / #1025 / PR #1045)
+- **現象**: タグチップの `FlowLayout` のような `heightForWidth` 型レイアウトは、最小幅で全アイテムを縦積みした過大な `minimumSizeHint` を返す。これを `widgetResizable=True` のスクロール領域内に間接配置すると、Qt がコンテナを最小サイズまで引き伸ばし、末尾にビューポートを超える巨大な余白と不要なスクロールが発生する。
+- **誤った対処**: 余白の対症療法(上詰め・下固定・高さ手動合わせ)を繰り返しても、余白・隙間・クリップの間を行き来するだけで解決しない。まず `inner.height()` や `widget.minimumSizeHint()` を実測して原因を特定する。
+- **根本対処**:
+  - 折り返し領域を高さ上限付きの内側 `QScrollArea` に隔離し、親の高さがアイテム数に依存しないよう `min(heightForWidth(実幅), 上限)` で有界化する。`setFixedHeight(sizeHint)` の手動適用は `sizeHint` 過小報告によるクリップやタイミング依存を招くため避ける。
+  - より素直な設計は、折り返し領域と高さ制御を専用ウィジェット(例: `TagChipBox(QWidget)`)に切り出し、`sizeHint` / `minimumSizeHint` を内部で閉じることである。Qt でのウィジェット分割とコンポジションは基本技法であり、大規模リファクタではない。
+- **続報で判明した 2 つの追加要因(Issue #1025 / PR #1045)**:
+  1. 内側コンテナの縦 `SizePolicy` が `Minimum`(`ShrinkFlag` なし)だと、`FlowLayout` の過大な `sizeHint`(実測: 40 チップで 996px)が最小高さとして固定され、`QScrollArea` が実幅の必要高さ(実測 46px)まで縮められず余白が残る → 縦方向は `Preferred` にする。
+  2. チップ再構築直後の同期高さ計測では、新ウィジェットがレイアウト未確定かつ非表示のため `QWidgetItem.sizeHint()` が `(0, 0)` を返し箱が潰れる(次の `resizeEvent` で偶然回復するタイミング依存) → 同期計測前に明示的に可視化するか、レイアウト確定後に計測する。いずれもオフスクリーン実測(`container.height()`、`sizeHint()`、スクロールバー範囲のログ)で 30 分以内に特定できた。
+
+## データベース / SQLAlchemy
+
+### セッション管理の落とし穴
+バッチ処理中のセッションをワーカー間で共有するとデッドロックが発生する。ワーカーごとに独立したセッションを使う。
+
+### バッチタグ追加のアトミック性(ADR 0012)
+タグ追加をループ内で個別コミットすると、途中エラー時に不整合な中間状態が残る。`Session.add_all()` と一括コミットでアトミック性を保証する。
+
+### 書き込みと読み込みの対称性(Issue #118 / #119 / ADR 0015)
+カラムと子テーブルに同じ意味のデータを二重管理してはならない。書き込み API と読み込み API が同一テーブルを参照していることを PR レビューで必ず確認する(Issue #118 の NSFW 判定、Issue #119 の `manual_rating` フィルタで同型の不具合が発生)。
+
+### 送信判定における `ratings.normalized_rating` の単一参照
+`ratings.raw_rating_value` は保存元の追跡用補助情報であり、`X` / `XXX` フィルタの判定は `normalized_rating` のみで行う。`PG`、`PG-13`、`R`、`UNRATED`、`None` は送信可能として通過させる。
+
+### User DB の初期化順序
+Base DB が存在しない環境でも User DB は単独で動作する必要がある。`init_user_db()` は Base DB の有無に依存しない設計にする。
+
+### プロジェクト概念のスキーマ正規化(Issue #166 / ADR 0017)
+`lorairo_data/<name>_<timestamp>/` というディレクトリ名だけでプロジェクトを識別する暗黙構造は破綻しやすい。実際に Issue #166 では `repository.get_images_by_filter()` の引数なし全件取得(21,000 件)バグを引き起こした。`projects` テーブルと `Image.project_id` 外部キーを導入し、`WHERE project_id = ?` のインデックス検索へ置き換えたことで、LIKE 句マッチや全件スキャンを構造的に排除できた。
+
+### マルチスレッド GUI で実ファイル DB に `StaticPool` を使ってはならない(Issue #1002 / genai-tag-db-tools #116)
+- **現象**: `poolclass=StaticPool` は 1 本の生 SQLite コネクションを全セッションで共有する。`connect_args={"check_same_thread": False}` は Python 側のスレッドチェックを外すだけで、内部の `sqlite3.Connection` への同時アクセスは防げない。GUI メインスレッドと `RefinementWorker`(`QThread`)が同一エンジンを共有した結果、`sqlite3.InterfaceError: bad parameter or other API misuse` が散発し、例外が出ないケースでは `_populate_rejected_tags()` などが古い結果を返して「編集が消えた」ように見えた。
+- **対策**: `StaticPool` が必須なのは接続ごとに別 DB になってしまう `:memory:` テストだけである。実ファイル DB では既定の `QueuePool`(スレッドごとに独立コネクション)を使う。`create_db_engine()` は `":memory:" in database_url` の場合のみ `StaticPool` を使う分岐にする。
+- **補足**: WAL モードと `busy_timeout`(Issue #767)は複数コネクションの安全な共存のための設定であり、`StaticPool` 下では機能しない。LoRAIro の `db_core.py` とサブモジュール `genai-tag-db-tools/db/runtime.py` の両方に同じ問題があったため、双方を修正した。
+
+## 外部連携・インテグレーション
+
+### `image-annotator-lib` との境界設計
+`annotation_runner.py`(`AnnotationRunner`)でアダプターパターンを採用し、`image-annotator-lib` の内部型(`PHashAnnotationResults`)を LoRAIro 内部型へ変換する。ライブラリ側の型変更が LoRAIro 全体へ波及しない境界を維持する。
+
+### `torch` の遅延インポート(ADR 0010)
+起動時に `torch` をインポートすると GUI 表示が数秒遅れる。`importlib.import_module()` による遅延インポートで起動時間を短縮する。
+
+### シンボル置換ツールによるコード欠損インシデント(2026-02-09)
+大規模リファクタリング中に `replace_symbol_body` ツールの適用範囲が想定以上に広がり、アノテーターワーカーの実装が意図せず削除された。シンボル置換ツールの実行後は、必ず diff で変更範囲全体を確認する。
+
+### フィルタ必須化による誤操作の構造的防止(ADR 0019)
+LoRA 学習データ作成の `export create` では「全件エクスポート」が正常ユースケースとして存在しない。フィルタ未指定の呼び出しを終了コード `2` で即座に拒否することで、21,000 件の誤エクスポートを設計レベルで防いだ。実行時警告やドライラン強制よりも「そもそも危険な形で呼べない設計」のほうが単純で一貫性があり、CI や cron などの非対話環境でも安全に機能する。
+
+### `BaseAnnotator` 階層での device 判定責務の分離(Issue #35 / ADR 0023 Phase 1.x)
+WebAPI 経路は `WebApiAnnotator` に統一され、`device` は `"api"` 固定となった。もし `BaseAnnotator.__init__` で `_validate_device`(`determine_effective_device`)を呼ぶ構造のままにすると、WebAPI 系クラスが `super().__init__()` を呼んだ際に CUDA 判定が走り、CPU 専用コンテナで「CUDA 非対応 PyTorch」警告が出る。device 判定はローカル ML 系基底クラス(Transformers / ONNX / TF / Clip / Pipeline)の責務として分離し、`BaseAnnotator.device` は空文字 `""` で初期化してサブクラスが上書きする契約とする。
+
+### 整数ビンタグをライブラリ標準出力から削除(Issue #281 / iam-lib ADR 0002)
+`[CAFE]score_N`、`[IAP]score_N`、`[WD]score_N` のような整数ビンタグは任意の独自ポリシーであるため、`image-annotator-lib` の標準出力から排除した(調査時点で LoRAIro 側の利用箇所は 0 件)。再導入が必要になった場合は利用側が生の `scores` から派生計算する。これにより、検索やエクスポートの契約をモデル配布元の仕様と一致させられる。
+
+### 数値スコアとカテゴリカルなスコアラベルのテーブル分離(Issue #281 / ADR 0027)
+`aesthetic_shadow` や `cafe_aesthetic` などのスコアラーは、複数の数値スコア(`scores={hq, lq}` など)と単一のカテゴリカルラベルを返す。`Score` テーブルに `label` 列を足すと複数行のどれにラベルを入れるか曖昧になるため、`(image_id, model_id, label)` を独立した `score_labels` テーブルへ分離した。これにより `Tag` / `Caption` / `Rating` と対称な構造で扱える(ADR 0015 と同じ設計判断)。
+
+### ADR と実装の整合はチェックリストで明示的に検査する(Issue #35 / PR #40)
+ADR 0023 Phase 1 で廃止が決まっていた `available_api_models.toml` キャッシュ、WebAPI 用ユーザー TOML 上書き、`api_model_id` 互換シムが、実装 PR(#38)で大量に残置され、レビューで broken path として指摘された。ADR 決定後の実装 PR では、ADR の各条項と該当コード・公開 API をチェックリストで照合し、削除・置換漏れを diff レビューで確認する。フェーズ完了時に grep ベースで ADR 違反を点検すると再発を防げる。
+
+### ライブラリと LoRAIro 間のエラー伝搬を文字列プレフィックスで疎結合に保つ(Issue #42 / ADR 0023 Phase 1.5)
+`image-annotator-lib` の `SafetyRefusalError` や `ContentPolicyRefusalError` を LoRAIro の `error_records` へ伝える際、`UnifiedAnnotationResult.error` を `f"{ExceptionType}: {msg}"` 形式の文字列にし、LoRAIro 側で `startswith` 判定する方式を採った。例外型を直接 import して `isinstance()` で判定すると、サブモジュールのマージ順序やバージョン結合が厳しくなる。文字列プレフィックスなら、ライブラリ側で例外が増えても LoRAIro 側はプレフィックス一覧を更新するだけで済む。新しいエラー種別を増やすときは両側でプレフィックスを ADR で合意し、`error_records.error_type` にそのまま格納する慣習を守る。
+
+### SSoT スキーマ変更時は「読み取り側」と「送信側」を同時に切り替える(Issue #245 / ADR 0023 Phase 1.11)
+`Model.litellm_model_id` を一意なレジストリキーの正本(SSoT)に昇格させた際、読み取り側の検索(`get_models_by_litellm_ids` など)だけを更新し、GUI → Worker → Logic → ライブラリへの送信値に `Model.name` が残っていた。新規同期行では偶然 `name == litellm_model_id` で動くが、移行行(例: `name='openai/gpt-4o'`、`litellm_model_id='openrouter/openai/gpt-4o'`)では検索失敗となる。SSoT の切り替え時は、(1) DB スキーマ変更、(2) 読み取り API 切替、(3) 内部キーの送信経路切替、(4) UX 上の識別表示(GUI は `{name} ({provider})` + ツールチップに正規 ID、CLI は `litellm_model_id` 必須 + 曖昧一致時に候補一覧エラー)を必ず同一 ADR で一括実装する。
+
+### `except` ブロック内での `asyncio.run()` 呼び出しによる偽の例外連鎖(Issue #302)
+- **現象**: `try: asyncio.get_running_loop()` の `except RuntimeError:` ブロック内で `asyncio.run(...)` を呼ぶと、捕捉済みの `RuntimeError("no running event loop")` が有効なままコルーチンが実行される。その結果、コルーチン内で発生した `__cause__` を持たない例外の `__context__` に無関係な `RuntimeError` が連鎖し、診断表示(Issue #274 の `_format_exception_chain`)で誤診を招く(実機の WebAPI 429 エラー調査で発覚)。
+- **対策**: イベントループの有無を確認する処理は `bool` を返すヘルパーへ分離し、`except` の `RuntimeError` を完全に抜けてから `asyncio.run()` を呼ぶ。`raise ... from ...` を使うモックテストでは `__cause__` が優先されるため、この不具合を見逃しやすい点にも注意する。
+
+### Provider Batch のレーティング事前確認における既存スキーマの再利用(Issue #507 / ADR 0031 改訂 / ADR 0038)
+`/v1/moderations` Batch を専用スキーマとして新設すると、既存の `provider_batch_jobs` / `provider_batch_items` / `ratings` と二重管理になる。`provider_batch_items.task_type = "rating_preflight"` と `provider_batch_jobs.model_id = <omni-moderation-latest>` でアノテーションバッチと区別し、結果を既存の `ratings.normalized_rating`(`X` / `XXX`)へ書き込むことで、後続ワーカーの `filter_excluded_by_rating()` が同じ正本を参照できる。決定論的な E2E テスト(`tests/integration/test_provider_batch_rating_preflight_e2e.py`)では偽の `ProviderBatchAdapter` を注入して submit → import → ratings 保存 → 除外判定を一貫検証し、実 OpenAI API の契約確認は `image-annotator-lib` の `tests/runtime_validation/` で手動実行する(ADR 0026)。
+
+### 外部タグ DB の正規化変換は表示時ではなく書き込み境界のバッチ処理で行う(Issue #769 / ADR 0068 改訂)
+- **現象**: Issue #772 で GUI 詳細表示時に `convert_tags` をタグ 1 件ずつ呼び出した結果、画像 1 枚の表示ごとに「タグ数 × タグ DB リポジトリ数 × 2(`get_format_id` + 検索)」の DB 往復が発生し、Windows 実機でサムネイル選択から詳細表示まで許容外に遅延した(ウィジェット単位のキャッシュでは初回表示コストを消せない)。`convert_tags` や `search_tags_bulk` の一括検索設計を、1 件ずつのループ呼び出しで台無しにしていた。
+- **対策**: 正規表記の解決を保存境界(`_save_tags`、画像 1 枚あたり 1 回のバッチ検索)へ移し、`Tag.tag` に Danbooru 正規表記を保存して表示・エクスポート時は変換なしでそのまま出力するようにした。ただし手動編集値(`is_edited_manually=True`)は正規化せずユーザーの入力表記を尊重する。
+- **教訓**: 外部 DB を参照する正規化を対話経路で 1 件ずつ呼んではならない。変換は書き込み時にバッチで 1 回だけ確定させ、読み取り・表示時の変換コストをゼロにする。`search_tags_bulk` のようなバッチ API をループ内で 1 件ずつ呼んでいないか必ず確認する。
+
+### 同期・Batch 両経路での Pydantic スキーマ共有と PydanticAI の責務境界(Issue #518 / ADR 0023 / ADR 0038)
+WebAPI アノテーションの構造化出力スキーマは `AnnotationSchema`(Pydantic `BaseModel`)を正本(SSoT)とする。同期経路は PydanticAI の `Agent(output_type=normalize_annotation_output)` を使い、Batch 経路は `AnnotationSchema.model_json_schema()` から純粋な Pydantic で OpenAI function-tool スキーマを直接生成する。PydanticAI はエージェント実行基盤でありスキーマ定義の責務は Pydantic 側にあるため、Batch 経路へ PydanticAI を持ち込むとプロバイダーバッチのライフサイクル(ファイルアップロード、ジョブ監視、成果物取得)と抽象が衝突する。
+また、`/v1/responses` ではなく `/v1/chat/completions` Batch を選んだのは、同期経路とエンドポイント・ツールスキーマ・応答形式を一致させ、テストフィクスチャ・拒否検知・`normalize_annotation_output()` を両経路で共有するためである。安全性拒否は同期では `SafetyRefusalError`、Batch では `finish_reason=content_filter` や `message.refusal` 非 null を `BatchItemError(code="provider_safety_refusal")` に正規化し、`error_records` と `provider_batch_items.error_type` の両方で対称に扱えるようにしている。
+
+### 裏付けとなるデータ経路を確認せずにデザイン UI を配線しない(Issue #851 撤去)
+- **現象**: デザインシステム(AnnotateScreen ModelPicker)由来の `conf-min` スライダーを「推論後にタグごとの確信度(confidence)でフィルタする」前提で、`StageModelPickerDialog` → `annotate_tab` → `main_window` → `worker_service` → `controller` → `AnnotationWorker` の 5 層に配線した。しかし、(1) `image-annotator-lib` は推論時に静的 `tag_threshold`(既定 0.35)でフィルタしてから確信度を破棄するため保存値は常に `confidence_score=None` であり、(2) 公開 `annotate()` に実行時のモデル別閾値を渡す口もなかった。結果として機能しない配線が `PENDING` のまま残存し、撤去のうえ将来の lib 拡張を前提とする Issue(#851)へ再定義した。
+- **教訓**: デザインツール上に存在する UI コントロールを実装する前に、それを支えるデータ経路が実在するかを必ず確認する。「あとでつなぐ」と複数層に配線すると、前提の誤りが `PENDING` として固定化される。

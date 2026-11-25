@@ -1,42 +1,33 @@
 ---
 type: ADR
-title: CLI Tag DB Lazy Initialization
+title: CLI におけるタグ DB の遅延初期化
 status: Accepted
 timestamp: 2026-06-01
 tags: []
 ---
-# ADR 0050: CLI Tag DB Lazy Initialization
+# ADR 0050: CLI におけるタグ DB の遅延初期化
 
-## Context
+## 背景
 
-`ServiceContainer` initialized genai-tag-db-tools databases during container construction.
-That made read-only CLI commands such as `lorairo-cli status`, `project list`, and
-`images list --limit 5` contact Hugging Face before doing any command-specific work.
-Without `HF_TOKEN`, startup could spend a long time in tag DB initialization even when the
-command did not need tag management.
+`ServiceContainer` はコンストラクタ実行時に genai-tag-db-tools のデータベースを初期化していた。そのため、`lorairo-cli status`、`project list`、`images list --limit 5` のような読み取り専用 CLI コマンドでも、本来の処理の前に Hugging Face へ通信が発生していた。
 
-## Decision
+`HF_TOKEN` が未設定の環境では、タグ管理を必要としないコマンドであっても、起動時のタグ DB 初期化に長い時間を要することがあった。
 
-`ServiceContainer` construction must stay side-effect-light. It should not initialize
-genai-tag-db-tools databases by default.
+## 決定
 
-Tag DB initialization is deferred to the first service path that actually needs external tag DB
-access:
+`ServiceContainer` の構築処理は副作用を最小限に保つ。既定では genai-tag-db-tools のデータベースを初期化しない。
 
-- `ServiceContainer.tag_management_service`, before constructing `TagManagementService`.
-- `AnnotationRepository` tag ID resolution/registration, before creating a `MergedTagReader`.
+タグ DB の初期化は、外部タグ DB へのアクセスを実際に必要とする最初のサービス経路まで遅延させる。
 
-`ensure_tag_db_initialized()` must not rewrite the selected image database path. Project selection
-owns `db_core.IMG_DB_PATH` / `DATABASE_URL`; tag DB initialization only prepares genai-tag-db-tools
-base/user databases.
+- `ServiceContainer.tag_management_service`: `TagManagementService` を構築する直前に初期化する。
+- `AnnotationRepository` のタグ ID 解決/登録処理: `MergedTagReader` を生成する直前に初期化する。
 
-## Consequences
+`ensure_tag_db_initialized()` は選択中の画像データベースパスを書き換えてはならない。`db_core.IMG_DB_PATH` / `DATABASE_URL` の管理責務はプロジェクト選択側にあり、タグ DB 初期化は genai-tag-db-tools のベース DB とユーザー DB の準備のみを担う。
 
-- Read-only CLI commands no longer block on tag DB initialization.
-- `lorairo-cli --help` and `version` continue avoiding service initialization side effects.
-- Tag management still initializes the external tag DB before using genai-tag-db-tools user DB
-  APIs.
-- Annotation repository construction remains cheap, but annotation tag ID resolution still
-  initializes external tag DB support when needed and continues graceful degradation if unavailable.
-- Opening tag management after `set_active_project()` no longer resets project-root resolution back
-  to the default image database.
+## 影響
+
+- 読み取り専用の CLI コマンドがタグ DB の初期化でブロックされなくなる。
+- `lorairo-cli --help` と `version` は、引き続きサービス初期化の副作用を発生させない。
+- タグ管理機能は、genai-tag-db-tools のユーザー DB API を利用する前に外部タグ DB を確実に初期化する。
+- `AnnotationRepository` の構築コストは低いまま維持される。タグ ID 解決時には必要に応じて外部タグ DB サポートを初期化し、利用できない場合も従来どおりグレースフルデグラデーションを継続する。
+- `set_active_project()` の後にタグ管理を開いても、プロジェクトルートの解決先が既定の画像データベースへリセットされなくなる。

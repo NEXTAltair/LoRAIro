@@ -1,12 +1,12 @@
-# Repository Pattern API Reference
+# リポジトリパターン API リファレンス
 
-Complete API reference for SQLAlchemy repository pattern in LoRAIro.
+LoRAIro における SQLAlchemy リポジトリパターンの完全な API リファレンスである。
 
-## Core Repository Interface
+## コアリポジトリインターフェース
 
-### Standard Method Signatures
+### 標準メソッドシグネチャ
 
-All repositories should implement these standard methods:
+すべてのリポジトリは、次の標準メソッド群を実装する。
 
 ```python
 class EntityRepository:
@@ -40,134 +40,134 @@ class EntityRepository:
         """Count total entities"""
 ```
 
-## Query Patterns
+## クエリパターン
 
-### Basic Queries
+### 基本クエリ
 
 ```python
-# Single result
+# 単一レコードの取得
 entity = session.query(Entity).filter(Entity.id == value).first()
 
-# Multiple results
+# 複数レコードの取得
 entities = session.query(Entity).filter(Entity.field == value).all()
 
-# Count
+# 件数の取得
 count = session.query(Entity).filter(Entity.field == value).count()
 
-# Exists check
+# 存在確認
 exists = session.query(Entity.id).filter(Entity.id == value).first() is not None
 ```
 
-### Filtering Patterns
+### フィルタリングパターン
 
 ```python
-# Equality
+# 等価
 query.filter(Entity.field == value)
 
-# Inequality
+# 不等価
 query.filter(Entity.field != value)
 
-# Comparison
+# 大小比較
 query.filter(Entity.score >= min_value)
 query.filter(Entity.score <= max_value)
 
-# Range (AND)
+# 範囲指定 (AND)
 query.filter(Entity.score >= min_value, Entity.score <= max_value)
 
-# IN clause
+# IN 句
 query.filter(Entity.id.in_([1, 2, 3]))
 
-# LIKE (case-sensitive)
+# LIKE (大文字・小文字を区別)
 query.filter(Entity.name.like("pattern%"))
 
-# ILIKE (case-insensitive, PostgreSQL only)
+# ILIKE (大文字・小文字を区別しない、PostgreSQL 専用)
 query.filter(Entity.name.ilike("pattern%"))
 
 # IS NULL / IS NOT NULL
 query.filter(Entity.field.is_(None))
 query.filter(Entity.field.isnot(None))
 
-# AND logic (multiple conditions)
+# AND 条件 (複数条件)
 from sqlalchemy import and_
 query.filter(and_(
     Entity.field1 == value1,
     Entity.field2 == value2
 ))
 
-# OR logic
+# OR 条件
 from sqlalchemy import or_
 query.filter(or_(
     Entity.field1 == value1,
     Entity.field2 == value2
 ))
 
-# NOT logic
+# NOT 条件
 from sqlalchemy import not_
 query.filter(not_(Entity.field == value))
-# Or using ~
+# または ~ 演算子を使う
 query.filter(~Entity.field == value)
 ```
 
-### Ordering Patterns
+### 並び替えパターン
 
 ```python
-# Ascending
+# 昇順
 query.order_by(Entity.created_at)
 
-# Descending
+# 降順
 query.order_by(Entity.score.desc())
 
-# Multiple columns
+# 複数カラム
 query.order_by(Entity.category, Entity.score.desc())
 
-# Null values first/last
+# NULL 値の先頭/末尾配置
 query.order_by(Entity.field.nullsfirst())
 query.order_by(Entity.field.nullslast())
 ```
 
-### Pagination Patterns
+### ページネーションパターン
 
 ```python
-# Limit
+# 件数上限
 query.limit(10)
 
-# Offset
+# 開始位置
 query.offset(20)
 
-# Combined (page 3, page size 10)
+# 併用 (3 ページ目、1 ページ 10 件)
 page = 3
 page_size = 10
 query.offset((page - 1) * page_size).limit(page_size)
 
-# Slice notation
-query.slice(20, 30)  # Offset 20, limit 10
+# スライス記法
+query.slice(20, 30)  # オフセット 20、件数 10
 ```
 
-### Aggregation Patterns
+### 集計パターン
 
 ```python
 from sqlalchemy import func
 
-# Count
+# 件数
 count = session.query(func.count(Entity.id)).scalar()
 
-# Sum
+# 合計
 total = session.query(func.sum(Entity.score)).scalar()
 
-# Average
+# 平均
 avg_score = session.query(func.avg(Entity.score)).scalar()
 
-# Min/Max
+# 最小値/最大値
 min_score = session.query(func.min(Entity.score)).scalar()
 max_score = session.query(func.max(Entity.score)).scalar()
 
-# Group by
+# グルーピング
 results = session.query(
     Entity.category,
     func.count(Entity.id)
 ).group_by(Entity.category).all()
 
-# Having clause
+# HAVING 句
 results = session.query(
     Entity.category,
     func.count(Entity.id)
@@ -175,32 +175,32 @@ results = session.query(
  .having(func.count(Entity.id) > 5).all()
 ```
 
-## Join Patterns
+## 結合パターン
 
-### Eager Loading (Avoid N+1)
+### Eager Loading(N+1 問題の回避)
 
 ```python
 from sqlalchemy.orm import joinedload, selectinload, subqueryload
 
-# joinedload - Single query with LEFT OUTER JOIN
-# Best for: One-to-one, one-to-many (small collections)
+# joinedload - LEFT OUTER JOIN による単一クエリ
+# 適用先: 1 対 1、または要素数の少ない 1 対多
 entities = session.query(Entity)\
     .options(joinedload(Entity.related))\
     .all()
 
-# selectinload - Separate SELECT IN query
-# Best for: One-to-many (large collections)
+# selectinload - 別の SELECT IN クエリで一括取得
+# 適用先: 要素数の多い 1 対多
 entities = session.query(Entity)\
     .options(selectinload(Entity.related_items))\
     .all()
 
-# subqueryload - Separate subquery
-# Best for: Complex relationships
+# subqueryload - サブクエリで一括取得
+# 適用先: 複雑なリレーションシップ
 entities = session.query(Entity)\
     .options(subqueryload(Entity.related_items))\
     .all()
 
-# Nested eager loading
+# ネストした Eager Loading
 entities = session.query(Entity)\
     .options(
         joinedload(Entity.related)\
@@ -208,7 +208,7 @@ entities = session.query(Entity)\
     )\
     .all()
 
-# Multiple relationships
+# 複数リレーションシップの同時読み込み
 entities = session.query(Entity)\
     .options(
         joinedload(Entity.related1),
@@ -217,22 +217,22 @@ entities = session.query(Entity)\
     .all()
 ```
 
-### Explicit Joins
+### 明示的な結合
 
 ```python
-# Inner join
+# 内部結合
 query.join(Entity.related)
 
-# Left outer join
+# 左外部結合
 query.outerjoin(Entity.related)
 
-# Join with filter
+# 結合先テーブルでの絞り込み
 query.join(Entity.related).filter(Related.field == value)
 
-# Multiple joins
+# 複数テーブルの結合
 query.join(Entity.related1).join(Entity.related2)
 
-# Join on specific condition
+# 条件を明示した結合
 from sqlalchemy import and_
 query.join(
     Related,
@@ -243,81 +243,81 @@ query.join(
 )
 ```
 
-## Transaction Patterns
+## トランザクションパターン
 
-### Basic Transaction
+### 基本トランザクション
 
 ```python
 with session_factory() as session:
-    # All operations in single transaction
+    # すべての操作を 1 つのトランザクションにまとめる
     entity1 = Entity(field="value1")
     session.add(entity1)
 
     entity2 = Entity(field="value2")
     session.add(entity2)
 
-    session.commit()  # Atomic commit
-    # Auto-rollback on exception
+    session.commit()  # アトミックにコミット
+    # 例外発生時は自動ロールバック
 ```
 
-### Manual Rollback
+### 手動ロールバック
 
 ```python
 with session_factory() as session:
     try:
-        # Operations
+        # DB 操作
         session.add(entity)
         session.commit()
     except IntegrityError:
-        session.rollback()  # Explicit rollback
-        # Handle error
+        session.rollback()  # 明示的にロールバック
+        # エラー処理
 ```
 
-### Savepoints (Nested Transactions)
+### セーブポイント(ネストしたトランザクション)
 
 ```python
 with session_factory() as session:
     session.add(entity1)
     session.commit()
 
-    # Create savepoint
+    # セーブポイントを作成
     savepoint = session.begin_nested()
 
     try:
         session.add(entity2)
         session.commit()
     except Exception:
-        savepoint.rollback()  # Rollback to savepoint
-        # entity1 still committed
+        savepoint.rollback()  # セーブポイントまでロールバック
+        # entity1 のコミットは維持される
 ```
 
-### Flush vs Commit
+### `flush` と `commit` の違い
 
 ```python
 with session_factory() as session:
     entity = Entity(field="value")
     session.add(entity)
 
-    # Flush: Execute SQL without committing transaction
-    # Use to get generated ID before commit
+    # flush: トランザクションをコミットせずに SQL を発行する
+    # コミット前に自動採番 ID を取得したいときに使う
     session.flush()
-    print(f"Generated ID: {entity.id}")  # Available after flush
+    print(f"Generated ID: {entity.id}")  # flush 後に参照できる
 
-    # Commit: Commit transaction
+    # commit: トランザクションを確定する
     session.commit()
 ```
 
-## Error Handling Patterns
+## エラーハンドリングパターン
 
-### Specific Exception Handling
+### 具体的な例外の捕捉
 
 ```python
 from sqlalchemy.exc import (
-    IntegrityError,      # Constraint violations (unique, foreign key)
-    DataError,           # Invalid data type
-    OperationalError,    # Connection issues, timeout
-    DatabaseError,       # Generic database error
-    SQLAlchemyError      # Base exception class
+    IntegrityError,      # 制約違反 (一意制約、外部キー制約など)
+    DataError,           # 不正なデータ型
+    OperationalError,    # 接続障害、タイムアウト
+    DatabaseError,       # 一般的なデータベースエラー
+    SQLAlchemyError      # 基底例外クラス
 )
 
 def safe_operation(entity: Entity) -> Optional[Entity]:
@@ -328,27 +328,27 @@ def safe_operation(entity: Entity) -> Optional[Entity]:
             return entity
 
     except IntegrityError as e:
-        # Constraint violation
+        # 制約違反
         logger.error(f"Integrity error: {e}")
         return None
 
     except OperationalError as e:
-        # Connection/timeout
+        # 接続エラー/タイムアウト
         logger.error(f"Operational error: {e}")
         return None
 
     except DataError as e:
-        # Invalid data
+        # 不正なデータ
         logger.error(f"Data error: {e}")
         return None
 
     except SQLAlchemyError as e:
-        # Other database errors
+        # その他のデータベースエラー
         logger.error(f"Database error: {e}")
         return None
 ```
 
-### Retry Pattern
+### リトライパターン
 
 ```python
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -366,47 +366,47 @@ def resilient_operation(entity: Entity) -> Entity:
         return entity
 ```
 
-## Performance Patterns
+## パフォーマンスパターン
 
-### Bulk Operations
+### バルク操作
 
 ```python
-# Bulk insert (fastest, but bypasses ORM)
+# バルクインサート (最速だが ORM のイベント等は経由しない)
 session.bulk_insert_mappings(
     Entity,
     [{"field1": "value1", "field2": "value2"} for _ in range(1000)]
 )
 
-# Bulk update
+# バルクアップデート
 session.bulk_update_mappings(
     Entity,
     [{"id": 1, "field": "new_value"}, {"id": 2, "field": "new_value2"}]
 )
 
-# Bulk delete
+# バルクデリート
 session.query(Entity).filter(Entity.id.in_(ids)).delete(synchronize_session=False)
 ```
 
-### Query Optimization
+### クエリ最適化
 
 ```python
-# Select specific columns only
+# 必要なカラムだけを選択する
 results = session.query(Entity.id, Entity.name).all()
 
-# Defer loading expensive columns
+# サイズの大きいカラムの読み込みを遅延させる
 from sqlalchemy.orm import defer
 query.options(defer(Entity.large_binary_field))
 
-# Load only (opposite of defer)
+# 指定カラムのみ読み込む (defer の逆)
 from sqlalchemy.orm import load_only
 query.options(load_only(Entity.id, Entity.name))
 
-# Disable relationship loading
+# リレーションシップの事前読み込みを無効化する
 from sqlalchemy.orm import lazyload
 query.options(lazyload(Entity.related))
 ```
 
-### Caching Patterns
+### キャッシュパターン
 
 ```python
 from functools import lru_cache
@@ -417,13 +417,13 @@ def get_static_config() -> dict:
     with session_factory() as session:
         return session.query(Config).first().to_dict()
 
-# Clear cache when data changes
+# データ変更時にキャッシュをクリアする
 get_static_config.cache_clear()
 ```
 
-## Type Safety Patterns
+## 型安全パターン
 
-### Typed Search Criteria
+### 型付き検索条件
 
 ```python
 from dataclasses import dataclass
@@ -433,16 +433,16 @@ from datetime import datetime
 @dataclass
 class SearchCriteria:
     """Type-safe search criteria"""
-    # Required fields
+    # 必須フィールド
     entity_type: str
 
-    # Optional filters
+    # 任意フィルター
     tags: Optional[list[str]] = None
     min_score: Optional[float] = None
     max_score: Optional[float] = None
     created_after: Optional[datetime] = None
 
-    # Pagination
+    # ページネーション
     page: int = 1
     page_size: int = 20
 
@@ -454,7 +454,7 @@ class SearchCriteria:
         assert self.page_size > 0
 ```
 
-### Typed Return Objects
+### 型付き戻り値オブジェクト
 
 ```python
 from typing import NamedTuple
@@ -471,7 +471,7 @@ def search_typed(criteria: SearchCriteria) -> SearchResult:
     """Return type-safe results"""
     with session_factory() as session:
         query = session.query(Entity)
-        # Apply filters...
+        # フィルター条件を適用する...
 
         total_count = query.count()
         entities = query.offset((criteria.page - 1) * criteria.page_size)\
@@ -489,9 +489,9 @@ def search_typed(criteria: SearchCriteria) -> SearchResult:
         )
 ```
 
-## Common Patterns by Use Case
+## ユースケース別パターン
 
-### Read-Heavy Application
+### 読み込み中心のアプリケーション
 
 ```python
 class CachedRepository(EntityRepository):
@@ -502,26 +502,26 @@ class CachedRepository(EntityRepository):
         self.cache = cache
 
     def get_by_id(self, entity_id: int) -> Optional[Entity]:
-        # Check cache first
+        # まずキャッシュを確認する
         cache_key = f"entity:{entity_id}"
         cached = self.cache.get(cache_key)
         if cached:
             return cached
 
-        # Cache miss: query database
+        # キャッシュミス時はデータベースへ問い合わせる
         entity = super().get_by_id(entity_id)
         if entity:
             self.cache.set(cache_key, entity, timeout=300)
         return entity
 
     def update(self, entity: Entity) -> Entity:
-        # Invalidate cache on update
+        # 更新時にキャッシュを無効化する
         cache_key = f"entity:{entity.id}"
         self.cache.delete(cache_key)
         return super().update(entity)
 ```
 
-### Write-Heavy Application
+### 書き込み中心のアプリケーション
 
 ```python
 class BatchingRepository(EntityRepository):
@@ -542,7 +542,7 @@ class BatchingRepository(EntityRepository):
         return added
 ```
 
-### Audit Logging
+### 監査ログ
 
 ```python
 class AuditedRepository(EntityRepository):
@@ -576,27 +576,27 @@ class AuditedRepository(EntityRepository):
             session.commit()
 ```
 
-## SQLAlchemy 2.0 Style (Future)
+## SQLAlchemy 2.0 スタイル(将来対応)
 
-### Modern Query API
+### モダンクエリ API
 
 ```python
 from sqlalchemy import select
 
-# 2.0 style select
+# 2.0 スタイルの select
 stmt = select(Entity).where(Entity.id == value)
 result = session.execute(stmt).scalars().all()
 
-# 2.0 style with joins
+# 2.0 スタイルの結合
 stmt = select(Entity).join(Entity.related).where(Related.field == value)
 results = session.execute(stmt).scalars().all()
 
-# 2.0 style aggregation
+# 2.0 スタイルの集計
 stmt = select(func.count(Entity.id)).where(Entity.active == True)
 count = session.execute(stmt).scalar()
 ```
 
-### Async Support (SQLAlchemy 2.0+)
+### 非同期サポート(SQLAlchemy 2.0+)
 
 ```python
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -608,38 +608,43 @@ async def async_get_by_id(session: AsyncSession, entity_id: int) -> Optional[Ent
     return result.scalar_one_or_none()
 ```
 
-## Best Practices Summary
+## ベストプラクティスまとめ
 
-### Session Management
-- ✅ Always use context manager (`with session_factory() as session:`)
-- ✅ One session per request/transaction
-- ❌ Never store session as instance variable
-- ❌ Never use global session
+### セッション管理
 
-### Query Performance
-- ✅ Use eager loading to avoid N+1 queries
-- ✅ Select only needed columns for large datasets
-- ✅ Use bulk operations for batch processing
-- ❌ Avoid lazy loading in loops
-- ❌ Don't query in loops (use batch queries)
+- 推奨: 必ずコンテキストマネージャー(`with session_factory() as session:`)を使う。
+- 推奨: 1 リクエストまたは 1 トランザクションにつき 1 セッションとする。
+- 禁止: セッションをインスタンス変数に保持しない。
+- 禁止: グローバルセッションを使わない。
 
-### Error Handling
-- ✅ Catch specific SQLAlchemy exceptions
-- ✅ Log all database errors with context
-- ✅ Return None or raise custom exceptions
-- ❌ Don't silently swallow errors
-- ❌ Don't expose internal exceptions to UI
+### クエリパフォーマンス
 
-### Type Safety
-- ✅ Use type hints for all methods
-- ✅ Use dataclasses for criteria
-- ✅ Use NamedTuple/dataclass for results
-- ❌ Don't use Any type
-- ❌ Don't use dict for structured data
+- 推奨: Eager Loading を使って N+1 クエリを防ぐ。
+- 推奨: 大規模データセットでは必要なカラムのみ取得する。
+- 推奨: バッチ処理にはバルク操作を使う。
+- 禁止: ループ内での Lazy Loading を避ける。
+- 禁止: ループ内で個別クエリを発行しない(バッチクエリを使う)。
 
-### Testing
-- ✅ Use in-memory SQLite for tests
-- ✅ Use fixtures for session factory
-- ✅ Test error cases
-- ❌ Don't test against production database
-- ❌ Don't share sessions between tests
+### エラーハンドリング
+
+- 推奨: 具体的な SQLAlchemy 例外クラスを捕捉する。
+- 推奨: すべてのデータベースエラーを文脈情報付きでログ出力する。
+- 推奨: `None` を返すか、ドメイン固有のカスタム例外を送出する。
+- 禁止: エラーを黙って握りつぶさない。
+- 禁止: 内部のデータベース例外をそのまま UI へ露出させない。
+
+### 型安全性
+
+- 推奨: すべてのメソッドに型ヒントを付ける。
+- 推奨: 検索条件には `dataclass` を使う。
+- 推奨: 戻り値には `NamedTuple` または `dataclass` を使う。
+- 禁止: `Any` 型を安易に使わない。
+- 禁止: 構造化データに生の `dict` を使わない。
+
+### テスト
+
+- 推奨: テストにはインメモリ SQLite を使う。
+- 推奨: セッションファクトリはフィクスチャで提供する。
+- 推奨: エラー系・例外パスも必ずテストする。
+- 禁止: 本番データベースに対してテストを実行しない。
+- 禁止: テスト間でセッションを共有しない。

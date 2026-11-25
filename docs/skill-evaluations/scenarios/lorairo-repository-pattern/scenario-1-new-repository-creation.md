@@ -1,71 +1,77 @@
-# Scenario: New Repository Creation Following Pattern
+# シナリオ: パターンに沿った新規リポジトリ作成
 
-## Input
-**User request:** "Create a new ExportConfigRepository for managing export configuration settings. Follow the LoRAIro repository pattern like ImageRepository and TagRepository."
+## 入力
 
-**Context:**
-- LoRAIro uses repository pattern for data access layer
-- Existing patterns: ImageRepository, TagRepository in `src/lorairo/database/repositories/`
-- Should use:
+**ユーザー依頼:** "Create a new ExportConfigRepository for managing export configuration settings. Follow the LoRAIro repository pattern like ImageRepository and TagRepository."
+
+**前提条件:**
+- LoRAIro はデータアクセス層にリポジトリパターンを採用している。
+- 既存の実装パターン: `src/lorairo/database/repositories/` 配下の `ImageRepository`、`TagRepository`
+- 使用すべき技術と方針は以下の通りである。
   - SQLAlchemy ORM
-  - Type-safe transactions
-  - Session management via db_core
-  - Consistent error handling
-- New repository for ExportConfig model
+  - 型安全なトランザクション
+  - `db_core` 経由のセッション管理
+  - 一貫したエラー処理
+- 対象: `ExportConfig` モデル用の新規リポジトリ
 
-## Expected Behavior
-1. Skill `lorairo-repository-pattern` should be invoked automatically
-2. Should guide repository creation workflow:
+## 期待される動作
 
-   **Phase 1: Explore Existing Pattern**
-   - Use `Grep` to find ImageRepository or TagRepository
-   - Analyze structure, methods, session handling
-   - Identify common patterns to follow
+1. スキル `lorairo-repository-pattern` が自動的に呼び出される。
+2. 以下の手順に沿ってリポジトリ作成ワークフローを案内する。
 
-   **Phase 2: Implement Following Pattern**
-   - Create ExportConfigRepository class
-   - Implement CRUD methods (create, get_by_id, update, delete)
-   - Add session management
-   - Type hints for all methods
-   - Proper error handling
+   **フェーズ 1: 既存パターンの調査**
+   - `Grep` を使用して `ImageRepository` または `TagRepository` を検索する。
+   - 構造、メソッド構成、セッション管理の実装を分析する。
+   - 踏襲すべき共通パターンを特定する。
 
-   **Phase 3: Test Creation**
-   - Suggest creating tests following pattern
-   - Reference pytest fixtures from existing repository tests
+   **フェーズ 2: パターンに沿った実装**
+   - `ExportConfigRepository` クラスを作成する。
+   - CRUD メソッド (`create`、`get_by_id`、`update`、`delete`) を実装する。
+   - セッション管理を組み込む。
+   - すべてのメソッドに型ヒントを付与する。
+   - 適切なエラー処理を実装する。
 
-3. Should produce:
-   - Complete repository implementation
-   - Follows LoRAIro patterns consistently
-   - Type-safe and well-documented
-   - Test recommendation
+   **フェーズ 3: テスト作成**
+   - 既存パターンに沿ったテストの作成を提案する。
+   - 既存リポジトリテストの pytest フィクスチャを参照する。
 
-4. Should NOT:
-   - Create pattern that differs from existing repositories
-   - Use raw SQL instead of ORM
-   - Skip error handling
-   - Forget type hints
+3. 以下の成果物を生成する。
+   - 完全なリポジトリ実装
+   - LoRAIro のパターンと一貫した設計
+   - 型安全でドキュメントが整備されたコード
+   - テスト作成の推奨事項
 
-## Success Criteria
-- [x] Correct skill invoked (lorairo-repository-pattern)
-- [x] Explores existing repositories before implementing
-- [x] Implementation follows LoRAIro conventions
-- [x] All CRUD methods included
-- [x] Type hints present
-- [x] Error handling consistent with existing code
-- [x] Completes without errors
+4. 以下を行わない。
+   - 既存リポジトリと異なる独自パターンを作る。
+   - ORM ではなく生 SQL を使用する。
+   - エラー処理を省略する。
+   - 型ヒントを付け忘れる。
 
-## Model Variations
-- **Haiku:** Should create basic repository; may need guidance on session management and error handling
-- **Sonnet:** Should create complete repository following all patterns; good consistency with existing code
-- **Opus:** May suggest additional methods beyond CRUD; may optimize query patterns; excellent pattern adherence
+## 成功基準
 
-## Test Validation
-After running this scenario:
-1. Verify skill invoked: Check `lorairo-repository-pattern` in metadata
-2. Check exploration phase:
-   - Used `find_symbol` to examine ImageRepository or TagRepository
-   - Analyzed existing patterns before implementing
-3. Verify repository structure:
+- [x] 正しいスキル (`lorairo-repository-pattern`) が呼び出された
+- [x] 実装前に既存リポジトリを調査した
+- [x] 実装が LoRAIro の規約に準拠している
+- [x] すべての CRUD メソッドが含まれている
+- [x] 型ヒントが付与されている
+- [x] エラー処理が既存コードと一貫している
+- [x] エラーなく完了する
+
+## モデル別の傾向
+
+- **Haiku:** 基本的なリポジトリを作成できる。セッション管理やエラー処理には補足指示が必要な場合がある。
+- **Sonnet:** すべてのパターンに従った完全なリポジトリを作成できる。既存コードとの一貫性が高い。
+- **Opus:** CRUD 以外の追加メソッドを提案したり、クエリパターンを最適化したりする場合がある。パターン準拠度が極めて高い。
+
+## テスト検証
+
+このシナリオの実行後、以下の項目を確認する。
+
+1. スキル呼び出しの確認: メタデータに `lorairo-repository-pattern` が含まれていることを確認する。
+2. 調査フェーズの確認:
+   - `find_symbol` を使用して `ImageRepository` または `TagRepository` を調べている。
+   - 実装前に既存パターンを分析している。
+3. リポジトリ構造の確認:
    ```python
    class ExportConfigRepository:
        def __init__(self, session: Session): ...
@@ -74,11 +80,11 @@ After running this scenario:
        def update(self, config: ExportConfig) -> ExportConfig: ...
        def delete(self, config_id: int) -> bool: ...
    ```
-5. Check consistency with existing repositories:
-   - Session management same as ImageRepository
-   - Error handling same as TagRepository
-   - Type hints match project standards
-6. Verify code quality:
-   - No `# type: ignore` comments
-   - Proper docstrings (Google style)
-   - Logging where appropriate
+4. 既存リポジトリとの一貫性の確認:
+   - セッション管理が `ImageRepository` と同じである。
+   - エラー処理が `TagRepository` と同じである。
+   - 型ヒントがプロジェクト規約に合致している。
+5. コード品質の確認:
+   - `# type: ignore` コメントがない。
+   - 適切な docstring (Google スタイル) が記述されている。
+   - 適切な箇所でログ出力を行っている。

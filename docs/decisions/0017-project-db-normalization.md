@@ -9,28 +9,28 @@ tags: []
 
 ## Context
 
-LoRAIro では「プロジェクト」概念が複数の機能境界に渡って使われているが、データベース層では**プロジェクトを第一級エンティティとして表現していない**。
+LoRAIro では「プロジェクト」という概念が複数の機能境界にわたって使われている。しかしデータベース層では、**プロジェクトが第一級エンティティとして表現されていない**。
 
 ### 現状の課題
 
 1. **スキーマ上の不在**
-   - `projects` テーブルが存在しない (`src/lorairo/database/schema.py`)
-   - `Image` テーブルに `project_id` FK 相当のカラムが無い
-   - プロジェクトはファイルシステムディレクトリ構造のみで管理 (`lorairo_data/<name>_<timestamp>/image_database.db`)
+   - `src/lorairo/database/schema.py` に `projects` テーブルが存在しない。
+   - `Image` テーブルに `project_id` 外部キー相当のカラムがない。
+   - プロジェクトはファイルシステムのディレクトリ構造(`lorairo_data/<name>_<timestamp>/image_database.db`)のみで管理されている。
 
-2. **機能的破綻 (Issue #165 / #166)**
-   - `src/lorairo/api/export.py:13-42` の `_resolve_project_image_ids()` がファイルシステム走査で `list(range(len(image_files)))` を返す (DB 上の実 image_id と無関係なダミー実装)
-   - `src/lorairo/cli/commands/export.py:95` の `repository.get_images_by_filter()` が引数無し呼び出しで全件取得。`--project foo` 指定でも 21,029 件の全画像が返る
-   - 両問題とも根本原因は「プロジェクト名 → image_id 一覧」の DB メソッド不在
+2. **機能的な破綻(Issue #165、#166)**
+   - `src/lorairo/api/export.py:13-42` の `_resolve_project_image_ids()` は、ファイルシステム走査の結果から `list(range(len(image_files)))` を返している。これは DB 上の実際の `image_id` とは無関係なダミー実装である。
+   - `src/lorairo/cli/commands/export.py:95` の `repository.get_images_by_filter()` は引数なしで呼ばれており、全件取得になっている。そのため、`--project foo` を指定しても 21,029 件の全画像が返ってしまう。
+   - 両問題の根本原因は、プロジェクト名から `image_id` 一覧を引く DB メソッドが存在しない点にある。
 
 3. **既存の教訓**
-   - ADR 0002: 外部 FK 制約を避ける方針 (genai-tag-db-tools 由来の tag_id 等)。しかし LoRAIro 内部スキーマでは FK 表現可能で避ける理由はない
-   - ADR 0006: 全件取得はパフォーマンス問題を引き起こす (18,252 件全件取得 → LIMIT/OFFSET で解決済)
-   - ADR 0015: 二重管理はデータ乖離を招く (手動 rating の書込/読込対称性バグ)
+   - **ADR 0002**:`genai-tag-db-tools` 由来の `tag_id` など、外部 DB に対する FK 制約は避ける方針である。しかし LoRAIro 内部スキーマ同士であれば FK で表現でき、避ける理由はない。
+   - **ADR 0006**:全件取得は深刻な性能問題を引き起こす(18,252 件の全件取得問題は LIMIT/OFFSET で解決済み)。
+   - **ADR 0015**:二重管理はデータの乖離を招く(手動レーティングの書き込み・読み込み非対称バグの教訓)。
 
 ## Decision
 
-LoRAIro DB スキーマを拡張し、プロジェクトを第一級エンティティとして正規化する。
+LoRAIro の DB スキーマを拡張し、プロジェクトを第一級エンティティとして正規化する。
 
 ### スキーマ追加
 
@@ -68,13 +68,13 @@ def assign_images_to_project(self, image_ids: list[int], project_id: int) -> int
 
 ### Alembic マイグレーション戦略
 
-1. `projects` テーブル単独 CREATE (非破壊)
-2. `batch_alter_table` で `images.project_id` カラム追加 (nullable=True で互換)
-3. データ遡及バックフィル:
-   - `config/lorairo.toml` の `[directories] database_base_dir` からプロジェクトルートを検出
-   - ディレクトリ名 (`main_dataset_20250707_001` 等) から name 抽出
-   - `projects` に INSERT、全 `images.project_id` を bulk UPDATE
-4. 冪等性: `SELECT COUNT(*) FROM projects` で既存行あれば skip
+1. `projects` テーブルを単独で作成する(非破壊変更)。
+2. `batch_alter_table` を使って `images.project_id` カラムを追加する(互換性のため `nullable=True` とする)。
+3. 既存データに対するバックフィルを実施する。
+   - `config/lorairo.toml` の `[directories] database_base_dir` からプロジェクトルートを検出する。
+   - ディレクトリ名(`main_dataset_20250707_001` 等)からプロジェクト名を抽出する。
+   - `projects` テーブルへ INSERT し、全レコードの `images.project_id` を一括 UPDATE する。
+4. 冪等性を確保するため、`SELECT COUNT(*) FROM projects` で既存行がある場合はバックフィルをスキップする。
 
 ## Rationale
 
@@ -82,57 +82,57 @@ def assign_images_to_project(self, image_ids: list[int], project_id: int) -> int
 
 | 選択肢 | 概要 | 採否 |
 |-------|------|------|
-| A. `projects` テーブル追加で正規化 | 第一級エンティティとして表現 | **採用** |
-| B. ファイルパスマッチで暫定フィルタ | `Image.stored_image_path.like(f"%{project}%")` | 却下 |
-| C. プロジェクト情報を JSON カラムに格納 | `Image.metadata` JSON 内に project 記録 | 却下 |
+| A:`projects` テーブル追加による正規化 | 第一級エンティティとして表現する | **採用** |
+| B:ファイルパスマッチによる暫定フィルタ | `Image.stored_image_path.like(f"%{project}%")` で絞り込む | 却下 |
+| C:JSON カラムへの格納 | `Image.metadata` JSON 内にプロジェクト情報を記録する | 却下 |
 
 ### A を採用した理由
 
-- **ADR 0015 の「二重管理禁止」原則準拠**: ファイルシステムと DB の二重真実を避け、DB を真実の源泉とする
-- **ADR 0006 の「全件取得は危険」への根本対策**: プロジェクト名検索の `WHERE project_id = ?` がインデックスで O(log n) になる
-- **Issue #165 の正攻法解決**: ダミー ID 生成を DB 連携に置き換えられる
-- **リレーション表現力**: 1 プロジェクト N 画像という自然な関係を型で表現可能
+- **ADR 0015 の「二重管理禁止」原則への準拠**:ファイルシステムと DB で情報が二重化するのを避け、DB を単一の真実の源泉(SSoT)とできる。
+- **ADR 0006 の「全件取得の回避」に対する根本対策**:プロジェクト検索時の `WHERE project_id = ?` がインデックスによって O(log n) で実行できる。
+- **Issue #165 の正攻法での解決**:ダミー ID 生成を DB 連携の実装へ置き換えられる。
+- **リレーションの表現力**:「1 プロジェクト対 N 画像」という自然な関係を型安全に表現できる。
 
 ### B (LIKE 句マッチ) を却下した理由
 
-- `LIKE "%foo%"` はインデックスが効かず全表スキャン (タグ検索の教訓)
-- `stored_image_path` の文字列構造に依存 → パス変更で壊れる
-- 結局 Issue #165 と同じダミー性を残す
+- `LIKE "%foo%"` はインデックスが効かず全表スキャンになる(タグ検索での教訓)。
+- `stored_image_path` の文字列構造に依存するため、パス変更によって容易に壊れる。
+- 本質的に Issue #165 と同じ暫定的な実装を残すことになる。
 
 ### C (JSON カラム) を却下した理由
 
-- SQLite JSON 検索は複雑で遅い
-- JOIN 表現不可 → Project メタデータ拡張時に痛む
-- スキーマレス化はコード側の検証負担増
+- SQLite での JSON 検索は記述が複雑になり、処理速度も低下する。
+- JOIN で表現できないため、将来プロジェクトのメタデータを拡張する際に負担が大きくなる。
+- スキーマレス化によって、アプリケーションコード側の検証負担が増える。
 
 ## Consequences
 
 ### 良い点
 
-- ◎ プロジェクト単位のフィルタが高速 (インデックス付き FK)
-- ◎ Issue #165 / #166 の同根問題を根本解決
-- ◎ 将来的な Project レベルの集計 (画像数、最終更新日等) が自然に書ける
-- ◎ CLI の `--project foo` が初めて「本物」のプロジェクトフィルタになる
+- インデックス付き FK により、プロジェクト単位のフィルタリングが高速に動作する。
+- Issue #165 と Issue #166 の共通原因を根本から解決できる。
+- 将来的なプロジェクト単位の集計(画像数、最終更新日など)を自然に実装できる。
+- CLI の `--project foo` が、初めて本来のプロジェクトフィルタとして機能するようになる。
 
 ### トレードオフ
 
-- △ スキーマ変更による破壊的変更 (Alembic マイグレーション必須)
-- △ `ON DELETE SET NULL` のため、プロジェクト削除時に画像が孤児化する (データ消失はしないが `project_id=NULL` になる)
-- ✗ **既存データ (18k 画像) のバックフィル失敗リスク**
+- スキーマ変更を伴うため、Alembic マイグレーションの実行が必須になる。
+- `ON DELETE SET NULL` を設定しているため、プロジェクト削除時に画像が孤児化する(データ自体は消失しないが、`project_id=NULL` になる)。
+- **既存データ(18k 画像)のバックフィルが失敗するリスク**がある。
 
 ### 軽減策
 
-- マイグレーション実行前に `.7z` 強制バックアップ (`make backup`)
-- Alembic の `dry-run` オプション追加
-- CI で `alembic upgrade head && alembic downgrade -1 && alembic upgrade head` のラウンドトリップ必須化
-- バックフィルの冪等性 (既存 projects 行あれば skip) で再実行安全
+- マイグレーション実行前に、`make backup` による `.7z` バックアップを強制する。
+- Alembic に `dry-run` オプションを追加する。
+- CI で `alembic upgrade head && alembic downgrade -1 && alembic upgrade head` のラウンドトリップ検証を必須化する。
+- バックフィルに冪等性(既存 `projects` 行があればスキップ)を持たせ、再実行時の安全性を確保する。
 
 ## Related
 
-- Issue #166 (エピック): CLI export create リファクタリング
-- Issue #165: `_resolve_project_image_ids()` ダミー実装
-- Issue #175 [C]: このADRを実装するサブIssue
-- ADR 0002: Database Schema Decisions (外部 FK 制約なし方針)
-- ADR 0006: Pagination Approach (全件取得の危険性)
-- ADR 0015: Manual Rating Storage Unification (二重管理禁止)
-- ADR 0018: Project Storage Unification (プロジェクト保存場所)
+- Issue #166(エピック):CLI `export create` リファクタリング
+- Issue #165:`_resolve_project_image_ids()` のダミー実装
+- Issue #175 [C]:本 ADR を実装するサブ Issue
+- ADR 0002: Database Schema Decisions(外部 FK 制約なし方針)
+- ADR 0006: Pagination Approach(全件取得の危険性)
+- ADR 0015: Manual Rating Storage Unification(二重管理禁止)
+- ADR 0018: Project Storage Unification(プロジェクト保存場所の統一)

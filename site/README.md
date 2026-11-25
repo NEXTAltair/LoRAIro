@@ -1,14 +1,12 @@
-# LoRAIro user guide
+# LoRAIro ユーザーガイド
 
 GitHub Pages: https://nextaltair.github.io/LoRAIro/
 
-This is the user-facing guide, separate from developer ADRs and specifications in `docs/`.
-Astro + Starlight provides static pages, search and Japanese/English/Traditional Chinese/Simplified Chinese navigation.
-The existing GitHub Pages URL is retained; deployment uses Actions, not the old Sphinx `gh-pages` branch.
+これは利用者向けのユーザーガイドであり、`docs/` にある開発者向け ADR や仕様書とは分離しています。Astro + Starlight により、静的ページ、検索機能、および日本語 / 英語 / 繁体字中国語 / 簡体字中国語のナビゲーションを提供します。既存の GitHub Pages URL を維持しつつ、従来の Sphinx `gh-pages` ブランチではなく GitHub Actions でデプロイします。
 
-## Build on Windows or Linux
+## Windows / Linux でのビルド
 
-Node.js 24 is used in CI. No Python, GPU, project DB, API keys or Kit installation is needed.
+CI では Node.js 24 を使用します。Python、GPU、プロジェクト DB、API キー、Kit のインストールは不要です。
 
 ```text
 cd site
@@ -18,16 +16,15 @@ npm run build
 npm run preview
 ```
 
-For authoring, use `npm run dev`. Search is generated during the production build.
-Only `site/dist` is uploaded. PRs validate both OSes but never publish. Main publishes after both builds pass.
+執筆時は `npm run dev` を使用してください。検索インデックスは本番ビルド時に生成されます。アップロード対象は `site/dist` のみです。PR では両 OS で検証を行いますが公開はしません。`main` ブランチでは両 OS のビルド通過後に公開されます。
 
-## Japanese-first translation workflow
+## 日本語原本の翻訳ワークフロー
 
-1. Edit the full HTML document at `src/content/docs/ja/<page>.html` and verify instructions against current application code. HTML is the canonical guide source: use semantic elements such as `h2`, `p`, `ol`, `table`, `thead`, `tbody`, `th`, `td`, and `pre`/`code`; do not add Markdown or MDX guide bodies.
-2. Ask a coding agent to translate the changed HTML document into `en`, `zh-tw`, and `zh-cn` with the same filename.
-3. Review warnings, numbers, links and CLI arguments against Japanese. Keep `pre`/`code` contents verbatim.
-   Do not confuse guide languages with GUI translation or exported tag languages. Do not invent UI controls.
-4. Only after each translation is complete, record its source revision:
+1. `src/content/docs/ja/<page>.html` の完全な HTML ドキュメントを編集し、手順が現在のアプリコードと一致していることを確認します。HTML がガイドの正規ソースです。`h2`, `p`, `ol`, `table`, `thead`, `tbody`, `th`, `td`, `pre`/`code` などのセマンティック要素を使い、Markdown や MDX のガイド本文は追加しないでください。
+2. 変更した HTML ドキュメントを、同じファイル名で `en`、`zh-tw`、`zh-cn` へ翻訳するようコーディングエージェントに依頼します。
+3. 警告、数値、リンク、CLI 引数を日本語原本と照合してレビューします。`pre`/`code` の内容はそのまま維持してください。
+   ガイドの表示言語と、GUI の翻訳やエクスポートされるタグの言語を混同しないでください。存在しない UI コントロールを創作してはいけません。
+4. 各翻訳が完了したあとでのみ、ソースリビジョンを記録します。
 
    ```text
    node scripts/record-translations.mjs en export.html
@@ -35,31 +32,21 @@ Only `site/dist` is uploaded. PRs validate both OSes but never publish. Main pub
    node scripts/record-translations.mjs zh-cn export.html
    ```
 
-5. Run tests and build; commit translations and `translations.json` together.
+5. テストとビルドを実行し、翻訳ファイルと `translations.json` をまとめてコミットします。
 
-`check-translations.mjs` compares normalized source SHA-256 hashes, page sets, HTML `pre`/`code` examples and untranslated copies. `check-guide-html.mjs` verifies the canonical HTML documents, semantic tables and the operation placeholders.
-It fails for missing or stale translations instead of relying on Starlight's Japanese fallback.
-Hashes demonstrate source revision tracking, not semantic translation quality; agent review remains necessary.
-Never run the recording command just to silence a freshness failure. No paid translation service is called by CI.
+`check-translations.mjs` は、正規化したソースの SHA-256 ハッシュ、ページ集合、HTML の `pre`/`code` 例、および未翻訳コピーを比較します。`check-guide-html.mjs` は正規 HTML ドキュメント、セマンティックなテーブル、操作例プレースホルダーを検証します。Starlight の日本語フォールバックに頼らず、翻訳の欠落や陳腐化があれば失敗させます。ハッシュはソースリビジョンの追跡を示すものであり、翻訳の意味的な品質を保証するものではありません。エージェントによるレビューが引き続き必要です。鮮度エラーを消すためだけに記録コマンドを実行しないでください。CI から有料翻訳サービスは一切呼び出しません。
 
-`check-build.mjs` verifies all 40 locale pages and local generated links under the `/LoRAIro/` base.
-When intentionally adding/removing a chapter, update its expected count along with all four languages.
+`check-build.mjs` は、`/LoRAIro/` ベース配下の全 40 ロケールページとローカル生成リンクを検証します。意図的に章を追加・削除する場合は、4 言語すべての更新とあわせて期待ページ数も更新してください。
 
-## Publication migration
+## 公開方式の移行
 
-After the PR is ready and approved, configure this repository's Pages build type as GitHub Actions.
-Verify a successful main deployment and HTTP responses for all four language homepages before retiring
-the old `gh-pages` branch. Its historical commit remains recoverable through Git history.
+PR の準備と承認が完了したら、このリポジトリの Pages ビルド種別を GitHub Actions に設定します。`main` からのデプロイ成功と 4 言語すべてのトップページの HTTP 応答を確認してから、古い `gh-pages` ブランチを廃止してください。過去のコミットは Git 履歴から復元できます。
 
-## Operation example image placeholders
+## 操作例の画像プレースホルダー
 
-The `projects`, `search`, `annotation`, `editing`, and `export` chapters include a localized
-`figure.guide-placeholder` immediately beside the relevant GUI procedure. It intentionally has no
-`img` element or `src` while the screenshot is pending, so it cannot create a broken-image request.
-The default frame is 1280×720 (16:9) and stays within the article width.
+`projects`、`search`、`annotation`、`editing`、`export` の各章には、該当する GUI 手順のすぐ横にローカライズされた `figure.guide-placeholder` を配置しています。スクリーンショット撮影前はリンク切れ画像のリクエストを発生させないよう、意図的に `img` 要素も `src` も含めていません。デフォルトの枠は 1280×720 (16:9) で、記事幅に収まります。
 
-To replace a placeholder, preserve the `figure` and `figcaption`, replace the inner `div` with an
-image, and provide localized alternative text. For example:
+プレースホルダーを実画像へ置き換えるときは、`figure` と `figcaption` を残したまま内側の `div` を `img` に差し替え、ローカライズした代替テキストを設定してください。記述例は次のとおりです。
 
 ```html
 <figure class="guide-placeholder" style="--guide-placeholder-ratio: 4 / 3">
@@ -68,11 +55,6 @@ image, and provide localized alternative text. For example:
 </figure>
 ```
 
-Set `--guide-placeholder-ratio` to the image’s intended ratio (for example `4 / 3`) when the
-default 16:9 ratio is unsuitable. Add the real image under `site/public/`, use its `/LoRAIro/`
-URL, keep `max-width: 100%`, and use `height: auto` on the image so it is not cropped. Update all
-four localized HTML documents and their captions/alternative text, review the translations, then
-record their translation hashes.
+デフォルトの 16:9 が適さない場合は、`--guide-placeholder-ratio` に画像の意図した比率 (例: `4 / 3`) を指定します。実画像は `site/public/` 配下に追加して `/LoRAIro/` URL で参照し、トリミングされないよう `max-width: 100%` と `height: auto` を指定してください。4 言語すべての HTML ドキュメントとキャプション・代替テキストを更新し、翻訳をレビューしたうえで翻訳ハッシュを記録します。
 
-References: [Starlight i18n](https://starlight.astro.build/guides/i18n/),
-[Astro GitHub Pages deployment](https://docs.astro.build/en/guides/deploy/github/).
+参考資料: [Starlight i18n](https://starlight.astro.build/guides/i18n/), [Astro GitHub Pages deployment](https://docs.astro.build/en/guides/deploy/github/)

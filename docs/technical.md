@@ -6,126 +6,126 @@ timestamp: 2026-04-08
 tags: [service-layer]
 depends_on: [pyside6, sqlalchemy, sqlite, pydantic]
 ---
-# LoRAIro Technical Specification
+# LoRAIro 技術仕様
 
-## Technology Stack
+## 技術スタック
 
-### Core Technologies
+### コア技術
 
-**Python 3.12+**: Primary development language with modern type hints and AI/ML ecosystem
+**Python 3.12+**: モダンな型ヒントと AI / ML エコシステムを備えた主要開発言語である。
 
-**PySide6**: Qt for Python GUI framework with cross-platform support
+**PySide6**: クロスプラットフォーム対応の Qt for Python GUI フレームワークである。
 
-**Database**: SQLite with SQLAlchemy ORM and Alembic migrations
+**データベース**: SQLite に SQLAlchemy ORM と Alembic マイグレーションを組み合わせる。
 
-**Package Management**: uv for dependency resolution and virtual environment management
+**パッケージ管理**: 依存解決と仮想環境管理に uv を使用する。
 
-### AI Integration
+### AI 統合
 
-**Supported Providers**: OpenAI GPT-4, Anthropic Claude, Google Gemini, Local ML models
+**対応プロバイダー**: OpenAI GPT-4、Anthropic Claude、Google Gemini、ローカル ML モデルである。
 
-**Key Integration**:
+**主要な統合構成**:
 - **WorkerService** → **AnnotationWorker** → **image-annotator-lib**
-- Multi-provider unified interface via local package integration
-- Local packages: image-annotator-lib, genai-tag-db-tools
+- ローカルパッケージ統合によるマルチプロバイダー統一インターフェース
+- ローカルパッケージ: `image-annotator-lib`、`genai-tag-db-tools`
 
-See `docs/integrations.md` for detailed integration patterns.
+詳細な統合パターンは `docs/integrations.md` を参照する。
 
-### Development Tools
+### 開発ツール
 
-**Code Quality**: Ruff (linter/formatter), mypy (type checking)
+**コード品質**: Ruff (リンター / フォーマッター)、mypy (型チェック)
 
-**Testing**: pytest with coverage analysis and Qt GUI testing
+**テスト**: pytest によるカバレッジ解析および Qt GUI テスト
 
-**Logging**: Loguru for structured logging with configuration in `src/lorairo/utils/log.py`
+**ロギング**: Loguru による構造化ログ (設定は `src/lorairo/utils/log.py`)
 
-## Development Tooling
+## 開発支援ツール
 
-**Development Agents**: Claude Code / Codex (agent skills + subagents; see `.agents/skills/` and `docs/development-workflow.md`)
+**開発エージェント**: Claude Code / Codex (エージェントスキルとサブエージェント。`.agents/skills/` および `docs/development-workflow.md` を参照)
 
-**Documentation**: `docs/decisions/` for design decisions, `docs/plans/` for planning records
-**Long-Term Memory**: `docs/decisions/` (ADR) + `docs/lessons-learned.md`
+**ドキュメント**: 設計判断は `docs/decisions/`、計画記録は `docs/plans/` に配置する。
+**長期記憶**: `docs/decisions/` (ADR) + `docs/lessons-learned.md`
 
-**Development-only tools that enhance the coding workflow.**
+**コーディングワークフローを強化するための開発専用ツール群である。**
 
-## Development Environment
+## 開発環境
 
-### System Requirements
-- **OS**: Windows 10/11, macOS 10.15+, Linux (Ubuntu 20.04+)
-- **Hardware**: 8GB RAM minimum (16GB recommended), 10GB storage, optional GPU for local ML models
-- **Python**: 3.12 or higher with virtual environment support
+### システム要件
+- **OS**: Windows 10/11、macOS 10.15+、Linux (Ubuntu 20.04+)
+- **ハードウェア**: 最小 8GB RAM (推奨 16GB)、ストレージ 10GB、ローカル ML モデル用の任意 GPU
+- **Python**: 仮想環境をサポートする 3.12 以上
 
-### Setup
+### セットアップ
 ```bash
 git clone --recurse-submodules https://github.com/user/LoRAIro.git
 uv sync --dev
 ```
 
-### Configuration
-- **Main Config**: `config/lorairo.toml` - Application settings, API keys, logging
-- **Environment Variables**: API keys for OpenAI, Anthropic, Google providers
+### 設定
+- **メイン設定**: `config/lorairo.toml` - アプリケーション設定、API キー、ログ設定
+- **環境変数**: OpenAI、Anthropic、Google 各プロバイダーの API キー
 
-## Database Design
+## データベース設計
 
-### Schema Architecture
+### スキーマアーキテクチャ
 
-**Core Tables**: Images, Annotations, Quality Scores with appropriate foreign key relationships
+**コアテーブル**: Images、Annotations、Quality Scores を適切な外部キー関係で構成する。
 
-**Key Features**:
-- SQLite with SQLAlchemy ORM and Alembic migrations
-- UTC timezone standardization for consistent datetime handling
-- Performance indexes for optimal query execution
-- CASCADE deletion for referential integrity
+**主な特徴**:
+- SQLite + SQLAlchemy ORM + Alembic マイグレーション
+- 一貫した日時処理のための UTC タイムゾーン標準化
+- 最適なクエリ実行のためのパフォーマンスインデックス
+- 参照整合性を保つ CASCADE 削除
 
-**Migration Management**: Alembic with auto-generated migrations and rollback support
+**マイグレーション管理**: Alembic による自動マイグレーション生成およびロールバック対応
 
-See `docs/decisions/0002-database-schema-decisions.md` for design decisions (no UNIQUE constraints, no FK to external tag DB).
+設計判断の詳細 (UNIQUE 制約を設けない方針、外部タグ DB への FK を設けない方針) は `docs/decisions/0002-database-schema-decisions.md` を参照する。
 
-## Code Architecture
+## コードアーキテクチャ
 
-### Design Patterns
+### デザインパターン
 
-**Key Patterns**:
-- **Repository Pattern**: Data access abstraction with SQLAlchemy implementation
-- **Service Layer Pattern**: 2-tier architecture (Business Logic + GUI Services)
-- **Factory Pattern**: AI provider creation and management
-- **Dependency Injection**: Service container with layered architecture
+**主要パターン**:
+- **Repository Pattern**: SQLAlchemy 実装によるデータアクセス抽象化
+- **Service Layer Pattern**: 2 層アーキテクチャ (ビジネスロジック + GUI サービス)
+- **Factory Pattern**: AI プロバイダーの生成と管理
+- **Dependency Injection**: 階層化アーキテクチャに基づくサービスコンテナ
 
-See `docs/decisions/` for rationale behind each pattern choice.
+各パターン選定の根拠は `docs/decisions/` を参照する。
 
-### Error Handling Strategy
+### エラーハンドリング戦略
 
-**Custom Exception Hierarchy**: LoRAIroException base with specialized error types (Configuration, Database, ImageProcessing, AIProvider)
+**カスタム例外階層**: `LoRAIroException` を基底とし、専用例外型 (Configuration、Database、ImageProcessing、AIProvider) を定義する。
 
-**Error Handling Patterns**: Context managers for consistent error handling and recovery
+**エラーハンドリングパターン**: コンテキストマネージャーを用いて一貫したエラー処理とリカバリを行う。
 
-### Type System
+### 型システム
 
-**Type Definitions**: TypedDict for structured data (ImageMetadata, AnnotationResult, QualityScore)
+**型定義**: 構造化データには `TypedDict` (`ImageMetadata`、`AnnotationResult`、`QualityScore`) を使用する。
 
-**Protocol Definitions**: Runtime-checkable protocols for interface compliance
+**プロトコル定義**: インターフェース準拠を検証するため、ランタイムチェック可能なプロトコルを使用する。
 
-## Performance Optimization
+## パフォーマンス最適化
 
-**Key Features**:
-- **Memory Management**: Image processing optimization with resource monitoring
-- **Database Performance**: Connection pooling and query optimization
-- **Batch Processing**: 100-image batches with 5-minute target for 1000 images
-- **Asynchronous Processing**: Background task management with QThreadPool
+**主な特徴**:
+- **メモリ管理**: リソース監視を伴う画像処理の最適化
+- **データベース性能**: コネクションプーリングとクエリ最適化
+- **バッチ処理**: 100 枚単位のバッチ処理 (1000 枚を 5 分以内で処理する目標)
+- **非同期処理**: `QThreadPool` によるバックグラウンドタスク管理
 
-See `docs/decisions/0010-torch-import-design.md` for ML library lazy import decisions.
+ML ライブラリの遅延インポート判断については `docs/decisions/0010-torch-import-design.md` を参照する。
 
-## Security Considerations
+## セキュリティ考慮事項
 
-**Key Features**:
-- **API Key Management**: Environment variable storage with masked logging
-- **Input Validation**: File path validation and image content verification
-- **Configuration Security**: Plain-text storage for personal development use
+**主な特徴**:
+- **API キー管理**: 環境変数での保管とマスク済みログ出力
+- **入力検証**: ファイルパスの検証および画像コンテンツの検証
+- **設定のセキュリティ**: 個人開発用途を前提とした平文保存
 
-See `.claude/rules/security.md` for security guidelines.
+セキュリティガイドラインは `.claude/rules/security.md` を参照する。
 
-## Deployment Considerations
+## デプロイメント考慮事項
 
-**Build and Distribution**: Application packaging with pyproject.toml and environment configuration
+**ビルドと配布**: `pyproject.toml` と環境設定を用いたアプリケーションパッケージング
 
-**Environment Setup**: Production configuration with resource limits and logging
+**環境構築**: リソース制限とロギングを備えた本番構成

@@ -1,53 +1,40 @@
 ---
 type: ADR
-title: GUI tag language reader initialization
+title: GUI におけるタグ言語リーダーの初期化
 status: Accepted
 timestamp: 2026-06-03
 tags: []
 ---
-# ADR 0054: GUI tag language reader initialization
+# ADR 0054: GUI におけるタグ言語リーダーの初期化
 
-- **Related Issue**: #603
-- **Related PR**: #609
+- **関連 Issue**: #603
+- **関連 PR**: #609
 
-## Context
+## 背景
 
-ADR 0050 made tag DB initialization lazy so read-only CLI startup does not initialize
-genai-tag-db-tools. That kept `AnnotationRepository.merged_reader` as `None` until a tag DB
-operation explicitly needs it.
+ADR 0050 によりタグ DB の初期化が遅延化され、読み取り専用 CLI の起動時に genai-tag-db-tools が初期化されなくなった。その結果、`AnnotationRepository.merged_reader` はタグ DB 操作で明示的に必要になるまで `None` のまま保持されるようになった。
 
-`WidgetSetupService.setup_selected_image_details()` still read the repository attribute directly
-during GUI setup. Because direct attribute reads do not trigger the repository lazy path, the image
-details widget received `None` and hid the tag language selector even when tag translation languages
-were available.
+しかし、`WidgetSetupService.setup_selected_image_details()` は GUI セットアップ時にリポジトリ属性を直接参照したままだった。直接の属性参照ではリポジトリの遅延初期化経路が起動しないため、画像詳細ウィジェットが `None` を受け取り、翻訳用タグ言語が利用可能な場合でもタグ言語セレクタを非表示にしてしまっていた。
 
-## Decision
+## 決定
 
-`AnnotationRepository` exposes `get_merged_reader()` as the public accessor for callers that
-intentionally need external tag DB support.
+`AnnotationRepository` に、外部タグ DB サポートを意図的に必要とする呼び出し元向けの公開アクセサ `get_merged_reader()` を用意する。
 
-GUI selected image details setup uses that accessor and injects the returned reader into
-`SelectedImageDetailsWidget`. The `merged_reader` attribute remains an implementation cache, not the
-authoritative external API for GUI wiring.
+GUI の選択画像詳細セットアップではこのアクセサを使用し、取得したリーダーを `SelectedImageDetailsWidget` へ注入する。`merged_reader` 属性は実装内部のキャッシュにとどめ、GUI 配線における正規の外部 API とはみなさない。
 
-## Rationale
+## 根拠
 
-This preserves ADR 0050's side-effect-light repository construction while making GUI translation
-support opt in at the integration boundary that needs it.
+この方式により、ADR 0050 が定めた副作用の少ないリポジトリ構築を維持しつつ、必要な統合境界でのみ GUI 翻訳サポートを明示的に有効化できる。
 
-The nearest alternative was making `merged_reader` a property with implicit initialization. That
-would make every attribute read potentially initialize external tag DB state and would obscure which
-runtime paths are allowed to pay that cost.
+最も近い代替案は、`merged_reader` を暗黙的に初期化するプロパティにすることだった。しかしそれでは属性を読み取るたびに外部タグ DB が初期化される可能性が生じ、どの実行経路が初期化コストを負担してよいのかが不透明になる。
 
-## Consequences
+## 影響
 
-- Read-only CLI startup continues to avoid eager tag DB initialization.
-- GUI image details setup initializes the tag reader intentionally, so the tag language selector can
-  be populated when tag languages exist.
-- Tests must cover the setup integration path, not only widget behavior after a reader has already
-  been injected.
+- 読み取り専用 CLI の起動では、引き続きタグ DB の即時初期化を回避できる。
+- GUI の画像詳細セットアップではタグリーダーが意図的に初期化されるため、タグ言語が存在すればタグ言語セレクタが正しく表示される。
+- テストでは、リーダー注入後のウィジェット挙動だけでなく、セットアップの統合経路もカバーする必要がある。
 
-## Related
+## 関連
 
-- ADR 0050 (CLI Tag DB Lazy Initialization) - establishes lazy external tag DB initialization.
-- PR #609 - implements `AnnotationRepository.get_merged_reader()` and GUI setup wiring.
+- ADR 0050 (CLI におけるタグ DB の遅延初期化): 外部タグ DB の遅延初期化を定義している。
+- PR #609: `AnnotationRepository.get_merged_reader()` と GUI セットアップ配線を実装している。

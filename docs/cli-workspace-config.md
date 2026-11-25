@@ -5,11 +5,9 @@ status: Accepted
 tags: [cli, configuration, project]
 ---
 
-# CLI workspace/config 選択
+# CLI の workspace・config 選択
 
-CWD に依存せず対象を固定するには、コマンド名より前に `--workspace DIR` または
-`--config FILE` を指定します。既存プロジェクト・DB の移動や migration は行いません。プロジェクト DB のファイル名
-`image_database.db` は従来どおりです。
+カレントディレクトリ(CWD)に依存せず対象を固定するには、コマンド名より前に `--workspace DIR` または `--config FILE` を指定します。既存のプロジェクトや DB の移動・マイグレーションは行いません。プロジェクト DB のファイル名 `image_database.db` も従来どおりです。
 
 ```bash
 lorairo-cli --json --workspace "/data/作業 領域" project list
@@ -17,63 +15,53 @@ lorairo-cli --json --workspace "/data/作業 領域" --config "/settings/個別�
 lorairo-cli --workspace "/data/作業 領域" images list --project same-name
 ```
 
-| 指定 | 読む設定 | 設定内の相対ディレクトリの基準 |
+## 設定の優先順位と相対パスの基準
+
+| 指定 | 読み込む設定 | 設定内の相対ディレクトリの基準 |
 | --- | --- | --- |
-| なし | 従来のソースルート `config/lorairo.toml` | 従来どおり実行 CWD |
-| `--workspace DIR` | `DIR/config/lorairo.toml`。不存在なら既定設定 | DIR |
-| `--config FILE` | 指定ファイル（存在必須） | FILE の親ディレクトリ |
-| 両方 | 指定 FILE（workspace 内の既定設定より優先） | 指定 DIR |
+| なし | 従来のソースルート `config/lorairo.toml` | 従来どおり実行時の CWD |
+| `--workspace DIR` | `DIR/config/lorairo.toml`(存在しなければ既定設定) | `DIR` |
+| `--config FILE` | 指定ファイル(存在必須) | `FILE` の親ディレクトリ |
+| 両方 | 指定 `FILE`(workspace 内の既定設定より優先) | 指定 `DIR` |
 
-オプション自体の相対パスは実行 CWD を基準に絶対化します。二つの CWD から同じ対象を
-選ぶ自動化では、オプションには同じ絶対パスを渡してください。空白・日本語を含むパスも
-利用できます。シェルから渡す場合は引用符で囲みます。対話入力は不要です。
+オプション自体に渡した相対パスは、実行時の CWD を基準に絶対パスへ変換します。異なる CWD から同じ対象を選ぶ自動化では、オプションへ同じ絶対パスを渡してください。空白や日本語を含むパスも利用できます。シェルから渡す場合は引用符で囲んでください(対話入力は不要です)。
 
-明示モードでは `[directories]` の `*_dir` 値を基準位置から絶対化します。空の値は
-維持し、既に絶対パスの値はその場所を維持します。たとえば `database_base_dir` に
-絶対パスが設定されていれば workspace を変えてもその共通保存先を選択します。
-既定 `database_base_dir = "lorairo_data"` なら `DIR/lorairo_data` を選択します。
-CLI の `--output` や画像入力など、コマンド引数の相対パスの意味は変わりません。
+## ディレクトリ解決と入力検証
 
-明示指定した設定が存在しない、ファイルでない、TOML が不正な場合は `INVALID_INPUT` /
-終了コード 2 を返します。workspace が既存の通常ファイルの場合も同様です。
-明示モードは設定を自動作成・保存せず、`project list` / `status` で workspace を作成しません。
-作成コマンドは指定先へ通常どおり書き込みます。
+明示モードでは、`[directories]` の `*_dir` 値を基準位置から絶対パスへ解決します。
 
-`status` の JSONL は `workspace`、`config_path`、`projects_base_dir`、`tag_database_dir` を絶対パスで返します。
-`config_found` は選択した設定の有無を表します。`--help` と
-`describe "project list" --schema json_schema` の `GlobalOptions` からも指定契約を取得できます。
+- 空の値はそのまま維持します。
+- すでに絶対パスの場合はその場所を維持します(たとえば `database_base_dir` に絶対パスを設定していれば、workspace を変えてもその共通保存先を使用します)。
+- 既定の `database_base_dir = "lorairo_data"` の場合は `DIR/lorairo_data` を選択します。
+- `--output` や画像入力など、コマンド引数の相対パスの意味は変わりません。
 
-通常モードの `config_path` は OS ユーザー設定を指します。共通の既定値は
-`project_config_path` / `project_config_found`、ユーザー設定は
-`user_config_path` / `user_config_found` で区別します。`--workspace` では
-`config_found` は workspace 設定の有無を維持し、API 状態には読み込んだユーザー設定も反映します。
-`--config` はそのファイルだけを参照し、他の設定層の状態を表示しません。
+ディレクトリ設定の値は空値を含めすべて文字列である必要があります。TOML の真偽値・配列・数値が指定された場合は、コマンド実行前に `INVALID_INPUT` として拒否します。
 
-明示モードはコマンドごとに設定と ServiceContainer を分離し、以前のプロジェクトの
-キャッシュを引き継ぎません。既存の `set_active_project` で DB を選択します。
-タグの user DB は明示モードでは `directories.database_dir`（空なら
-`database_base_dir`）直下の `user_tags.sqlite` を使います。自動日付連番ディレクトリは
-作りません。初回にタグ DB が必要な操作で初期化し、`status` は保存先のみ表示します。
-共通の絶対パスを設定した場合は意図的に共有先を選択します。
+以下の場合も `INVALID_INPUT`(終了コード 2)を返します。
 
-タグ DB の runtime も公開 API `database_runtime_scope()` で分離し、終了時は元の接続を
-再初期化せず復元します。同期 CLI の入れ子呼び出しに対応します。同一プロセスで
-スコープ外の GUI/旧 API アクセスと同時実行したり、非同期タスクでスコープを交差させたり
-しないでください。ワーカーと DB ハンドルの使用は CLI 呼び出し内で完了させます。
+- 明示指定した設定ファイルが存在しない、通常ファイルでない、または TOML 構文が不正である。
+- `--workspace` に既存の通常ファイルを指定した。
 
-CWD や永続的な環境設定は書き換えません。指定なしでは互換性のため従来動作を維持します。
+明示モードでは設定ファイルを自動作成・保存しません。また、`project list` や `status` で workspace ディレクトリを作成することもありません。一方、作成系コマンドは指定先へ通常どおり書き込みます。
+
+## `status` 出力と設定層の扱い
+
+`status` の JSONL 出力では、`workspace`、`config_path`、`projects_base_dir`、`tag_database_dir` を絶対パスで返します。`config_found` は選択した設定ファイルの有無を表します。指定契約は `--help` や `describe "project list" --schema json_schema` の `GlobalOptions` からも取得できます。
+
+- **通常モード**: `config_path` は OS ユーザー設定を指します。共通の既定値は `project_config_path` と `project_config_found`、ユーザー設定は `user_config_path` と `user_config_found` で区別します。
+- **`--workspace` 指定時**: `config_found` は workspace 設定の有無を維持しつつ、API 状態には読み込んだユーザー設定も反映します。
+- **`--config` 指定時**: 指定したファイルだけを参照し、他の設定層の状態は表示しません。
+
+## コマンド単位の分離と DB 解決
+
+明示モードではコマンドごとに設定と `ServiceContainer` を分離し、以前のプロジェクトのキャッシュを引き継ぎません。DB の選択には既存の `set_active_project` を使用します。
+
+- **タグの user DB**: 明示モードでは `directories.database_dir`(空の場合は `database_base_dir`)直下の `user_tags.sqlite` を使用します。自動の日付連番ディレクトリは作成しません。初回にタグ DB が必要な操作で初期化し、`status` は保存先のみを表示します。共通の絶対パスを設定した場合は、意図的に共有先を選択します。
+- **タグ DB ランタイムの分離**: 公開 API `database_runtime_scope()` でランタイムを分離し、終了時は元の接続を再初期化せずに復元します。同期 CLI の入れ子呼び出しにも対応します。ただし、同一プロセス内でスコープ外の GUI や旧 API アクセスと同時実行したり、非同期タスク間でスコープを交差させたりしないでください。ワーカーと DB ハンドルの使用は CLI 呼び出し内で完了させてください。
+- **`models refresh` で `--project` を省略した場合**: 明示 workspace・config モードでの既定の画像 DB は、`database_dir/image_database.db`(`database_dir` が空の場合は `database_base_dir/image_database.db`)です。呼び出しローカルのファクトリを使用し、キャッシュ済みの従来の既定ファクトリは使いません。`--project` を指定した場合は従来どおりそのプロジェクトの DB を選択します。
+
+CWD や永続的な環境設定は書き換えません。オプションを指定しない場合は、互換性のため従来動作を維持します。
 
 ## 再利用判断
 
-ADR 0018 の `database_base_dir` 統一と既存の ConfigurationService / ProjectManagementService /
-ServiceContainer を再利用しました。新しい設定ライブラリや別のプロジェクト registry は
-導入していません。コマンド単位の設定には標準ライブラリ
-[ContextVar](https://docs.python.org/3/library/contextvars.html) を使い、終了時に復元します。
-
-
-When `models refresh` omits `--project` in explicit workspace/config mode, its default
-image DB is `database_dir/image_database.db`, or `database_base_dir/image_database.db`
-when `database_dir` is empty. It uses an invocation-local factory and never the cached
-legacy default factory. `--project` still selects that project's database. All directory
-settings must be strings, including empty values; TOML booleans, arrays and numbers
-are rejected as `INVALID_INPUT` before command execution.
+ADR 0018 による `database_base_dir` 統一と、既存の `ConfigurationService`、`ProjectManagementService`、`ServiceContainer` を再利用しています。新しい設定ライブラリや別のプロジェクトレジストリは導入していません。コマンド単位の設定分離には標準ライブラリの [ContextVar](https://docs.python.org/3/library/contextvars.html) を用い、実行終了時に復元します。

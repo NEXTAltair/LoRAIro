@@ -1,13 +1,12 @@
-# CLI Rating Preflight Workflow
+# CLI レーティング事前チェックワークフロー
 
-This page shows how to assign image ratings from the CLI with OpenAI Moderation.
-Use the synchronous path for small image sets and the Provider Batch path for large sets.
+このドキュメントでは、OpenAI Moderation を使って CLI から画像へレーティングを付与する手順を説明します。少数の画像には同期実行を、大規模な画像セットには Provider Batch を使ってください。
 
-## Prerequisites
+## 前提条件
 
-- Configure an OpenAI API key in the CLI config.
-- Register images in a project.
-- Refresh models into the project database before submitting batch jobs.
+- CLI 設定に OpenAI API キーを設定しておきます。
+- プロジェクトへ画像を登録しておきます。
+- バッチジョブを送信する前に、プロジェクト DB のモデル一覧を更新しておきます。
 
 ```bash
 lorairo-cli project create main_dataset
@@ -16,11 +15,11 @@ lorairo-cli models refresh --project main_dataset
 lorairo-cli models list --category rating
 ```
 
-Confirm that `openai/omni-moderation-latest` or another `openai/omni-moderation-*` rating model is listed.
+`openai/omni-moderation-latest` または他の `openai/omni-moderation-*` レーティングモデルが一覧に表示されることを確認してください。
 
-## Synchronous Path
+## 同期実行(Synchronous Path)
 
-Use this when you want immediate results or only need to process a small set.
+結果をすぐに得たい場合や、少数の画像だけを処理したい場合に使用します。
 
 ```bash
 lorairo-cli annotate run \
@@ -29,15 +28,15 @@ lorairo-cli annotate run \
   --resolution 512
 ```
 
-Pass `--resolution 512` (or another generated resolution from `lorairo-cli images process`) so `annotate run` operates on processed variants instead of original image records. The normal annotation save path stores moderation ratings in the `ratings` table.
+`--resolution 512`(または `lorairo-cli images process` で生成した任意の解像度)を指定してください。これにより、`annotate run` は元画像ではなく処理済み画像を対象として動作します。通常のアノテーション保存経路を通じ、moderation のレーティング結果が `ratings` テーブルへ保存されます。
 
-## Provider Batch Path
+## Provider Batch による非同期実行
 
-Use this for larger sets where asynchronous processing is preferable.
+非同期処理が適している大規模な画像セットに使用します。
 
-First list images that do not have ratings yet. Read/list commands are
-count-first (ADR 0060): by default they return only the count. Pass `--fetch`
-to retrieve the curated projection (`image_id` + `file_path`):
+### 1. 未レーティング画像の一覧取得
+
+最初に、まだレーティングが付いていない画像を一覧取得します。読み取り・一覧系コマンドは count-first 設計(ADR 0060)のため、既定では件数のみを返します。実データ(`image_id` と `file_path`)を取得するには `--fetch` を指定してください。
 
 ```bash
 # 件数のみ (count-first の既定)
@@ -47,19 +46,17 @@ lorairo-cli images list --project main_dataset --unrated --limit 50
 lorairo-cli images list --project main_dataset --unrated --fetch --limit 50
 ```
 
-`--limit` の上限は 500 (作業集合上限)。これを超える選択は `RESULT_SET_TOO_LARGE`
-で弾かれるので、絞り込み条件を足してください。
+`--limit` の上限は 500(作業集合上限)です。上限を超える選択は `RESULT_SET_TOO_LARGE` で拒否されるため、絞り込み条件を追加してください。
 
-エージェント駆動でこのワークフローを回す場合は、グローバル `--json` フラグ
-(または環境変数 `LORAIRO_CLI_JSON=1`) で機械可読 JSONL モードに切り替えると、
-stdout が JSONL のみ (kind は `item` / `result` / `error`) になり parse しやすくなります
-(ADR 0057):
+エージェント駆動でこのワークフローを実行する場合は、グローバルの `--json` フラグ(または環境変数 `LORAIRO_CLI_JSON=1`)を指定します。これにより機械可読な JSONL モードへ切り替わり、標準出力が JSONL のみ(`kind` は `item`、`result`、`error`)になるため解析しやすくなります(ADR 0057)。
 
 ```bash
 lorairo-cli --json images list --project main_dataset --unrated --fetch --limit 50
 ```
 
-Submit selected image IDs to OpenAI Moderations:
+### 2. バッチジョブの送信
+
+選択した画像 ID を OpenAI Moderations へ送信します。
 
 ```bash
 lorairo-cli batch submit \
@@ -69,7 +66,9 @@ lorairo-cli batch submit \
   --image-ids 2,7,11
 ```
 
-Check status, fetch normalized results if needed, then import:
+### 3. 状態確認・結果取得・取り込み
+
+ジョブの状態を確認し、必要に応じて正規化済みの結果を取得したうえで取り込みます。
 
 ```bash
 lorairo-cli batch status 1 --project main_dataset
@@ -77,60 +76,54 @@ lorairo-cli batch fetch 1 --project main_dataset
 lorairo-cli batch import 1 --project main_dataset
 ```
 
-`rating_preflight` requires direct OpenAI, endpoint `/v1/moderations`, an
-`openai/omni-moderation-*` model, and a model registered with `ratings` model type.
+`rating_preflight` を使うには、以下の条件をすべて満たす必要があります。
 
-## Duplicate Submit and Rating Upsert Behavior
+- OpenAI への直接接続であること
+- エンドポイントが `/v1/moderations` であること
+- `openai/omni-moderation-*` モデルであること
+- `ratings` モデル種別として登録されているモデルであること
 
-### Why duplicate submission can occur
+## 重複送信とレーティングの upsert 挙動
 
-`images list --unrated` returns images that have no `ratings` row yet. If a batch job has been
-submitted but not imported yet, the same images still appear as "unrated" and can be submitted
-again in a new job. There is no hard error for this — re-submission is allowed (e.g., after a
-failed job).
+### 重複送信が起きる理由
 
-As a result, the same `image_id` may appear in multiple provider batch jobs.
+`images list --unrated` は、`ratings` 行がまだ存在しない画像を返します。そのため、バッチジョブを送信済みでも未取り込みの段階では、同じ画像が引き続き未レーティングとして表示されます。
 
-### How to detect duplicate submissions
+失敗したジョブの再送などを可能にするため、再送信はハードエラーにはなりません。その結果、同じ `image_id` が複数のプロバイダバッチジョブに含まれることがあります。
 
-Use `batch status --items` to inspect per-image items of a job:
+### 重複送信を検出する方法
+
+ジョブ内の画像ごとのアイテムを確認するには、`batch status --items` を使用します。
 
 ```bash
 lorairo-cli batch status <job_id> --project <project> --items
 ```
 
-In JSON mode each item is emitted as a `ProviderBatchItemRecord` row before the result row:
+JSON モードでは、最終の `result` 行の前に各アイテムが `ProviderBatchItemRecord` 行として出力されます。
 
 ```bash
 lorairo-cli --json batch status <job_id> --project <project> --items
 ```
 
-Fields: `id`, `job_id`, `custom_id`, `image_id`, `model_id`, `task_type`, `status`,
-`error_type`. Compare items across jobs to identify images submitted more than once.
+出力フィールドは `id`、`job_id`、`custom_id`、`image_id`、`model_id`、`task_type`、`status`、`error_type` です。複数のジョブ間でアイテムを比較すると、重複送信された画像を特定できます。
 
-Use `--item-status` to filter by status, and `--limit` / `--offset` for pagination:
+状態による絞り込みには `--item-status` を、ページネーションには `--limit` と `--offset` を使用します。
 
 ```bash
 lorairo-cli batch status <job_id> --project <project> --items --item-status failed
 ```
 
-### Rating upsert semantics on import
+### 取り込み時の upsert セマンティクス
 
-When `batch import` runs, ratings are stored in the `ratings` table using an upsert keyed on
-`(image_id, model_id)`:
+`batch import` を実行すると、`(image_id, model_id)` をキーとした upsert によって `ratings` テーブルへ結果が保存されます。
 
-- If a rating row already exists for that image and model, it is **updated** (overwritten).
-- If no row exists, it is **inserted**.
+- 対象の画像とモデルのレーティング行がすでに存在する場合は、**更新(上書き)**します。
+- 行が存在しない場合は、**新規挿入**します。
 
-Importing a second job for the same image overwrites the rating from the first import.
-The **last-imported result wins** as the canonical current value.
+同じ画像を含む 2 つ目のジョブを取り込むと、1 つ目の取り込み結果は上書きされます。つまり、**最後に取り込んだ結果が現在の正規値として採用されます**。
 
-The raw moderation response for each job is preserved in `provider_batch_items.raw_response`
-for audit and debugging. The `batch import` summary (`imported` / `skipped` / `errors` /
-`total`) counts images, not insert/update operations individually. See ADR 0031 Amendment
-2026-06-07 for the design rationale.
+各ジョブの生レスポンスは、監査やデバッグのために `provider_batch_items.raw_response` へ保持します。なお、`batch import` のサマリー(`imported`、`skipped`、`errors`、`total`)は挿入・更新の回数ではなく画像数を集計します。設計の根拠は ADR 0031 Amendment 2026-06-07 を参照してください。
 
-## Known Limitation
+## 既知の制限事項
 
-Batch submit image path resolution is tracked separately in issue #528. If that bug is present in
-your build, the batch path may fail even when the workflow above is correct.
+バッチ送信時の画像パス解決に関する問題は、Issue #528 で別途追跡しています。使用中のビルドにこの不具合が残っている場合、上記の手順が正しくてもバッチ経路が失敗することがあります。

@@ -9,28 +9,30 @@ tags: []
 
 ## Context
 
-image-annotator-lib のアーキテクチャ設計。ローカルモデル (Transformers/ONNX) と Web API モデル (OpenAI/Anthropic/Google) を統一インターフェースで扱う必要があった。
+`image-annotator-lib` のアーキテクチャ設計において、ローカルモデル(Transformers および ONNX)と Web API モデル(OpenAI、Anthropic、Google)を統一インターフェースで扱う必要があった。
 
 ## Decision
 
-**3層階層設計**を採用:
-1. `BaseAnnotator` — 全アノテーターの共通インターフェース + 統一型 `UnifiedAnnotationResult`
-2. Framework-specific Base Classes — `TransformersBaseAnnotator`, `ONNXBaseAnnotator`, `WebApiBaseAnnotator`
-3. Concrete Model Classes — モデル固有ロジック + `annotator_config.toml` との連携
+**3 層階層設計**を採用する。
 
-**Web API 専用追加コンポーネント**:
-- `PydanticAIProviderFactory`: Provider + Agent の LRU キャッシュ
-- `ProviderManager`: Provider レベルの推論実行 + Model ID ルーティング
-- `PydanticAIAnnotatorMixin`: PIL Image → BinaryContent 変換 + 非同期推論
+1. **`BaseAnnotator`**: 全アノテーターの共通インターフェースと、統一結果型 `UnifiedAnnotationResult` を定義する。
+2. **フレームワーク別基底クラス**: `TransformersBaseAnnotator`、`ONNXBaseAnnotator`、`WebApiBaseAnnotator` を提供する。
+3. **具象モデルクラス**: モデル固有のロジックを実装し、`annotator_config.toml` と連携する。
+
+あわせて、Web API 専用の追加コンポーネントを配置する。
+
+- `PydanticAIProviderFactory`: Provider と Agent の LRU キャッシュを管理する。
+- `ProviderManager`: Provider レベルの推論実行と Model ID に基づくルーティングを担う。
+- `PydanticAIAnnotatorMixin`: PIL Image から `BinaryContent` への変換と非同期推論を提供する。
 
 ## Rationale
 
-- 例外を投げずに結果 (`error` フィールド) に含めるエラーハンドリングでプロバイダー非依存の統一処理が可能
-- LRU キャッシュで Agent インスタンスの再生成コストを削減
-- `ModelConfigRegistry` で System/User/Runtime の3段階設定オーバーライドを実現
+- 例外を送出せず結果オブジェクトの `error` フィールドにエラー情報を格納することで、プロバイダーに依存しない統一的なエラー処理を実現できる。
+- LRU キャッシュにより、Agent インスタンスの再生成コストを削減できる。
+- `ModelConfigRegistry` により、System、User、Runtime の 3 段階で設定を上書きできる。
 
 ## Consequences
 
-- 新ローカルモデル追加: 基底クラス継承 → `_generate_tags` 実装 → config 追加の3ステップ
-- 新 Web API モデル追加: `WebApiBaseAnnotator` + `PydanticAIAnnotatorMixin` 継承 → config 追加
-- LoRAIro 側との境界: `annotator_adapter.py` でアダプターパターンにより型変換を局所化
+- 新しいローカルモデルを追加する手順は、基底クラスの継承、`_generate_tags` の実装、設定の追加という 3 ステップになる。
+- 新しい Web API モデルを追加する手順は、`WebApiBaseAnnotator` と `PydanticAIAnnotatorMixin` の継承、および設定の追加で完結する。
+- LoRAIro 本体との境界は `annotator_adapter.py` に集約され、アダプターパターンによって型変換を局所化できる。

@@ -7,68 +7,68 @@ tags: [export, tag-overlay, staging, qt-free-service, dataset-export, trigger-wo
 ---
 # ADR 0080: エクスポート前タグ編集の2層オーバーレイ契約 — DB編集層と出力オーバーレイ層の分離
 
-- **関連 Issue**: #932 (エクスポート前タグ編集パネル UX 設計), #942 (実装 Epic), #943 (本 ADR), #944 (overlay 適用ロジック), #945 (タグ集計サービス), #946 (trigger 語彙サービス)
-- **関連 ADR**: 0065 (タグ/キャプション soft-reject), 0068 (タグ正規化の tagdb 委譲), 0055 (Workspace エクスポート対象の staging 統一), 0072 (Workspace ステージ選択ソース)
+- **関連 Issue**: #932(エクスポート前タグ編集パネルの UX 設計)、#942(実装 Epic)、#943(本 ADR)、#944(オーバーレイ適用ロジック)、#945(タグ集計サービス)、#946(トリガー語彙サービス)
+- **関連 ADR**: 0065(タグ・キャプションの soft-reject)、0068(タグ正規化の tagdb 委譲)、0055(Workspace エクスポート対象の staging 統一)、0072(Workspace ステージ選択ソース)
 
 ## Context
 
-エクスポート直前に staging 集合のタグを整理する編集パネルを実装する (#932 で UX 確定、#942 で実装エポック化)。同じ画像群を別 trigger / 別タグ選択で複数の LoRA に出し分けたいので、整形を DB へ永続化すると破綻する。
+エクスポート直前にステージング集合のタグを整理する編集パネルを実装する(#932 で UX を確定し、#942 で実装 Epic 化した)。同じ画像群に対して、異なるトリガーワードやタグ選択で複数の LoRA 用データセットを出し分けたい。そのため、エクスポート向けの整形内容を DB へ永続化すると運用が破綻する。
 
-タグ編集には性質の異なる2種類が混在する:
+タグ編集には、性質の異なる次の 2 種類が混在している。
 
-| 層 | 性質 | 操作 | 永続性 |
+| 層 | 性質 | 主な操作 | 永続性 |
 |---|---|---|---|
-| **DB編集層** | アノテーション是正 | soft-reject / 復活 / 手動追加 / rating·score | DB へ永続・全エクスポートに影響 |
-| **出力オーバーレイ層** | この書き出し1回の整形 | trigger 追加 / 出力除外 / 置換 | DB 不変・今回出力のみ |
+| **DB編集層** | アノテーションの是正 | soft-reject、復活、手動追加、rating・score 編集 | DB へ永続化し、全エクスポートに影響する |
+| **出力オーバーレイ層** | 今回の書き出し 1 回限りの整形 | トリガー追加、出力除外、置換 | DB は変更せず、今回の出力のみに適用する |
 
-DB編集層は既存資産で賄える (`SelectedImageDetailsWidget` の soft-reject = ADR 0065)。本 ADR が定義するのは **出力オーバーレイ層の契約 (S0)** で、#944 / #945 / #946 の実装はこの契約に対して書かれる。
+DB 編集層は既存資産で賄える(`SelectedImageDetailsWidget` による soft-reject、ADR 0065)。本 ADR では**出力オーバーレイ層の契約(S0)**を定義し、#944、#945、#946 の実装をこの契約に沿って進める。
 
-`DatasetExportService` の現状のタグ出力は `_resolve_export_tags`（soft-reject 済みを除いた採用タグの和） → join → `_convert_tags_for_export`（`genai_tag_db_tools.convert_tags` による format 依存の alias→preferred 解決 + `type=meta` 除外、ADR 0068 Phase 3）の順。オーバーレイはこの convert を挟んで適用される。
+現行の `DatasetExportService` におけるタグ出力は、`_resolve_export_tags`(soft-reject 済みを除いた採用タグの和集合を取得)を実行して連結したのち、`_convert_tags_for_export`(`genai_tag_db_tools.convert_tags` によるフォーマット依存のエイリアスから推奨タグへの解決、および `type=meta` の除外。ADR 0068 Phase 3)を適用する流れになっている。出力オーバーレイは、この変換処理(convert)を挟む形で適用する。
 
 ## Decision
 
 ### 1. 出力オーバーレイのデータ構造
 
-オーバーレイは per-image の純データ。3 操作のみを持つ。
+オーバーレイは画像単位の純粋なデータ構造とし、次の 3 操作のみを持つ。
 
 ```python
 @dataclass
 class ExportTagOverlay:
-    add: list[str]            # trigger word 等。リテラル（convert を通さない）
+    add: list[str]            # trigger word 等。リテラル(convert を通さない)
     exclude: set[str]         # 出力から除外するタグ名
-    replace: dict[str, str]   # X -> Y の 1:1 置換（削除は exclude が担うため replace の to は非空）
+    replace: dict[str, str]   # X -> Y の 1:1 置換(削除は exclude が担うため replace の to は非空)
 ```
 
-`replace` は 1:1。タグの横断削除は `exclude` が担い、1:N 展開（X → {Y, Z}）は本契約に含めない（必要が出たら別 ADR）。
+`replace` は 1 対 1 の置換に限定する。タグの横断削除は `exclude` が担う。1 対 N への展開(`X` を `{Y, Z}` に置換する等)は本契約の対象外とし、必要になった場合は別 ADR で検討する。
 
-### 2. per-image 適用パイプライン
+### 2. 画像単位の適用パイプライン
 
-`apply_overlay` は convert を内側に挟む順序で適用する。中核の判断は **trigger だけ convert をバイパスし、exclude/replace は convert 前のタグ（= パネルに見えている DB タグ）に効かせる** こと。
+`apply_overlay` は、変換処理(convert)を内側に挟む順序でオーバーレイを適用する。中核となる判断は、**トリガーワードのみ変換処理をバイパスし、`exclude` と `replace` は変換前のタグ(パネル上に表示されている DB タグ)に対して適用する**点にある。
 
 ```
-db_tags（convert 前・採用タグ）
+db_tags(convert 前・採用タグ)
   │
-  ├─ 1. replace 適用（X→Y）
+  ├─ 1. replace 適用(X→Y)
   ├─ 2. exclude 除去
-  ├─ 3. convert（alias→preferred 解決 + meta 除外）   ← reader=None なら素通し
-  ├─ 4. add を先頭に literal prepend（convert バイパス）
-  └─ 5. 順序保持 dedup（先頭=trigger 側を優先して残す）
+  ├─ 3. convert(alias→preferred 解決 + meta 除外)   ← reader=None なら素通し
+  ├─ 4. add を先頭に literal prepend(convert バイパス)
+  └─ 5. 順序保持 dedup(先頭=trigger 側を優先して残す)
 → 出力タグ列
 ```
 
-確定する不変条件:
+このパイプラインで保証する不変条件は次の 5 点である。
 
-- **exclude タグは出力に出ない**: `exclude` を `replace` の **後** に効かせる。`X→Y` の置換で生えた `Y` も exclude 指定なら消える（「Y を除外したのに replace で復活」を防ぐ）。
-- **trigger はリテラル**: 漢字を含む trigger を convert に通さない。`add` は convert 後に literal prepend する。
-- **dedup は先頭優先**: trigger と本文タグ、replace 産と既存タグが重複したら、順序を保ったまま初出（先頭の trigger 側）を残す。
-- **オーバーレイ未指定なら従来挙動を完全維持**: `add`/`exclude`/`replace` がすべて空なら既存エクスポートと bit 単位で一致。
-- **reader=None graceful degradation**: 外部 tag_db 不在で convert がスキップされても、replace/exclude/trigger は db_tags に対して機能する。
+- **除外指定したタグは出力に出さない**: `exclude` を `replace` の**後**に適用する。これにより、`X` から `Y` への置換で生じた `Y` も除外指定されていれば確実に消える(「`Y` を除外したのに置換で復活する」事態を防ぐ)。
+- **トリガーワードはそのまま出力する**: 漢字を含むトリガーワードなどを変換処理に通さない。`add` は変換処理の後にそのまま先頭へ追加する。
+- **重複除去は先頭優先で行う**: トリガーと本文タグ、あるいは置換後のタグと既存タグが重複した場合は、順序を保ったまま初出(先頭のトリガー側)を残す。
+- **オーバーレイ未指定時は従来挙動を完全に維持する**: `add`、`exclude`、`replace` がすべて空であれば、既存のエクスポート出力と完全に一致する。
+- **`reader=None` でも安全に動作する**: 外部のタグ DB が不在で変換処理がスキップされる場合でも、`replace`、`exclude`、トリガー追加は `db_tags` に対して正常に機能する。
 
-矛盾入力 (`X` を exclude かつ `X→Y` を replace) は replace 優先で `Y` が残る（同じ元タグへの rename と除外の同時指定はレアな矛盾なので contract で弾かない）。
+なお、`X` を除外しつつ `X` から `Y` へ置換するような矛盾入力については、`replace` を優先して `Y` を残す。同一元タグに対する置換と除外の同時指定はまれなケースであるため、契約レベルではエラーにしない。
 
-### 3. スコープ付きルールと合成
+### 3. スコープ付きルールと合成規則
 
-オーバーレイは staging 集合の任意のサブセットに適用できる。「全画像に trigger A、加えてこの数枚にだけ trigger B」を表現する。
+オーバーレイはステージング集合の任意のサブセットへ適用できるようにする。これにより、「全画像にトリガー A を付け、さらに特定の数枚にだけトリガー B を追加する」といった指定を表現できる。
 
 ```python
 @dataclass
@@ -82,42 +82,44 @@ class ExportOverlayPlan:
     def effective_for(self, image_id: int) -> ExportTagOverlay: ...
 ```
 
-`effective_for(image_id)` は、その画像を含む全ルールを **積み上げ合成** して per-image の実効 overlay を返す:
+`effective_for(image_id)` は、対象画像を含むすべてのルールを**積み上げ合成**し、その画像に対する実効オーバーレイを返す。
 
-- **add**: ルール定義順に連結（global → subset）。最終 dedup で重複は畳まれる。
-- **exclude**: 全該当ルールの和集合。
-- **replace**: マージ。キー衝突は **後勝ち**（後定義 / より狭いスコープのルールが優先）。
+- **`add`**: ルール定義順(全体ルールからサブセットルールの順)に連結する。重複は最終段の重複除去で統合する。
+- **`exclude`**: 該当する全ルールの和集合を取る。
+- **`replace`**: 辞書をマージする。キーが衝突した場合は**後勝ち**(後から定義されたルール、またはより狭いスコープのルールを優先)とする。
 
-**減算は持たない**。「全部のうち数枚だけ trigger を外す」は、外したいのではなく **付けたい集合を直接 scope に書く**ことで表現する（任意の `image_ids` 集合を取れるため「全部マイナス数枚」= 付けたい集合）。`exclude` は convert 前段で効くため prepend 後の trigger には届かず、trigger の打ち消しには使えない（不変条件「trigger 優先」と表裏）。
+なお、**減算操作は持たない**。「全体のうち数枚だけトリガーを外す」場合は、外す操作を定義するのではなく、**付けたい画像の集合を直接 `image_ids` に指定する**ことで表現する。`exclude` は変換前段で効くため、先頭追加されるトリガーには作用せず、トリガーの打ち消しには使えない。これは不変条件「トリガー優先」と表裏一体の仕様である。
 
-> この積み上げ合成は暫定確定であり、運用して使い心地が悪ければ別 ADR で見直す。
+> この積み上げ合成の規則は暫定確定とする。実運用で使いにくさが出た場合は、別 ADR で見直す。
 
-### 4. `DatasetExportService` フックと適用範囲
+### 4. `DatasetExportService` への組み込みと適用範囲
 
-- フック点は `export_dataset_txt_format` / `export_dataset_json_format` のタグ文字列構築（`_resolve_export_tags` → convert）。convert の前後に overlay の各段を差し込む。
-- 画像ごとに `plan.effective_for(image_id)` で実効 overlay を作り適用する。`plan` を渡さなければ従来挙動。
-- overlay 適用も合成 (`effective_for`) も **Qt-free サービス**に閉じる。`ExportTagOverlay` / `apply_overlay` / `ExportOverlayPlan` は GUI にもサブセット選択状態にも依存しない純データ・純関数。
+- 組み込み箇所は `export_dataset_txt_format` と `export_dataset_json_format` におけるタグ文字列構築処理(`_resolve_export_tags` から変換処理まで)とする。変換処理の前後にオーバーレイの各段階を差し込む。
+- 画像ごとに `plan.effective_for(image_id)` で実効オーバーレイを生成して適用する。`plan` が渡されない場合は従来の挙動を維持する。
+- オーバーレイの適用と合成(`effective_for`)は **Qt 非依存サービス**に閉じ込める。`ExportTagOverlay`、`apply_overlay`、`ExportOverlayPlan` は、GUI にもサブセット選択状態にも依存しない純粋なデータ構造および純関数として実装する。
 
-### 5. tagd 境界
+### 5. tagd との境界
 
-trigger word の **語彙登録・補完** (#946, `genai-tag-db-tools` USER_TAGS) は本契約の外。`apply_overlay` / `effective_for` / `StagingTagAggregationService` は trigger 語彙 DB を参照しない。語彙サービスは UI の補完候補供給にのみ使われ、確定した trigger 文字列は `ExportTagOverlay.add` のリテラルとして渡る。これにより #944 / #945 は genai-tag-db-tools の overlay DB 再設計 (#940) と独立して実装できる。
+トリガーワードの**語彙登録と補完機能**(#946、`genai-tag-db-tools` の `USER_TAGS`)は本契約の範囲外とする。`apply_overlay`、`effective_for`、`StagingTagAggregationService` はトリガー語彙 DB を参照しない。
+
+語彙サービスは UI での補完候補の供給にのみ使用し、確定したトリガー文字列は `ExportTagOverlay.add` へリテラルとして渡す。この分離により、#944 と #945 は `genai-tag-db-tools` のオーバーレイ DB 再設計(#940)と独立して実装できる。
 
 ## Consequences
 
-**Positive**
+### 良い点
 
-- 出力整形を DB へ永続化しないため、同一画像群を複数 LoRA へ別 trigger で出し分けられる。
-- 中核ロジック (`apply_overlay` / `effective_for`) が Qt-free 純関数なので単体テストが容易で、GUI / tagd / サブセット状態から分離される。
-- overlay 未指定で既存エクスポートのリグレッションが起きない（明示的不変条件）。
+- 出力向けの整形を DB へ永続化しないため、同じ画像群から複数の LoRA 向けに異なるトリガーでデータセットを出し分けられる。
+- 中核ロジック(`apply_overlay` と `effective_for`)が Qt 非依存の純関数であるため単体テストが容易になり、GUI、tagd、サブセット状態から疎結合に保てる。
+- オーバーレイ未指定時は従来挙動を完全に維持する不変条件により、既存エクスポートへの回帰を防げる。
 
-**Negative / Trade-off**
+### 悪い点・トレードオフ
 
-- サブセット指定 (B) を採ったため、per-image 合成リゾルバ (`effective_for`) という1段が増える。全体一律 (A) より契約が複雑。
-- exclude が trigger に届かない非対称性があり、「全部のうち数枚だけ trigger を外す」は scope を絞って表現する必要がある（直感に反する場合があるが、減算概念を持ち込まないトレードオフ）。
-- 合成規則（後勝ち / 積み上げ）は運用前の暫定確定。使い心地次第で別 ADR で改訂し得る。
+- サブセット指定(B)を採用したため、画像単位の合成リゾルバ(`effective_for`)という 1 層が増え、全体一律適用(A)よりも契約が複雑になる。
+- `exclude` がトリガーに作用しない非対称性があるため、「全体のうち数枚だけトリガーを外す」操作はスコープを絞って表現する必要がある。直感に反する場合があるが、減算概念を持ち込まないためのトレードオフとする。
+- 合成規則(後勝ち・積み上げ)は運用前の暫定確定であり、実際の使用感によっては別 ADR で改訂する可能性がある。
 
 ## Related
 
-- ADR 0065 — soft-reject（DB編集層が再利用する是正状態）
-- ADR 0068 — タグ正規化の tagdb 委譲（convert の意味と適用タイミング）
-- ADR 0055 / 0072 — staging 集合がエクスポート対象・編集対象である根拠
+- ADR 0065: タグ・キャプションの soft-reject(DB 編集層が再利用する是正状態)
+- ADR 0068: タグ正規化の tagdb 委譲(変換処理の意味と適用タイミング)
+- ADR 0055 / 0072: ステージング集合をエクスポート対象および編集対象とする根拠

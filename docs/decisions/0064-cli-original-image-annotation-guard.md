@@ -1,49 +1,40 @@
 ---
 type: ADR
-title: CLI Original Image Annotation Guard
+title: CLI におけるオリジナル画像へのアノテーション防止ガード
 status: Accepted
 timestamp: 2026-06-07
 tags: []
 ---
-# ADR 0064: CLI Original Image Annotation Guard
+# ADR 0064: CLI におけるオリジナル画像へのアノテーション防止ガード
 
-- **Related Issue**: #686
-- **Related ADRs**: [0053](0053-cli-streaming-annotation-memory-bounded-contract.md), [0057](0057-cli-jsonl-output-and-error-contract.md), [0063](0063-cli-batch-submit-image-ids-csv.md)
+- **関連 Issue**: #686
+- **関連 ADR**: [0053](0053-cli-streaming-annotation-memory-bounded-contract.md), [0057](0057-cli-jsonl-output-and-error-contract.md), [0063](0063-cli-batch-submit-image-ids-csv.md)
 
-## Context
+## 背景
 
-The GUI route does not let users directly annotate original stored images. CLI routes still accepted image records whose
-`stored_image_path` points under `image_dataset/original_images/`, so `annotate run` and `batch submit` could bypass the
-GUI safety policy.
+GUI 経路では、保存済みのオリジナル画像に対してユーザーが直接アノテーションを実行できない仕様になっている。一方、CLI 経路では `stored_image_path` が `image_dataset/original_images/` 配下を指す画像レコードも受け入れており、`annotate run` や `batch submit` が GUI の安全ポリシーをすり抜けられる状態だった。
 
-This surfaced during a rating preflight batch: image IDs selected for OpenAI moderation were submitted from
-`image_dataset/original_images/...`, including very large originals. That is the wrong CLI surface. CLI should operate on
-the same processed/resized image records that the GUI workflow is designed to use.
+この問題はレーティングのプリフライトバッチ実行時に顕在化した。OpenAI モデレーション用に選択された画像 ID の中に、非常に大きなオリジナル画像を含む `image_dataset/original_images/...` 配下のレコードが混ざり、そのまま送信されたのである。これは CLI の設計として誤っている。CLI も GUI ワークフローが前提とする処理済み/リサイズ済み画像レコードを対象に動作すべきである。
 
-## Decision
+## 決定
 
-CLI annotation entry points reject image records whose `stored_image_path` is under `image_dataset/original_images/`.
+CLI のアノテーションエントリーポイントは、`stored_image_path` が `image_dataset/original_images/` 配下にある画像レコードを拒否する。
 
-The guard is enforced before expensive or external work:
+このガードは、高コストな処理や外部通信を行う前に適用する。
 
-- `annotate run` rejects after filter/image-id selection and before image loading, moderation preflight, or annotation.
-- `batch submit` resolves the supplied `--image-ids` to image records and rejects before provider batch submission.
+- `annotate run`: フィルタや画像 ID による選択の直後、画像読み込み、モデレーションプリフライト、アノテーション実行の前に拒否する。
+- `batch submit`: 指定された `--image-ids` を画像レコードへ解決し、プロバイダバッチ送信の前に拒否する。
 
-The failure is treated as input validation (`click.UsageError`), preserving the CLI JSONL error contract through
-`INVALID_INPUT` / exit code 2.
+この失敗は入力検証エラー(`click.UsageError`)として扱い、`INVALID_INPUT` / 終了コード 2 による CLI JSONL エラー契約を維持する。
 
-## Rationale
+## 根拠
 
-The storage path is the only stable discriminator currently present on the selected image records. Adding a new schema
-field would be heavier than this safety fix and would not change the immediate behavior needed at the CLI boundary.
+現時点で選択済み画像レコードから安定して判別できる属性は保存パスのみである。新しいスキーマ項目を追加する対応はこの安全修正に対して過剰であり、CLI 境界で直ちに必要な挙動も変わらない。
 
-Mixed selections fail as a whole. Silently dropping originals would make the submitted set differ from the user's exact
-ID selection and could hide mistakes in automated agent workflows.
+オリジナル画像と処理済み画像が混在する選択は全体として失敗させる。オリジナル画像だけを黙って除外すると、ユーザーが指定した正確な ID 集合と実際に送信される集合が食い違い、自動エージェントワークフローでのミスが隠れてしまうためである。
 
-## Consequences
+## 影響
 
-- CLI users must select processed/resized image records for annotation and provider batch submission.
-- Original image records selected by exact ID or filters produce a clear validation error that includes sample image IDs
-  and stored paths.
-- Future explicit override, if needed, must be designed as a separate policy change rather than falling through by
-  default.
+- CLI ユーザーは、アノテーションおよびプロバイダバッチ送信の対象として処理済み/リサイズ済み画像レコードを選択する必要がある。
+- ID 直接指定またはフィルタによってオリジナル画像レコードが選択された場合、該当する画像 ID の例と保存パスを含む明確な検証エラーが返される。
+- 将来的に明示的な上書き許可が必要になった場合は、既定で通過させるのではなく、独立したポリシー変更として設計する必要がある。

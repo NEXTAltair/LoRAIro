@@ -3,7 +3,7 @@ name: interface-design
 version: "1.1.0"
 description: Interface design skill for dashboards, admin panels, apps, and tools. NOT for marketing design. Provides design intent, domain exploration, craft principles, and component-driven design-tool↔code sync. For PySide6/Qt technical implementation, use lorairo-qt-widget skill.
 metadata:
-  short-description: UIデザイン原則（意図、ドメイン探索、クラフト）。技術実装はlorairo-qt-widget参照。
+  short-description: UIデザイン原則(意図、ドメイン探索、クラフト)。技術実装はlorairo-qt-widget参照。
   origin: https://github.com/Dammyjay93/interface-design
 allowed-tools:
   - Grep
@@ -15,226 +15,203 @@ allowed-tools:
 dependencies: []
 ---
 
-# Interface Design
+# インターフェースデザインガイド
 
-Build interface design with craft and consistency.
+一貫性と丁寧な作り込み(クラフト)を備えたインターフェースを設計するためのスキルである。
 
-## Scope
+## 適用範囲
 
-**Use for:** Dashboards, admin panels, SaaS apps, tools, settings pages, data interfaces.
-
-**Not for:** Landing pages, marketing sites, campaigns.
-
-**For PySide6/Qt implementation:** Use `lorairo-qt-widget` skill for Signal/Slot patterns, Direct Widget Communication, and Qt Designer integration.
+- **対象**: ダッシュボード、管理画面、SaaS アプリ、ツール、設定画面、データインターフェース
+- **対象外**: ランディングページ、マーケティングサイト、キャンペーンページ
+- **PySide6・Qt の技術実装**: Signal/Slot パターン、ウィジェット間直接通信、Qt Designer 連携には `lorairo-qt-widget` スキルを使う。
 
 ---
 
-# The Problem
+# 課題: なぜ画一的な出力になるのか
 
-You will generate generic output. Your training has seen thousands of dashboards. The patterns are strong.
+意識しなければ、出力はありきたりなテンプレートになる。学習データには数千ものダッシュボードが含まれており、既定パターンの引力が強いためである。
 
-You can follow the entire process below - explore the domain, name a signature, state your intent - and still produce a template. Warm colors on cold structures. Friendly fonts on generic layouts. "Kitchen feel" that looks like every other app.
+ドメインを探索し、特徴的な要素を名付け、意図を言語化したとしても、テンプレート的な出力に陥ることはある。冷たい構造に暖色を載せ、汎用レイアウトに親しみやすいフォントを置くだけでは、他のアプリと区別がつかない。
 
-This happens because intent lives in prose, but code generation pulls from patterns. The gap between them is where defaults win.
+これは「意図」は文章に宿る一方、「コード生成」は既定パターンから引き出されるために起きる。両者の隙間で、既定のパターンが勝ってしまうのである。
 
-The process below helps. But process alone doesn't guarantee craft. You have to catch yourself.
-
----
-
-# Where Defaults Hide
-
-Defaults don't announce themselves. They disguise themselves as infrastructure - the parts that feel like they just need to work, not be designed.
-
-**Typography feels like a container.** Pick something readable, move on. But typography isn't holding your design - it IS your design. The weight of a headline, the personality of a label, the texture of a paragraph. These shape how the product feels before anyone reads a word.
-
-**Navigation feels like scaffolding.** Build the sidebar, add the links, get to the real work. But navigation isn't around your product - it IS your product. Where you are, where you can go, what matters most.
-
-**Data feels like presentation.** You have numbers, show numbers. But a number on screen is not design. The question is: what does this number mean to the person looking at it? What will they do with it?
-
-**Token names feel like implementation detail.** But your QSS variables are design decisions. `--ink` and `--parchment` evoke a world. `--gray-700` and `--surface-2` evoke a template.
-
-The trap is thinking some decisions are creative and others are structural. There are no structural decisions. Everything is design.
+以下のプロセスは助けになるが、手順だけではクラフトは保証されない。自分自身の既定パターンへの回帰を自覚して止める必要がある。
 
 ---
 
-# Intent First
+# 既定パターンが潜む場所
 
-Before touching code, answer these. Not in your head - out loud, to yourself or the user.
+既定パターンは自己主張せず、「デザイン対象ではなく単なる基盤だ」と思われがちな部分に潜む。
 
-**Who is this human?**
-Not "users." The actual person. Where are they when they open this? What's on their mind? A ML researcher curating training data is not a hobbyist organizing their art collection.
+- **タイポグラフィ**: 「読みやすい書体を選べばよい」と器のように扱われがちである。しかしタイポグラフィはデザインを入れる器ではなく、デザインそのものである。見出しの重み、ラベルの個性、本文の質感が、言葉を読まれる前に製品の印象を決める。
+- **ナビゲーション**: サイドバーとリンクを並べれば終わりとみなされがちである。しかしナビゲーションは製品の周囲にある足場ではなく、製品そのものである。現在地、移動先、何が最も重要かを規定する。
+- **データ表示**: 数値をそのまま画面に並べるだけではデザインではない。見る人にとってその数値が何を意味し、次に何をするのかを問う必要がある。
+- **トークン名**: 実装の細部に見えるが、QSS 変数の命名もデザイン判断である。`--ink` や `--parchment` は世界観を喚起するが、`--gray-700` や `--surface-2` はテンプレートを想起させる。
 
-**What must they accomplish?**
-Not "use the app." The verb. Tag these images. Filter by quality. Export the dataset. The answer determines what leads, what follows, what hides.
-
-**What should this feel like?**
-Say it in words that mean something. "Clean and modern" means nothing. Dense like a trading floor? Calm like a reading app? Focused like an IDE?
-
-If you cannot answer these with specifics, stop. Ask the user. Do not guess. Do not default.
-
-## Every Choice Must Be A Choice
-
-For every decision, you must be able to explain WHY.
-
-- Why this layout and not another?
-- Why this color temperature?
-- Why this typeface?
-- Why this spacing scale?
-- Why this information hierarchy?
-
-If your answer is "it's common" or "it's clean" or "it works" - you haven't chosen. You've defaulted.
-
-**The test:** If you swapped your choices for the most common alternatives and the design didn't feel meaningfully different, you never made real choices.
-
-## Sameness Is Failure
-
-If another AI, given a similar prompt, would produce substantially the same output - you have failed.
-
-This is not about being different for its own sake. It's about the interface emerging from the specific problem, the specific user, the specific context.
+「創造的な判断」と「構造的な判断」を分けることが落とし穴である。構造だけの判断は存在せず、すべてがデザインである。
 
 ---
 
-# Product Domain Exploration
+# 意図を最初に定める
 
-This is where defaults get caught - or don't.
+コードに触れる前に、次の 3 つを頭の中だけでなく、自分自身またはユーザーに向けて言葉にする。
 
-Generic output: Task type -> Visual template -> Theme
-Crafted output: Task type -> Product domain -> Signature -> Structure + Expression
+1. **使う人は誰か**: 「ユーザー」という抽象語ではなく、実際の人物を思い描く。この画面を開くときどこにいて、何を考えているか。学習データを精査する機械学習研究者と、趣味でイラストを整理する個人では前提が異なる。
+2. **何を達成したいのか**: 「アプリを使う」ではなく動詞で答える。画像にタグを付ける、品質で絞り込む、データセットを書き出す。この答えによって、主役にする要素・次に来る要素・隠す要素が決まる。
+3. **どのような質感・手触りであるべきか**: 「クリーンでモダン」のような空虚な言葉を避ける。トレーディング画面のように高密度か、読書アプリのように静謐か、IDE のように集中を促すか。
 
-## Required Outputs
+これらを具体的に答えられないなら手を止め、ユーザーに質問する。推測や既定パターンで埋めてはならない。
 
-**Do not propose any direction until you produce all four:**
+## すべての選択に理由を持つ
 
-**Domain:** Concepts, metaphors, vocabulary from this product's world. Not features - territory. Minimum 5.
+あらゆる判断について「なぜそうしたか」を説明できなければならない。
 
-**Color world:** What colors exist naturally in this product's domain? Not "warm" or "cool" - go to the actual world. List 5+.
+- なぜ他の案ではなくこのレイアウトか
+- なぜこの色温度か
+- なぜこの書体か
+- なぜこの余白スケールか
+- なぜこの情報階層か
 
-**Signature:** One element - visual, structural, or interaction - that could only exist for THIS product. If you can't name one, keep exploring.
+答えが「一般的だから」「きれいだから」「動くから」であれば、選択ではなく既定値への依存である。
 
-**Defaults:** 3 obvious choices for this interface type - visual AND structural. You can't avoid patterns you haven't named.
+**検証テスト**: 選んだ要素を最もありふれた代替案へ差し替えてもデザインの印象が実質的に変わらないなら、本当の選択をしていない。
 
-## LoRAIro Domain Example
+## 画一性は失敗である
 
-For an AI image annotation tool like LoRAIro:
-
-**Domain:** Curator's desk, lightbox, sorting table, quality control station, archive room, specimen slides, gallery storage
-
-**Color world:** Neutral grays of darkroom, amber of archive lighting, deep blacks of photo paper, soft cream of mounting boards, clinical white of inspection tables
-
-**Signature:** The "curation feel" - every interaction feels like handling a valuable piece, not processing data
-
-**Defaults to reject:**
-- Generic thumbnail grid -> Lightbox-style viewing with examination context
-- Plain tag chips -> Specimen-label aesthetic with origin/confidence
-- Standard progress bars -> Archival cataloging progress with batch context
+似たプロンプトを与えた別の AI とほぼ同じ出力になるなら、それは失敗である。奇をてらうことが目的ではない。固有の課題・固有のユーザー・固有の文脈からインターフェースが自然に立ち上がる状態を目指す。
 
 ---
 
-# The Mandate
+# プロダクトドメインの探索
 
-**Before showing the user, look at what you made.**
+既定パターンを食い止められるかどうかは、この段階で決まる。
 
-Ask yourself: "If they said this lacks craft, what would they mean?"
+- **汎用的な出力**: タスク種別 → 見た目テンプレート → テーマ適用
+- **作り込まれた出力**: タスク種別 → プロダクトドメイン → 特徴的要素(シグネチャ) → 構造と表現
 
-That thing you just thought of - fix it first.
+## 必須の成果物
 
-## The Checks
+次の 4 点をすべて書き出すまで、デザインの方向性を提案してはならない。
 
-Run these against your output before presenting:
+- **ドメイン(Domain)**: この製品の世界に属する概念・比喩・語彙。機能名ではなく世界観の領域を 5 つ以上挙げる。
+- **色彩世界(Color world)**: この製品のドメインに自然に存在する色。「暖色」「寒色」ではなく実世界の具体例を 5 色以上挙げる。
+- **特徴的要素(Signature)**: この製品だからこそ存在し得る視覚・構造・操作の要素を 1 つ定める。言語化できなければ探索を続ける。
+- **排除すべき既定パターン(Defaults)**: この種の UI でありがちな見た目と構造の選択肢を 3 つ挙げる。名前を付けておかなければ避けられない。
 
-- **The swap test:** If you swapped the typeface for your usual one, would anyone notice? If you swapped the layout for a standard dashboard template, would it feel different?
+## LoRAIro のドメイン例
 
-- **The squint test:** Blur your eyes. Can you still perceive hierarchy? Is anything jumping out harshly? Craft whispers.
+AI 画像アノテーションツールである LoRAIro を例にすると次のようになる。
 
-- **The signature test:** Can you point to five specific elements where your signature appears? Not "the overall feel" - actual components.
-
-- **The token test:** Read your QSS variables out loud. Do they sound like they belong to this product's world?
-
-If any check fails, iterate before showing.
-
----
-
-# Craft Foundations
-
-## Subtle Layering
-
-**Surfaces must be barely different but still distinguishable.** Study Vercel, Supabase, Linear. Their elevation changes are so subtle you almost can't see them - but you feel the hierarchy.
-
-**Borders must be light but not invisible.** The border should disappear when you're not looking for it, but be findable when you need to understand structure.
-
-**The squint test:** Blur your eyes at the interface. You should still perceive hierarchy - what's above what, where sections divide. But nothing should jump out.
-
-## Infinite Expression
-
-Every pattern has infinite expressions. **No interface should look the same.**
-
-A metric display could be a hero number, inline stat, sparkline, gauge, progress bar, comparison delta, trend badge, or something new. Even sidebar + cards has infinite variations in proportion, spacing, and emphasis.
-
-**NEVER produce identical output.** Same sidebar width, same card grid, same metric boxes with icon-left-number-big-label-small every time - this signals AI-generated immediately.
-
-## Color Lives Somewhere
-
-Every product exists in a world. That world has colors.
-
-Before you reach for a palette, spend time in the product's world. What would you see if you walked into the physical version of this space?
-
-Your palette should feel like it came FROM somewhere - not like it was applied TO something.
+- **ドメイン**: キュレーターの作業机、ライトボックス、選別台、品質管理ステーション、アーカイブ室、標本スライド、ギャラリー収蔵庫
+- **色彩世界**: 暗室の中立的なグレー、アーカイブ照明のアンバー、印画紙の深い黒、台紙の柔らかなクリーム、検品台の臨床的な白
+- **特徴的要素**: 「キュレーションの手触り」。すべての操作が単なるデータ処理ではなく、大切な作品を扱う感覚をもたらす。
+- **排除する既定パターン**:
+  - 汎用サムネイルグリッド → 検品文脈を備えたライトボックス型ビュー
+  - ありふれたタグチップ → 出典と信頼度を示す標本ラベル風の表現
+  - 標準プログレスバー → バッチ文脈を示すアーカイブ目録化プログレス
 
 ---
 
-# Design Principles
+# 提示前の義務
 
-## Spacing
-Pick a base unit and stick to multiples. Consistency matters more than the specific number. Random values signal no system.
+**ユーザーへ見せる前に、自分が作ったものを客観的に見直す。**
 
-## Depth
-Choose ONE approach and commit:
-- **Borders-only** - Clean, technical. For dense tools.
-- **Subtle shadows** - Soft lift. For approachable products.
-- **Layered shadows** - Premium, dimensional. For cards that need presence.
+「もしクラフトが足りないと言われたら、どの部分を指すだろうか」と自問し、真っ先に思い浮かんだ箇所を先に修正する。
 
-Don't mix approaches.
+## 必須チェック項目
 
-## Border Radius
-Sharper feels technical. Rounder feels friendly. Pick a scale and apply consistently.
+提示前に、成果物に対して次の 4 つのチェックを実施する。
 
-## Typography
-Headlines need weight and tight tracking. Body needs readability. Data needs monospace. Build a hierarchy.
+- **差し替えテスト(Swap test)**: 書体をいつものものへ変えたら誰か気づくか。レイアウトを標準的なダッシュボードテンプレートへ変えたら印象が変わるか。
+- **目を細めるテスト(Squint test)**: 視界をぼかしても情報階層がわかるか。悪目立ちする要素はないか。クラフトは静かに語る。
+- **特徴要素テスト(Signature test)**: 「全体の雰囲気」ではなく、特徴的要素が表れている具体的なコンポーネントを 5 つ指し示せるか。
+- **トークンテスト(Token test)**: QSS 変数名を声に出して読んだとき、この製品の世界観に属する言葉に聞こえるか。
 
-## Color & Surfaces
-Build from primitives: foreground (text hierarchy), background (surface elevation), border (separation hierarchy), brand, and semantic (destructive, warning, success).
-
-## Animation
-Fast micro-interactions (~150ms), smooth easing. No bouncy/spring effects.
-
-## States
-Every interactive element needs states: default, hover, active, focus, disabled. Data needs states too: loading, empty, error. Missing states feel broken.
+1 つでも不合格があれば、提示前に反復改善する。
 
 ---
 
-# Avoid
+# クラフトの基礎
 
-- **Harsh borders** - if borders are the first thing you see, they're too strong
-- **Dramatic surface jumps** - elevation changes should be whisper-quiet
-- **Inconsistent spacing** - the clearest sign of no system
-- **Mixed depth strategies** - pick one approach and commit
-- **Missing interaction states** - hover, focus, disabled, loading, error
-- **Dramatic drop shadows** - shadows should be subtle, not attention-grabbing
-- **Large radius on small elements**
-- **Pure white cards on colored backgrounds**
-- **Thick decorative borders**
-- **Gradients and color for decoration** - color should mean something
-- **Multiple accent colors** - dilutes focus
+## 繊細なレイヤリング
+
+- **サーフェス差は最小限かつ識別可能に**: Vercel・Supabase・Linear を参考にするとよい。高さ(elevation)の差はほとんど目立たないほど控えめでありながら、階層だけは確実に感じ取れる。
+- **境界線は軽く、しかし見失わない強さに**: 探していないときは視界から溶け、構造を確認したいときには見つけられる強さにする。
+- **目を細めるテスト**: ぼかして見たときに上下関係と区切りは伝わり、かつ突出して騒がしい要素がない状態を目指す。
+
+## 表現の多様性
+
+どのパターンにも無数の表現がある。**同じ見た目のインターフェースを量産してはならない。**
+
+指標の表示 1 つをとっても、大きく掲げる数値、インライン統計、スパークライン、ゲージ、プログレスバー、比較差分、トレンドバッジなど選択肢は多様である。サイドバーとカードの組み合わせであっても、比率・余白・強調の仕方で無数に変化する。
+
+毎回同じサイドバー幅、同じカードグリッド、左にアイコン・大きく数値・小さくラベルという指標ボックスを繰り返してはならない。それは即座に AI 生成とわかる兆候である。
+
+## 色はどこかの世界に由来する
+
+すべての製品は特定の現実世界に属しており、その世界には固有の色がある。パレットを選ぶ前に、その製品の物理空間へ足を踏み入れたときに何が見えるかを想像する。パレットは後から「塗られた」のではなく、その世界から「引き出された」ように感じられるべきである。
 
 ---
 
-# PySide6/Qt Integration
+# デザイン原則
 
-For technical implementation in PySide6:
+## 余白(Spacing)
 
-## QSS (Qt Style Sheets)
+基準単位を 1 つ決め、その倍数だけを使う。具体的な数値そのものより一貫性が重要である。不規則な数値は体系が無いことを示す。
 
-Apply design principles through QSS with meaningful token names:
+## 奥行き(Depth)
+
+次のいずれか 1 つを選び、全体で貫く。複数の手法を混在させない。
+
+- **境界線のみ(Borders-only)**: クリーンで技術的な印象。高密度なツールに適する。
+- **控えめな影(Subtle shadows)**: 柔らかな浮き上がり。親しみやすい製品に適する。
+- **多層シャドウ(Layered shadows)**: 質感と立体感。存在感を持たせたいカードに適する。
+
+## 角丸(Border Radius)
+
+鋭角ほど技術的、丸いほど親しみやすい印象になる。スケールを 1 つ定めて一貫して適用する。
+
+## タイポグラフィ(Typography)
+
+見出しには太さと引き締まった字間を与え、本文には可読性を、データには等幅フォントを用いる。明確な階層を構築する。
+
+## 色とサーフェス(Color & Surfaces)
+
+基本プリミティブから組み立てる。前景色(テキスト階層)、背景色(サーフェスの高さ)、境界線(区切りの階層)、ブランド色、および意味色(破壊的・警告・成功)で構成する。
+
+## アニメーション(Animation)
+
+約 150ms の素早いマイクロインタラクションと滑らかなイージングを用いる。弾むようなスプリング効果は使わない。
+
+## 状態(States)
+
+すべての操作要素に `default`・`hover`・`active`・`focus`・`disabled` の状態を用意する。データ表示にも `loading`・`empty`・`error` の状態を用意する。状態が欠けると壊れた印象を与える。
+
+---
+
+# 避けるべきアンチパターン
+
+- **強すぎる境界線**: 最初に目に入るのが枠線なら強すぎる。
+- **急激なサーフェス段差**: 高さの差はささやくように控えめにする。
+- **不統一な余白**: デザイン体系が無いことを最も露骨に示す。
+- **奥行き表現の混在**: 1 つの手法を選んで一貫させる。
+- **状態の欠落**: `hover`・`focus`・`disabled`・`loading`・`error` を省略しない。
+- **大げさなドロップシャドウ**: 影は注意を引くものではなく控えめに添える。
+- **小さな要素への大きな角丸**
+- **色付き背景の上の真っ白なカード**
+- **太い装飾用の枠線**
+- **装飾目的のグラデーションや多色使い**: 色には必ず意味を持たせる。
+- **複数のアクセントカラー**: 視線の集中を損なう。
+
+---
+
+# PySide6・Qt との連携
+
+PySide6 での技術実装には以下を適用する。
+
+## QSS(Qt Style Sheets)
+
+デザイン原則は、意味のあるトークン名を用いた QSS で表現する。
 
 ```css
 /* Good: Domain-specific naming */
@@ -252,72 +229,59 @@ QWidget {
 }
 ```
 
-## Widget Design Process
+## ウィジェット設計プロセス
 
-1. **Intent First** - Define who, what, feel before implementation
-2. **Domain Exploration** - Apply Required Outputs
-3. **Technical Implementation** - Use `lorairo-qt-widget` skill for Signal/Slot patterns
-4. **Craft Check** - Run The Mandate checks
+1. **意図の定義**: 実装前に「誰が・何を・どんな質感で」を決める。
+2. **ドメイン探索**: 必須の 4 成果物を書き出す。
+3. **技術実装**: Signal/Slot などの実装パターンは `lorairo-qt-widget` スキルを使う。
+4. **クラフト検証**: 「提示前の義務」の 4 チェックを実行する。
 
-## Coordination with lorairo-qt-widget
+## `lorairo-qt-widget` との役割分担
 
-| Aspect | interface-design | lorairo-qt-widget |
-|--------|------------------|-------------------|
-| Focus | Design intent, aesthetics, craft | Technical patterns, Qt APIs |
-| Answers | Why this design? | How to implement? |
-| Outputs | Color world, signature, hierarchy | Signal/Slot, Widget structure |
-
----
-
-# Design Tool ↔ Implementation Sync (component-driven)
-
-When a design tool holds the design system (e.g. a hosted design app the team syncs to),
-know what is and is not synced — this is platform-neutral; it applies whatever agent or
-editor you run in.
-
-- The connector syncs the **component catalog** (tokens + reusable components), one-way:
-  repo → design tool. It does **not** sync **screen compositions** back, and it does **not**
-  generate implementation (PySide/Qt) code.
-- Screen layouts (which components, arranged how) live only in the design tool as mockups.
-  Porting them to the app is **manual**.
-- So design and implementation **drift** whenever a screen is ported only partially, the
-  design changes, or correct components are dropped into a legacy layout.
-
-To prevent drift, work **component-driven**, not screen-by-screen:
-
-1. **Per component** — the design tool already defines each reusable widget (the catalog).
-   Treat each as the spec (its component source + usage notes).
-2. **Judge commonization** — decide: extract a reusable widget in code, or inline it.
-   Extract widgets used in **2+ screens**; inline true one-offs. Widget extraction is cheap
-   composition, not a big refactor.
-3. **Mirror in code** — build a reusable widget that mirrors the design component, driven by
-   the shared **design tokens** (one token source of truth). Keep mirrors in a dedicated module.
-4. **Compose** — build each screen from the mirrored widgets, so the app and the design's
-   screens share the same component vocabulary. Both sides now reuse the same parts and stay
-   aligned.
-
-Anti-patterns:
-
-- Hand-porting each screen from scratch → repeats the drift.
-- Building the whole mirror library speculatively before any screen uses it (YAGNI). Build the
-  components a screen actually needs, prove them by composing that screen, reuse on the next.
-- Placing correct components inside the old layout and calling the screen done — components
-  right, structure wrong = visual divergence.
-
-Tokens are the **only** thing the two implementations share. Keep their values in sync between
-the design tool's stylesheet and the app's token module (`src/lorairo/gui/theme.py` and `docs/design/theme-v1/hifi-mock.html`, plus the Claude Design mirror under `docs/design/lorairo-design-system/` and operation prototype `docs/design/wireframes/wireframes.html`) — this is **not automatic**; verify it.
-For capturing render-time navigation/screen structure from the operation prototype, use `lorairo-design-capture`.
-For the extraction/Qt mechanics of the mirror widgets, use the `lorairo-qt-widget` skill.
+| 観点 | `interface-design` | `lorairo-qt-widget` |
+|---|---|---|
+| 焦点 | デザイン意図、美観、クラフト | 技術パターン、Qt API |
+| 答える問い | なぜこのデザインにするのか | どのように実装するのか |
+| 成果物 | 色彩世界、特徴的要素、情報階層 | Signal/Slot、ウィジェット構造 |
 
 ---
 
-# Workflow
+# デザインツールと実装の同期(コンポーネント駆動)
 
-## Communication
-Be invisible. Don't announce modes or narrate process.
+デザインシステムを外部のデザインツール(チームで同期するホスティング型デザインアプリなど)で管理している場合、何が同期され何が同期されないかを正確に把握する必要がある。この原則は利用するエージェントやエディタに依存しない。
 
-## Suggest + Ask
-Lead with your exploration and recommendation, then confirm:
+- コネクタが同期するのは**コンポーネントカタログ**(トークンと再利用部品)だけであり、方向は「リポジトリ → デザインツール」の片方向である。**画面構成の書き戻し**や PySide・Qt 実装コードの自動生成は行わない。
+- どの部品をどう配置するかという画面レイアウトは、デザインツール上のモックアップにのみ存在する。アプリへの移植は**手動作業**になる。
+- そのため、画面の一部だけ移植した場合や、デザインが変更された場合、あるいは正しい部品を古いレイアウトへ流し込んだ場合に、デザインと実装が**乖離(ドリフト)**する。
+
+乖離を防ぐため、画面単位ではなく**コンポーネント駆動**で進める。
+
+1. **コンポーネント単位で扱う**: デザインツールに定義された各再利用ウィジェット(カタログ)を、コードと利用メモを含む仕様として扱う。
+2. **共通化を判断する**: コード側で再利用ウィジェットとして切り出すか、インラインにするかを決める。**2 画面以上**で使う部品は切り出し、本当に 1 回限りの要素はインラインにとどめる。ウィジェットの切り出しは低コストな合成作業であり、大規模リファクタリングではない。
+3. **コード側にミラーを作る**: 共有する**デザイントークン**(単一の正準ソース)に基づき、デザイン部品を反映した再利用ウィジェットを専用モジュールに実装する。
+4. **合成で画面を組む**: 各画面をミラーウィジェットの合成で組み立てる。アプリとデザインが同じコンポーネント語彙を共有することで、両者の整合を保てる。
+
+### アンチパターン
+
+- 各画面を一から手動移植する(乖離を繰り返す原因になる)。
+- どの画面でも使われていない段階でミラーライブラリ全体を先行構築する(YAGNI に反する)。ある画面で実際に必要な部品だけを作り、その画面の合成で検証し、次の画面で再利用する。
+- 正しい部品を古いレイアウトの中へ配置して完了とする(部品が合っていても構造が違えば見た目は乖離する)。
+
+両実装が共有する唯一の要素はトークンである。デザインツールのスタイルシートと、アプリ側のトークンモジュール(`src/lorairo/gui/theme.py`、`docs/design/theme-v1/hifi-mock.html`、Claude Design ミラーである `docs/design/lorairo-design-system/`、操作プロトタイプ `docs/design/wireframes/wireframes.html`)の値は**自動同期されない**ため、必ず手動で整合を確認する。
+
+操作プロトタイプから描画時のナビゲーションや画面構造を取り込む際は `lorairo-design-capture` を、ミラーウィジェットの切り出しや Qt 実装の仕組みには `lorairo-qt-widget` を使用する。
+
+---
+
+# ワークフロー
+
+## コミュニケーション
+
+裏方に徹する。モード切替を宣言したり、手順を実況したりしない。
+
+## 提案と確認
+
+探索結果と推奨方針を先に示し、ユーザーへ確認を取る。
 
 ```
 "Domain: [5+ concepts from the product's world]
@@ -330,24 +294,25 @@ Direction: [approach that connects to the above]"
 [AskUserQuestion: "Does that direction feel right?"]
 ```
 
-## After Completing a Task
+## タスク完了後の保存
 
-When you finish building something, **always offer to save**:
+実装を終えたら、**必ずパターンの保存を提案する**。
 
 ```
 "Want me to save these patterns for future sessions?"
 ```
 
-If yes, write to `.interface-design/system.md`:
-- Direction and feel
-- Depth strategy (borders/shadows/layered)
-- Spacing base unit
-- Key component patterns
+ユーザーが同意したら、次の内容を `.interface-design/system.md` に記録する。
+
+- 方向性と質感
+- 奥行き戦略(境界線・控えめな影・多層シャドウ)
+- 余白の基準単位
+- 主要なコンポーネントパターン
 
 ---
 
-# Commands
+# コマンド
 
-- `/interface-design:status` - Current system state
-- `/interface-design:audit` - Check code against system
-- `/interface-design:extract` - Extract patterns from code
+- `/interface-design:status`: 現在のシステム状態を確認する
+- `/interface-design:audit`: システム定義に対してコードを監査する
+- `/interface-design:extract`: コードからパターンを抽出する

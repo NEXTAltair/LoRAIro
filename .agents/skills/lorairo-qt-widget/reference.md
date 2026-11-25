@@ -1,35 +1,37 @@
-# PySide6 Widget Reference
+# PySide6 ウィジェットリファレンス
 
-Complete reference for PySide6 widget development in LoRAIro.
+LoRAIro における PySide6 ウィジェット開発の完全リファレンスである。
 
 ## Signal/Slot API
 
-### Signal Declaration
+### シグナル宣言
 
-**Basic syntax:**
+**基本構文:**
+
 ```python
 from PySide6.QtCore import Signal
 
 class MyWidget(QWidget):
-    # No parameters
+    # パラメーターなし
     action_triggered = Signal()
 
-    # Single parameter
+    # 単一パラメーター
     value_changed = Signal(int)
     text_changed = Signal(str)
     data_updated = Signal(dict)
 
-    # Multiple parameters
+    # 複数パラメーター
     selection_changed = Signal(int, str)
     range_selected = Signal(int, int)
 
-    # Multiple overloads
+    # 複数のオーバーロード
     progress_updated = Signal([int], [int, str])
 ```
 
-**Type specifications:**
+**型指定:**
+
 ```python
-# Python types
+# Python 標準型
 signal_str = Signal(str)
 signal_int = Signal(int)
 signal_float = Signal(float)
@@ -37,29 +39,30 @@ signal_bool = Signal(bool)
 signal_list = Signal(list)
 signal_dict = Signal(dict)
 
-# Qt types
+# Qt 型
 from PySide6.QtCore import QPointF, QSize
 signal_point = Signal(QPointF)
 signal_size = Signal(QSize)
 
-# Custom types
+# カスタム型
 from typing import Optional
-signal_optional = Signal(object)  # For Optional[CustomClass]
+signal_optional = Signal(object)  # Optional[CustomClass] 用
 ```
 
-### Slot Declaration
+### スロット宣言
 
-**Decorator syntax:**
+**デコレーター構文:**
+
 ```python
 from PySide6.QtCore import Slot
 
 class MyWidget(QWidget):
-    # No parameters
+    # パラメーターなし
     @Slot()
     def handle_action(self) -> None:
         pass
 
-    # Single parameter
+    # 単一パラメーター
     @Slot(int)
     def handle_value(self, value: int) -> None:
         pass
@@ -68,70 +71,74 @@ class MyWidget(QWidget):
     def handle_text(self, text: str) -> None:
         pass
 
-    # Multiple parameters
+    # 複数パラメーター
     @Slot(int, str)
     def handle_selection(self, index: int, name: str) -> None:
         pass
 
-    # Multiple overloads
+    # 複数のオーバーロード
     @Slot(int)
     @Slot(int, str)
     def handle_progress(self, value: int, message: str = "") -> None:
         pass
 ```
 
-### Signal Connection
+### シグナル接続
 
-**Connection syntax:**
+**接続構文:**
+
 ```python
-# Direct connection
+# 直接接続
 sender.signal_name.connect(receiver.slot_name)
 
-# Lambda connection
+# ラムダによる接続
 sender.signal_name.connect(lambda x: self._process(x))
 
-# Partial connection
+# partial による接続
 from functools import partial
 sender.signal_name.connect(partial(self._process, extra_arg="value"))
 
-# Connection with type checking
+# オーバーロード型を明示した接続
 sender.value_changed[int].connect(receiver.handle_value)
 ```
 
-**Connection types:**
+**接続タイプ:**
+
 ```python
 from PySide6.QtCore import Qt
 
-# Auto connection (default)
+# 自動接続(既定)
 sender.signal.connect(receiver.slot)
 
-# Direct connection (same thread, synchronous)
+# 直接接続(同一スレッド・同期)
 sender.signal.connect(receiver.slot, Qt.DirectConnection)
 
-# Queued connection (cross-thread, asynchronous)
+# キュー接続(スレッド間・非同期)
 sender.signal.connect(receiver.slot, Qt.QueuedConnection)
 
-# Blocking queued connection (cross-thread, synchronous)
+# ブロッキングキュー接続(スレッド間・同期)
 sender.signal.connect(receiver.slot, Qt.BlockingQueuedConnection)
 ```
 
-**Disconnection:**
+**切断:**
+
 ```python
-# Disconnect specific slot
+# 特定スロットの切断
 sender.signal.disconnect(receiver.slot)
 
-# Disconnect all slots
+# 全スロットの切断
 sender.signal.disconnect()
 
-# Check if connected
+# 接続状態の確認
 is_connected = sender.signal.isSignalConnected(receiver.slot)
 ```
 
-## Qt Designer Workflow
+## Qt Designer ワークフロー
 
-### UI File Structure
+### UI ファイル構造
 
-**Example .ui file:**
+**`.ui` ファイルの例:**
+
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
@@ -184,23 +191,26 @@ is_connected = sender.signal.isSignalConnected(receiver.slot)
 </ui>
 ```
 
-### UI Generation
+### UI コード生成
 
-**Generate UI Python file:**
+**Python UI ファイルの一括生成:**
+
 ```bash
 cd /workspaces/LoRAIro
 uv run python scripts/generate_ui.py
 ```
 
-**Manual generation (single file):**
+**単一ファイルの手動生成:**
+
 ```bash
 pyside6-uic src/lorairo/gui/designer/ImageDetailsWidget.ui \
     -o src/lorairo/gui/designer/ImageDetailsWidget_ui.py
 ```
 
-**Generated UI file structure:**
+**生成される UI ファイルの構造:**
+
 ```python
-# ImageDetailsWidget_ui.py (auto-generated)
+# ImageDetailsWidget_ui.py (自動生成)
 from PySide6.QtCore import QCoreApplication, QMetaObject, QRect, QSize
 from PySide6.QtWidgets import QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
@@ -240,9 +250,10 @@ class Ui_ImageDetailsWidget:
         )
 ```
 
-### Using Generated UI
+### 生成済み UI の利用
 
-**Pattern 1: Standard usage**
+**パターン 1: 標準的な利用法(推奨)**
+
 ```python
 from .ImageDetailsWidget_ui import Ui_ImageDetailsWidget
 
@@ -260,26 +271,28 @@ class ImageDetailsWidget(QWidget):
     @Slot()
     def _on_open_clicked(self) -> None:
         path = self._ui.pathInput.text()
-        # Handle open action
+        # 開くアクションを処理する
 
     @Slot(str)
     def _on_path_changed(self, text: str) -> None:
-        # Handle path change
+        # パス変更を処理する
         pass
 ```
 
-**Pattern 2: Multiple inheritance (not recommended)**
+**パターン 2: 多重継承(非推奨)**
+
 ```python
-# Not recommended in LoRAIro
+# LoRAIro では非推奨
 class ImageDetailsWidget(QWidget, Ui_ImageDetailsWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setupUi(self)  # Note: self, not self._ui
+        self.setupUi(self)  # self._ui ではなく self に展開される
 ```
 
-### Accessing UI Elements
+### UI 要素へのアクセス
 
-**Via _ui attribute (recommended):**
+**`_ui` 属性経由でのアクセス(推奨):**
+
 ```python
 class MyWidget(QWidget):
     def __init__(self):
@@ -288,30 +301,31 @@ class MyWidget(QWidget):
         self._ui.setupUi(self)
 
     def update_display(self, data: dict) -> None:
-        # Access via self._ui
+        # self._ui 経由でアクセスする
         self._ui.titleLabel.setText(data["title"])
         self._ui.pathInput.setText(data["path"])
         self._ui.openButton.setEnabled(data["exists"])
 ```
 
-**Finding child widgets:**
+**子ウィジェットの検索:**
+
 ```python
-# Find by object name
+# オブジェクト名で検索
 button = self.findChild(QPushButton, "openButton")
 
-# Find all children of type
+# 指定型の子ウィジェットをすべて取得
 labels = self.findChildren(QLabel)
 
-# Find with specific name pattern
+# 特定の命名パターンで絞り込む
 search_inputs = [
     widget for widget in self.findChildren(QLineEdit)
     if "search" in widget.objectName().lower()
 ]
 ```
 
-## Common Widget Patterns
+## 基本的なウィジェットパターン
 
-### QWidget Base
+### `QWidget` ベース
 
 ```python
 from PySide6.QtWidgets import QWidget
@@ -320,7 +334,7 @@ class CustomWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-    # Geometry
+    # サイズ計算
     def sizeHint(self) -> QSize:
         """Return preferred size."""
         return QSize(400, 300)
@@ -329,7 +343,7 @@ class CustomWidget(QWidget):
         """Return minimum size."""
         return QSize(200, 150)
 
-    # Events
+    # イベント処理
     def paintEvent(self, event: QPaintEvent) -> None:
         """Handle paint events."""
         super().paintEvent(event)
@@ -340,11 +354,11 @@ class CustomWidget(QWidget):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Handle close events."""
-        # Cleanup
+        # 後片付け
         event.accept()
 ```
 
-### QMainWindow
+### `QMainWindow`
 
 ```python
 from PySide6.QtWidgets import QMainWindow, QMenuBar, QToolBar, QStatusBar
@@ -361,14 +375,14 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("LoRAIro")
         self.resize(1200, 800)
 
-        # Central widget
+        # セントラルウィジェット
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
     def _setup_menubar(self) -> None:
         menubar = self.menuBar()
 
-        # File menu
+        # ファイルメニュー
         file_menu = menubar.addMenu("&File")
         file_menu.addAction("&Open", self._on_open, "Ctrl+O")
         file_menu.addAction("&Save", self._on_save, "Ctrl+S")
@@ -387,7 +401,7 @@ class MainWindow(QMainWindow):
         statusbar.showMessage("Ready")
 ```
 
-### QDialog
+### `QDialog`
 
 ```python
 from PySide6.QtWidgets import QDialog, QDialogButtonBox
@@ -401,10 +415,10 @@ class SettingsDialog(QDialog):
     def _setup_ui(self) -> None:
         layout = QVBoxLayout()
 
-        # Settings content
+        # 設定コンテンツ
         # ...
 
-        # Button box
+        # ボタンボックス
         button_box = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel
         )
@@ -423,34 +437,34 @@ class SettingsDialog(QDialog):
         return None
 ```
 
-## Layout Management
+## レイアウト管理
 
-### QVBoxLayout / QHBoxLayout
+### `QVBoxLayout` / `QHBoxLayout`
 
 ```python
 from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout
 
-# Vertical layout
+# 垂直レイアウト
 layout = QVBoxLayout()
 layout.addWidget(widget1)
 layout.addWidget(widget2)
-layout.addStretch()  # Add spacing
+layout.addStretch()  # 余白を追加
 layout.addWidget(widget3)
 
-# Horizontal layout
+# 水平レイアウト
 hlayout = QHBoxLayout()
 hlayout.addWidget(left_widget)
 hlayout.addWidget(center_widget)
 hlayout.addWidget(right_widget)
-hlayout.setStretch(1, 1)  # Center widget stretches
+hlayout.setStretch(1, 1)  # 中央ウィジェットを伸縮させる
 
-# Nested layouts
+# ネストしたレイアウト
 main_layout = QVBoxLayout()
 main_layout.addLayout(hlayout)
 main_layout.addWidget(bottom_widget)
 ```
 
-### QGridLayout
+### `QGridLayout`
 
 ```python
 from PySide6.QtWidgets import QGridLayout
@@ -462,35 +476,35 @@ layout.addWidget(QLabel("Name:"), 0, 0)
 layout.addWidget(QLineEdit(), 0, 1)
 layout.addWidget(QLabel("Email:"), 1, 0)
 layout.addWidget(QLineEdit(), 1, 1)
-layout.addWidget(QPushButton("Submit"), 2, 0, 1, 2)  # Span 2 columns
+layout.addWidget(QPushButton("Submit"), 2, 0, 1, 2)  # 2 列にまたがる配置
 
-# Spacing
+# 間隔と余白
 layout.setSpacing(10)
 layout.setContentsMargins(10, 10, 10, 10)
 ```
 
-### QFormLayout
+### `QFormLayout`
 
 ```python
 from PySide6.QtWidgets import QFormLayout
 
 layout = QFormLayout()
 
-# Add rows with labels
+# ラベル付き行を追加
 layout.addRow("Name:", QLineEdit())
 layout.addRow("Email:", QLineEdit())
 layout.addRow("Age:", QSpinBox())
 
-# Add separator
+# 空行による区切り
 layout.addRow(QLabel())
 
-# Add button
+# ボタンを追加
 layout.addRow(QPushButton("Submit"))
 ```
 
-## Worker Integration
+## ワーカー連携
 
-### Worker Base Class
+### ワーカー基底クラス
 
 ```python
 from PySide6.QtCore import QRunnable, QObject, Signal, Slot
@@ -531,7 +545,7 @@ class BaseWorker(QRunnable):
         self._is_cancelled = True
 ```
 
-### Worker Usage in Widget
+### ウィジェットでのワーカー利用
 
 ```python
 from PySide6.QtCore import QThreadPool
@@ -565,9 +579,9 @@ class ProcessingWidget(QWidget):
         QMessageBox.warning(self, "Error", error_msg)
 ```
 
-## Testing with pytest-qt
+## `pytest-qt` によるテスト
 
-### Basic Testing
+### 基本テスト
 
 ```python
 import pytest
@@ -588,10 +602,10 @@ def test_widget_initialization(widget):
 def test_button_click(qtbot, widget):
     """Test button click."""
     qtbot.mouseClick(widget._ui.openButton, Qt.LeftButton)
-    # Verify effect
+    # 実行結果を検証する
 ```
 
-### Signal Testing
+### シグナルテスト
 
 ```python
 def test_signal_emission(qtbot, widget):
@@ -599,10 +613,10 @@ def test_signal_emission(qtbot, widget):
     with qtbot.waitSignal(widget.value_changed, timeout=1000) as blocker:
         widget.set_value(42)
 
-    # Verify signal was emitted
+    # シグナルが発火されたことを検証する
     assert blocker.signal_triggered
 
-    # Verify signal arguments
+    # シグナル引数を検証する
     assert blocker.args[0] == 42
 
 def test_multiple_signals(qtbot, widget):
@@ -614,64 +628,64 @@ def test_multiple_signals(qtbot, widget):
         widget.trigger_both()
 ```
 
-### Async Testing
+### 非同期テスト
 
 ```python
 def test_async_operation(qtbot, widget):
     """Test async worker completion."""
     widget.start_async_operation()
 
-    # Wait for completion signal
+    # 完了シグナルを待機する
     with qtbot.waitSignal(widget.operation_completed, timeout=5000):
-        pass  # Wait for signal
+        pass  # シグナル待機
 
-    # Verify results
+    # 結果を検証する
     assert widget.get_results() is not None
 ```
 
-## File Locations
+## ファイル配置
 
-### LoRAIro Structure
+### LoRAIro のディレクトリ構成
 
 ```
 src/lorairo/gui/
-├── widgets/                 # Custom widget implementations
+├── widgets/                 # カスタムウィジェット実装
 │   ├── thumbnail_widget.py
 │   ├── details_widget.py
 │   └── ...
-├── designer/                # Qt Designer files
+├── designer/                # Qt Designer ファイル
 │   ├── MainWindow.ui
-│   ├── MainWindow_ui.py    # Generated
+│   ├── MainWindow_ui.py     # 自動生成ファイル
 │   └── ...
-├── window/                  # Main window
+├── window/                  # メインウィンドウ
 │   └── main_window.py
-├── workers/                 # Async workers
+├── workers/                 # 非同期ワーカー
 │   ├── base.py
 │   ├── annotation_worker.py
 │   └── ...
-└── services/                # GUI services
+└── services/                # GUI サービス
     └── worker_service.py
 ```
 
-### Import Patterns
+### インポートパターン
 
 ```python
-# Widget imports
+# ウィジェットのインポート
 from src.lorairo.gui.widgets.thumbnail_widget import ThumbnailWidget
 
-# Designer UI imports
+# Designer 生成 UI のインポート
 from src.lorairo.gui.designer.MainWindow_ui import Ui_MainWindow
 
-# Worker imports
+# ワーカーのインポート
 from src.lorairo.gui.workers.annotation_worker import AnnotationWorker
 
-# Service imports
+# サービスのインポート
 from src.lorairo.gui.services.worker_service import WorkerService
 ```
 
-## Additional Resources
+## 参考資料
 
-- **Qt Documentation**: https://doc.qt.io/qtforpython/
+- **Qt 公式ドキュメント**: https://doc.qt.io/qtforpython/
 - **PySide6 API**: https://doc.qt.io/qtforpython/PySide6/QtWidgets/
-- **Qt Designer**: https://doc.qt.io/qt-6/qtdesigner-manual.html
-- **Signal/Slot**: https://doc.qt.io/qtforpython/overviews/signalsandslots.html
+- **Qt Designer マニュアル**: https://doc.qt.io/qt-6/qtdesigner-manual.html
+- **Signal/Slot 解説**: https://doc.qt.io/qtforpython/overviews/signalsandslots.html

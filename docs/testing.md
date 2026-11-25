@@ -5,58 +5,63 @@ status: Accepted
 timestamp: 2026-05-21
 tags: [process, validation]
 ---
+
 # テスト戦略とベストプラクティス
 
 ## 概要
 
-LoRAIroは3層テスト戦略を採用し、75%+のコードカバレッジを維持しています。
+LoRAIro は 3 層テスト戦略を採用し、75% 以上のコードカバレッジを維持する。
 
-**Test Levels:**
-- **Unit Tests**: ビジネスロジック、Qt-freeサービス
-- **Integration Tests**: GUI services, データベース統合
-- **BDD Tests**: 振る舞い仕様テスト（E2Eに限らずService層以上に適用）
+### テストレベル
 
-**Runtime validation policy:** ADR 0026 により、CI で実行する E2E は deterministic な fixture / fake backend ベースに限定します。実 API key、ローカルモデル download、実推論を伴う検証は、通常 CI ではなくローカルの on-demand runtime validation として扱います。
+- **ユニットテスト**: ビジネスロジックおよび Qt に依存しないサービス層
+- **統合テスト**: GUI サービスおよびデータベース統合
+- **BDD テスト**: 振る舞い仕様テスト(E2E に限定せず Service 層以上に適用する)
 
-## Tier 1: Smoke (実機モデル軽量 E2E)
+### 実行時検証ポリシー
 
-Tier 1 は image-annotator-lib の `tests/runtime_validation/` に集約した、実モデル download と実推論を伴うローカル専用 smoke layer です。LoRAIro 側には実モデル test を置かず、Makefile target で iam-lib の runtime validation を間接実行します。
+ADR 0026 に基づき、CI で実行する E2E テストは決定論的なフィクスチャおよびフェイクバックエンドに基づくものに限定する。実際の API キー、ローカルモデルのダウンロード、実推論を伴う検証は通常 CI に含めず、ローカルでオンデマンドに実行する実行時検証として扱う。
+
+### 使用フレームワーク
+
+- `pytest`(テストランナー)
+- `pytest-qt`(Qt GUI テスト)
+- `pytest-cov`(カバレッジ計測)
+
+## Tier 1: Smoke(実機モデル軽量 E2E)
+
+Tier 1 は、`image-annotator-lib` の `tests/runtime_validation/` に集約したローカル専用の検証層であり、実モデルのダウンロードと実推論を行う。LoRAIro 側には実モデルテストを置かず、Makefile ターゲットから `image-annotator-lib` の実行時検証を間接実行する。
 
 ```bash
 make test-runtime-local
 ```
 
-この target は `local_packages/image-annotator-lib` で `downloads_and_runs_model` marker の 5 model smoke を実行し、ONNX / Transformers / Tensorflow / Pipeline / CLIP の base class を 1 model ずつ通します。初回は約 3.5GB の model download と 20 分程度の実行時間を想定し、cache 後は数分程度です。
+このターゲットは、`local_packages/image-annotator-lib` で `downloads_and_runs_model` マーカーが付いた 5 モデルのスモークテストを実行し、ONNX、Transformers、Tensorflow、Pipeline、CLIP の各基底クラスを 1 モデルずつ検証する。初回は約 3.5 GB のモデルダウンロードと 20 分程度の実行時間を想定しており、キャッシュ後は数分程度で完了する。
 
-ADR 0026 / iam-lib ADR 0001 amended (2026-05-18) により、この validation は CI に含めません。GitHub Actions workflow、`workflow_dispatch`、`schedule`、CI cache、repo secret を追加しないでください。
+ADR 0026 および iam-lib ADR 0001 amended(2026-05-18)により、この検証は CI に含めない。GitHub Actions ワークフロー、`workflow_dispatch`、`schedule`、CI キャッシュ、リポジトリシークレットを追加してはならない。
 
-## Tier 2: Real WebAPI integration
+## Tier 2: 実 WebAPI 統合検証
 
-Tier 2 は image-annotator-lib の `tests/runtime_validation/test_real_webapi_runtime.py` に集約した、実 provider API key で実 WebAPI request を送るローカル専用 validation です。LoRAIro 側には実 WebAPI test を置かず、LoRAIro の実運用 config 経路で API key を読み込む runner から iam-lib の runtime validation を間接実行します。
+Tier 2 は、`image-annotator-lib` の `tests/runtime_validation/test_real_webapi_runtime.py` に集約したローカル専用の検証であり、実プロバイダーの API キーを使って実 WebAPI リクエストを送信する。LoRAIro 側には実 WebAPI テストを置かず、LoRAIro の実運用設定経路で API キーを読み込むランナーから `image-annotator-lib` の検証を間接実行する。
 
 ```bash
 make test-runtime-webapi
 ```
 
-この target は `ConfigurationService` 経由で `config/lorairo.toml` の `[api]` セクションを読み、subprocess 環境変数として iam-lib test に渡します。
+このターゲットは `ConfigurationService` 経由で `config/lorairo.toml` の `[api]` セクションを読み込み、サブプロセスの環境変数として `image-annotator-lib` のテストへ渡す。
 
-| LoRAIro config key | child env var | Provider |
+| LoRAIro 設定キー | 子プロセスの環境変数 | プロバイダー |
 |---|---|---|
 | `openai_key` | `OPENAI_API_KEY` | OpenAI |
 | `claude_key` | `ANTHROPIC_API_KEY` | Anthropic |
 | `google_key` | `GEMINI_API_KEY` | Google |
 | `openrouter_key` | `OPENROUTER_API_KEY` | OpenRouter |
 
-API key 値は stdout / log に出しません。runner は provider ごとの configured / missing のみを表示します。未設定 provider は iam-lib 側で `pytest.skip` されます。
+API キーの値は標準出力やログに出力しない。ランナーはプロバイダーごとの設定済み・未設定の状態のみを表示し、未設定のプロバイダーは `image-annotator-lib` 側で `pytest.skip` される。
 
-対象モデルは Google / OpenAI / Anthropic / OpenRouter の各 1 model です。#274 が未解決の間、`OPENAI_API_KEY` が設定された環境では OpenAI case が fail する可能性があります。その failure は #274 の再現として扱い、#278 では skip / xfail しません。
+対象モデルは Google、OpenAI、Anthropic、OpenRouter の各 1 モデルである。#274 が未解決の間は、`OPENAI_API_KEY` が設定された環境で OpenAI ケースが失敗する可能性がある。この失敗は #274 の再現として扱い、#278 では skip や xfail にしない。
 
-ADR 0026 / iam-lib ADR 0001 amended (2026-05-18) により、この validation も CI に含めません。GitHub Actions workflow、`workflow_dispatch`、`schedule`、repo secret を追加しないでください。
-
-**Testing Framework:**
-- pytest (test runner)
-- pytest-qt (Qt GUI testing)
-- pytest-cov (coverage reporting)
+ADR 0026 および iam-lib ADR 0001 amended(2026-05-18)により、この検証も CI に含めない。GitHub Actions ワークフロー、`workflow_dispatch`、`schedule`、CI キャッシュ、リポジトリシークレットを追加してはならない。
 
 ## テスト構造
 
@@ -76,7 +81,7 @@ tests/
 ├── bdd/                     # BDD振る舞い仕様テスト
 │   ├── conftest.py          # bddマーカー自動付与
 │   ├── features/            # Gherkin featureファイル
-│   └── steps/               # ステップ定義（test_*.py）
+│   └── steps/               # ステップ定義(test_*.py)
 ├── resources/               # Test resources
 │   ├── images/              # Sample images
 │   ├── configs/             # Test configurations
@@ -122,7 +127,8 @@ def test_provider_contract_with_real_webapi():
     pass
 ```
 
-**Run specific markers:**
+特定のマーカーを指定して実行する例を以下に示す。
+
 ```bash
 uv run pytest -m unit              # Unit tests only
 uv run pytest -m integration       # Integration tests only
@@ -132,13 +138,13 @@ uv run pytest -m "not slow"        # Exclude slow tests
 uv run pytest -m calls_real_webapi # On-demand real API validation
 ```
 
-`e2e` は実外部依存を使うという意味ではありません。CI で安定実行できる E2E を表します。実 API key を使うテストには `calls_real_webapi`、実モデル download / 実推論を使うテストには `downloads_and_runs_model` を付け、通常 CI から除外します。
+`e2e` マーカーは外部依存を実際に使うという意味ではなく、CI で安定実行できる E2E テストを表す。実 API キーを使うテストには `calls_real_webapi`、実モデルのダウンロードや実推論を行うテストには `downloads_and_runs_model` を付与し、通常 CI から除外する。
 
-## pytest-qtベストプラクティス
+## pytest-qt ベストプラクティス
 
-### Signalベースのアサーション
+### Signal ベースのアサーション
 
-#### ✅ RECOMMENDED: qtbot.waitSignal()
+#### 推奨: `qtbot.waitSignal()`
 
 ```python
 def test_signal_emission(qtbot):
@@ -152,12 +158,13 @@ def test_signal_emission(qtbot):
     assert blocker.args[0] == expected_data
 ```
 
-**Benefits:**
-- Automatic timeout handling
-- Clear test failure messages
-- No manual event processing
+利点:
 
-#### ❌ AVOID: Manual processEvents()
+- タイムアウトが自動で処理される。
+- 失敗時のメッセージが明確になる。
+- 手動でイベントループを回す必要がない。
+
+#### 非推奨: 手動の `processEvents()`
 
 ```python
 # ❌ BAD: Manual event loop processing
@@ -172,9 +179,9 @@ def test_signal_bad(qtbot):
     assert widget.data_ready  # May fail randomly
 ```
 
-### UI状態変更
+### UI 状態変更の待機
 
-#### ✅ RECOMMENDED: qtbot.waitUntil()
+#### 推奨: `qtbot.waitUntil()`
 
 ```python
 def test_ui_update(qtbot):
@@ -190,12 +197,13 @@ def test_ui_update(qtbot):
     assert widget.is_finished()
 ```
 
-**Benefits:**
-- Condition-based waiting
-- Automatic polling
-- Clear timeout errors
+利点:
 
-#### ❌ AVOID: Fixed-time wait
+- 条件ベースで待機できる。
+- ポーリングが自動で行われる。
+- タイムアウト時のエラーが分かりやすい。
+
+#### 非推奨: 固定時間待機
 
 ```python
 # ❌ BAD: Fixed delay without condition
@@ -208,9 +216,9 @@ def test_ui_bad(qtbot):
     assert widget.status_label.text() == "Complete"  # Flaky
 ```
 
-### QMessageBoxモック
+### `QMessageBox` のモック
 
-#### ✅ RECOMMENDED: monkeypatch
+#### 推奨: `monkeypatch`
 
 ```python
 def test_confirmation_dialog(qtbot, monkeypatch):
@@ -230,7 +238,8 @@ def test_confirmation_dialog(qtbot, monkeypatch):
     assert widget.item_count == 0
 ```
 
-**Common mocks:**
+よく使うモックの例:
+
 ```python
 # Information dialog
 monkeypatch.setattr(QMessageBox, 'information', lambda *args: None)
@@ -288,7 +297,7 @@ def test_shortcut(qtbot):
 
 ### 非同期・スレッドテスト
 
-#### ワーカースレッドSignal
+#### ワーカースレッドの Signal
 
 ```python
 def test_worker_completion(qtbot):
@@ -303,7 +312,7 @@ def test_worker_completion(qtbot):
     assert result.success
 ```
 
-#### 複数Signal
+#### 複数の Signal
 
 ```python
 def test_multi_step_process(qtbot):
@@ -324,7 +333,7 @@ def test_multi_step_process(qtbot):
 
 ### ヘッドレステスト
 
-**Linux/Container Environment:**
+#### Linux・コンテナ環境
 
 ```bash
 # Set headless mode
@@ -334,10 +343,12 @@ export QT_QPA_PLATFORM=offscreen
 uv run pytest -m gui
 ```
 
-**Windows Environment:**
-- GUI tests run with native windows (optional headless via Xvfb)
+#### Windows 環境
 
-**pytest configuration:**
+Windows ではネイティブウィンドウで GUI テストを実行する(必要に応じて Xvfb によるヘッドレス実行も選択できる)。
+
+#### pytest 設定例
+
 ```python
 # conftest.py
 import os
@@ -353,8 +364,6 @@ def setup_qt_environment():
 ## ユニットテスト
 
 ### ビジネスロジックサービス
-
-#### テストパターン
 
 ```python
 import pytest
@@ -373,15 +382,14 @@ def test_tag_service_get_unknown_tags(tmp_path):
     assert all(tag.type_name == "unknown" for tag in tags)
 ```
 
-**Principles:**
-- ❌ **No Qt dependencies** in unit tests
-- ❌ **No GUI mocks** (test business logic directly)
-- ✅ **Test pure functions** and service methods
-- ✅ **Use tmp_path fixture** for file operations
+基本原則:
+
+- ユニットテストに Qt 依存を持ち込まない。
+- GUI モックを使わず、ビジネスロジックを直接検証する。
+- 純粋関数とサービスメソッドを直接テストする。
+- ファイル操作には `tmp_path` フィクスチャを使用する。
 
 ### データベース層
-
-#### リポジトリテスト
 
 ```python
 @pytest.mark.unit
@@ -407,7 +415,8 @@ def test_image_repository_add(tmp_path):
     assert retrieved.file_path == "/path/to/image.jpg"
 ```
 
-**Database Fixtures:**
+データベースフィクスチャの例:
+
 ```python
 @pytest.fixture
 def test_db(tmp_path):
@@ -425,9 +434,10 @@ def test_db(tmp_path):
 
 ### 外部依存のモック
 
-#### ✅ WHEN TO MOCK
+#### モックを使うべき場面
 
-**External APIs:**
+外部 API の呼び出し:
+
 ```python
 @patch('requests.post')
 def test_api_call(mock_post):
@@ -439,7 +449,8 @@ def test_api_call(mock_post):
     assert result == "success"
 ```
 
-**Filesystem Operations** (when testing error handling):
+ファイルシステム操作(エラー処理を検証する場合):
+
 ```python
 @patch('pathlib.Path.exists')
 def test_file_not_found(mock_exists):
@@ -450,9 +461,10 @@ def test_file_not_found(mock_exists):
         service.load_file("missing.txt")
 ```
 
-#### ❌ WHEN NOT TO MOCK
+#### モックを使わないべき場面
 
-**Database operations** (use real SQLite in tmp_path):
+データベース操作(`tmp_path` 上の実 SQLite を使用する):
+
 ```python
 # ✅ GOOD: Real database in temp location
 def test_database_query(tmp_path):
@@ -461,7 +473,8 @@ def test_database_query(tmp_path):
     assert result is not None
 ```
 
-**Pure functions**:
+純粋関数:
+
 ```python
 # ✅ GOOD: No mocks needed for pure logic
 def test_calculate_total():
@@ -471,9 +484,7 @@ def test_calculate_total():
 
 ## 統合テスト
 
-### GUIサービス
-
-#### サービス・ウィジェット統合
+### GUI サービスとウィジェットの統合
 
 ```python
 @pytest.mark.integration
@@ -499,9 +510,7 @@ def test_search_filter_service_integration(qtbot):
     assert results_received
 ```
 
-### データベース統合
-
-#### 複数テーブル操作
+### データベース統合(複数テーブル操作)
 
 ```python
 @pytest.mark.integration
@@ -529,7 +538,7 @@ def test_image_with_annotations(test_db):
 
 ### 外部パッケージ統合
 
-#### genai-tag-db-tools
+#### `genai-tag-db-tools`
 
 ```python
 @pytest.mark.integration
@@ -549,7 +558,7 @@ def test_tag_registration_integration(tmp_path):
     assert any(tag.tag_name == "test_tag" for tag in tags)
 ```
 
-#### image-annotator-lib
+#### `image-annotator-lib`
 
 ```python
 @pytest.mark.integration
@@ -575,14 +584,16 @@ def test_annotation_integration(monkeypatch):
 
 ## カバレッジ要件
 
-### 目標: 75%+
+### 目標: 75% 以上
 
-**Measured by:**
+計測コマンド:
+
 ```bash
 uv run pytest --cov=src --cov-report=xml --cov-report=term
 ```
 
-**Coverage Report:**
+レポート出力例:
+
 ```
 Name                                 Stmts   Miss  Cover
 --------------------------------------------------------
@@ -595,7 +606,8 @@ TOTAL                                 1500    300    80%
 
 ### カバレッジ除外
 
-**Exclude from coverage:**
+以下の箇所は `# pragma: no cover` でカバレッジ計測から除外する。
+
 ```python
 # pragma: no cover
 
@@ -612,14 +624,14 @@ if TYPE_CHECKING:  # pragma: no cover
     from typing import Protocol
 ```
 
-### カバレッジ改善
+### カバレッジ改善の優先度
 
-**Priority areas:**
-1. **Below 75%**: Add missing tests immediately
-2. **75-85%**: Add tests for edge cases
-3. **85%+**: Focus on integration tests
+1. **75% 未満**: 不足しているテストを直ちに追加する。
+2. **75〜85%**: エッジケースのテストを追加する。
+3. **85% 以上**: 統合テストの充実に注力する。
 
-**Coverage analysis:**
+HTML レポートによる分析手順:
+
 ```bash
 # Generate HTML coverage report
 uv run pytest --cov=src --cov-report=html
@@ -630,9 +642,7 @@ open htmlcov/index.html
 
 ## テストフィクスチャ
 
-### 共通フィクスチャ
-
-#### データベースフィクスチャ
+### データベースフィクスチャ
 
 ```python
 # conftest.py
@@ -665,7 +675,7 @@ def populated_db(test_db):
     return test_db
 ```
 
-#### 設定フィクスチャ
+### 設定フィクスチャ
 
 ```python
 @pytest.fixture
@@ -683,7 +693,7 @@ database_base_dir = "test_data"
     return ConfigurationService(config_path=config_path)
 ```
 
-#### Qtフィクスチャ
+### Qt フィクスチャ
 
 ```python
 @pytest.fixture
@@ -695,17 +705,16 @@ def main_window(qtbot):
     return window
 ```
 
-## BDD振る舞い仕様テスト
+## BDD 振る舞い仕様テスト
 
-BDDはE2Eに限定せず「振る舞い仕様の表現形式」としてService層以上に適用する。
-ツールは **pytest-bdd (>=8.1)**。適用レイヤーの判断基準（◎ ユーザー向けフロー / ○ Service層 / △ Repository CRUD / ✕ 内部ロジック）は `.claude/rules/testing.md` の「BDD テスト」セクションを参照。
+BDD は E2E テストに限定せず、「振る舞い仕様の表現形式」として Service 層以上に適用する。ツールは **pytest-bdd(>=8.1)** を使用する。適用レイヤーの判断基準(◎ ユーザー向けフロー、○ Service 層、△ Repository CRUD、✕ 内部ロジック)は `.claude/rules/testing.md` の「BDD テスト」セクションを参照する。
 
 ### 実装済みシナリオ
 
-| Feature | 内容 |
-|---------|------|
-| `database_management.feature` | 画像登録、アノテーション保存、検索（タグ/キャプション/日付/NSFW/手動編集/レーティング） |
-| `export_filter_required.feature` | `DatasetExportService.export_with_criteria()` の criteria/image_ids 分岐 |
+| フィーチャー | 内容 |
+|---|---|
+| `database_management.feature` | 画像登録、アノテーション保存、検索(タグ、キャプション、日付、NSFW、手動編集、レーティング) |
+| `export_filter_required.feature` | `DatasetExportService.export_with_criteria()` の `criteria` と `image_ids` による分岐 |
 | `logging.feature` | ログレベル制御、モジュール固有レベル、例外ログ記録 |
 
 ### ディレクトリ構成
@@ -713,13 +722,13 @@ BDDはE2Eに限定せず「振る舞い仕様の表現形式」としてService�
 ```
 tests/bdd/
 ├── conftest.py     # tests/bdd 配下に @pytest.mark.bdd を自動付与
-├── features/       # Gherkin .feature ファイル（日本語Gherkin可）
+├── features/       # Gherkin .feature ファイル(日本語Gherkin可)
 └── steps/          # test_<feature名>.py — ステップ定義
 ```
 
-### フィーチャーファイル例
+### フィーチャーファイルの例
 
-**File**: `tests/bdd/features/database_management.feature`
+対象ファイル: `tests/bdd/features/database_management.feature`
 
 ```gherkin
 Feature: 画像データベース管理機能
@@ -735,17 +744,17 @@ Feature: 画像データベース管理機能
     And 画像のUUIDが生成される
 ```
 
-先頭に `# language: ja` を置くと Gherkin キーワード自体も日本語化できる（`機能`/`シナリオ`/`前提`/`もし`/`ならば`/`かつ`）。`export_filter_required.feature` がその例。
+先頭に `# language: ja` を記述すると、`機能`、`シナリオ`、`前提`、`もし`、`ならば`、`かつ` といったように Gherkin キーワード自体も日本語化できる。`export_filter_required.feature` がその例である。
 
 ### ステップ実装パターン
 
-**File**: `tests/bdd/steps/test_database_management.py`
+対象ファイル: `tests/bdd/steps/test_database_management.py`
 
 ```python
 from pathlib import Path
 from pytest_bdd import given, when, then, scenarios, parsers
 
-# feature パスは __file__ 基準で絶対解決（cwd 依存を避ける）
+# feature パスは __file__ 基準で絶対解決(cwd 依存を避ける)
 _FEATURE_FILE = Path(__file__).parent.parent / "features" / "database_management.feature"
 scenarios(str(_FEATURE_FILE))  # feature 内の全シナリオを一括登録
 
@@ -761,55 +770,55 @@ def when_register_image(test_db_manager, fs_manager, test_image_path):
 
 ### pytest-bdd の使い方
 
-#### scenarios() でシナリオを登録
+#### `scenarios()` でシナリオを一括登録する
 
-`scenarios(str(_FEATURE_FILE))` をステップファイル先頭に 1 行書けば feature 内の全シナリオがテスト関数に変換される。LoRAIro では個別の `@scenario()` デコレータは使わず、常に `scenarios()` 一括登録を使う。
+ステップファイルの先頭に `scenarios(str(_FEATURE_FILE))` を 1 行記述すれば、フィーチャーファイル内の全シナリオがテスト関数として登録される。LoRAIro では個別の `@scenario()` デコレータを使わず、常に `scenarios()` による一括登録を使用する。
 
-#### given / when / then と target_fixture
+#### `given`・`when`・`then` と `target_fixture`
 
-- `@given` = 事前条件、`@when` = 操作、`@then` = 検証。
-- ステップ間で値を引き継ぐには `target_fixture` を使う。戻り値が同名の fixture として後続ステップに渡る。
-- 既存の pytest fixture は `given`/`when`/`then` の引数名で直接注入できる。
+- `@given` は事前条件、`@when` は操作、`@then` は検証を表す。
+- ステップ間で値を引き継ぐ場合は `target_fixture` を使用する。戻り値が同名のフィクスチャとして後続ステップへ渡される。
+- 既存の pytest フィクスチャは `given`、`when`、`then` の引数名で直接注入できる。
 
 ```python
 @given(parsers.parse("there are {start:d} cucumbers"), target_fixture="cucumbers")
 def given_cucumbers(start):
-    return {"start": start, "eat": 0}  # → 後続ステップが引数 cucumbers で受け取る
+    return {"start": start, "eat": 0}  # 後続ステップが引数 cucumbers で受け取る
 
 @when(parsers.parse("I eat {eat:d} cucumbers"))
 def eat_cucumbers(cucumbers, eat):
     cucumbers["eat"] += eat
 ```
 
-`target_fixture` は既存 fixture の上書きにも使える（特定シナリオだけ値を差し替えたいとき）。
+`target_fixture` は、特定シナリオだけで値を差し替えたい場合に既存フィクスチャを上書きする用途にも使える。
 
 #### ステップ引数のパース
 
 | パーサ | 用途 |
-|--------|------|
-| `parsers.parse("... {n:d} ...")` | 基本。`{name:d}` `{name:f}` で型変換。まずこれを使う |
-| `parsers.cfparse(..., extra_types={...})` | カスタム型が必要なとき |
-| `parsers.re(r"...(?P<n>\d+)...")`, `converters={...}` | 正規表現が必要なとき |
+|---|---|
+| `parsers.parse("... {n:d} ...")` | 基本形。`{name:d}` や `{name:f}` で型変換できるため、まずこれを使う |
+| `parsers.cfparse(..., extra_types={...})` | カスタム型が必要な場合に使う |
+| `parsers.re(r"...(?P<n>\d+)...")`, `converters={...}` | 正規表現が必要な場合に使う |
 
-#### Background / Scenario Outline / datatable
+#### Background・Scenario Outline・datatable
 
-- **Background**: 各シナリオ実行前に共通の `Given` を流す。複数シナリオで重複する前提をまとめる。
-- **Scenario Outline + Examples**: `<変数>` プレースホルダと `Examples` テーブルでデータ駆動。`Examples` ブロックにタグを付ければ `pytest -m <tag>` で絞り込める。
-- **datatable**: ステップ直下の表は `datatable` 引数で `list[list[str]]` として受け取る（`database_management.feature` の「以下の画像とアノテーションが登録されている:」が該当）。
+- **Background**: 各シナリオの実行前に共通の `Given` を実行する。複数シナリオで重複する前提をまとめるために使う。
+- **Scenario Outline + Examples**: `<変数>` プレースホルダと `Examples` テーブルでデータ駆動テストを記述する。`Examples` ブロックにタグを付けると `pytest -m <tag>` で絞り込める。
+- **datatable**: ステップ直下の表は `datatable` 引数で `list[list[str]]` として受け取る(`database_management.feature` の「以下の画像とアノテーションが登録されている:」が該当する)。
 
 ### LoRAIro でのベストプラクティス
 
-- **`scenarios()` 一括登録を徹底** — `@scenario()` 個別指定は使わない。
-- **feature パスは `__file__` 基準で解決** — `Path(__file__).parent.parent / "features" / ...`。
-- **ステップ間状態は `target_fixture` か Context クラスで持ち回す** — モジュールグローバル変数で共有しない（並列実行・テスト間汚染の温床）。`database_management.py` の `SearchContext` が Context クラスの例。
-- **ステップ実装は薄く** — `given`/`when`/`then` は Service/Repository を呼ぶだけ。ビジネスロジックをステップに書かない。
-- **既存 pytest fixture を再利用** — DB マネージャや `FileSystemManager` は `conftest.py` の fixture を引数で注入する。
-- **`bdd` マーカーは自動付与** — `tests/bdd/conftest.py` の `pytest_collection_modifyitems` が付与する。手動で `@pytest.mark.bdd` を書かない。
-- **粒度を守る** — Repository 層の単純 CRUD に BDD を広げない（Gherkin が冗長になる）。`.claude/rules/testing.md` の適用表に従う。
-- **タグの扱い** — feature 内タグは既定で pytest マーカーになる。`skip` 等のカスタム挙動は `conftest.py` の `pytest_bdd_apply_tag` で実装する。
-- **未実装ステップの検出** — `uv run pytest --generate-missing --feature tests/bdd/features tests/bdd/steps/` で feature にあって未実装のステップを洗い出せる。
+- **`scenarios()` 一括登録を徹底する**: `@scenario()` による個別指定は使わない。
+- **フィーチャーパスは `__file__` 基準で解決する**: `Path(__file__).parent.parent / "features" / ...` と記述する。
+- **ステップ間の状態は `target_fixture` またはコンテキストクラスで持ち回る**: モジュールグローバル変数で共有すると並列実行やテスト間汚染の原因になる。コンテキストクラスの例として `database_management.py` の `SearchContext` がある。
+- **ステップ実装は薄く保つ**: `given`、`when`、`then` では Service や Repository を呼ぶだけにとどめ、ビジネスロジックをステップ内に書かない。
+- **既存 pytest フィクスチャを再利用する**: DB マネージャや `FileSystemManager` は `conftest.py` のフィクスチャを引数で注入する。
+- **`bdd` マーカーは自動付与に任せる**: `tests/bdd/conftest.py` の `pytest_collection_modifyitems` が自動付与するため、手動で `@pytest.mark.bdd` を書かない。
+- **適用粒度を守る**: Repository 層の単純 CRUD へ BDD を広げると Gherkin が冗長になるため、`.claude/rules/testing.md` の適用表に従う。
+- **タグの扱い**: フィーチャー内のタグは既定で pytest マーカーになる。`skip` などのカスタム挙動は `conftest.py` の `pytest_bdd_apply_tag` で実装する。
+- **未実装ステップを検出する**: `uv run pytest --generate-missing --feature tests/bdd/features tests/bdd/steps/` を実行すると、フィーチャーにあって未実装のステップを洗い出せる。
 
-### テスト実行
+### BDD テストの実行
 
 ```bash
 uv run pytest -m bdd              # BDDテスト全体
@@ -833,7 +842,8 @@ def test_database_query_performance(benchmark, populated_db):
     assert len(result) > 0
 ```
 
-**Run benchmarks:**
+ベンチマークの実行コマンド:
+
 ```bash
 uv run pytest -m benchmark --benchmark-only
 ```
@@ -860,13 +870,11 @@ def test_batch_annotation_1000_images(test_project):
     assert duration < 300  # Under 5 minutes
 ```
 
-## 上限付き実行 (run_bounded)
+## 上限付き実行(run_bounded)
 
-長時間の pytest や計測は `... | tail` で直接実行せず、`scripts/run_bounded.py` を通す。
-`| tail` は失敗の終了コードを隠し、タイムアウトしても子プロセスがバックグラウンドに残る (Issue #1632)。
-このラッパーは対象を独立したプロセス群として起動し、タイムアウト時 (終了コード 124) や終了後に
-孫プロセスまで SIGTERM → SIGKILL で後始末する。`--pipe-to` で出力を絞っても、終了コードは
-対象コマンドのものを返す。`--memory-limit-gb` は対象の仮想メモリ (RLIMIT_AS) に上限を設ける (POSIX 専用)。
+長時間の pytest や計測を実行するときは、`... | tail` で直接つなげず `scripts/run_bounded.py` を経由する。`| tail` を直接使うと失敗時の終了コードが隠れるうえ、タイムアウトしても子プロセスがバックグラウンドに残留する(Issue #1632)。
+
+このラッパーは対象コマンドを独立したプロセス群として起動し、タイムアウト時(終了コード 124)や終了後に孫プロセスまで SIGTERM、次いで SIGKILL で後始末する。`--pipe-to` で出力を絞った場合も、終了コードは対象コマンドの値をそのまま返す。`--memory-limit-gb` を指定すると、対象の仮想メモリ(`RLIMIT_AS`)に上限を設けられる(POSIX 専用)。
 
 ```bash
 .venv/bin/python scripts/run_bounded.py --timeout 600 --memory-limit-gb 16 --pipe-to "tail -n 40" \
@@ -875,7 +883,7 @@ def test_batch_annotation_1000_images(test_project):
 
 ## 継続的インテグレーション
 
-### GitHub Actionsワークフロー
+### GitHub Actions ワークフロー例
 
 ```yaml
 name: Tests
@@ -912,18 +920,15 @@ jobs:
 
 ## トラブルシューティング
 
-### よくある問題
+### 不安定なテスト
 
-#### 不安定なテスト
+- **症状**: 同じテストが成功したり失敗したりする。
+- **原因**:
+  - 条件待機の `waitUntil()` ではなく固定時間の `qtbot.wait()` を使っている。
+  - 非同期・マルチスレッド処理で競合状態が発生している。
+  - テスト間で状態が共有されている。
+- **対処法**:
 
-**Symptom:** Test passes sometimes, fails sometimes
-
-**Causes:**
-- Fixed-time `qtbot.wait()` instead of condition-based `waitUntil()`
-- Race conditions in async/threaded code
-- Shared state between tests
-
-**Solution:**
 ```python
 # ❌ FLAKY
 qtbot.wait(100)  # May not be enough
@@ -932,13 +937,12 @@ qtbot.wait(100)  # May not be enough
 qtbot.waitUntil(lambda: widget.is_ready(), timeout=1000)
 ```
 
-#### Qtクリーンアップ警告
+### Qt クリーンアップ警告
 
-**Symptom:** `QObject::~QObject: Timers cannot be stopped from another thread`
+- **症状**: `QObject::~QObject: Timers cannot be stopped from another thread` が出力される。
+- **原因**: ウィジェットが適切に破棄・後始末されていない。
+- **対処法**:
 
-**Cause:** Widget not properly cleaned up
-
-**Solution:**
 ```python
 @pytest.fixture
 def widget(qtbot):
@@ -947,13 +951,12 @@ def widget(qtbot):
     return w
 ```
 
-#### データベースロック
+### データベースロック
 
-**Symptom:** `database is locked`
+- **症状**: `database is locked` エラーが発生する。
+- **原因**: 複数のセッションが同じ SQLite DB へ同時にアクセスしている。
+- **対処法**:
 
-**Cause:** Multiple sessions accessing same SQLite DB
-
-**Solution:**
 ```python
 # Use separate DB for each test
 @pytest.fixture
@@ -962,11 +965,11 @@ def test_db(tmp_path):
     # ...
 ```
 
-## テストリファクタリング Phase 2: マーカー自動付与（2026-02-10）
+## テストリファクタリング Phase 2: マーカー自動付与(2026-02-10)
 
 ### 実装内容
 
-**pytest マーカー自動付与フック** - conftest.py に実装
+`conftest.py` に pytest マーカー自動付与フックを実装した。
 
 ```python
 # tests/unit/conftest.py の例
@@ -977,29 +980,31 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.unit)
 ```
 
-**マーカー適用結果**:
-- ✅ unit: 1,025 テスト
-- ✅ integration: 226 テスト
-- ✅ gui: 622 テスト
-- ✅ bdd: 29 テスト（database_management 10 + logging 19）
+マーカーの適用結果:
+
+- `unit`: 1,025 テスト
+- `integration`: 226 テスト
+- `gui`: 622 テスト
+- `bdd`: 29 テスト(`database_management` 10 件 + `logging` 19 件)
 
 ### 利点
 
-1. **安全性**: テストファイルの直接編集を回避
-2. **保守性**: マーカー定義が conftest.py に一元化
-3. **拡張性**: 新規テストが自動的にマーカーを取得
-4. **層別管理**: 各層（unit/integration/gui/bdd）が独立したフィクスチャを管理
+1. **安全性**: テストファイルを直接編集せずにマーカーを付与できる。
+2. **保守性**: マーカー定義を `conftest.py` に一元化できる。
+3. **拡張性**: 新規テストを追加するだけで自動的にマーカーが付与される。
+4. **層別管理**: 各層(`unit`、`integration`、`gui`、`bdd`)で独立したフィクスチャを管理できる。
 
 ### 次のステップ
 
-**Phase 4 - pytest-qt 改善** (残作業):
-- `qtbot.wait()` → `qtbot.waitUntil()` への移行 (2026-07-05 時点で固定待機 9 箇所残存)
-- 対象の洗い出しは `grep -rn "qtbot\.wait(" tests/` で行い、手動で条件待機へ書き換える
+**Phase 4(pytest-qt 改善・残作業)**:
+
+- `qtbot.wait()` から `qtbot.waitUntil()` への移行(2026-07-05 時点で固定待機が 9 箇所残存)。
+- 対象箇所は `grep -rn "qtbot\.wait(" tests/` で洗い出し、手動で条件待機へ書き換える。
 
 ## 関連ドキュメント
 
-- [CLAUDE.md](../CLAUDE.md) - Development overview
-- [docs/services.md](services.md) - Service layer architecture
-- [docs/integrations.md](integrations.md) - External package integration
+- [CLAUDE.md](../CLAUDE.md) — 開発概要
+- [docs/services.md](services.md) — サービス層アーキテクチャ
+- [docs/integrations.md](integrations.md) — 外部パッケージ統合
 - [pytest-qt documentation](https://pytest-qt.readthedocs.io/)
 - [pytest documentation](https://docs.pytest.org/)

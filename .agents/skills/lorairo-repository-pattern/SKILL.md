@@ -3,7 +3,7 @@ name: lorairo-repository-pattern
 version: "1.0.0"
 description: "SQLAlchemy repository pattern for LoRAIro: type-safe transactions, session management, ORM best practices. Use when creating repositories or implementing data persistence patterns."
 metadata:
-  short-description: LoRAIro向けSQLAlchemyリポジトリ実装（トランザクション、セッション、ORM）。
+  short-description: LoRAIro向けSQLAlchemyリポジトリ実装(トランザクション、セッション、ORM)。
 allowed-tools:
   # Code exploration (recommended)
   - Grep
@@ -20,21 +20,20 @@ dependencies:
   - sqlalchemy-query-patterns
 ---
 
-# LoRAIro Repository Pattern
+# LoRAIro リポジトリパターン実装ガイド
 
-SQLAlchemy repository pattern implementation guide for type-safe database operations in LoRAIro.
+LoRAIro において、SQLAlchemy を用いた型安全なデータベース操作を実現するためのリポジトリパターン実装ガイドである。
 
-## When to Use
+## 適用場面
 
-Use this skill when:
-- Creating new database access layers
-- Extending or refactoring existing repositories
-- Implementing database transaction processing
-- Query patterns and performance tuning
+- 新しいデータベースアクセス層を作成するとき
+- 既存のリポジトリを拡張またはリファクタリングするとき
+- データベースのトランザクション処理を実装するとき
+- クエリパターンやパフォーマンスを調整するとき
 
-## Core Repository Pattern
+## コアリポジトリパターン
 
-### Basic Structure
+### 基本構造
 
 ```python
 from sqlalchemy import select
@@ -59,18 +58,19 @@ class ImageRepository(BaseRepository):
             return entity
 ```
 
-**Key Principles:**
-- Inherit `BaseRepository` (`src/lorairo/database/repository/base.py`) for `session_factory` and `BATCH_CHUNK_SIZE`
-- Session management via `with self.session_factory() as session:` (automatic cleanup)
-- SQLAlchemy 2.0 `select()` API (`session.execute(select(...))`) rather than legacy `session.query()`
-- Aggregate-scoped repositories composed by `ImageDatabaseManager` (ADR 0035)
-- Transaction safety (related operations in single transaction)
+**基本原則:**
 
-## Implementation Patterns
+- `BaseRepository`(`src/lorairo/database/repository/base.py`)を継承し、`session_factory` と `BATCH_CHUNK_SIZE` を共有する。
+- セッション管理には `with self.session_factory() as session:` を使い、終了時の後片付けを自動化する。
+- 旧来の `session.query()` ではなく、SQLAlchemy 2.0 の `select()` API(`session.execute(select(...))`)を使う。
+- 集約単位で分割したリポジトリを `ImageDatabaseManager` で合成する(ADR 0035)。
+- 関連する操作は 1 つのトランザクションにまとめ、安全性を確保する。
 
-### 1. Session Management
+## 実装パターン
 
-**Pattern:** Context manager for automatic session lifecycle
+### 1. セッション管理
+
+コンテキストマネージャーでセッションのライフサイクルを自動管理する。
 
 ```python
 # ✅ Good: with statement (auto-managed)
@@ -87,11 +87,11 @@ finally:
     session.close()  # Verbose and error-prone
 ```
 
-**Why:** Context manager ensures proper cleanup even on exceptions.
+**理由**: 例外が発生しても確実にセッションがクローズされ、リソースリークを防げる。
 
-### 2. Transaction Management
+### 2. トランザクション管理
 
-**Pattern:** Single transaction for related operations
+関連する複数の操作は 1 つのトランザクション内で完結させる。
 
 ```python
 def batch_add(self, entities: list[Entity]) -> list[Entity]:
@@ -114,11 +114,11 @@ def complex_operation(self, data: dict) -> bool:
         return True
 ```
 
-**Why:** ACID compliance, data consistency, automatic rollback on error.
+**理由**: ACID 特性とデータ整合性を保ち、エラー発生時の自動ロールバックを保証する。
 
-### 3. Type-Safe Queries
+### 3. 型安全なクエリ
 
-**Pattern:** Use dataclass for search criteria
+検索条件には `dataclass` を使用する。
 
 ```python
 from dataclasses import dataclass
@@ -143,11 +143,11 @@ def search(self, criteria: SearchCriteria) -> list[Entity]:
         return query.all()
 ```
 
-**Why:** Compile-time type checking, IDE autocomplete, self-documenting API.
+**理由**: 静的型チェックと IDE 補完が効き、自己文書化された API になる。
 
-### 4. Error Handling
+### 4. エラーハンドリング
 
-**Pattern:** Catch specific SQLAlchemy exceptions
+具体的な SQLAlchemy 例外を捕捉して記録する。
 
 ```python
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -169,11 +169,12 @@ def add_safe(self, entity: Entity) -> Optional[Entity]:
         return None
 ```
 
-**Why:** Specific error handling, proper logging, graceful degradation.
+**理由**: 障害原因に応じた処理と適切なログ出力ができ、安全にフォールバックできる。
 
-## LoRAIro-Specific Guidelines
+## LoRAIro 固有のガイドライン
 
-### File Structure (ADR 0035 Aggregate Split)
+### ファイル構成(ADR 0035 集約分割)
+
 ```
 src/lorairo/database/
 ├── repository/                 # Aggregate-scoped Repository implementations (ADR 0035)
@@ -192,12 +193,14 @@ src/lorairo/database/
 └── db_core.py                  # Session factory, engine initialization (QueuePool / WAL)
 ```
 
-### Naming Conventions
-- **Repository class:** `{Entity}Repository` (e.g., `ImageRepository`, `TagRepository`)
-- **CRUD methods:** `get_by_id`, `get_all`, `add`, `update`, `delete`
-- **Search methods:** `search`, `find_by_{field}`, `filter_by_{condition}`
+### 命名規則
 
-### Integration with Services
+- **リポジトリクラス**: `{Entity}Repository`(例: `ImageRepository`、`TagRepository`)
+- **CRUD メソッド**: `get_by_id`、`get_all`、`add`、`update`、`delete`
+- **検索メソッド**: `search`、`find_by_{field}`、`filter_by_{condition}`
+
+### サービス層との連携
+
 ```
 Service Layer (business logic)
       ↓ uses
@@ -208,33 +211,37 @@ SQLAlchemy ORM (database abstraction)
 SQLite Database
 ```
 
-**Separation of Concerns:**
-- **Repository:** Pure data access (CRUD, queries)
-- **Service:** Business logic (validation, workflows, coordination)
-- **Manager:** High-level operations (migrations, initialization)
+**責務の分離:**
 
-## Best Practices Checklist
+- **Repository**: 純粋なデータアクセス(CRUD やクエリ)
+- **Service**: ビジネスロジック(バリデーション、ワークフロー、処理の調整)
+- **Manager**: 高水準の操作(マイグレーション、初期化)
 
-### DO ✅
-- Use `with` statement for session management
-- Add type hints to all methods
-- Keep single responsibility (1 repository = 1 entity)
-- Group related operations in single transaction
-- Log all database errors with context
-- Use eager loading (`joinedload`) to avoid N+1 queries
-- Write unit tests for all repository methods
+## ベストプラクティスチェックリスト
 
-### DON'T ❌
-- Manual session management with try-finally
-- Mix business logic into repository layer
-- Use raw SQL strings (use ORM methods)
-- Create global session objects
-- Ignore transaction boundaries
-- Return detached objects without refresh
+### 推奨事項
 
-## Performance Patterns
+- セッション管理には `with` 文を使う。
+- すべてのメソッドに型ヒントを付ける。
+- 単一責任を維持する(1 リポジトリ = 1 エンティティ・集約)。
+- 関連操作は 1 つのトランザクションにまとめる。
+- すべてのデータベースエラーを文脈情報付きでログ出力する。
+- N+1 クエリを防ぐため、Eager Loading(`joinedload` など)を使う。
+- すべてのリポジトリメソッドにユニットテストを書く。
 
-### Eager Loading (Avoid N+1)
+### 禁止事項
+
+- `try-finally` による手動セッション管理を行わない。
+- リポジトリ層にビジネスロジックを混ぜない。
+- 生の SQL 文字列を使わない(ORM メソッドを使う)。
+- グローバルなセッションオブジェクトを作成しない。
+- トランザクション境界を無視しない。
+- `refresh` せずにデタッチ済みオブジェクトを返さない。
+
+## パフォーマンスパターン
+
+### Eager Loading(N+1 の回避)
+
 ```python
 from sqlalchemy.orm import joinedload
 
@@ -247,7 +254,8 @@ def get_with_relations(self, entity_id: int) -> Optional[Entity]:
             .first()
 ```
 
-### Batch Operations
+### バッチ操作
+
 ```python
 def bulk_update_scores(self, score_updates: dict[int, float]) -> int:
     """Bulk update scores efficiently"""
@@ -260,7 +268,8 @@ def bulk_update_scores(self, score_updates: dict[int, float]) -> int:
         return len(score_updates)
 ```
 
-### Query Caching
+### クエリキャッシュ
+
 ```python
 from functools import lru_cache
 
@@ -271,22 +280,24 @@ def get_cached_config(self) -> dict:
         return session.query(Config).first().to_dict()
 ```
 
-## Reference Files
+## リファレンスファイル
 
-- [examples.md](./examples.md) - Complete repository implementation examples
-- [reference.md](./reference.md) - Full API patterns and method signatures
-- [testing-patterns.md](./testing-patterns.md) - Test strategies and pytest patterns
+- [examples.md](./examples.md): リポジトリ実装の完全なサンプル
+- [reference.md](./reference.md): API パターンとメソッドシグネチャ一覧
+- [testing-patterns.md](./testing-patterns.md): テスト戦略と pytest パターン
 
-## Quick Reference
+## クイックリファレンス
 
-**Essential Patterns:**
-- Session: `with self.session_factory() as session:`
-- Query: `session.execute(select(Entity).where(Entity.field == value)).scalar_one_or_none()`
-- Add: `session.add(entity); session.commit(); session.refresh(entity)`
-- Update: `session.merge(entity); session.commit()`
-- Delete: `session.delete(entity); session.commit()`
+**基本操作:**
 
-**File Locations:**
-- Implementation: `src/lorairo/database/repository/*.py` (composed by `src/lorairo/database/db_manager.py`)
-- Schema: `src/lorairo/database/schema.py`
-- Tests: `tests/unit/database/repository/test_*_repository.py`
+- セッション: `with self.session_factory() as session:`
+- クエリ: `session.execute(select(Entity).where(Entity.field == value)).scalar_one_or_none()`
+- 追加: `session.add(entity); session.commit(); session.refresh(entity)`
+- 更新: `session.merge(entity); session.commit()`
+- 削除: `session.delete(entity); session.commit()`
+
+**ファイル配置:**
+
+- 実装: `src/lorairo/database/repository/*.py`(`src/lorairo/database/db_manager.py` が合成)
+- スキーマ: `src/lorairo/database/schema.py`
+- テスト: `tests/unit/database/repository/test_*_repository.py`
