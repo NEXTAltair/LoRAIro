@@ -201,7 +201,7 @@ uv run python scripts/generate_ui.py
 - **調査**: `check-existing` スキルで要件を整理し、既存ライブラリや `local_packages/` を確認する。
 - **計画**: ネイティブの Plan Mode(`/plan`)または superpowers の `brainstorming` → `writing-plans` を使う(`rules/planning-memory.md` により ADR と教訓の事前確認が強制される)。
 - **実装**: superpowers の `executing-plans` / `test-driven-development` に加え、`lorairo-repository-pattern` や `lorairo-qt-widget` スキルを使う(ブランチ運用は `rules/git-workflow.md` に従う)。
-- **検証**: superpowers の `test-driven-development` と `lorairo-test-generator` スキル(test-sync を含む)、および `rules/testing.md` に従う。クイックチェックは `make format`、`make mypy`、`uv run pytest`。
+- **検証**: superpowers の `test-driven-development` と `lorairo-test-generator` スキル(test-sync を含む)、および `rules/testing.md` に従う。LoRAIro では共通ルールのコミット前 mypy に優先して、全体の型チェックを CI に任せる。ローカルでは変更対象の Ruff と関連する pytest を実行し、型定義の変更や型エラーの調査時に限り、対象を絞って mypy を実行する。
 - **デバッグ**: superpowers の `systematic-debugging` と `build-error-resolver` エージェントを使う。
 - **レビュー**: 組み込みの `/code-review`、`code-reviewer` / `security-reviewer` エージェント、superpowers の `requesting-code-review` を使う。
 - **記録**: `docs/decisions/` の ADR と `docs/lessons-learned.md` を更新する。
