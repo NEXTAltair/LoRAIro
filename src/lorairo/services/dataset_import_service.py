@@ -586,8 +586,12 @@ class DatasetImportService:
             版ごとの取り込み結果 (取り込んだ順)。
 
         Raises:
-            DatasetConflictError: 同じデータセットに同名の版がある、または版名が重複する場合。
+            DatasetConflictError: 同じデータセットに同名の版がある、版名が重複する、
+                またはいずれかの版のフォルダ内で画像名が重複する場合 (何も書かない)。
             EmptyDatasetImportError: 取り込むフォルダが 1 つも無い版がある場合 (何も書かない)。
+            ValueError: いずれかの版のフォルダがスキャン結果に無い、または設定 json が読めない場合
+                (何も書かない)。
+            OSError: いずれかの版の設定 json を読めない場合 (何も書かない)。
         """
         names = [candidate.plan.version_name for candidate in candidates]
         if len(names) != len(set(names)):
@@ -603,6 +607,13 @@ class DatasetImportService:
         )
         if existing:
             raise DatasetConflictError(f"同じデータセットに同名の版が既にあります: {', '.join(existing)}")
+        # 入力の不備で途中の版から失敗し、前の版だけ書き込まれるのを防ぐため、
+        # 書き込みの前に全部の版のフォルダと設定 json を検証する
+        for candidate in candidates:
+            scanned_by_dir = {folder.dir_name: folder for folder in scan_kohya_directory(candidate.root)}
+            _validate_folders(candidate.plan, scanned_by_dir)
+            for path in candidate.plan.config_files:
+                normalize_kohya_gui_config(_read_config_text(path))
 
         results: list[DatasetImportResult] = []
         previous = parent_version_id

@@ -624,6 +624,25 @@ def test_import_versions_rejects_existing_version_name_and_writes_nothing(
     assert _counts(engine) == before
 
 
+def test_import_versions_rejects_invalid_later_version_and_writes_nothing(
+    service: DatasetImportService, engine: Engine, tmp_path: Path
+) -> None:
+    """Codex P2 (PR #1652): 後ろの版の入力不備で、前の版だけ書き込まれた状態を残さない。"""
+    parent = _make_versions(tmp_path / "ライコウLoRA")
+    candidates = service.discover_versions(parent, "raikou")
+    # 最後の版の学習フォルダに、同じ名前 (拡張子違い) の画像を足す
+    folder = candidates[-1].root / "10_raikou"
+    _save_noise_image(folder / "dup.png", seed=900)
+    _save_noise_image(folder / "dup.jpg", seed=901)
+    candidates = service.discover_versions(parent, "raikou")
+    before = _counts(engine)
+
+    with pytest.raises(DatasetConflictError):
+        service.import_versions(candidates)
+
+    assert _counts(engine) == before
+
+
 def test_import_versions_rejects_version_without_folder_and_writes_nothing(
     service: DatasetImportService, engine: Engine, tmp_path: Path
 ) -> None:
