@@ -268,12 +268,87 @@ class TestTagAddRequest:
             widget._on_add_tag_clicked()
 
         # Verify signal emission with normalized tag
-        image_ids, tag = blocker.args
+        image_ids, tags = blocker.args
         assert image_ids == [1, 2]
-        assert tag == "Cat Ears"  # clean_format + strip (大小は保持、#1288)
+        assert tags == ["Cat Ears"]  # clean_format + strip (大小は保持、#1288)
 
         # Verify tag input cleared
         assert widget.ui.lineEditTag.text() == ""
+
+    def _collect_requests(self, widget):
+        requests: list[tuple[list[int], list[str]]] = []
+        widget.tag_add_requested.connect(lambda ids, tags: requests.append((ids, tags)))
+        return requests
+
+    def test_comma_separated_input_emits_each_tag(self, qtbot, widget_with_staging):
+        """Issue #1646: `landscape, sky` は 2 タグに分割され、結合した 1 タグは作られない"""
+        widget = widget_with_staging
+        requests = self._collect_requests(widget)
+        widget.ui.lineEditTag.setText("landscape, sky")
+
+        widget._on_add_tag_clicked()
+
+        assert requests == [([1, 2], ["landscape", "sky"])]
+        assert widget.ui.lineEditTag.text() == ""
+
+    def test_tag_completion_targets_last_comma_separated_token(self, qtbot, widget_with_staging):
+        """Issue #1646: カンマ区切り入力では補完が最後の要素を対象にし、前の要素を残す"""
+        widget = widget_with_staging
+        suggestion = widget._tag_suggestion
+        widget.ui.lineEditTag.setText("landscape, sk")
+
+        assert suggestion._token_for(widget.ui.lineEditTag.text()) == "sk"
+
+        suggestion._on_tag_completion_activated("sky")
+
+        assert widget.ui.lineEditTag.text() == "landscape, sky, "
+
+    def test_comma_separated_input_ignores_empty_elements(self, qtbot, widget_with_staging):
+        """Issue #1646: `landscape,, sky ,` でも空タグは作られない"""
+        widget = widget_with_staging
+        requests = self._collect_requests(widget)
+        widget.ui.lineEditTag.setText("landscape,, sky ,")
+
+        widget._on_add_tag_clicked()
+
+        assert requests == [([1, 2], ["landscape", "sky"])]
+
+    def test_single_tag_input_emits_single_tag(self, qtbot, widget_with_staging):
+        """Issue #1646: カンマなしの `landscape` は従来どおり 1 タグ"""
+        widget = widget_with_staging
+        requests = self._collect_requests(widget)
+        widget.ui.lineEditTag.setText("landscape")
+
+        widget._on_add_tag_clicked()
+
+        assert requests == [([1, 2], ["landscape"])]
+
+    def test_comma_separated_input_removes_duplicate_elements(self, qtbot, widget_with_staging):
+        """Issue #1646: 同じ入力内の重複要素 (大小違い含む) は 1 つにまとめる"""
+        widget = widget_with_staging
+        requests = self._collect_requests(widget)
+        widget.ui.lineEditTag.setText("sky, Sky, landscape, sky")
+
+        widget._on_add_tag_clicked()
+
+        assert requests == [([1, 2], ["sky", "landscape"])]
+
+    def test_only_commas_input_shows_warning_without_emit(self, qtbot, widget_with_staging, monkeypatch):
+        """Issue #1646: `,, ,` のようにタグが 1 つも残らない入力は警告のみで emit しない"""
+        widget = widget_with_staging
+        requests = self._collect_requests(widget)
+        warning_called = []
+        monkeypatch.setattr(
+            "lorairo.gui.widgets.batch_tag_add_widget.show_warning",
+            lambda *args: warning_called.append(args),
+        )
+        widget.ui.lineEditTag.setText(",, ,")
+
+        widget._on_add_tag_clicked()
+
+        assert requests == []
+        assert len(warning_called) == 1
+        assert widget.ui.lineEditTag.text() == ",, ,"
 
     def test_tag_add_request_empty_staging(self, qtbot, monkeypatch):
         """Test tag add request with empty staging list shows warning"""

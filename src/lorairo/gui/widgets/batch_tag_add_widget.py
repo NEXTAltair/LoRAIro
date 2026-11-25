@@ -37,6 +37,31 @@ if TYPE_CHECKING:
     from ..state.staging_state import StagingStateManager
 
 
+def split_tag_input(text: str) -> list[str]:
+    """入力欄の文字列をカンマで分割し、正規化済みタグのリストにする (#1646)。
+
+    各要素に normalize_tag() を適用する。空要素・正規化後に空になる要素は捨てる。
+    保存時の重複判定 (Repository 層) は小文字化キーなので、同じ基準で入力内の重複も
+    最初の要素だけ残す。
+
+    Args:
+        text: 入力欄の文字列 (例: ``"landscape, sky"``)
+
+    Returns:
+        正規化済みタグのリスト (入力順)。有効な要素がなければ空リスト。
+    """
+    tags: list[str] = []
+    seen: set[str] = set()
+    for part in text.split(","):
+        tag = normalize_tag(part)
+        key = tag.lower()
+        if not tag or key in seen:
+            continue
+        seen.add(key)
+        tags.append(tag)
+    return tags
+
+
 def normalize_tag(tag: str) -> str:
     """タグを正規化する（TagCleaner.clean_format() + strip）。
 
@@ -68,8 +93,8 @@ class BatchTagAddWidget(QWidget):
     1. "選択中の画像を追加" -> StagingWidget.add_selected_images() 経由でステージングに追加
     2. ステージングリストに追加（最大500枚、重複なし）
     3. タグ入力 -> 正規化（clean_format + strip、大小は保持）
-    4. "追加" -> tag_add_requested シグナル発行
-    5. MainWindow が ImageDBWriteService.add_tag_batch() で DB 更新
+    4. "追加" -> カンマ区切りで分割・正規化・重複除去し tag_add_requested シグナル発行 (#1646)
+    5. 受け側が ImageDBWriteService.add_tag_batch() をタグごとに呼んで DB 更新
 
     後方互換性:
     - _on_clear_staging_clicked(): main_window._handle_batch_tag_add() が直接呼び出す
@@ -91,7 +116,7 @@ class BatchTagAddWidget(QWidget):
 
     # シグナル
     staged_images_changed = Signal(list)  # list[int] - ステージング画像IDリスト（StagingWidget から再公開）
-    tag_add_requested = Signal(list, str)  # (image_ids, tag) - タグ追加要求
+    tag_add_requested = Signal(list, list)  # (image_ids, tags) - タグ追加要求 (tags: list[str], 正規化済み)
     staging_cleared = Signal()  # ステージングリストクリア（StagingWidget から再公開）
     compare_requested = Signal(list)  # list[int] - 比較要求（StagingWidget から再公開, #1399）
 
@@ -130,10 +155,9 @@ class BatchTagAddWidget(QWidget):
         self._staging_widget.compare_requested.connect(self.compare_requested)
 
         # タグ補完 (共通部品、Issue #1439)。候補ソースは set_tag_suggestion_service() で注入する。
+        # カンマ区切りで複数タグを入力できるため、最後の要素を補完する複数タグモードにする (#1646)。
         self._tag_suggestion = TagSuggestionWidget(self)
-        self._tag_suggestion.attach_line_edit(
-            self.ui.lineEditTag, multi_tag=False, connect_text_edited=True
-        )
+        self._tag_suggestion.attach_line_edit(self.ui.lineEditTag, multi_tag=True, connect_text_edited=True)
 
         logger.info("BatchTagAddWidget initialized")
 
@@ -269,13 +293,14 @@ class BatchTagAddWidget(QWidget):
     def _on_add_tag_clicked(self) -> None:
         """「追加」ボタンクリックハンドラ。
 
-        タグを正規化し、tag_add_requested シグナルを発行。
+        カンマ区切りの入力を各タグに分割・正規化し、tag_add_requested シグナルを
+        1 回だけ発行する (#1646)。
 
         バリデーション:
         - busy 状態チェック
         - ステージング画像数チェック
         - 空タグチェック
-        - 正規化後の空文字チェック
+        - 分割・正規化後に有効なタグが残るかのチェック
         """
         if self._is_busy:
             logger.debug("Tag add ignored while batch tag write is busy")
@@ -301,11 +326,11 @@ class BatchTagAddWidget(QWidget):
             show_warning(self, "タグ追加エラー", "タグを入力してください。")
             return
 
-        # タグ正規化
-        normalized_tag = self._normalize_tag(tag_input)
+        # カンマ分割 + 正規化 (空要素は無視)
+        tags = split_tag_input(tag_input)
 
-        if not normalized_tag:
-            logger.warning("Tag normalization resulted in empty string")
+        if not tags:
+            logger.warning("Tag normalization resulted in no valid tags")
             show_warning(
                 self,
                 "タグ追加エラー",
@@ -315,8 +340,8 @@ class BatchTagAddWidget(QWidget):
 
         # シグナル発行
         image_ids = list(staged.keys())
-        logger.info(f"Tag add requested: {normalized_tag} for {len(image_ids)} images")
-        self.tag_add_requested.emit(image_ids, normalized_tag)
+        logger.info(f"Tag add requested: {tags} for {len(image_ids)} images")
+        self.tag_add_requested.emit(image_ids, tags)
 
         # 成功後: タグ入力フィールドをクリア
         self.ui.lineEditTag.clear()

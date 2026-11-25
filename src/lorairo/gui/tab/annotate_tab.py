@@ -99,36 +99,44 @@ _BATCH_TAG_SHUTDOWN_WAIT_MS = 5000
 class _BatchTagWriteWorker(QObject):
     """バッチタグ書き込みを GUI スレッド外で実行する worker (#1544)。"""
 
-    finished_with_result = Signal(list, str, bool)  # (image_ids, tag, success)
+    finished_with_result = Signal(list, list, bool)  # (image_ids, tags, success)
     finished = Signal()
 
     def __init__(
         self,
         write_service: ImageDBWriteService | None,
         image_ids: list[int],
-        tag: str,
+        tags: list[str],
     ) -> None:
         super().__init__()
         self._write_service = write_service
         self._image_ids = list(image_ids)
-        self._tag = tag
+        self._tags = list(tags)
 
     @Slot()
     def run(self) -> None:
-        """add_tag_batch を実行し、完了シグナルを送出する。"""
+        """タグごとに add_tag_batch を順に実行し、完了シグナルを送出する。
+
+        いずれかのタグで失敗したら以降は書き込まず失敗扱いにする (書込済みタグは残る。
+        重複は Repository 層が除外するので、再実行しても二重登録にならない)。
+        """
         success = False
         try:
             if self._write_service is not None:
-                success = bool(self._write_service.add_tag_batch(self._image_ids, self._tag))
+                success = True
+                for tag in self._tags:
+                    if not self._write_service.add_tag_batch(self._image_ids, tag):
+                        success = False
+                        break
             else:
                 logger.warning("ImageDBWriteService not initialized")
         except Exception as e:
             logger.opt(exception=e).error(
-                f"Batch tag write worker failed: tag='{self._tag}', count={len(self._image_ids)}: {e}"
+                f"Batch tag write worker failed: tags={self._tags}, count={len(self._image_ids)}: {e}"
             )
             success = False
         finally:
-            self.finished_with_result.emit(self._image_ids, self._tag, success)
+            self.finished_with_result.emit(self._image_ids, self._tags, success)
             self.finished.emit()
 
 
@@ -546,31 +554,35 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
 
     # -- バッチタグ書込 (#896: MainWindow から移送, #1544: 非同期 worker 化) -----
 
-    def _execute_batch_tag_write(self, image_ids: list[int], tag: str) -> bool:
+    def _execute_batch_tag_write(self, image_ids: list[int], tags: list[str]) -> bool:
         """バッチタグ書き込みと dataset キャッシュ更新を実行する。
 
         Args:
             image_ids: 対象画像の ID リスト。
-            tag: 追加するタグ (正規化済み)。
+            tags: 追加するタグのリスト (正規化済み)。
 
         Returns:
-            成功した場合 True。
+            全タグの書き込みに成功した場合 True。
         """
         if self._image_db_write_service is None:
             logger.warning("ImageDBWriteService not initialized")
             return False
 
-        success = self._image_db_write_service.add_tag_batch(image_ids, tag)
+        success = True
+        for tag in tags:
+            if not self._image_db_write_service.add_tag_batch(image_ids, tag):
+                success = False
+                break
         if success and self._dataset_state_manager is not None:
             self._dataset_state_manager.refresh_images(image_ids)
         return success
 
-    def _handle_batch_tag_add(self, image_ids: list[int], tag: str) -> None:
+    def _handle_batch_tag_add(self, image_ids: list[int], tags: list[str]) -> None:
         """BatchTagAddWidget からのバッチタグ追加シグナルを非同期 worker で処理する (#1544)。
 
         Args:
             image_ids: 対象画像の ID リスト。
-            tag: 追加するタグ (正規化済み)。
+            tags: 追加するタグのリスト (正規化済み)。
         """
         if not image_ids:
             logger.warning("Batch tag add requested with empty image list")
@@ -579,15 +591,15 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
             logger.debug("Batch tag add ignored: write already in progress")
             return
 
-        logger.info(f"Batch tag add requested: tag='{tag}' for {len(image_ids)} images")
+        logger.info(f"Batch tag add requested: tags={tags} for {len(image_ids)} images")
         self._batch_tag_write_in_progress = True
         self._batch_tag_add_widget.set_busy(True)
-        self._start_batch_tag_write_worker(image_ids, tag)
+        self._start_batch_tag_write_worker(image_ids, tags)
 
-    def _start_batch_tag_write_worker(self, image_ids: list[int], tag: str) -> None:
+    def _start_batch_tag_write_worker(self, image_ids: list[int], tags: list[str]) -> None:
         """バッチタグ書き込みを専用 QThread で開始する (#1544, ADR 0044)。"""
         thread = QThread()
-        worker = _BatchTagWriteWorker(self._image_db_write_service, image_ids, tag)
+        worker = _BatchTagWriteWorker(self._image_db_write_service, image_ids, tags)
         worker.moveToThread(thread)
         runner = (thread, worker)
         _ACTIVE_BATCH_TAG_RUNNERS.add(runner)
@@ -601,25 +613,27 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
 
         thread.start()
 
-    @Slot(list, str, bool)
-    def _on_batch_tag_write_finished(self, image_ids: list[int], tag: str, success: bool) -> None:
+    @Slot(list, list, bool)
+    def _on_batch_tag_write_finished(self, image_ids: list[int], tags: list[str], success: bool) -> None:
         """バッチタグ書き込み完了時に UI・キャッシュ・ステージングを更新する (#1544)。"""
+        tag_label = ", ".join(f"'{t}'" for t in tags)
         self._batch_tag_write_in_progress = False
         self._batch_tag_add_widget.set_busy(False)
+        # 複数タグの途中で失敗しても、それまでのタグは commit 済みなので常に再読込する (#1646)
+        if self._dataset_state_manager is not None:
+            self._dataset_state_manager.refresh_images(image_ids)
         if success:
-            if self._dataset_state_manager is not None:
-                self._dataset_state_manager.refresh_images(image_ids)
             # 完了したバッチ対象 ID のみをステージングから除外 (非同期書込中に追加された画像は保持)
             if self._staging_state_manager is not None:
                 self._staging_state_manager.remove_image_ids(image_ids)
 
-            self.status_message.emit(f"タグ '{tag}' を {len(image_ids)} 件の画像に追加しました")
+            self.status_message.emit(f"タグ {tag_label} を {len(image_ids)} 件の画像に追加しました")
             logger.info(
-                f"Batch tag add completed successfully: tag='{tag}', {len(image_ids)} images updated"
+                f"Batch tag add completed successfully: tags={tags}, {len(image_ids)} images updated"
             )
         else:
-            show_critical(self, "タグ追加失敗", f"タグ '{tag}' の追加に失敗しました。")
-            logger.error(f"Failed to add tag in batch: tag='{tag}', image_count={len(image_ids)}")
+            show_critical(self, "タグ追加失敗", f"タグ {tag_label} の追加に失敗しました。")
+            logger.error(f"Failed to add tag in batch: tags={tags}, image_count={len(image_ids)}")
 
     def _on_batch_tag_thread_finished(self, runner: tuple[QThread, _BatchTagWriteWorker]) -> None:
         """バッチタグ worker thread 終了時に参照解放する (#1544)。"""
