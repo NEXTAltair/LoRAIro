@@ -11,6 +11,7 @@
 """
 
 import json
+import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -29,7 +30,13 @@ from lorairo.services.kohya_config_normalizer import (
     NormalizedValue,
     normalize_kohya_gui_config,
 )
-from lorairo.services.kohya_scanner import ScannedFolder, scan_kohya_directory
+from lorairo.services.kohya_scanner import (
+    DEFAULT_DISCOVERY_MAX_DEPTH,
+    DEFAULT_EXCLUDE_PATTERNS,
+    ScannedFolder,
+    discover_kohya_roots,
+    scan_kohya_directory,
+)
 from lorairo.utils.log import logger
 
 CONFIG_SOURCE_KIND = "kohya_gui_json"
@@ -145,6 +152,81 @@ def apply_folder_overrides(plan: DatasetImportPlan, overrides: list[FolderOverri
     return replace(plan, folders=folders)
 
 
+@dataclass(frozen=True)
+class VersionCandidate:
+    """親フォルダの配下で見つけた版の候補 1 つ分 (Issue #1648)。
+
+    Attributes:
+        version_name: 版名の候補。版を表す上位フォルダ名 (親フォルダ直下のフォルダ名)。
+            同じ上位フォルダに候補が 2 つ以上ある場合は親フォルダからの相対パス。順番指定の識別子にも使う。
+        root: 取り込みのルート (`<数字>_<名前>` フォルダを持つディレクトリ)。
+        plan: この版の取り込み計画。`parent_version_id` は取り込み時に順番から決める。
+    """
+
+    version_name: str
+    root: Path
+    plan: DatasetImportPlan
+
+
+_NATURAL_SPLIT = re.compile(r"(\d+)")
+
+
+def _natural_key(name: str) -> tuple[tuple[int, int | str], ...]:
+    """名前順の比較キー。数字の部分は数として比べる (`v2` < `v10`)。"""
+    return tuple(
+        (0, int(part)) if part.isdigit() else (1, part.casefold())
+        for part in _NATURAL_SPLIT.split(name)
+        if part
+    )
+
+
+def order_version_candidates(
+    candidates: list[VersionCandidate], order: list[str]
+) -> tuple[list[VersionCandidate], list[VersionCandidate]]:
+    """利用者が指定した順番に版の候補を並べる。
+
+    順番を指定しなければ候補の並び (名前順) のまま全部を取り込む。指定した場合は、指定した版だけを
+    その順に取り込み、指定に無い版は取り込まない。最新版を自動では決めない (Issue #1648)。
+
+    Args:
+        candidates: 名前順に並んだ版の候補。
+        order: 取り込む版名の候補を、古い版から順に並べたもの。空なら名前順。
+
+    Returns:
+        (取り込む版を順番に並べたもの, 取り込まない版)。
+
+    Raises:
+        ValueError: 候補に無い版名や、同じ版名の重複がある場合。
+    """
+    if not order:
+        return list(candidates), []
+    by_name = {candidate.version_name: candidate for candidate in candidates}
+    duplicated = sorted({name for name in order if order.count(name) > 1})
+    if duplicated:
+        raise ValueError(f"順番の指定に同じ版が重複しています: {', '.join(duplicated)}")
+    unknown = [name for name in order if name not in by_name]
+    if unknown:
+        raise ValueError(
+            f"順番の指定にある版が見つかりません: {', '.join(unknown)} (候補: {', '.join(by_name)})"
+        )
+    ordered = [by_name[name] for name in order]
+    skipped = [candidate for candidate in candidates if candidate.version_name not in order]
+    return ordered, skipped
+
+
+def _version_names(parent: Path, roots: list[Path]) -> list[str]:
+    """ルート候補ごとに版名の候補を決める。
+
+    親フォルダ直下のフォルダ名 (`raikou_v06ps/lora_train_data/train_dir` なら `raikou_v06ps`) を使う。
+    同じ上位フォルダに候補が 2 つ以上あれば、区別できるよう親フォルダからの相対パスにする。
+    """
+    tops = [root.relative_to(parent).parts[0] for root in roots]
+    return [
+        top if tops.count(top) == 1 else root.relative_to(parent).as_posix()
+        for top, root in zip(tops, roots, strict=True)
+    ]
+
+
 class EmptyDatasetImportError(ValueError):
     """取り込めるフォルダが 1 つも無い計画を拒否するときの例外。
 
@@ -212,6 +294,22 @@ def _detect_configs(root: Path) -> list[_PreparedConfig]:
             logger.debug(f"設定 json として読めないためスキップ: {path.name}: {type(e).__name__}")
             continue
         prepared.append(_PreparedConfig(path, normalized))
+    return prepared
+
+
+def _detect_configs_up_to(root: Path, version_dir: Path) -> list[_PreparedConfig]:
+    """`root` から `version_dir` (版フォルダ) までの各ディレクトリ直下の設定 json を自動検出する。
+
+    `raikou_v06ps/raikou_v06.json` のように、版フォルダ直下に置かれた設定 json も拾う (Issue #1648)。
+    """
+    directories = [root]
+    current = root
+    while current != version_dir and version_dir in current.parents:
+        current = current.parent
+        directories.append(current)
+    prepared: list[_PreparedConfig] = []
+    for directory in directories:
+        prepared.extend(_detect_configs(directory))
     return prepared
 
 
@@ -346,6 +444,31 @@ def _validate_folders(
     return targets
 
 
+def _build_plan(
+    root: Path, dataset_name: str, version_name: str, prepared: list[_PreparedConfig]
+) -> DatasetImportPlan:
+    """スキャン結果と設定 json から取り込み計画を作る。トリガーワードは確定しない。"""
+    folders = [
+        FolderImportPlan(
+            dir_name=folder.dir_name,
+            name=folder.name,
+            num_repeats=folder.num_repeats,
+            trigger_word=None,
+            include=True,
+            scan=summarize_folder(folder),
+        )
+        for folder in scan_kohya_directory(root)
+    ]
+    return DatasetImportPlan(
+        dataset_name=dataset_name,
+        version_name=version_name,
+        parent_version_id=None,
+        folders=folders,
+        config_files=[config.path for config in prepared],
+        train_data_dir_hints=_train_data_dir_hints(root, prepared),
+    )
+
+
 class DatasetImportService:
     """Kohya 形式のディレクトリを、データセットの版として取り込む service (Qt-free)。"""
 
@@ -395,25 +518,11 @@ class DatasetImportService:
             ValueError: 明示指定の設定 json が不正 (json でない・UTF-8 でない等) な場合。
             OSError: 明示指定の設定 json を読めない場合。
         """
-        scanned = scan_kohya_directory(root)
-        folders = [
-            FolderImportPlan(
-                dir_name=folder.dir_name,
-                name=folder.name,
-                num_repeats=folder.num_repeats,
-                trigger_word=None,
-                include=True,
-                scan=summarize_folder(folder),
-            )
-            for folder in scanned
-        ]
-
         prepared = (
             _detect_configs(root)
             if explicit_config_files is None
             else _load_explicit_configs(explicit_config_files)
         )
-        config_files = [config.path for config in prepared]
         output_names = [
             config.normalized.output_name for config in prepared if config.normalized.output_name
         ]
@@ -421,14 +530,86 @@ class DatasetImportService:
         proposed_version = version_name.strip()
         if not proposed_version:
             proposed_version = output_names[0] if output_names else root.name
-        return DatasetImportPlan(
-            dataset_name=dataset_name,
-            version_name=proposed_version,
-            parent_version_id=None,
-            folders=folders,
-            config_files=config_files,
-            train_data_dir_hints=_train_data_dir_hints(root, prepared),
+        return _build_plan(root, dataset_name, proposed_version, prepared)
+
+    def discover_versions(
+        self,
+        parent: Path,
+        dataset_name: str,
+        exclude_patterns: tuple[str, ...] = (),
+        max_depth: int = DEFAULT_DISCOVERY_MAX_DEPTH,
+    ) -> list[VersionCandidate]:
+        """親フォルダの配下から版の候補を探し、版ごとの取り込み計画を作る。DB には何も書かない。
+
+        版名の候補は版を表す上位フォルダ名から出し、名前順 (数字は数として比較) に並べる。
+        名前順は初期値にすぎず、最新版や順番は自動で確定しない (Issue #1648)。
+
+        Args:
+            parent: 探索の起点 (版のフォルダを含む親フォルダ)。
+            dataset_name: データセット名。
+            exclude_patterns: 既定の除外に加えて、探索で潜らないフォルダ名の fnmatch パターン。
+            max_depth: 探索する深さの上限。
+
+        Returns:
+            名前順に並べた版の候補。`parent` 自身が取り込みのルートなら空 (従来の取り込みを使う)。
+        """
+        # 親フォルダ自身が取り込みのルートなら、追加の除外に関係なく従来の取り込みとする
+        if discover_kohya_roots(parent, DEFAULT_EXCLUDE_PATTERNS, max_depth=0):
+            return []
+        roots = discover_kohya_roots(parent, DEFAULT_EXCLUDE_PATTERNS + exclude_patterns, max_depth)
+        candidates: list[VersionCandidate] = []
+        for root, name in zip(roots, _version_names(parent, roots), strict=True):
+            version_dir = parent / root.relative_to(parent).parts[0]
+            prepared = _detect_configs_up_to(root, version_dir)
+            candidates.append(VersionCandidate(name, root, _build_plan(root, dataset_name, name, prepared)))
+        candidates.sort(key=lambda candidate: _natural_key(candidate.version_name))
+        logger.info(f"版の候補の探索: {len(candidates)}件 ({parent})")
+        return candidates
+
+    def import_versions(
+        self, candidates: list[VersionCandidate], parent_version_id: int | None = None
+    ) -> list[DatasetImportResult]:
+        """版の候補を、並び順に 1 版ずつ取り込む。各版の親の版は 1 つ前の版にする。
+
+        書き込みの前に、同じデータセットに同名の版が無いことと、各版に取り込むフォルダが
+        あることを確かめる。
+
+        Args:
+            candidates: 取り込む順 (古い版から) に並べた版の候補。
+            parent_version_id: 先頭の版の親の版 ID。
+
+        Returns:
+            版ごとの取り込み結果 (取り込んだ順)。
+
+        Raises:
+            DatasetConflictError: 同じデータセットに同名の版がある、または版名が重複する場合。
+            EmptyDatasetImportError: 取り込むフォルダが 1 つも無い版がある場合 (何も書かない)。
+        """
+        names = [candidate.plan.version_name for candidate in candidates]
+        if len(names) != len(set(names)):
+            raise DatasetConflictError(f"取り込む版の名前が重複しています: {', '.join(names)}")
+        for candidate in candidates:
+            if not candidate.plan.included_folders:
+                raise _empty_import_error(candidate.root, candidate.plan.train_data_dir_hints)
+        dataset_names = {candidate.plan.dataset_name for candidate in candidates}
+        existing = sorted(
+            summary.version_name
+            for summary in self._repository.list_versions()
+            if summary.dataset_name in dataset_names and summary.version_name in names
         )
+        if existing:
+            raise DatasetConflictError(f"同じデータセットに同名の版が既にあります: {', '.join(existing)}")
+
+        results: list[DatasetImportResult] = []
+        previous = parent_version_id
+        for candidate in candidates:
+            result = self.import_directory(
+                candidate.root, replace(candidate.plan, parent_version_id=previous)
+            )
+            results.append(result)
+            previous = result.version_id
+        logger.info(f"版の取り込み完了: {len(results)}版")
+        return results
 
     def import_directory(self, root: Path, plan: DatasetImportPlan) -> DatasetImportResult:
         """計画に従ってディレクトリを取り込み、新しい版を作る。

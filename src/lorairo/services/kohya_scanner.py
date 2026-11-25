@@ -35,6 +35,9 @@ _TEXT_ENCODINGS: tuple[str, ...] = ("utf-8", "shift_jis", "euc-jp", "latin-1")
 
 _FOLDER_NAME_PATTERN = re.compile(r"^(\d+)_(.+)$")
 
+# 親フォルダから版の候補 (`<数字>_<名前>` フォルダを持つディレクトリ) を探す深さの上限 (Issue #1648)
+DEFAULT_DISCOVERY_MAX_DEPTH = 4
+
 
 @dataclass(frozen=True)
 class ScannedText:
@@ -80,6 +83,60 @@ def parse_folder_name(dir_name: str) -> tuple[int, str] | None:
     if match is None:
         return None
     return int(match.group(1)), match.group(2)
+
+
+def _is_excluded(dir_name: str, exclude_patterns: tuple[str, ...]) -> bool:
+    return any(fnmatch(dir_name, pattern) for pattern in exclude_patterns)
+
+
+def _has_kohya_folder(directory: Path, exclude_patterns: tuple[str, ...]) -> bool:
+    """`directory` 直下に、除外されない `<数字>_<名前>` フォルダがあるか。"""
+    return any(
+        child.is_dir() and not _is_excluded(child.name, exclude_patterns) and parse_folder_name(child.name)
+        for child in directory.iterdir()
+    )
+
+
+def discover_kohya_roots(
+    parent: Path,
+    exclude_patterns: tuple[str, ...] = DEFAULT_EXCLUDE_PATTERNS,
+    max_depth: int = DEFAULT_DISCOVERY_MAX_DEPTH,
+) -> list[Path]:
+    """親フォルダの配下から、`<数字>_<名前>` フォルダを持つディレクトリ (取り込みのルート候補) を探す。
+
+    - `parent` 自身を深さ 0 とし、`max_depth` までのディレクトリを調べる。
+    - 候補が見つかったディレクトリの下には潜らない (直下は学習フォルダのため)。
+    - 除外パターンに一致するディレクトリの下には潜らない。
+    - ディレクトリへのシンボリックリンクはたどらない (循環を避ける)。
+    - アーカイブ (`.7z` など) はファイルなので対象にならない (展開しない)。
+
+    Args:
+        parent: 探索の起点。
+        exclude_patterns: 除外するフォルダ名の fnmatch パターン。
+        max_depth: 探索する深さの上限。
+
+    Returns:
+        候補のディレクトリ (パスの並び順)。
+    """
+    roots: list[Path] = []
+    pending: list[tuple[Path, int]] = [(parent, 0)]
+    while pending:
+        directory, depth = pending.pop()
+        if _has_kohya_folder(directory, exclude_patterns):
+            roots.append(directory)
+            continue
+        if depth >= max_depth:
+            continue
+        for child in sorted(directory.iterdir(), key=lambda p: p.name, reverse=True):
+            if not child.is_dir() or child.is_symlink():
+                continue
+            if _is_excluded(child.name, exclude_patterns):
+                logger.debug(f"除外フォルダのため探索しません: {child}")
+                continue
+            pending.append((child, depth + 1))
+    roots.sort(key=lambda p: p.relative_to(parent).parts)
+    logger.debug(f"Kohya ルート候補の探索: {len(roots)}件 ({parent})")
+    return roots
 
 
 def _read_raw_text(path: Path) -> str:
@@ -174,7 +231,7 @@ def scan_kohya_directory(
             break
         if not dir_path.is_dir():
             continue
-        if any(fnmatch(dir_path.name, pattern) for pattern in exclude_patterns):
+        if _is_excluded(dir_path.name, exclude_patterns):
             logger.debug(f"除外フォルダ: {dir_path.name}")
             continue
         parsed = parse_folder_name(dir_path.name)

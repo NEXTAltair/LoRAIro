@@ -28,6 +28,8 @@ from lorairo.services.dataset_import_service import (
     DatasetImportService,
     EmptyDatasetImportError,
     FolderImportPlan,
+    VersionCandidate,
+    order_version_candidates,
 )
 
 pytestmark = pytest.mark.integration
@@ -435,3 +437,181 @@ def test_images_without_text_excludes_images_that_failed_to_register(
 
     assert result.skipped_images == 1
     assert result.images_without_text == 1  # 10_a/no_text.png のみ
+
+
+# --- 親フォルダからの版の探索と取り込み (Issue #1648) ---
+
+
+def _make_versions(parent: Path) -> Path:
+    """版を 3 つ持つ親フォルダを作る (名前順は v2 < v10 になる自然順を含む)。
+
+    - `raikou_v10ps/raikou_v10.json` は版フォルダ直下の設定 json
+    - `raikou_v2/lora_train_data/train_dir/` と `raikou_v10ps/lora_train_data/train_dir/` は 3 階層下
+    - `raikou_v01/` は版フォルダ直下が取り込みのルート
+    - `sample/1_x/` は除外フォルダ
+    """
+    seed = 100
+    for version, train in (
+        ("raikou_v01", ()),
+        ("raikou_v2", ("lora_train_data", "train_dir")),
+        ("raikou_v10ps", ("lora_train_data", "train_dir")),
+    ):
+        root = parent.joinpath(version, *train)
+        for folder in ("10_raikou", "5_extra"):
+            seed += 1
+            _save_noise_image(root / folder / f"{version}.png", seed=seed)
+            (root / folder / f"{version}.txt").write_text(f"raikou, {version}", encoding="utf-8")
+    (parent / "raikou_v10ps" / "raikou_v10.json").write_text(
+        json.dumps({"output_name": "raikou_v10"}), encoding="utf-8"
+    )
+    _save_noise_image(parent / "sample" / "1_x" / "s.png", seed=1)
+    return parent
+
+
+def test_discover_versions_names_versions_after_top_folder_in_name_order(
+    service: DatasetImportService, engine: Engine, tmp_path: Path
+) -> None:
+    parent = _make_versions(tmp_path / "ライコウLoRA")
+
+    candidates = service.discover_versions(parent, "raikou")
+
+    # 名前順 (数字は数として比べる) が初期値。最新版は決めない
+    assert [c.version_name for c in candidates] == ["raikou_v01", "raikou_v2", "raikou_v10ps"]
+    assert [c.root for c in candidates] == [
+        parent / "raikou_v01",
+        parent / "raikou_v2" / "lora_train_data" / "train_dir",
+        parent / "raikou_v10ps" / "lora_train_data" / "train_dir",
+    ]
+    assert all(c.plan.version_name == c.version_name for c in candidates)
+    assert all(c.plan.parent_version_id is None for c in candidates)
+    assert [len(c.plan.folders) for c in candidates] == [2, 2, 2]
+    assert _count(engine, "datasets") == 0
+
+
+def test_discover_versions_detects_config_json_in_version_folder(
+    service: DatasetImportService, tmp_path: Path
+) -> None:
+    parent = _make_versions(tmp_path / "ライコウLoRA")
+
+    by_name = {c.version_name: c for c in service.discover_versions(parent, "raikou")}
+
+    assert by_name["raikou_v10ps"].plan.config_files == [parent / "raikou_v10ps" / "raikou_v10.json"]
+    # 設定 json の output_name ではなく版フォルダ名を版名の候補にする
+    assert by_name["raikou_v10ps"].plan.version_name == "raikou_v10ps"
+    assert by_name["raikou_v2"].plan.config_files == []
+
+
+def test_discover_versions_returns_empty_for_a_single_root(
+    service: DatasetImportService, kohya_root: Path
+) -> None:
+    """取り込みのルートを直接指定したら探索しない (従来の取り込みを使う)。"""
+    assert service.discover_versions(kohya_root, "ds") == []
+
+
+def test_discover_versions_names_two_roots_in_one_top_folder_by_relative_path(
+    service: DatasetImportService, tmp_path: Path
+) -> None:
+    parent = tmp_path / "p"
+    _save_noise_image(parent / "v1" / "a" / "10_x" / "x.png", seed=1)
+    _save_noise_image(parent / "v1" / "b" / "10_x" / "x.png", seed=2)
+
+    names = [c.version_name for c in service.discover_versions(parent, "ds")]
+
+    assert names == ["v1/a", "v1/b"]
+
+
+def _candidates(*names: str) -> list[VersionCandidate]:
+    return [
+        VersionCandidate(
+            name,
+            Path(name),
+            DatasetImportPlan(
+                dataset_name="ds", version_name=name, parent_version_id=None, folders=[], config_files=[]
+            ),
+        )
+        for name in names
+    ]
+
+
+def test_order_version_candidates_defaults_to_given_name_order() -> None:
+    ordered, skipped = order_version_candidates(_candidates("v1", "v2", "v3"), [])
+
+    assert [c.version_name for c in ordered] == ["v1", "v2", "v3"]
+    assert skipped == []
+
+
+def test_order_version_candidates_follows_given_order_and_skips_others() -> None:
+    ordered, skipped = order_version_candidates(_candidates("v1", "v2", "v3"), ["v3", "v1"])
+
+    assert [c.version_name for c in ordered] == ["v3", "v1"]
+    assert [c.version_name for c in skipped] == ["v2"]
+
+
+@pytest.mark.parametrize("order", [["v1", "v1"], ["v1", "nope"]])
+def test_order_version_candidates_rejects_unknown_or_duplicated_names(order: list[str]) -> None:
+    with pytest.raises(ValueError):
+        order_version_candidates(_candidates("v1", "v2"), order)
+
+
+def test_import_versions_sets_parent_from_order(
+    service: DatasetImportService, repository: DatasetRepository, engine: Engine, tmp_path: Path
+) -> None:
+    parent = _make_versions(tmp_path / "ライコウLoRA")
+    candidates = service.discover_versions(parent, "raikou")
+    ordered, _ = order_version_candidates(candidates, ["raikou_v10ps", "raikou_v01"])
+
+    results = service.import_versions(ordered)
+
+    versions = {v.version_name: v for v in repository.list_versions()}
+    assert set(versions) == {"raikou_v10ps", "raikou_v01"}
+    assert versions["raikou_v10ps"].parent_version_id is None
+    assert versions["raikou_v01"].parent_version_id == results[0].version_id
+    assert [r.folder_count for r in results] == [2, 2]
+    # 取り込みで画像のタグには書かない
+    assert _count(engine, "tags") == 0
+
+
+def test_import_versions_uses_given_parent_for_first_version(
+    service: DatasetImportService, repository: DatasetRepository, tmp_path: Path
+) -> None:
+    parent = _make_versions(tmp_path / "ライコウLoRA")
+    first, *rest = service.discover_versions(parent, "raikou")
+    base = service.import_versions([first])[0].version_id
+
+    results = service.import_versions(rest, parent_version_id=base)
+
+    versions = {v.version_id: v for v in repository.list_versions()}
+    assert versions[results[0].version_id].parent_version_id == base
+    assert versions[results[1].version_id].parent_version_id == results[0].version_id
+
+
+def test_import_versions_rejects_existing_version_name_and_writes_nothing(
+    service: DatasetImportService, engine: Engine, tmp_path: Path
+) -> None:
+    parent = _make_versions(tmp_path / "ライコウLoRA")
+    candidates = service.discover_versions(parent, "raikou")
+    service.import_versions(candidates[1:2])
+    before = _counts(engine)
+
+    with pytest.raises(DatasetConflictError):
+        service.import_versions(candidates)
+
+    assert _counts(engine) == before
+
+
+def test_import_versions_rejects_version_without_folder_and_writes_nothing(
+    service: DatasetImportService, engine: Engine, tmp_path: Path
+) -> None:
+    parent = _make_versions(tmp_path / "ライコウLoRA")
+    candidates = service.discover_versions(parent, "raikou")
+    last = candidates[-1]
+    emptied = replace(
+        last,
+        plan=replace(last.plan, folders=[replace(f, include=False) for f in last.plan.folders]),
+    )
+    before = _counts(engine)
+
+    with pytest.raises(EmptyDatasetImportError):
+        service.import_versions([*candidates[:-1], emptied])
+
+    assert _counts(engine) == before

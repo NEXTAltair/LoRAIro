@@ -5,7 +5,9 @@ from pathlib import Path
 from PIL import Image
 
 from lorairo.services.kohya_scanner import (
+    DEFAULT_DISCOVERY_MAX_DEPTH,
     TRIGGER_CANDIDATE_MIN_RATE,
+    discover_kohya_roots,
     parse_folder_name,
     scan_kohya_directory,
 )
@@ -73,3 +75,75 @@ def test_trigger_candidate_none_below_threshold(tmp_path: Path) -> None:
     assert TRIGGER_CANDIDATE_MIN_RATE == 0.5
     assert folder.trigger_candidate is None
     assert folder.trigger_match_rate == 0.2
+
+
+# --- 親フォルダからの探索 (Issue #1648) ---
+
+
+def _make_version(parent: Path, *parts: str) -> Path:
+    """`parent/<parts...>/10_a/x.png` を作り、取り込みのルート (`10_a` の親) を返す。"""
+    root = parent.joinpath(*parts)
+    _make_image(root / "10_a" / "x.png")
+    return root
+
+
+def test_discover_finds_roots_under_version_folders(tmp_path: Path) -> None:
+    v1 = _make_version(tmp_path, "raikou_v01", "lora_train_data", "train_dir")
+    v6 = _make_version(tmp_path, "raikou_v06ps", "lora_train_data", "train_dir")
+    flat = _make_version(tmp_path, "raikou_v02")
+
+    assert discover_kohya_roots(tmp_path) == [v1, flat, v6]
+
+
+def test_discover_returns_parent_itself_when_it_is_a_root(tmp_path: Path) -> None:
+    _make_version(tmp_path)
+
+    assert discover_kohya_roots(tmp_path) == [tmp_path]
+
+
+def test_discover_does_not_go_below_a_found_root(tmp_path: Path) -> None:
+    root = _make_version(tmp_path, "v1")
+    _make_version(root, "nested")
+
+    assert discover_kohya_roots(tmp_path) == [root]
+
+
+def test_discover_depth_limit_is_four(tmp_path: Path) -> None:
+    assert DEFAULT_DISCOVERY_MAX_DEPTH == 4
+    at_limit = _make_version(tmp_path, "a", "b", "c", "d")
+    _make_version(tmp_path, "deep", "b", "c", "d", "e")
+
+    assert discover_kohya_roots(tmp_path) == [at_limit]
+
+
+def test_discover_does_not_enter_excluded_folders(tmp_path: Path) -> None:
+    kept = _make_version(tmp_path, "v1")
+    for name in ("sample", "sample_old", "reg", "log", "logs", "wandb", "old__Processed", "終了"):
+        _make_version(tmp_path, name)
+        _make_version(tmp_path, name, "deeper")
+
+    assert discover_kohya_roots(tmp_path) == [kept]
+
+
+def test_discover_does_not_treat_excluded_repeat_folder_as_root(tmp_path: Path) -> None:
+    """除外パターンに一致する `<数字>_<名前>` しか無いディレクトリは候補にしない。"""
+    _make_image(tmp_path / "v1" / "10_a__Processed" / "x.png")
+
+    assert discover_kohya_roots(tmp_path) == []
+
+
+def test_discover_ignores_archives(tmp_path: Path) -> None:
+    kept = _make_version(tmp_path, "v1")
+    (tmp_path / "v0.7z").write_bytes(b"7z")
+    (tmp_path / "10_v0.zip").write_bytes(b"PK")
+
+    assert discover_kohya_roots(tmp_path) == [kept]
+
+
+def test_discover_uses_extra_exclude_patterns(tmp_path: Path) -> None:
+    kept = _make_version(tmp_path, "v1")
+    _make_version(tmp_path, "backup")
+
+    roots = discover_kohya_roots(tmp_path, ("backup",))
+
+    assert roots == [kept]
