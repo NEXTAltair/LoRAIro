@@ -122,11 +122,11 @@ class TestBatchTagAddIntegration:
         received_image_ids = None
         received_tag = None
 
-        def on_tag_add_requested(image_ids, tag):
+        def on_tag_add_requested(image_ids, tags):
             nonlocal signal_emitted, received_image_ids, received_tag
             signal_emitted = True
             received_image_ids = image_ids
-            received_tag = tag
+            received_tag = tags
 
         batch_tag_widget.tag_add_requested.connect(on_tag_add_requested)
 
@@ -137,10 +137,10 @@ class TestBatchTagAddIntegration:
         # 9. tag_add_requested シグナルが正しいパラメータで発行されたことを確認
         assert signal_emitted is True
         assert set(received_image_ids) == {1, 2, 3}
-        assert received_tag == test_tag
+        assert received_tag == [test_tag]
         assert blocker.signal_triggered
         assert set(blocker.args[0]) == {1, 2, 3}
-        assert blocker.args[1] == test_tag
+        assert blocker.args[1] == [test_tag]
 
     def test_staging_and_clearing(self, batch_tag_widget, dataset_state_manager, test_images_data, qtbot):
         """
@@ -300,10 +300,10 @@ class TestBatchTagAddIntegration:
         signal_emitted = False
         received_tag = None
 
-        def on_tag_add_requested(image_ids, tag):
+        def on_tag_add_requested(image_ids, tags):
             nonlocal signal_emitted, received_tag
             signal_emitted = True
-            received_tag = tag
+            received_tag = tags
 
         batch_tag_widget.tag_add_requested.connect(on_tag_add_requested)
 
@@ -314,7 +314,7 @@ class TestBatchTagAddIntegration:
         # 6. 正規化されたタグが発行されたことを確認
         # TagCleaner.clean_format() は underscores → spaces。大小は保持する (#1288)
         assert signal_emitted is True
-        assert received_tag == "Test LANDSCAPE"  # 正規化後のタグ
+        assert received_tag == ["Test LANDSCAPE"]  # 正規化後のタグ
 
     def test_mainwindow_signal_connection_simulation(
         self, batch_tag_widget, dataset_state_manager, mock_db_write_service, test_images_data, qtbot
@@ -336,10 +336,10 @@ class TestBatchTagAddIntegration:
             batch_tag_widget.add_selected_images_to_staging()
 
         # 3. MainWindow のハンドラーをシミュレート
-        def mock_mainwindow_handler(image_ids, tag):
+        def mock_mainwindow_handler(image_ids, tags):
             """MainWindow._handle_batch_tag_add() をシミュレート"""
-            # ImageDBWriteService.add_tag_batch() を呼び出し
-            success = mock_db_write_service.add_tag_batch(image_ids, tag)
+            # ImageDBWriteService.add_tag_batch() をタグごとに呼び出し
+            success = all(mock_db_write_service.add_tag_batch(image_ids, tag) for tag in tags)
 
             if success:
                 # DatasetStateManager.refresh_images() を呼び出し（モック不要）
@@ -471,4 +471,4 @@ class TestBatchTagAddIntegration:
         # 6. 最終的なステージング画像が正しいことを確認
         assert len(blocker.args[0]) == 4
         # TagCleaner.clean_format() は underscores → spaces
-        assert blocker.args[1] == "final tag"
+        assert blocker.args[1] == ["final tag"]

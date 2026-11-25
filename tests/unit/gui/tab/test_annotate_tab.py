@@ -1851,7 +1851,7 @@ def test_execute_batch_tag_write_refreshes_on_success(tab: AnnotateTabWidget) ->
     tab._image_db_write_service.add_tag_batch.return_value = True
     tab._dataset_state_manager = Mock()
 
-    result = tab._execute_batch_tag_write([1, 2], "landscape")
+    result = tab._execute_batch_tag_write([1, 2], ["landscape"])
 
     assert result is True
     tab._image_db_write_service.add_tag_batch.assert_called_once_with([1, 2], "landscape")
@@ -1863,7 +1863,7 @@ def test_execute_batch_tag_write_no_service_returns_false(tab: AnnotateTabWidget
     """ImageDBWriteService 未初期化時は False を返し書込しない (#896)。"""
     tab._image_db_write_service = None
 
-    assert tab._execute_batch_tag_write([1], "t") is False
+    assert tab._execute_batch_tag_write([1], ["t"]) is False
 
 
 @pytest.mark.gui
@@ -1877,7 +1877,7 @@ def test_handle_batch_tag_add_success_emits_status_and_clears_staging(
     tab._staging_state_manager = Mock()
 
     with qtbot.waitSignal(tab.status_message, timeout=1000) as blocker:
-        tab._handle_batch_tag_add([1, 2], "landscape")
+        tab._handle_batch_tag_add([1, 2], ["landscape"])
 
     assert "landscape" in blocker.args[0]
     tab._staging_state_manager.remove_image_ids.assert_called_once_with([1, 2])
@@ -1892,7 +1892,7 @@ def test_handle_batch_tag_add_failure_shows_critical(tab: AnnotateTabWidget, qtb
     calls: list[bool] = []
     monkeypatch.setattr("lorairo.gui.tab.annotate_tab.show_critical", lambda *a, **k: calls.append(True))
 
-    tab._handle_batch_tag_add([1], "x")
+    tab._handle_batch_tag_add([1], ["x"])
 
     qtbot.waitUntil(lambda: calls == [True], timeout=1000)
 
@@ -1902,7 +1902,7 @@ def test_handle_batch_tag_add_empty_ids_noop(tab: AnnotateTabWidget) -> None:
     """空 image_ids では書込せず早期 return する (#896)。"""
     tab._image_db_write_service = Mock()
 
-    tab._handle_batch_tag_add([], "x")
+    tab._handle_batch_tag_add([], ["x"])
 
     tab._image_db_write_service.add_tag_batch.assert_not_called()
 
@@ -1910,15 +1910,15 @@ def test_handle_batch_tag_add_empty_ids_noop(tab: AnnotateTabWidget) -> None:
 @pytest.mark.gui
 def test_batch_tag_add_widget_signal_handled_in_tab(tab: AnnotateTabWidget, monkeypatch) -> None:
     """BatchTagAddWidget の tag_add_requested はタブ内で処理し上方 bubble しない (#896)。"""
-    handled: list[tuple[list[int], str]] = []
+    handled: list[tuple[list[int], list[str]]] = []
     monkeypatch.setattr(tab, "_handle_batch_tag_add", lambda ids, t: handled.append((ids, t)))
     # 再配線 (monkeypatch 後の接続を張り直す)
     tab._batch_tag_add_widget.tag_add_requested.disconnect()
     tab._batch_tag_add_widget.tag_add_requested.connect(tab._handle_batch_tag_add)
 
-    tab._batch_tag_add_widget.tag_add_requested.emit([3], "sky")
+    tab._batch_tag_add_widget.tag_add_requested.emit([3], ["sky"])
 
-    assert handled == [([3], "sky")]
+    assert handled == [([3], ["sky"])]
 
 
 # == 14. Issue #1544: 非同期バッチタグ書込 & busy 状態 =========================
@@ -1945,7 +1945,7 @@ def test_handle_batch_tag_add_runs_off_gui_thread_and_toggles_busy(tab: Annotate
     tab._staging_state_manager = Mock()
 
     with qtbot.waitSignal(tab.status_message, timeout=2000):
-        tab._handle_batch_tag_add([1, 2], "cat")
+        tab._handle_batch_tag_add([1, 2], ["cat"])
 
     qtbot.waitUntil(lambda: not tab._batch_tag_write_in_progress, timeout=2000)
     assert busy_states == [True, False]
@@ -1977,7 +1977,7 @@ def test_handle_batch_tag_add_preserves_images_staged_during_async_write(
 
     tab._batch_tag_write_in_progress = True
     tab._batch_tag_add_widget.set_busy(True)
-    tab._on_batch_tag_write_finished([1, 2], "cat", True)
+    tab._on_batch_tag_write_finished([1, 2], ["cat"], True)
 
     assert tab._staging_state_manager.get_image_ids() == [3]
 
@@ -1990,10 +1990,44 @@ def test_handle_batch_tag_add_reentry_guard_skips_while_in_progress(
     tab._image_db_write_service = Mock()
     tab._batch_tag_write_in_progress = True
 
-    tab._handle_batch_tag_add([1, 2], "cat")
+    tab._handle_batch_tag_add([1, 2], ["cat"])
 
     tab._image_db_write_service.add_tag_batch.assert_not_called()
     tab._batch_tag_write_in_progress = False
+
+
+@pytest.mark.gui
+def test_handle_batch_tag_add_writes_each_tag_in_order(tab: AnnotateTabWidget, qtbot) -> None:
+    """Issue #1646: 複数タグは add_tag_batch をタグごとに順に呼び、完了メッセージに全タグを含める。"""
+    tab._image_db_write_service = Mock()
+    tab._image_db_write_service.add_tag_batch.return_value = True
+    tab._dataset_state_manager = Mock()
+    tab._staging_state_manager = Mock()
+
+    with qtbot.waitSignal(tab.status_message, timeout=2000) as blocker:
+        tab._handle_batch_tag_add([1, 2], ["landscape", "sky"])
+
+    calls = tab._image_db_write_service.add_tag_batch.call_args_list
+    assert [c.args for c in calls] == [([1, 2], "landscape"), ([1, 2], "sky")]
+    assert "landscape" in blocker.args[0]
+    assert "sky" in blocker.args[0]
+    tab._staging_state_manager.remove_image_ids.assert_called_once_with([1, 2])
+
+
+@pytest.mark.gui
+def test_handle_batch_tag_add_stops_at_first_failed_tag(tab: AnnotateTabWidget, qtbot, monkeypatch) -> None:
+    """Issue #1646: 途中のタグ書込が失敗したら以降は書かず、失敗として扱いステージングを保持する。"""
+    tab._image_db_write_service = Mock()
+    tab._image_db_write_service.add_tag_batch.side_effect = [True, False, True]
+    tab._staging_state_manager = Mock()
+    calls: list[bool] = []
+    monkeypatch.setattr("lorairo.gui.tab.annotate_tab.show_critical", lambda *a, **k: calls.append(True))
+
+    tab._handle_batch_tag_add([1], ["a", "b", "c"])
+
+    qtbot.waitUntil(lambda: calls == [True], timeout=2000)
+    assert tab._image_db_write_service.add_tag_batch.call_count == 2
+    tab._staging_state_manager.remove_image_ids.assert_not_called()
 
 
 # == 15. Issue #1515 / #1546: キャッシュ・差分取得・バッチ低解像度パス解決 =====
