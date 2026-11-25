@@ -1131,6 +1131,9 @@ class TagPanelWidget(QWidget):
         self._disabled_display: set[str] = set()  # 無効化 (破線でインライン表示継続、not_needed)
         self._hidden: set[str] = set()  # 除外/置換 (非表示、incorrect/replaced)
         self._rejected_tags: list[str] = []  # 親 (DB) から渡される soft-rejected canonical
+        # soft-rejected タグの由来区分 (canonical → {dataset/ai/manual})。由来の絞り込みで
+        # 無効化したタグの破線 chip を残すために使う (#1647)
+        self._rejected_origins: dict[str, set[str]] = {}
         # Ctrl+クリックで選択された canonical 集合 (#814 のコピー選択 + #997 のバッチ操作起点)。
         # chip は再描画のたびに新規生成されるため、選択状態はウィジェット側で持って復元する。
         self._selected_canonicals: set[str] = set()
@@ -1436,6 +1439,7 @@ class TagPanelWidget(QWidget):
             self._disabled_display = set()
             self._hidden = set()
             self._rejected_tags = []
+            self._rejected_origins = {}
             self._last_refinements = {}
             self._last_candidate_counts = {}
             self._selected_canonicals = set()
@@ -1648,11 +1652,16 @@ class TagPanelWidget(QWidget):
         - ``reject_reason in ('incorrect', 'replaced')`` → 非表示
 
         Args:
-            rejected_tags: ``{"tag": str, "reject_reason": str | None, ...}`` の dict リスト
+            rejected_tags: ``{"tag": str, "reject_reason": str | None, "source": str, ...}`` の dict リスト
                 (``get_rejected_tags`` の戻り値)。
         """
         rows = [row for row in rejected_tags if row.get("tag")]
         self._rejected_tags = [row["tag"] for row in rows]
+        self._rejected_origins = {}
+        for row in rows:
+            origin = _ORIGIN_BY_SOURCE.get(str(row.get("source", "")))
+            if origin is not None:
+                self._rejected_origins.setdefault(row["tag"], set()).add(origin)
         # DB reject_reason から表示状態を再構築する (メモリ非依存、Issue #1003)。
         # reason 不明 (None 等) は安全側に倒し無効化 (破線で残す) 扱いにする。
         self._disabled_display = {
@@ -1782,6 +1791,7 @@ class TagPanelWidget(QWidget):
         self._disabled_display = set()
         self._hidden = set()
         self._rejected_tags = []
+        self._rejected_origins = {}
         self._last_refinements = {}
         self._last_candidate_counts = {}
         self._counts_by_canonical = {}
@@ -1830,7 +1840,7 @@ class TagPanelWidget(QWidget):
         self._refresh_tags_for_language(self._current_language())
 
     def _origins_by_canonical(self) -> dict[str, set[str]]:
-        """畳む前の全タグ行から、canonical ごとの由来区分の集合を作る。"""
+        """畳む前の全タグ行と soft-rejected 行から、canonical ごとの由来区分の集合を作る。"""
         origins: dict[str, set[str]] = {}
         for row in self._all_tag_rows:
             canonical = str(row.get("tag", ""))
@@ -1840,6 +1850,9 @@ class TagPanelWidget(QWidget):
             bucket = origins.setdefault(canonical, set())
             if origin is not None:
                 bucket.add(origin)
+        # soft-rejected 行は _all_tag_rows に含まれないため、DB から受けた由来を足す
+        for canonical, rejected in self._rejected_origins.items():
+            origins.setdefault(canonical, set()).update(rejected)
         return origins
 
     @staticmethod

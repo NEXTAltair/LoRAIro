@@ -128,6 +128,32 @@ def test_origin_filter_narrows_chips(panel: TagPanelWidget, origin: str, expecte
     assert {chip.canonical for chip in panel._tag_chips} == expected
 
 
+@pytest.mark.parametrize(
+    ("origin", "expected_rejected"),
+    [
+        ("all", {"old dataset tag", "old ai tag"}),
+        ("dataset", {"old dataset tag"}),
+        ("ai", {"old ai tag"}),
+        ("manual", set()),
+    ],
+)
+def test_origin_filter_keeps_rejected_chip_of_matching_origin(
+    panel: TagPanelWidget, origin: str, expected_rejected: set[str]
+) -> None:
+    """Codex P2 (PR #1655): 無効化 (soft-reject) したタグも由来で絞り込み、破線 chip を残す。"""
+    panel.set_rejected_tags(
+        [
+            {"tag": "old dataset tag", "reject_reason": "not_needed", "source": "Dataset"},
+            {"tag": "old ai tag", "reject_reason": "not_needed", "source": "AI"},
+        ]
+    )
+
+    panel._origin_filter_control._buttons[origin].click()
+
+    shown = {chip.canonical for chip in panel._tag_chips}
+    assert shown & {"old dataset tag", "old ai tag"} == expected_rejected
+
+
 def test_highlight_marks_hits_and_dims_others_then_clears(panel: TagPanelWidget) -> None:
     panel.set_highlight_tags({"1boy", "armor", "otogi"})
 

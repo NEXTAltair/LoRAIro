@@ -95,6 +95,31 @@ class PhashClassification(StrEnum):
     NEW = "new"
 
 
+def tag_source_label(
+    litellm_model_id: str | None, is_edited_manually: bool | None, existing: bool | None
+) -> str:
+    """タグ 1 行の出所区分 (表示用) を、行のモデルとフラグから返す (ADR 0111)。
+
+    Args:
+        litellm_model_id: 行のモデルの ``litellm_model_id`` (モデルが無ければ None)。
+        is_edited_manually: 行の手動編集フラグ。
+        existing: 行の既存タグフラグ。
+
+    Returns:
+        ``"Import"`` / ``"Dataset"`` / ``"Processing"`` / ``"Manual"`` / ``"AI"`` のいずれか。
+    """
+    if litellm_model_id == SIDECAR_IMPORT_LITELLM_ID:
+        return "Import"
+    if litellm_model_id == KOHYA_DATASET_LITELLM_ID:
+        # existing=True で写すため、Manual 判定より前に分ける
+        return "Dataset"
+    if litellm_model_id == IMAGE_PROCESSING_LITELLM_ID:
+        return "Processing"
+    if litellm_model_id == MANUAL_EDIT_LITELLM_ID or is_edited_manually or existing:
+        return "Manual"
+    return "AI"
+
+
 class ImageRepository(BaseRepository):
     """Image / ProcessedImage / FilenameAlias の永続化を担当する Repository (ADR 0035 §1)。
 
@@ -2670,16 +2695,7 @@ class ImageRepository(BaseRepository):
         ``"Manual"``。それ以外は従来どおりフラグで判定する。
         """
         litellm_model_id = tag.model.litellm_model_id if tag.model else None
-        if litellm_model_id == SIDECAR_IMPORT_LITELLM_ID:
-            return "Import"
-        if litellm_model_id == KOHYA_DATASET_LITELLM_ID:
-            # existing=True で写すため、Manual 判定より前に分ける
-            return "Dataset"
-        if litellm_model_id == IMAGE_PROCESSING_LITELLM_ID:
-            return "Processing"
-        if litellm_model_id == MANUAL_EDIT_LITELLM_ID or tag.is_edited_manually or tag.existing:
-            return "Manual"
-        return "AI"
+        return tag_source_label(litellm_model_id, tag.is_edited_manually, tag.existing)
 
     def _format_captions(self, image: Image, annotations: dict[str, Any]) -> None:
         """キャプションアノテーション情報をフォーマットする。

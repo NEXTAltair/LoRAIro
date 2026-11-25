@@ -79,6 +79,7 @@ from ..schema import (
     TagAnnotationData,
 )
 from .base import BaseRepository
+from .image import tag_source_label
 from .model import ModelRepository
 
 # ADR 0068 (改訂): 保存境界で焼き込む基準フォーマット。非手動タグはこの format の
@@ -973,7 +974,9 @@ class AnnotationRepository(BaseRepository):
 
         Returns:
             ``{"tag": str, "tag_id": int | None, "is_edited_manually": bool | None,
-            "reject_reason": str | None}`` の dict リスト (rejected_at 昇順)。
+            "reject_reason": str | None, "source": str}`` の dict リスト (rejected_at 昇順)。
+            ``source`` は有効なタグと同じ出所区分 (``tag_source_label``) で、タグ欄の由来の
+            絞り込みで無効化したタグを残すために使う。
 
         Raises:
             SQLAlchemyError: データベースエラー時 (再送出)。
@@ -981,7 +984,15 @@ class AnnotationRepository(BaseRepository):
         with self.session_factory() as session:
             try:
                 rows = session.execute(
-                    select(Tag.tag, Tag.tag_id, Tag.is_edited_manually, Tag.reject_reason)
+                    select(
+                        Tag.tag,
+                        Tag.tag_id,
+                        Tag.is_edited_manually,
+                        Tag.reject_reason,
+                        Tag.existing,
+                        Model.litellm_model_id,
+                    )
+                    .outerjoin(Model, Tag.model_id == Model.id)
                     .where(Tag.image_id == image_id, Tag.rejected_at.is_not(None))
                     .order_by(Tag.rejected_at)
                 ).all()
@@ -994,6 +1005,7 @@ class AnnotationRepository(BaseRepository):
                 "tag_id": row.tag_id,
                 "is_edited_manually": row.is_edited_manually,
                 "reject_reason": row.reject_reason,
+                "source": tag_source_label(row.litellm_model_id, row.is_edited_manually, row.existing),
             }
             for row in rows
         ]
