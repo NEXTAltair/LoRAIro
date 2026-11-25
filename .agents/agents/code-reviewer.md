@@ -57,7 +57,7 @@ Python と PySide6 開発に特化したコード品質の専門家である。�
 uv run ruff check [target_path] --output-format=json
 
 # mypy で型チェックを実行する
-uv run mypy [target_path] --output-format=json
+uv run mypy [target_path] --output=json
 ```
 
 ### ステップ 2: 意味解析
