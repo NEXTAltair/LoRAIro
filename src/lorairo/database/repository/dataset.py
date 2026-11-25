@@ -6,8 +6,9 @@
 - 版の `raw_text` は取り込み後に書き換えない。本 Repository は `raw_text` の更新 API を持たない。
 - 同名の版・フォルダの作成や、フォルダ追加中の制約違反は `DatasetConflictError` とし、
   フォルダ追加は 1 トランザクションで中途半端な行を残さない。
-- 学習テキストをライブラリの `Tag` へ写すのは明示的な操作 (`copy_learning_texts_to_tags`) だけで、
-  擬似モデル `KOHYA_DATASET` の行として追加する (ADR 0104)。
+- 学習テキストは擬似モデル `KOHYA_DATASET` の行としてライブラリの `Tag` へ写す (ADR 0104)。
+  取り込みの最後に `sync_kohya_tags_for_dataset` でデータセットごとの最新版の内容へ同期し、
+  明示的な操作 (`copy_learning_texts_to_tags`) は追加だけを行う。
 """
 
 from __future__ import annotations
@@ -48,6 +49,7 @@ __all__ = [
     "LearningTextSnapshot",
     "LearningTextSpec",
     "TagCopyResult",
+    "TagSyncResult",
     "TrainingConfigSnapshot",
     "TrainingConfigSpec",
     "VersionSnapshot",
@@ -215,6 +217,15 @@ class TagCopyResult:
     tags_added: int
     tags_skipped: int
     dry_run: bool
+
+
+@dataclass(frozen=True)
+class TagSyncResult:
+    """擬似モデル `KOHYA_DATASET` の `Tag` 行を最新版の内容へ同期した結果。"""
+
+    images: int
+    tags_added: int
+    tags_removed: int
 
 
 @dataclass(frozen=True)
@@ -1169,6 +1180,149 @@ class DatasetRepository(BaseRepository):
                 f"images={result.images}, added={result.tags_added}, skipped={result.tags_skipped}"
             )
             return result
+
+    def sync_kohya_tags_for_dataset(self, dataset_id: int, extension: str = ".txt") -> TagSyncResult:
+        """データセットの画像の `KOHYA_DATASET` 行を、各データセットの最新版の内容へ同期する (ADR 0104)。
+
+        対象はそのデータセットのいずれかの版に属する画像。画像ごとに、全データセットの最新版で
+        その画像が属するフォルダの学習テキストの要素の和集合を正とし、`KOHYA_DATASET` 行のうち
+        正に無いものを削除し、足りないものを追加する。他のモデル (手入力・AI・その他の擬似モデル)
+        の行には触れない。正に残る行は soft-reject 済みでもそのまま保つ。1 トランザクションで行う。
+
+        最新版は `_latest_version_ids` の規則で決め、名前・番号・日付からは判定しない。
+
+        Args:
+            dataset_id: `datasets.id`。
+            extension: 写す学習テキストの拡張子 (例: `.txt`)。
+
+        Returns:
+            同期した画像数と、追加・削除した行数。
+
+        Raises:
+            LookupError: データセットが存在しない場合。
+        """
+        normalized_ext = _normalize_extension(extension)
+        with self.session_factory() as session:
+            if session.get(Dataset, dataset_id) is None:
+                raise LookupError(f"データセットが見つかりません: dataset_id={dataset_id}")
+            image_ids = sorted(
+                session.execute(
+                    select(DatasetFolderImage.image_id)
+                    .join(DatasetFolder, DatasetFolder.id == DatasetFolderImage.folder_id)
+                    .join(DatasetVersion, DatasetVersion.id == DatasetFolder.version_id)
+                    .where(DatasetVersion.dataset_id == dataset_id)
+                    .distinct()
+                )
+                .scalars()
+                .all()
+            )
+            if not image_ids:
+                return TagSyncResult(images=0, tags_added=0, tags_removed=0)
+
+            latest_ids = self._latest_version_ids(session)
+            desired = self._collect_latest_elements(session, latest_ids, image_ids, normalized_ext)
+
+            model_id = ModelRepository.get_or_create_kohya_dataset_model(session)
+            existing: dict[tuple[int, str], list[int]] = {}
+            for offset in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
+                chunk = image_ids[offset : offset + self.BATCH_CHUNK_SIZE]
+                rows = session.execute(
+                    select(Tag.id, Tag.image_id, Tag.tag).where(
+                        Tag.model_id == model_id, Tag.image_id.in_(chunk)
+                    )
+                ).all()
+                for row in rows:
+                    if row.image_id is not None:
+                        existing.setdefault((row.image_id, row.tag), []).append(row.id)
+
+            wanted = {(image_id, element) for image_id, elements in desired.items() for element in elements}
+            remove_ids = [
+                tag_id for key, tag_ids in existing.items() if key not in wanted for tag_id in tag_ids
+            ]
+            new_tags = [
+                Tag(
+                    image_id=image_id,
+                    model_id=model_id,
+                    tag=element,
+                    tag_id=None,
+                    confidence_score=None,
+                    existing=True,
+                    is_edited_manually=False,
+                )
+                for image_id, elements in desired.items()
+                for element in elements
+                if (image_id, element) not in existing
+            ]
+            for offset in range(0, len(remove_ids), self.BATCH_CHUNK_SIZE):
+                chunk = remove_ids[offset : offset + self.BATCH_CHUNK_SIZE]
+                session.execute(delete(Tag).where(Tag.id.in_(chunk)))
+            session.add_all(new_tags)
+            session.commit()
+            result = TagSyncResult(
+                images=len(image_ids), tags_added=len(new_tags), tags_removed=len(remove_ids)
+            )
+            logger.debug(
+                f"KOHYA_DATASET の Tag を最新版へ同期: dataset_id={dataset_id}, images={result.images}, "
+                f"added={result.tags_added}, removed={result.tags_removed}"
+            )
+            return result
+
+    @staticmethod
+    def _latest_version_ids(session: Session) -> list[int]:
+        """データセットごとの最新版の ID を返す。
+
+        最新版は、確定済み (`is_working=False`) の版のうち、同じデータセットの他の確定済みの版の
+        `parent_version_id` に指されていない版 (親の版の連鎖の末端) で、ID が最大のもの。
+        取り込みの順番の指定 (`parent_version_id` の連鎖) が無ければ、最後に取り込んだ版になる。
+        """
+        rows = session.execute(
+            select(DatasetVersion.id, DatasetVersion.dataset_id, DatasetVersion.parent_version_id).where(
+                DatasetVersion.is_working.is_(False)
+            )
+        ).all()
+        dataset_of = {row.id: row.dataset_id for row in rows}
+        referenced = {
+            row.parent_version_id
+            for row in rows
+            if row.parent_version_id is not None and dataset_of.get(row.parent_version_id) == row.dataset_id
+        }
+        latest: dict[int, int] = {}
+        for row in rows:
+            if row.id in referenced:
+                continue
+            latest[row.dataset_id] = max(latest.get(row.dataset_id, row.id), row.id)
+        return sorted(latest.values())
+
+    def _collect_latest_elements(
+        self, session: Session, version_ids: list[int], image_ids: list[int], extension: str
+    ) -> dict[int, list[str]]:
+        """最新版群で画像が属するフォルダの学習テキストの要素を、画像ごとの和集合にまとめる。"""
+        if not version_ids:
+            return {}
+        elements_by_image: dict[int, list[str]] = {}
+        for offset in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
+            chunk = image_ids[offset : offset + self.BATCH_CHUNK_SIZE]
+            stmt = (
+                select(DatasetFolderImage)
+                .join(DatasetFolder, DatasetFolder.id == DatasetFolderImage.folder_id)
+                .where(DatasetFolder.version_id.in_(version_ids), DatasetFolderImage.image_id.in_(chunk))
+                .options(selectinload(DatasetFolderImage.learning_texts))
+                .order_by(
+                    DatasetFolder.version_id,
+                    DatasetFolder.position,
+                    DatasetFolder.id,
+                    DatasetFolderImage.id,
+                )
+            )
+            for folder_image in session.execute(stmt).scalars():
+                collected = elements_by_image.setdefault(folder_image.image_id, [])
+                for text in sorted(folder_image.learning_texts, key=lambda t: t.id):
+                    if text.extension != extension:
+                        continue
+                    for element in _load_elements(text.elements_json):
+                        if element and element not in collected:
+                            collected.append(element)
+        return elements_by_image
 
     def revoke_learning_texts_from_tags(
         self,

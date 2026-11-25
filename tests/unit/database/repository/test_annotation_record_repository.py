@@ -32,6 +32,7 @@ from sqlalchemy.orm import sessionmaker
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.repository.annotation_record import AnnotationRepository, AnnotationSaveItem
 from lorairo.database.repository.base import BaseRepository
+from lorairo.database.repository.model import ModelRepository
 from lorairo.database.schema import (
     MANUAL_EDIT_LITELLM_ID,
     MANUAL_EDIT_NAME,
@@ -1089,8 +1090,23 @@ class TestRejectReasonWritePaths:
                 "tag_id": None,
                 "is_edited_manually": None,
                 "reject_reason": "not_needed",
+                "source": "AI",
             }
         ]
+
+    def test_get_rejected_tags_reports_dataset_source_for_kohya_rows(
+        self, annotation_repository, memory_session_factory, image_id
+    ) -> None:
+        """KOHYA_DATASET 行の soft-reject は source="Dataset" を返す (タグ欄の由来の絞り込み用、#1647)。"""
+        with memory_session_factory() as session:
+            model_id = ModelRepository.get_or_create_kohya_dataset_model(session)
+            session.add(Tag(image_id=image_id, tag="old_tag", model_id=model_id, existing=True))
+            session.commit()
+        annotation_repository.remove_tag_from_images_batch([image_id], "old_tag", reason="not_needed")
+
+        rejected = annotation_repository.get_rejected_tags(image_id)
+
+        assert [(row["tag"], row["source"]) for row in rejected] == [("old_tag", "Dataset")]
 
 
 class TestTagResaveUpsert:

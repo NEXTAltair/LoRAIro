@@ -1,8 +1,9 @@
 """`DatasetImportService` の統合テスト (Issue #1418)。
 
 実 DB (ファイル SQLite) と実 `ImageDatabaseManager` / `FileSystemManager` で、Kohya 形のディレクトリを
-取り込む。画像直下の `Tag` に書かないこと、同じ画像が 2 フォルダにあっても学習テキストが別々に
-残ること、二重取り込みで中途半端な行が残らないことを確認する。
+取り込む。画像直下の `Tag` には最新版の .txt の要素を `KOHYA_DATASET` の行としてだけ書くこと
+(#1647)、同じ画像が 2 フォルダにあっても学習テキストが別々に残ること、二重取り込みで中途半端な行が
+残らないことを確認する。
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.repository.dataset import DatasetConflictError, DatasetRepository
-from lorairo.database.schema import Base
+from lorairo.database.schema import KOHYA_DATASET_LITELLM_ID, Base
 from lorairo.filesystem import FileSystemManager
 from lorairo.services.configuration_service import ConfigurationService
 from lorairo.services.dataset_import_service import (
@@ -165,7 +166,26 @@ def _counts(engine: Engine) -> dict[str, int]:
     return {table: _count(engine, table) for table in _COUNTED_TABLES}
 
 
-def test_same_image_in_two_folders_keeps_separate_texts_and_no_tags(
+def _tags_by_image(engine: Engine) -> dict[int, list[tuple[str, str]]]:
+    """画像ごとの (表記, モデルの litellm_model_id) を返す。"""
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT t.image_id, t.tag, m.litellm_model_id FROM tags t "
+                "JOIN models m ON m.id = t.model_id"
+            )
+        ).all()
+    result: dict[int, list[tuple[str, str]]] = {}
+    for image_id, tag, litellm_id in rows:
+        result.setdefault(image_id, []).append((tag, litellm_id))
+    return {key: sorted(value) for key, value in result.items()}
+
+
+def _kohya(*tags: str) -> list[tuple[str, str]]:
+    return sorted((tag, KOHYA_DATASET_LITELLM_ID) for tag in tags)
+
+
+def test_same_image_in_two_folders_keeps_separate_texts_and_unions_kohya_tags(
     service: DatasetImportService, repository: DatasetRepository, engine: Engine, kohya_root: Path
 ) -> None:
     result = service.import_directory(kohya_root, _plan(kohya_root))
@@ -179,7 +199,13 @@ def test_same_image_in_two_folders_keeps_separate_texts_and_no_tags(
     assert shared_a.texts[0].raw_text == "trig_a, red hair\r\n"
     assert shared_b.texts[0].raw_text == "trig_b, blue eyes"
     assert shared_a.texts[0].elements == ["trig_a", "red hair"]
-    assert _count(engine, "tags") == 0
+    # 通常タグは KOHYA_DATASET の行だけで、2 フォルダに属する画像はフォルダ間の和集合 (#1647)
+    a1 = next(image for image in folder_a.images if image.file_stem == "a1")
+    assert _tags_by_image(engine) == {
+        shared_a.image_id: _kohya("trig_a", "red hair", "trig_b", "blue eyes"),
+        a1.image_id: _kohya("trig_a", "smile"),
+    }
+    assert (result.tags_added, result.tags_removed) == (6, 0)
     assert _count(engine, "captions") == 0
     assert result.folder_count == 2
     assert result.image_count == 5
@@ -592,8 +618,10 @@ def test_import_versions_sets_parent_from_order(
     assert versions["raikou_v10ps"].parent_version_id is None
     assert versions["raikou_v01"].parent_version_id == results[0].version_id
     assert [r.folder_count for r in results] == [2, 2]
-    # 取り込みで画像のタグには書かない
-    assert _count(engine, "tags") == 0
+    # 最新版は順番の末尾 (raikou_v01)。通常タグは最新版の画像・要素だけ (#1647)
+    v01 = repository.get_version_snapshot(versions["raikou_v01"].version_id)
+    v01_images = {image.image_id for folder in v01.folders for image in folder.images}
+    assert _tags_by_image(engine) == {image_id: _kohya("raikou", "raikou_v01") for image_id in v01_images}
 
 
 def test_import_versions_uses_given_parent_for_first_version(

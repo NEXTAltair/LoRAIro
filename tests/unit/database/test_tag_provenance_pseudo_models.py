@@ -325,6 +325,15 @@ def test_tag_source_label_distinguishes_pseudo_models(db_session_factory: Any) -
     _add_tag(
         db_session_factory, image_id, "c", MANUAL_EDIT_LITELLM_ID, existing=False, is_edited_manually=True
     )
+    # KOHYA_DATASET は existing=True で写すが、Manual ではなく Dataset と表示する (ADR 0104)
+    _add_tag(
+        db_session_factory,
+        image_id,
+        "trained",
+        KOHYA_DATASET_LITELLM_ID,
+        existing=True,
+        is_edited_manually=False,
+    )
 
     with db_session_factory() as session:
         image = session.get(Image, image_id)
@@ -332,4 +341,10 @@ def test_tag_source_label_distinguishes_pseudo_models(db_session_factory: Any) -
         repo._format_tags(image, annotations)
 
     sources = {row["tag"]: row["source"] for row in annotations["tags"]}
-    assert sources == {"a": "AI", "b": "Import", "upscaled": "Processing", "c": "Manual"}
+    assert sources == {
+        "a": "AI",
+        "b": "Import",
+        "upscaled": "Processing",
+        "c": "Manual",
+        "trained": "Dataset",
+    }

@@ -112,6 +112,28 @@ def _tag_count(project_dir: Path) -> int:
     return count
 
 
+def _image_ids_by_stem(project_dir: Path) -> dict[str, int]:
+    with sqlite3.connect(project_dir / "image_database.db") as conn:
+        rows = conn.execute(
+            "SELECT fi.file_stem, fi.image_id FROM dataset_folder_images fi ORDER BY fi.id"
+        ).fetchall()
+    return {row[0]: row[1] for row in rows}
+
+
+def _shown_tags(runner: CliRunner, project_dir: Path, image_id: int) -> list[tuple[str, str]]:
+    """`images show` の tags を (表記, モデルの litellm_model_id) の組で返す。"""
+    result = runner.invoke(app, ["--json", "images", "show", str(image_id), "-p", PROJECT])
+    assert result.exit_code == 0, result.stdout + result.stderr
+    item = json.loads(result.stdout.strip().splitlines()[0])
+    with sqlite3.connect(project_dir / "image_database.db") as conn:
+        model_ids = dict(conn.execute("SELECT id, litellm_model_id FROM models").fetchall())
+    return sorted((tag["tag"], model_ids[tag["model_id"]]) for tag in item["tags"])
+
+
+def _kohya(*tags: str) -> list[tuple[str, str]]:
+    return sorted((tag, "__kohya_dataset__") for tag in tags)
+
+
 def test_cli_import_then_export_roundtrip(
     cli_runner: CliRunner, project_dir: Path, kohya_root: Path, tmp_path: Path
 ) -> None:
@@ -127,7 +149,11 @@ def test_cli_import_then_export_roundtrip(
     assert (out_dir / "10_a" / "a1.png").is_file()
     assert not (out_dir / "sample001").exists()
     assert not (out_dir / "3_skipme").exists()
-    assert _tag_count(project_dir) == 0
+    # 取り込みで .txt の要素が KOHYA_DATASET の通常タグにも入る (#1647)
+    assert _kohya_tags(project_dir) == sorted(
+        ["Trig_A", "(tag:1.2)", "long_sleeves\r\nsecond line", "Smile", "trig_b", "blue eyes"]
+    )
+    assert _tag_count(project_dir) == 6
 
 
 def test_roundtrip_two_versions_with_parent(
@@ -299,6 +325,7 @@ def test_cli_diff_reimport_with_parent_reports_changes(
 ) -> None:
     """外部で編集したフォルダを --parent-version で取り込み直し、diff で差分を出す (#1455 案 D)。"""
     version1 = _import(cli_runner, kohya_root, "--exclude-dir", "3_skipme", version="v1")
+    tags_before_v2 = _kohya_tags(project_dir)
     # 外部での編集: 画像の追加・学習テキストの修正・画像の差し替え・フォルダの削除
     _save_noise_image(kohya_root / "10_a" / "a2.png", seed=11)
     (kohya_root / "10_a" / "a2.txt").write_text("Trig_A, new tag", encoding="utf-8")
@@ -316,6 +343,7 @@ def test_cli_diff_reimport_with_parent_reports_changes(
         version="v2",
     )
 
+    tags_before_diff = _tag_count(project_dir)
     result = _invoke_diff(cli_runner, version1, version2)
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -338,8 +366,14 @@ def test_cli_diff_reimport_with_parent_reports_changes(
     assert summary["folders_removed"] == 1
     assert summary["images_added"] == 1
     assert summary["images_replaced"] == 1
-    # 比較は書き込みをしない (画像直下のタグも増えない)
-    assert _tag_count(project_dir) == 0
+    # 比較は書き込みをしない (画像直下のタグも変わらない)
+    assert _tag_count(project_dir) == tags_before_diff
+    # v2 の取り込みで通常タグは最新版 (v2) の内容になる。v1 にしか無い 5_b の要素と
+    # 差し替え前の a1 (別画像) の要素は KOHYA_DATASET 行に残らない (#1647)
+    assert tags_before_v2 != _kohya_tags(project_dir)
+    assert _kohya_tags(project_dir) == sorted(
+        ["Trig_A", "(tag:1.2)", "long_sleeves", "Smile", "extra", "Trig_A", "new tag"]
+    )
 
 
 def test_cli_diff_same_content_has_no_changes(
@@ -403,6 +437,10 @@ def test_cli_copy_tags_copies_selected_folder_as_kohya_dataset(
 ) -> None:
     """copy-tags は選んだフォルダの学習テキストを KOHYA_DATASET の Tag として写す (#1454)。"""
     version_id = _import(cli_runner, kohya_root, "--exclude-dir", "3_skipme")
+    # 取り込みで写した行 (#1647) を取り消して、copy-tags だけの挙動を確かめる
+    revoke = cli_runner.invoke(app, ["--json", "dataset", "revoke-tags", "-p", PROJECT])
+    assert revoke.exit_code == 0, revoke.stdout + revoke.stderr
+    assert _tag_count(project_dir) == 0
 
     dry = _invoke_copy_tags(cli_runner, version_id, "--folder", "5_b", "--dry-run")
     assert dry["dry_run"] is True
@@ -423,6 +461,7 @@ def test_cli_copy_tags_unknown_folder_exits_nonzero(
     cli_runner: CliRunner, project_dir: Path, kohya_root: Path
 ) -> None:
     version_id = _import(cli_runner, kohya_root, "--exclude-dir", "3_skipme")
+    before = _kohya_tags(project_dir)
 
     result = cli_runner.invoke(
         app, ["dataset", "copy-tags", str(version_id), "-p", PROJECT, "--folder", "nope"]
@@ -430,7 +469,7 @@ def test_cli_copy_tags_unknown_folder_exits_nonzero(
 
     assert result.exit_code != 0
     assert "Traceback" not in result.stdout + result.stderr
-    assert _tag_count(project_dir) == 0
+    assert _kohya_tags(project_dir) == before
 
 
 def test_cli_revoke_tags_deletes_only_kohya_dataset_and_supports_dry_run_and_all(
@@ -656,7 +695,11 @@ def test_cli_parent_folder_order_sets_parents_and_skips_unlisted(
     assert items[0]["parent_version_id"] is None
     assert items[1]["parent_version_id"] == items[0]["version_id"]
     assert _version_count(project_dir) == 2
-    assert _tag_count(project_dir) == 0
+    # 最新版は順番の末尾 (raikou_v01)。通常タグは最新版の画像・要素だけ (#1647)
+    assert _kohya_tags(project_dir) == sorted(["raikou", "raikou_v01", "raikou", "raikou_v01"])
+    ids = _image_ids_by_stem(project_dir)
+    assert _shown_tags(cli_runner, project_dir, ids["raikou_v01"]) == _kohya("raikou", "raikou_v01")
+    assert _shown_tags(cli_runner, project_dir, ids["raikou_v06ps"]) == []
 
     # 取り込んだ版を書き出すと .txt の原文が戻る
     out_dir = project_dir.parent / "out_v01"
@@ -728,3 +771,87 @@ def test_cli_single_root_dry_run_output_is_unchanged(
         "+ 5_raikousyouzoku1  repeats=5  trigger=-  images=1  without_text=0  candidate=raikou (100%)",
         "total: 2 of 2 folder(s) would be imported",
     ]
+
+
+# --- 取り込みで通常タグにも登録する (Issue #1647) ---
+
+
+def _insert_tag(project_dir: Path, image_id: int, tag: str, litellm_id: str, name: str) -> None:
+    """手入力・AI のタグ行を 1 件足す (擬似モデル / AI モデルの行も無ければ作る)。"""
+    with sqlite3.connect(project_dir / "image_database.db") as conn:
+        row = conn.execute("SELECT id FROM models WHERE litellm_model_id = ?", (litellm_id,)).fetchone()
+        if row is None:
+            conn.execute(
+                "INSERT INTO models (name, provider, litellm_model_id, requires_api_key, created_at, "
+                "updated_at) VALUES (?, 'user', ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                (name, litellm_id),
+            )
+            row = conn.execute("SELECT id FROM models WHERE litellm_model_id = ?", (litellm_id,)).fetchone()
+        conn.execute(
+            "INSERT INTO tags (image_id, model_id, tag, existing, is_edited_manually, created_at, "
+            "updated_at) VALUES (?, ?, ?, 0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+            (image_id, row[0], tag, 1 if litellm_id == "__manual_edit__" else 0),
+        )
+        conn.commit()
+
+
+def test_cli_import_registers_txt_elements_as_kohya_tags_with_folder_union(
+    cli_runner: CliRunner, project_dir: Path, kohya_root: Path
+) -> None:
+    """取り込み直後の images show に .txt の要素が KOHYA_DATASET の行として入り、
+    2 フォルダに属する画像はフォルダ間の和集合になる。"""
+    (kohya_root / "5_b" / "a1_in_b.png").write_bytes((kohya_root / "10_a" / "a1.png").read_bytes())
+    (kohya_root / "5_b" / "a1_in_b.txt").write_text("trig_b, Smile, in b", encoding="utf-8")
+
+    _import(cli_runner, kohya_root, "--exclude-dir", "3_skipme")
+
+    ids = _image_ids_by_stem(project_dir)
+    assert ids["a1"] == ids["a1_in_b"]
+    assert _shown_tags(cli_runner, project_dir, ids["a1"]) == _kohya(
+        "Trig_A", "(tag:1.2)", "long_sleeves\r\nsecond line", "Smile", "trig_b", "in b"
+    )
+    assert _shown_tags(cli_runner, project_dir, ids["b1"]) == _kohya("trig_b", "blue eyes")
+
+
+def test_cli_new_version_replaces_kohya_tags_and_keeps_manual_and_ai(
+    cli_runner: CliRunner, project_dir: Path, kohya_root: Path
+) -> None:
+    """古い版 → 新しい版の順に取り込むと、通常タグは新しい版の内容だけになる。手入力・AI は不変。"""
+    _import(cli_runner, kohya_root, "--exclude-dir", "3_skipme", version="v1")
+    ids = _image_ids_by_stem(project_dir)
+    _insert_tag(project_dir, ids["a1"], "manual_keep", "__manual_edit__", "MANUAL_EDIT")
+    _insert_tag(project_dir, ids["a1"], "Smile", "openai/gpt-4o", "gpt-4o")
+
+    (kohya_root / "10_a" / "a1.txt").write_text("Trig_A, Smile, fixed tag", encoding="utf-8")
+    _import(cli_runner, kohya_root, "--exclude-dir", "3_skipme", "--exclude-dir", "5_b", version="v2")
+
+    assert _shown_tags(cli_runner, project_dir, ids["a1"]) == sorted(
+        [
+            *_kohya("Trig_A", "Smile", "fixed tag"),
+            ("manual_keep", "__manual_edit__"),
+            ("Smile", "openai/gpt-4o"),
+        ]
+    )
+    # b1 は最新版 (v2) に無いので、v1 の要素は KOHYA_DATASET 行に残らない
+    assert _shown_tags(cli_runner, project_dir, ids["b1"]) == []
+
+
+def test_cli_kohya_tags_union_latest_versions_of_datasets_sharing_an_image(
+    cli_runner: CliRunner, project_dir: Path, kohya_root: Path, tmp_path: Path
+) -> None:
+    """同じ画像を使う別データセットがあれば、データセットごとの最新版の要素の和集合にする。"""
+    _import(cli_runner, kohya_root, "--exclude-dir", "3_skipme", "--exclude-dir", "5_b", version="v1")
+    other = tmp_path / "other"
+    (other / "3_x").mkdir(parents=True)
+    (other / "3_x" / "same.png").write_bytes((kohya_root / "10_a" / "a1.png").read_bytes())
+    (other / "3_x" / "same.txt").write_text("other_trigger, Smile", encoding="utf-8")
+    result = cli_runner.invoke(
+        app,
+        ["--json", "dataset", "import", str(other), "-p", PROJECT, "--dataset", "other", "--version", "o1"],
+    )
+    assert result.exit_code == 0, result.stdout + result.stderr
+
+    ids = _image_ids_by_stem(project_dir)
+    assert _shown_tags(cli_runner, project_dir, ids["a1"]) == _kohya(
+        "Trig_A", "(tag:1.2)", "long_sleeves\r\nsecond line", "Smile", "other_trigger"
+    )
