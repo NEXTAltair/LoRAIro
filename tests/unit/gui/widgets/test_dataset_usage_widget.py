@@ -95,6 +95,21 @@ def test_usage_row_selection_emits_elements_and_clear_emits_none(qtbot, usage: D
     assert usage.selected_row() is None
 
 
+def test_usage_selected_row_shows_its_elements_including_old_only_tags(usage: DatasetUsageWidget) -> None:
+    """Codex P2 (PR #1655): 古い版にしか無いタグ (通常タグから消えたもの) も、行を選べば確認できる。"""
+    usage.set_entries(ENTRIES)
+    assert usage._elements_label.isHidden() is True
+
+    usage.select_row(2)
+
+    assert usage._elements_label.isHidden() is False
+    assert usage._elements_label.text() == ".txt の要素: 1boy, rating:safe"
+    assert usage._table.item(2, 0).toolTip() == "1boy, rating:safe"
+
+    usage.clear_selection()
+    assert usage._elements_label.isHidden() is True
+
+
 # --- TagPanelWidget: 由来の印・絞り込み・強調 ------------------------------
 
 

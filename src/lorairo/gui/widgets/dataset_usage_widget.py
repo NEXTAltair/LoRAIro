@@ -1,8 +1,9 @@
 """「学習に使ったデータセット」セクションのウィジェット (#1647 / ADR 0104)。
 
 現在表示中の画像が使われたデータセット・版・フォルダ・繰り返し数を表で並べ、行の選択で
-その版・フォルダの学習テキスト (.txt) の要素を ``highlight_changed`` で上げるだけの
-表示専用ウィジェット。古い版の行も出すので、通常タグに載らない古い版のタグもここで確認できる。
+その版・フォルダの学習テキスト (.txt) の要素を ``highlight_changed`` で上げ、表の下に
+読み取り専用で表示する表示専用ウィジェット。古い版の行も出すので、通常タグに載らない
+古い版のタグもここで確認できる。
 
 ``lorairo.database`` / ``lorairo.services`` を import せず、表示に必要な値を
 :class:`DatasetUsageEntry` として受け取る (``RelatedImagesWidget`` と同じ
@@ -14,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -50,6 +51,11 @@ class DatasetUsageEntry:
     dir_name: str
     num_repeats: int
     elements: tuple[str, ...]
+
+
+def _elements_text(entry: DatasetUsageEntry) -> str:
+    """行の .txt の要素を表示用に並べる。元の .txt の並び順は出さない (ADR 0104 §6) ため名前順にする。"""
+    return ", ".join(sorted(set(entry.elements)))
 
 
 class DatasetUsageWidget(QWidget):
@@ -107,6 +113,17 @@ class DatasetUsageWidget(QWidget):
         self._table.itemSelectionChanged.connect(self._on_selection_changed)
         layout.addWidget(self._table)
 
+        # 選んだ行の .txt の要素 (読み取り専用)。新しい版で通常タグから消えた古い版のタグは
+        # タグ欄に chip が無く強調できないため、ここで確認できるようにする
+        self._elements_label = QLabel(self)
+        self._elements_label.setObjectName("datasetUsageElementsLabel")
+        self._elements_label.setWordWrap(True)
+        self._elements_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._elements_label.setStyleSheet(
+            f"color: {theme.INK_SOFT}; font-size: {theme.FONT_SIZE_SMALL}px;"
+        )
+        layout.addWidget(self._elements_label)
+
         self.clear()
 
     # ------------------------------------------------------------------
@@ -125,9 +142,13 @@ class DatasetUsageWidget(QWidget):
         self._table.setRowCount(len(self._entries))
         for row, entry in enumerate(self._entries):
             values = (entry.dataset_name, entry.version_name, entry.dir_name, str(entry.num_repeats))
+            elements_text = _elements_text(entry)
             for column, value in enumerate(values):
-                self._table.setItem(row, column, QTableWidgetItem(value))
+                item = QTableWidgetItem(value)
+                item.setToolTip(elements_text)
+                self._table.setItem(row, column, item)
         self._table.blockSignals(False)
+        self._show_elements(None)
         has_rows = bool(self._entries)
         self._table.setVisible(has_rows)
         self._empty_label.setVisible(not has_rows)
@@ -167,9 +188,20 @@ class DatasetUsageWidget(QWidget):
         row = self.selected_row()
         self._clear_button.setEnabled(row is not None)
         if row is None or row >= len(self._entries):
+            self._show_elements(None)
             self.highlight_changed.emit(None)
             return
+        self._show_elements(self._entries[row])
         self.highlight_changed.emit(set(self._entries[row].elements))
+
+    def _show_elements(self, entry: DatasetUsageEntry | None) -> None:
+        """選んだ行の .txt の要素を表示する。未選択なら隠す。"""
+        if entry is None:
+            self._elements_label.clear()
+            self._elements_label.setVisible(False)
+            return
+        self._elements_label.setText(f".txt の要素: {_elements_text(entry)}")
+        self._elements_label.setVisible(True)
 
     def _fit_table_height(self) -> None:
         """行数ぶんの高さに合わせ、詳細ペイン内で二重スクロールにしない。"""
