@@ -291,6 +291,18 @@ class TestTagAddRequest:
         assert requests == [([1, 2], ["landscape", "sky"])]
         assert widget.ui.lineEditTag.text() == ""
 
+    def test_tag_completion_targets_last_comma_separated_token(self, qtbot, widget_with_staging):
+        """Issue #1646: カンマ区切り入力では補完が最後の要素を対象にし、前の要素を残す"""
+        widget = widget_with_staging
+        suggestion = widget._tag_suggestion
+        widget.ui.lineEditTag.setText("landscape, sk")
+
+        assert suggestion._token_for(widget.ui.lineEditTag.text()) == "sk"
+
+        suggestion._on_tag_completion_activated("sky")
+
+        assert widget.ui.lineEditTag.text() == "landscape, sky, "
+
     def test_comma_separated_input_ignores_empty_elements(self, qtbot, widget_with_staging):
         """Issue #1646: `landscape,, sky ,` でも空タグは作られない"""
         widget = widget_with_staging

@@ -2030,6 +2030,19 @@ def test_handle_batch_tag_add_stops_at_first_failed_tag(tab: AnnotateTabWidget, 
     tab._staging_state_manager.remove_image_ids.assert_not_called()
 
 
+@pytest.mark.gui
+def test_batch_tag_write_failure_refreshes_cached_metadata(tab: AnnotateTabWidget, monkeypatch) -> None:
+    """Issue #1646: 途中のタグだけ書けて失敗した場合も、書込済みのタグを表示へ反映するため再読込する。"""
+    tab._dataset_state_manager = Mock()
+    tab._staging_state_manager = Mock()
+    monkeypatch.setattr("lorairo.gui.tab.annotate_tab.show_critical", lambda *a, **k: None)
+
+    tab._on_batch_tag_write_finished([1, 2], ["a", "b"], False)
+
+    tab._dataset_state_manager.refresh_images.assert_called_once_with([1, 2])
+    tab._staging_state_manager.remove_image_ids.assert_not_called()
+
+
 # == 15. Issue #1515 / #1546: キャッシュ・差分取得・バッチ低解像度パス解決 =====
 
 

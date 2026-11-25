@@ -155,10 +155,9 @@ class BatchTagAddWidget(QWidget):
         self._staging_widget.compare_requested.connect(self.compare_requested)
 
         # タグ補完 (共通部品、Issue #1439)。候補ソースは set_tag_suggestion_service() で注入する。
+        # カンマ区切りで複数タグを入力できるため、最後の要素を補完する複数タグモードにする (#1646)。
         self._tag_suggestion = TagSuggestionWidget(self)
-        self._tag_suggestion.attach_line_edit(
-            self.ui.lineEditTag, multi_tag=False, connect_text_edited=True
-        )
+        self._tag_suggestion.attach_line_edit(self.ui.lineEditTag, multi_tag=True, connect_text_edited=True)
 
         logger.info("BatchTagAddWidget initialized")
 

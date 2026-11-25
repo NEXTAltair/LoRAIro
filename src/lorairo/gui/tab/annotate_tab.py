@@ -619,9 +619,10 @@ class AnnotateTabWidget(QWidget, Ui_AnnotateTab):
         tag_label = ", ".join(f"'{t}'" for t in tags)
         self._batch_tag_write_in_progress = False
         self._batch_tag_add_widget.set_busy(False)
+        # 複数タグの途中で失敗しても、それまでのタグは commit 済みなので常に再読込する (#1646)
+        if self._dataset_state_manager is not None:
+            self._dataset_state_manager.refresh_images(image_ids)
         if success:
-            if self._dataset_state_manager is not None:
-                self._dataset_state_manager.refresh_images(image_ids)
             # 完了したバッチ対象 ID のみをステージングから除外 (非同期書込中に追加された画像は保持)
             if self._staging_state_manager is not None:
                 self._staging_state_manager.remove_image_ids(image_ids)
