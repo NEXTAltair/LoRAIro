@@ -241,8 +241,7 @@ def render() -> str:
         "",
         "## Exit Code",
         "",
-        "例外発生時の終了コードは、エラーコードから機械的に決定されます"
-        "(`src/lorairo/cli/_errors.py`)。",
+        "例外発生時の終了コードは、エラーコードから機械的に決定されます(`src/lorairo/cli/_errors.py`)。",
         "",
         "| 終了コード | 意味 |",
         "|---|---|",
@@ -272,7 +271,7 @@ def render() -> str:
         '- **`describe`(既定の `compact` 形式)**: `type:"model"` の行で、'
         "入力・出力・エラーの簡易フィールド一覧を返します。"
         "各フィールドの `schema` には、制約を含む対応プロパティが入ります。",
-        '- **`describe --schema json_schema`**: Pydantic 由来の公開スキーマを '
+        "- **`describe --schema json_schema`**: Pydantic 由来の公開スキーマを "
         '`type:"schema"` の `item` 行に包んで返します。',
         "",
         "スキーマ生成と公開範囲には、次のルールを適用しています。",
