@@ -272,7 +272,7 @@ tests/
 4. **同期アクションの実行**: 追加は本スキルのコアパターンに従って生成し、修正は変更後の API に合わせて更新する。削除は確認後に実施する。
 5. **検証**: 新規・修正テストおよび回帰テストを `make test`、または `uv run --no-sync pytest -m "not downloads_and_runs_model and not calls_real_webapi"` で確認する(コマンド定義は `scripts/dev_tasks.py` と `pyproject.toml` にある)。
 
-Ruff・mypy・pytest による簡易品質チェックは、`make lint`・`make mypy`・`make test` で直接実行する。
+テスト変更の簡易チェックは、変更ファイルへの Ruff と関連する pytest を実行する。パッケージ全体の型チェックは CI で実行する。
 
 ## テストを書く前の確認
 

@@ -80,7 +80,7 @@ follow_imports = "skip"
 
 ## Lint 結果の扱い
 
-- コミット前に `uv run ruff check`、`uv run ruff format`、`uv run mypy` を実行し、すべてのチェックを通す。指摘が残った状態でコミットしてはならない。
+- コミット前に変更対象の Python ファイルに Ruff の lint と format を適用する。パッケージ全体の mypy は CI で実行する。ローカルの mypy は型定義の変更や型エラーの調査時に対象を絞って実行する。指摘が残った状態でコミットしてはならない。
 - 指摘は根本原因を修正し、`# noqa` や `# type: ignore` で抑制しない。例外的に抑制が必要な場合は、ルールコードを限定したうえで同じ行に理由を明記する。
 
 ```python
