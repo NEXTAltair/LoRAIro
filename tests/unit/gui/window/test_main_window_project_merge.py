@@ -29,12 +29,14 @@ class _FakeDialog:
         self.project_service = project_service
         self.current_project_root = current_project_root
         self.merged_target_root: Path | None = None
+        self.merged_image_ids: list[int] = []
         self.executed = False
         _FakeDialog.instances.append(self)
 
     def exec(self) -> int:
         self.executed = True
         self.merged_target_root = _FakeDialog.merged_root
+        self.merged_image_ids = [3, 5] if _FakeDialog.merged_root is not None else []
         return 1
 
     def deleteLater(self) -> None:
@@ -92,6 +94,8 @@ def test_merge_into_current_project_refreshes_view(
     (dialog,) = _FakeDialog.instances
     assert dialog.executed
     assert dialog.current_project_root == (tmp_path / "current").resolve()
+    # 検索タブは選択中の画像の由来・データセット利用状況まで読み直す
+    window.search_tab.refresh_after_project_merge.assert_called_once_with([3, 5])
     window.refresh.assert_called_once_with(window)
 
 
@@ -105,3 +109,4 @@ def test_merge_into_other_project_does_not_refresh(
 
     assert len(_FakeDialog.instances) == 1
     window.refresh.assert_not_called()
+    window.search_tab.refresh_after_project_merge.assert_not_called()

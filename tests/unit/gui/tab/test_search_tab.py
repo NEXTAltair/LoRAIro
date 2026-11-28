@@ -1532,3 +1532,27 @@ def test_copy_does_not_refresh_origin_of_unaffected_image(tab, monkeypatch) -> N
     tab._on_cross_project_images_copied([7, 8])
 
     refresh_origins.assert_not_called()
+
+
+@pytest.mark.gui
+def test_refresh_after_project_merge_reloads_details_of_merged_images(
+    tab, dataset_state_manager, monkeypatch
+) -> None:
+    """統合で既存の画像にまとめても画像 ID は変わらないので、由来とデータセット利用状況を読み直す (#1660)。"""
+    details = tab.selected_image_details_widget
+    details.current_image_id = 7
+    refresh_origins = Mock()
+    monkeypatch.setattr(details, "refresh_image_origins", refresh_origins)
+    refresh_usage = Mock()
+    monkeypatch.setattr(details, "refresh_dataset_usage", refresh_usage)
+    invalidate = Mock()
+    monkeypatch.setattr(dataset_state_manager, "invalidate_annotations", invalidate)
+    reload = Mock()
+    monkeypatch.setattr(tab, "load_images_from_db", reload)
+
+    tab.refresh_after_project_merge([7, 8])
+
+    invalidate.assert_called_once_with([7, 8])
+    refresh_origins.assert_called_once_with()
+    refresh_usage.assert_called_once_with()
+    reload.assert_called_once_with()

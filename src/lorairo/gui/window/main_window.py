@@ -1629,8 +1629,17 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         )
         dialog.exec()
         merged_root = dialog.merged_target_root
+        merged_image_ids = dialog.merged_image_ids
         dialog.deleteLater()
-        if current_root is not None and merged_root == current_root:
+        if current_root is None or merged_root != current_root:
+            return
+        # まとめた画像は ID が変わらないため、検索タブの詳細 (由来・データセット利用状況) も明示的に読み直す
+        search_tab = getattr(self, "search_tab", None)
+        if search_tab is not None:
+            search_tab.refresh_after_project_merge(merged_image_ids)
+        tab_widget = getattr(self, "tabWidgetMainMode", None)
+        current_tab = tab_widget.currentWidget() if tab_widget is not None else None
+        if search_tab is None or current_tab not in (getattr(self, "tabWorkspace", None), search_tab):
             MainWindow._refresh_active_tab(self)
 
     def _open_log_folder(self) -> None:

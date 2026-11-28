@@ -135,6 +135,7 @@ class ProjectMergeDialog(QDialog):
         self._dataset_refs: dict[str, SourceDatasetRef] = {}
         self._stat_tiles: list[DsSummaryStat] = []
         self._merged_target_root: Path | None = None
+        self._merged_image_ids: list[int] = []
 
         self._worker_manager = WorkerManager(self)
         # GUI スレッドで発行される終端 signal を、このダイアログの Slot で受ける
@@ -167,6 +168,11 @@ class ProjectMergeDialog(QDialog):
     def merged_target_root(self) -> Path | None:
         """統合を確定した統合先のディレクトリ。まだ確定していなければ None。"""
         return self._merged_target_root
+
+    @property
+    def merged_image_ids(self) -> list[int]:
+        """確定した統合で、統合先に取り込んだ画像とハッシュ一致でまとめた先の画像の ID (重複なし)。"""
+        return list(self._merged_image_ids)
 
     def load_projects(self) -> None:
         """プロジェクトの一覧を worker で取得する。"""
@@ -636,6 +642,8 @@ class ProjectMergeDialog(QDialog):
     def _on_applied(self, outcome: MergeApplyOutcome) -> None:
         result = outcome.result
         self._merged_target_root = outcome.target_root.resolve()
+        # まとめた画像は既存の画像 ID を指す (ID が変わらないので、呼び出し側が明示的に読み直す)
+        self._merged_image_ids = sorted(set(result.image_ids.values()))
         message = (
             f"{len(result.plan.source_projects)} 個のプロジェクトを '{result.plan.target_project}' へ統合しました: "
             f"画像 {result.plan.image_count:,} 枚 (ハッシュ一致でまとめた画像 {len(result.plan.duplicates):,} 枚)、"

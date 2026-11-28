@@ -238,6 +238,12 @@ def test_confirm_is_disabled_until_dataset_rename_resolves_conflict_then_merges(
 
     target = projects["proj_t"]
     assert dialog.merged_target_root == target.root.resolve()
+    # 統合先で取り込み・まとめた画像 ID (ハッシュ一致で既存の画像にまとめたものを含む)
+    with closing(sqlite3.connect(target.db_path)) as conn:
+        target_ids = {
+            int(row[0]) for row in conn.execute("SELECT id FROM images WHERE uuid != 'proj_t-t_own'")
+        }
+    assert set(dialog.merged_image_ids) == target_ids
     assert messages == {"information": ["プロジェクトを統合しました"], "critical": []}
     assert not dialog.confirm_button.isEnabled()
     # 画像は T の 1 枚 + A の 2 枚 + B の dog 1 枚 (B の shared は A の shared にまとめる)
@@ -387,6 +393,27 @@ def test_dataset_without_versions_can_be_renamed_to_resolve_conflict(
     table.item(rows["proj_b:chara"], 1).setText("chara_b")
     plan = _wait_plan(qtbot, dialog)
 
+    assert plan.is_resolved
+    assert dialog.confirm_button.isEnabled()
+
+
+def test_dataset_left_out_of_a_join_can_be_renamed_or_joined(
+    qtbot: QtBot, dialog: ProjectMergeDialog
+) -> None:
+    """A の chara だけを join にまとめても、同名の B の chara を表から変えるか join に加えられる。"""
+    _make_plan(qtbot, dialog)
+    _join(dialog, "chara", ["proj_a:chara"])
+    plan = _wait_plan(qtbot, dialog)
+    assert ("dataset_name", "chara") in [(c.kind, c.target_dataset) for c in plan.conflicts]
+
+    table = dialog.dataset_table
+    rows = {table.item(row, 0).text(): row for row in range(table.rowCount())}
+    assert "proj_b:chara" in rows
+    joinable = [dialog.join_source_list.item(row).text() for row in range(dialog.join_source_list.count())]
+    assert "proj_b:chara" in joinable
+
+    table.item(rows["proj_b:chara"], 1).setText("chara_b")
+    plan = _wait_plan(qtbot, dialog)
     assert plan.is_resolved
     assert dialog.confirm_button.isEnabled()
 

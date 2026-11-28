@@ -264,7 +264,7 @@ class PlannedDataset:
     Attributes:
         source: 統合元のデータセット。
         target_dataset: 統合先のデータセット名。
-        version_count: 統合する版の数 (版を持たないデータセットは 0)。
+        version_count: 統合元のデータセットの版の数 (版を持たないデータセットは 0)。
     """
 
     source: SourceDatasetRef
@@ -314,8 +314,8 @@ class MergePlan:
         versions: 統合する版 (統合先のデータセットごと、履歴の順)。
         conflicts: 未解決の衝突。空なら確定できる。
         mapping: 計画に使った名前の対応。
-        datasets: 統合元のデータセットと統合先のデータセット名 (統合先のデータセットごと、
-            履歴の順)。版を持たないデータセットも含む。
+        datasets: 統合元のすべてのデータセットと統合先のデータセット名 (統合先のデータセットごと、
+            履歴の順)。版を持たないデータセットと、衝突でどのデータセットにも入らないものも含む。
     """
 
     target_project: str
@@ -342,7 +342,9 @@ class MergePlan:
 
         いまの計画の名前をそのまま埋める。衝突している名前を書き換えて mapping ファイルにする。
         """
-        datasets: dict[SourceDatasetRef, str] = {}
+        datasets: dict[SourceDatasetRef, str] = {
+            planned.source: planned.target_dataset for planned in self.datasets
+        }
         for version in self.versions:
             datasets.setdefault(
                 SourceDatasetRef(version.source.project, version.source.dataset), version.target_dataset
@@ -516,6 +518,7 @@ class _DatasetPlan:
     groups: list[_DatasetGroup]
     versions: list[PlannedVersion]
     conflicts: list[MergeConflict]
+    datasets: list[PlannedDataset]
 
 
 def _latest_version_id(nodes: Sequence[_VersionNode]) -> int | None:
@@ -1024,7 +1027,37 @@ def _plan_datasets(
         if all(conflict.target_dataset != group.target_name for conflict in conflicts):
             conflicts.extend(_version_conflicts(group, group_versions))
     conflicts.extend(_cycle_conflicts(versions))
-    return _DatasetPlan(groups=ordered, versions=versions, conflicts=conflicts)
+    return _DatasetPlan(
+        groups=ordered,
+        versions=versions,
+        conflicts=conflicts,
+        datasets=_planned_datasets(ordered, source_datasets, mapping, joined_name),
+    )
+
+
+def _planned_datasets(
+    groups: list[_DatasetGroup],
+    source_datasets: list[_SourceDataset],
+    mapping: MergeMapping,
+    joined_name: dict[SourceDatasetRef, str],
+) -> list[PlannedDataset]:
+    """統合元のすべてのデータセットと、統合先でのデータセット名を返す。
+
+    衝突でどのまとまり (group) にも入らなかったデータセット (join と同名の、join に含めなかった
+    データセット) も含める。名前の変更や join への追加で衝突を解消する対象になるため。
+    """
+    planned: list[PlannedDataset] = []
+    seen: set[SourceDatasetRef] = set()
+    for group in groups:
+        for element in group.elements:
+            planned.append(PlannedDataset(element.ref, group.target_name, len(element.versions)))
+            seen.add(element.ref)
+    for dataset in source_datasets:
+        if dataset.ref in seen:
+            continue
+        name = joined_name.get(dataset.ref) or mapping.dataset_names.get(dataset.ref, dataset.ref.dataset)
+        planned.append(PlannedDataset(dataset.ref, name, len(dataset.versions)))
+    return planned
 
 
 def _cycle_conflicts(versions: Sequence[PlannedVersion]) -> list[MergeConflict]:
@@ -1227,11 +1260,7 @@ def _build_plan(
         versions=tuple(dataset_plan.versions),
         conflicts=tuple(dataset_plan.conflicts),
         mapping=mapping,
-        datasets=tuple(
-            PlannedDataset(element.ref, group.target_name, len(element.versions))
-            for group in dataset_plan.groups
-            for element in group.elements
-        ),
+        datasets=tuple(dataset_plan.datasets),
     )
 
 
