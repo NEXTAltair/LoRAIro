@@ -337,6 +337,11 @@ def _timestamps(row: object, *, updated: bool = True) -> dict[str, datetime]:
     return values
 
 
+def _time_key(value: datetime | None) -> datetime | None:
+    """重複判定に使う時刻。DB から読んだ値 (タイムゾーンなし) と比べられるようタイムゾーンを外す。"""
+    return value.replace(tzinfo=None) if value is not None else None
+
+
 def _copy_file(source: Path, destination: Path) -> None:
     """ファイルを内容と更新日時ごとコピーする。コピー元は読むだけ。"""
     shutil.copy2(source, destination)
@@ -768,8 +773,9 @@ class ProjectTransferService:
         行の `created_at` / `updated_at` はコピー元の値を引き継ぐ。「現在の値」を最新の `created_at` で
         選ぶ処理 (`ImageRepository._derive_manual_score` 等) が、コピーで選ぶ行を変えないようにするため。
 
-        タグは (モデル, タグ) が既にあれば既存を優先する。キャプション・スコア・スコアラベル・
-        レーティングは値が完全に一致する行があれば足さない。
+        タグは (モデル, タグ) が既にあれば既存を優先する (一意制約)。キャプション・スコア・スコアラベル・
+        レーティングは、値と `created_at` が一致する行があれば足さない。同じ値でも別の時点の記録
+        (例: 2 → 8 → 2 の履歴) は残し、同じコピーを繰り返しても行は増えない。
         """
         return (
             self._merge_tags(session, context, image, target_id)
@@ -812,16 +818,19 @@ class ProjectTransferService:
     ) -> int:
         added = 0
         caption_keys = {
-            (row.model_id, row.caption)
+            (row.model_id, row.caption, _time_key(row.created_at))
             for row in session.execute(
-                select(Caption.model_id, Caption.caption).where(Caption.image_id == target_id)
+                select(Caption.model_id, Caption.caption, Caption.created_at).where(
+                    Caption.image_id == target_id
+                )
             )
         }
         for caption in image.captions:
             model_id = self._target_model_id(session, context, caption.model)
-            if (model_id, caption.caption) in caption_keys:
+            caption_key = (model_id, caption.caption, _time_key(caption.created_at))
+            if caption_key in caption_keys:
                 continue
-            caption_keys.add((model_id, caption.caption))
+            caption_keys.add(caption_key)
             session.add(
                 Caption(
                     image_id=target_id,
@@ -840,16 +849,19 @@ class ProjectTransferService:
     def _merge_scores(self, session: Session, context: _StageContext, image: Image, target_id: int) -> int:
         added = 0
         score_keys = {
-            (row.model_id, row.score)
+            (row.model_id, row.score, bool(row.is_edited_manually), _time_key(row.created_at))
             for row in session.execute(
-                select(Score.model_id, Score.score).where(Score.image_id == target_id)
+                select(Score.model_id, Score.score, Score.is_edited_manually, Score.created_at).where(
+                    Score.image_id == target_id
+                )
             )
         }
         for score in image.scores:
             model_id = self._target_model_id(session, context, score.model)
-            if (model_id, score.score) in score_keys:
+            score_key = (model_id, score.score, bool(score.is_edited_manually), _time_key(score.created_at))
+            if score_key in score_keys:
                 continue
-            score_keys.add((model_id, score.score))
+            score_keys.add(score_key)
             session.add(
                 Score(
                     image_id=target_id,
@@ -868,16 +880,19 @@ class ProjectTransferService:
     ) -> int:
         added = 0
         label_keys = {
-            (row.model_id, row.label)
+            (row.model_id, row.label, _time_key(row.created_at))
             for row in session.execute(
-                select(ScoreLabel.model_id, ScoreLabel.label).where(ScoreLabel.image_id == target_id)
+                select(ScoreLabel.model_id, ScoreLabel.label, ScoreLabel.created_at).where(
+                    ScoreLabel.image_id == target_id
+                )
             )
         }
         for label in image.score_labels:
             label_model_id = self._target_model_id(session, context, label.model)
-            if label_model_id is None or (label_model_id, label.label) in label_keys:
+            label_key = (label_model_id, label.label, _time_key(label.created_at))
+            if label_model_id is None or label_key in label_keys:
                 continue
-            label_keys.add((label_model_id, label.label))
+            label_keys.add(label_key)
             session.add(
                 ScoreLabel(
                     image_id=target_id,
@@ -893,16 +908,21 @@ class ProjectTransferService:
     def _merge_ratings(self, session: Session, context: _StageContext, image: Image, target_id: int) -> int:
         added = 0
         rating_keys = {
-            (row.model_id, row.raw_rating_value, row.normalized_rating)
+            (row.model_id, row.raw_rating_value, row.normalized_rating, _time_key(row.created_at))
             for row in session.execute(
-                select(Rating.model_id, Rating.raw_rating_value, Rating.normalized_rating).where(
-                    Rating.image_id == target_id
-                )
+                select(
+                    Rating.model_id, Rating.raw_rating_value, Rating.normalized_rating, Rating.created_at
+                ).where(Rating.image_id == target_id)
             )
         }
         for rating in image.ratings:
             rating_model_id = self._target_model_id(session, context, rating.model)
-            key = (rating_model_id, rating.raw_rating_value, rating.normalized_rating)
+            key = (
+                rating_model_id,
+                rating.raw_rating_value,
+                rating.normalized_rating,
+                _time_key(rating.created_at),
+            )
             if rating_model_id is None or key in rating_keys:
                 continue
             rating_keys.add(key)

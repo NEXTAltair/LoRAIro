@@ -588,3 +588,77 @@ def test_build_version_file_stems_stay_unique_when_generated_stem_collides(
     stems = [image.file_stem for image in plan.images]
     assert stems[:2] == [f"cat_{second}", "cat"]
     assert len(set(stems)) == 3
+
+
+def test_copy_keeps_repeated_values_in_history_so_current_score_is_unchanged(
+    projects: dict[str, SyntheticProject],
+) -> None:
+    """同じモデルで 2 → 8 → 2 の履歴をコピーしても現在値は 2 のまま。2 回コピーしても行は増えない。"""
+    import datetime
+
+    from sqlalchemy import select
+
+    from lorairo.database.repository.image import ImageRepository
+    from lorairo.database.schema import Caption, Image, Model, Rating, Score, ScoreLabel
+
+    a, t = projects["proj_a"], projects["proj_t"]
+    source_id = _source_id(a, "a_dog")
+    times = [datetime.datetime(2026, 1, day, tzinfo=datetime.UTC) for day in (1, 2, 3)]
+    factory = a.session_factory()
+    with factory() as session:
+        model = Model(name="history", provider="local", litellm_model_id="local/history")
+        session.add(model)
+        session.flush()
+        for value, at in zip(("2", "8", "2"), times, strict=True):
+            session.add(
+                Score(
+                    image_id=source_id,
+                    model_id=model.id,
+                    score=float(value),
+                    is_edited_manually=True,
+                    created_at=at,
+                    updated_at=at,
+                )
+            )
+            session.add(
+                Caption(image_id=source_id, model_id=model.id, caption=value, created_at=at, updated_at=at)
+            )
+            session.add(
+                ScoreLabel(image_id=source_id, model_id=model.id, label=value, created_at=at, updated_at=at)
+            )
+            session.add(
+                Rating(
+                    image_id=source_id,
+                    model_id=model.id,
+                    raw_rating_value=value,
+                    normalized_rating=value,
+                    created_at=at,
+                    updated_at=at,
+                )
+            )
+        session.commit()
+        source_image = session.get(Image, source_id)
+        assert source_image is not None
+        assert ImageRepository._derive_manual_score(source_image) == 2.0
+
+    service = _service(t)
+    target_id = service.copy_images(a.source, [source_id]).items[0].target_image_id
+    assert target_id is not None
+    tables = ("scores", "captions", "score_labels", "ratings")
+    after_first = table_counts(t, tables)
+
+    with t.session_factory()() as session:
+        copied = session.get(Image, target_id)
+        assert copied is not None
+        assert ImageRepository._derive_manual_score(copied) == 2.0
+        assert len([s for s in copied.scores if s.model_id is not None and s.is_edited_manually]) == 3
+        history_model = session.execute(
+            select(Model).where(Model.litellm_model_id == "local/history")
+        ).scalar_one()
+        for rows in (copied.captions, copied.score_labels, copied.ratings):
+            assert len([row for row in rows if row.model_id == history_model.id]) == 3
+
+    again = service.copy_images(a.source, [source_id])
+
+    assert [item.annotations_added for item in again.items] == [0]
+    assert table_counts(t, tables) == after_first
