@@ -11,6 +11,7 @@ orientation 維持 (#865)・パネルトグル・入口 Signal・MainWindow 連�
 
 from __future__ import annotations
 
+import gc
 import json
 import sys
 from datetime import UTC, datetime
@@ -860,6 +861,10 @@ def test_missing_db_manager_aborts_construction(qtbot, service_container: Mock) 
             staging_state_manager=StagingStateManager(),
             worker_service=None,
         )
+    # 構築途中で失敗したウィジェットは例外の traceback と循環参照になり、次のテストで worker
+    # スレッドの GC に回収されると Qt の破棄が別スレッドで走りセグフォする (#1077/#1090)。
+    # メインスレッドでここで回収しておく。
+    gc.collect()
 
 
 # == 3. #865 splitter orientation 再適用 ======================================
@@ -1337,3 +1342,193 @@ def test_details_save_failed_surfaced_on_label_status(tab: SearchTabWidget) -> N
     """Issue #1553: 詳細パネルのタグ保存失敗が labelStatus に反映される。"""
     tab._on_details_save_failed("タグ保存に失敗しました")
     assert tab.labelStatus.text() == "タグ保存に失敗しました"
+
+
+# -- プロジェクト横断の検索・コピー・版の作成の導線 (#1661) ----------------------
+
+
+class _FakeDialog:
+    """ダイアログの代わりに、渡された引数と exec の呼び出しを記録する。"""
+
+    def __init__(self, *args, **kwargs) -> None:
+        self.args = args
+        self.kwargs = kwargs
+        self.exec_calls = 0
+        self.images_copied = Mock()
+        self.version_built = Mock()
+
+    def exec(self) -> int:
+        self.exec_calls += 1
+        return 0
+
+
+@pytest.mark.gui
+def test_action_toolbar_has_cross_project_and_version_buttons(tab) -> None:
+    """アクションツールバーに「他のプロジェクトから探す…」「選んだ画像から版を作る…」がある。"""
+    assert tab.pushButtonCrossProjectSearch.text() == "他のプロジェクトから探す…"
+    assert tab.pushButtonBuildVersion.text() == "選んだ画像から版を作る…"
+    assert tab.pushButtonCrossProjectSearch.isEnabled()
+    assert tab.pushButtonBuildVersion.isEnabled()
+    layout = tab.horizontalLayout_actionToolbar
+    assert layout.indexOf(tab.pushButtonCrossProjectSearch) == 1
+    assert layout.indexOf(tab.pushButtonBuildVersion) == 2
+
+
+@pytest.mark.gui
+def test_cross_project_button_opens_dialog_with_current_project_and_filter(
+    tab, db_manager, service_container, monkeypatch, tmp_path
+) -> None:
+    """横断検索ダイアログへ現在のプロジェクト・セッション・フィルタ条件を渡し、取り込み後に再検索する。"""
+    from lorairo.gui.tab import search_tab
+
+    created: list[_FakeDialog] = []
+
+    def make_dialog(*args, **kwargs):
+        dialog = _FakeDialog(*args, **kwargs)
+        created.append(dialog)
+        return dialog
+
+    monkeypatch.setattr(search_tab, "CrossProjectSearchDialog", make_dialog)
+    monkeypatch.setattr(tab, "_current_project_root", lambda: tmp_path)
+    reload = Mock()
+    monkeypatch.setattr(tab, "load_images_from_db", reload)
+
+    tab.pushButtonCrossProjectSearch.click()
+
+    (dialog,) = created
+    assert dialog.exec_calls == 1
+    assert dialog.kwargs["target_root"] == tmp_path
+    assert dialog.kwargs["target_session_factory"] is db_manager.image_repo.session_factory
+    assert dialog.kwargs["project_service"] is service_container.project_management_service
+    # 表示文と条件は、検索タブのフィルタ入力から作ったもの (既定では NSFW を除外する)
+    assert "NSFW除外" in dialog.kwargs["criteria_text"]
+    criteria = dialog.kwargs["criteria_factory"]()
+    assert criteria.keyword_groups is None
+    assert criteria.include_nsfw is False
+    (slot,) = dialog.images_copied.connect.call_args.args
+
+    messages: list[str] = []
+    tab.status_message.connect(messages.append)
+    slot([7, 8])
+    reload.assert_called_once_with()
+    assert messages == ["他のプロジェクトから 2 枚を取り込みました"]
+
+
+@pytest.mark.gui
+def test_cross_project_button_with_invalid_filter_does_not_open(tab, monkeypatch) -> None:
+    """フィルタ条件が不正ならダイアログを開かず、ステータスで知らせる。"""
+    from lorairo.gui.tab import search_tab
+
+    opened = Mock()
+    monkeypatch.setattr(search_tab, "CrossProjectSearchDialog", opened)
+    monkeypatch.setattr(tab.filter_search_panel, "build_cross_project_query", lambda: None)
+    messages: list[str] = []
+    tab.status_message.connect(messages.append)
+
+    tab.pushButtonCrossProjectSearch.click()
+
+    opened.assert_not_called()
+    assert messages == ["検索条件を確認してください (他のプロジェクトを検索できません)"]
+
+
+@pytest.mark.gui
+def test_build_version_button_requires_selection(tab, monkeypatch) -> None:
+    """画像を選んでいなければ版の作成ダイアログを開かない。"""
+    from lorairo.gui.tab import search_tab
+
+    opened = Mock()
+    monkeypatch.setattr(search_tab, "DatasetVersionBuildDialog", opened)
+    messages: list[str] = []
+    tab.status_message.connect(messages.append)
+
+    tab.pushButtonBuildVersion.click()
+
+    opened.assert_not_called()
+    assert messages == ["版に入れる画像を選んでください"]
+
+
+@pytest.mark.gui
+def test_build_version_button_opens_dialog_with_selected_images(
+    tab, dataset_state_manager, monkeypatch
+) -> None:
+    """選択中の画像 ID を版の作成ダイアログへ渡し、作成後に利用データセットを取り直す。"""
+    from lorairo.gui.tab import search_tab
+
+    created: list[_FakeDialog] = []
+
+    def make_dialog(*args, **kwargs):
+        dialog = _FakeDialog(*args, **kwargs)
+        created.append(dialog)
+        return dialog
+
+    monkeypatch.setattr(search_tab, "DatasetVersionBuildDialog", make_dialog)
+    dataset_state_manager.set_dataset_images(
+        [{"id": 3, "stored_image_path": "3.png"}, {"id": 5, "stored_image_path": "5.png"}]
+    )
+    dataset_state_manager.set_selected_images([5, 3])
+    refresh = Mock()
+    monkeypatch.setattr(tab.selected_image_details_widget, "refresh_dataset_usage", refresh)
+
+    tab.pushButtonBuildVersion.click()
+
+    (dialog,) = created
+    assert dialog.exec_calls == 1
+    assert list(dialog.args[1]) == list(dataset_state_manager.selected_image_ids)
+    (slot,) = dialog.version_built.connect.call_args.args
+    slot(12, [5, 3])
+    refresh.assert_called_once_with()
+
+
+@pytest.mark.gui
+def test_details_panel_origin_section_is_wired(tab) -> None:
+    """DB があれば詳細パネルの「由来」セクションを配線して表示する。"""
+    assert tab.selected_image_details_widget.image_origin_widget.isHidden() is False
+
+
+@pytest.mark.gui
+def test_version_built_invalidates_annotations_and_reruns_search(
+    tab, dataset_state_manager, monkeypatch
+) -> None:
+    """版の作成は通常タグを同期するので、版の画像のアノテーションを無効化して検索をやり直す。"""
+    invalidate = Mock()
+    monkeypatch.setattr(dataset_state_manager, "invalidate_annotations", invalidate)
+    reload = Mock()
+    monkeypatch.setattr(tab, "load_images_from_db", reload)
+    monkeypatch.setattr(tab.selected_image_details_widget, "refresh_dataset_usage", Mock())
+
+    tab._on_version_built(12, [5, 3])
+
+    invalidate.assert_called_once_with([5, 3])
+    reload.assert_called_once_with()
+
+
+@pytest.mark.gui
+def test_copy_refreshes_origin_of_displayed_image(tab, dataset_state_manager, monkeypatch) -> None:
+    """表示中の画像がコピー (由来の追加) の対象なら、同じ画像 ID でも由来を読み直す。"""
+    details = tab.selected_image_details_widget
+    details.current_image_id = 7
+    refresh_origins = Mock()
+    monkeypatch.setattr(details, "refresh_image_origins", refresh_origins)
+    invalidate = Mock()
+    monkeypatch.setattr(dataset_state_manager, "invalidate_annotations", invalidate)
+    monkeypatch.setattr(tab, "load_images_from_db", Mock())
+
+    tab._on_cross_project_images_copied([7, 8])
+
+    refresh_origins.assert_called_once_with()
+    # link では既存の画像にアノテーションを足すので、キャッシュも無効化する
+    invalidate.assert_called_once_with([7, 8])
+
+
+@pytest.mark.gui
+def test_copy_does_not_refresh_origin_of_unaffected_image(tab, monkeypatch) -> None:
+    """表示中の画像がコピーの対象外なら由来を読み直さない。"""
+    details = tab.selected_image_details_widget
+    details.current_image_id = 99
+    refresh_origins = Mock()
+    monkeypatch.setattr(details, "refresh_image_origins", refresh_origins)
+    monkeypatch.setattr(tab, "load_images_from_db", Mock())
+
+    tab._on_cross_project_images_copied([7, 8])
+
+    refresh_origins.assert_not_called()

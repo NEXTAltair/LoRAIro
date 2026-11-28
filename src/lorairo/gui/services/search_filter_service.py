@@ -1,7 +1,9 @@
 # src/lorairo/gui/services/search_filter_service.py
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -19,6 +21,7 @@ from ...services.search_review_status import apply_review_filter
 from ...utils.log import logger
 
 if TYPE_CHECKING:
+    from ...database.filter_criteria import ImageFilterCriteria
     from ...services.annotation_review_service import AnnotationReviewService
     from ...services.annotation_review_store import AnnotationReviewStore
 
@@ -343,6 +346,22 @@ class SearchFilterService:
         if conditions.generation_prompt:
             parts.append(f"プロンプト: {conditions.generation_prompt}")
         return parts
+
+    def build_filter_criteria_factory(
+        self, conditions: SearchConditions
+    ) -> Callable[[], "ImageFilterCriteria"]:
+        """検索条件を DB 層の条件へ変換する callable を返す (Issue #1661)。
+
+        タグ語の翻訳解決はタグ DB を引くため、呼び出し (変換) は worker スレッドで行う前提にする。
+        画面側だけで絞り込む条件 (縦横比・重複除外・要確認) は含まない。
+
+        Args:
+            conditions: 画面の入力から作った検索条件。
+
+        Returns:
+            呼ぶと ``ImageFilterCriteria`` を返す callable。
+        """
+        return partial(conditions.to_filter_criteria, tag_resolver=build_tag_resolver(self.db_manager))
 
     def create_search_preview(self, conditions: SearchConditions) -> str:
         """人間が読みやすい検索条件プレビューの生成

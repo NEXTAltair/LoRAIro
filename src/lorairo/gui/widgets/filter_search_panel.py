@@ -74,6 +74,7 @@ __all__ = ["FilterSearchPanel"]
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from ...database.filter_criteria import ImageFilterCriteria
     from ...services.search_models import SearchConditions
     from ...services.tag_suggestion_service import TagSuggestionService
     from ..services.search_filter_service import SearchFilterService
@@ -1613,6 +1614,21 @@ class FilterSearchPanel(QScrollArea):
         else:
             self.ui.checkboxCaption.setChecked(True)
             self.ui.checkboxTags.setChecked(False)
+
+    def build_cross_project_query(self) -> "tuple[Callable[[], ImageFilterCriteria], str] | None":
+        """他のプロジェクトを検索するための、現在の入力の条件を返す (Issue #1661)。
+
+        Returns:
+            (呼ぶと ``ImageFilterCriteria`` を返す callable, 条件の表示文) の組。入力が不正、
+            または検索サービスが未設定なら None。callable はタグ DB を引くため worker で呼ぶ。
+        """
+        service = self.search_filter_service
+        if service is None:
+            return None
+        conditions = self._build_search_conditions_from_ui()
+        if conditions is None:
+            return None
+        return service.build_filter_criteria_factory(conditions), service.create_search_preview(conditions)
 
     def get_current_conditions(self) -> dict[str, Any]:
         """UI の現在状態をお気に入り保存用の辞書に直列化する (#1060)。
