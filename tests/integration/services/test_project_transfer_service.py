@@ -453,3 +453,212 @@ def test_search_can_skip_source_with_old_schema(projects: dict[str, SyntheticPro
         ("proj_a", "schema_upgrade_required", 0),
         ("proj_b", None, 2),
     ]
+
+
+# --- Codex レビュー (PR #1669) の指摘への回帰テスト ---
+
+
+def test_copy_keeps_annotation_timestamps_so_current_score_is_unchanged(
+    projects: dict[str, SyntheticProject],
+) -> None:
+    """同じモデルの手動スコア履歴をコピーしても、現在の値 (最新の created_at) が変わらない。"""
+    import datetime
+
+    from sqlalchemy import select
+
+    from lorairo.database.repository.image import ImageRepository
+    from lorairo.database.schema import Image, Model, Score, ScoreLabel, Tag
+
+    a, t = projects["proj_a"], projects["proj_t"]
+    source_id = _source_id(a, "a_dog")
+    older = datetime.datetime(2026, 1, 1, 0, 0, 0, tzinfo=datetime.UTC)
+    newer = datetime.datetime(2026, 1, 2, 0, 0, 0, tzinfo=datetime.UTC)
+    factory = a.session_factory()
+    with factory() as session:
+        scorer = session.execute(
+            select(Model).where(Model.litellm_model_id == "local/aesthetic")
+        ).scalar_one_or_none()
+        if scorer is None:
+            scorer = Model(name="aesthetic", provider="local", litellm_model_id="local/aesthetic")
+            session.add(scorer)
+            session.flush()
+        # 古い行を先に入れる (id 順と時刻順を逆にしない)
+        session.add(
+            Score(
+                image_id=source_id,
+                model_id=scorer.id,
+                score=3.0,
+                is_edited_manually=True,
+                created_at=older,
+                updated_at=older,
+            )
+        )
+        session.add(
+            Score(
+                image_id=source_id,
+                model_id=scorer.id,
+                score=9.0,
+                is_edited_manually=True,
+                created_at=newer,
+                updated_at=newer,
+            )
+        )
+        session.add(
+            ScoreLabel(
+                image_id=source_id, model_id=scorer.id, label="good", created_at=older, updated_at=older
+            )
+        )
+        tag = session.execute(select(Tag).where(Tag.image_id == source_id)).scalars().first()
+        assert tag is not None
+        tag.created_at = older
+        tag.updated_at = newer
+        session.commit()
+        source_image = session.get(Image, source_id)
+        assert source_image is not None
+        assert ImageRepository._derive_manual_score(source_image) == 9.0
+
+    target_id = _service(t).copy_images(a.source, [source_id]).items[0].target_image_id
+    assert target_id is not None
+
+    with t.session_factory()() as session:
+        copied = session.get(Image, target_id)
+        assert copied is not None
+        assert ImageRepository._derive_manual_score(copied) == 9.0
+        assert sorted((s.score, s.created_at.replace(tzinfo=None)) for s in copied.scores) == [
+            (3.0, older.replace(tzinfo=None)),
+            (9.0, newer.replace(tzinfo=None)),
+        ]
+        [label] = copied.score_labels
+        assert label.created_at.replace(tzinfo=None) == older.replace(tzinfo=None)
+        [copied_tag] = copied.tags
+        assert copied_tag.created_at.replace(tzinfo=None) == older.replace(tzinfo=None)
+        assert copied_tag.updated_at.replace(tzinfo=None) == newer.replace(tzinfo=None)
+
+
+@pytest.mark.parametrize(
+    "dir_name",
+    ["1_x/../../outside", "1_x/sub", "1_x\\sub", "..", "1_..", "/abs/1_x", "C:1_x", "1_x/", "1_."],
+)
+def test_build_version_rejects_folder_name_that_is_not_a_single_folder(
+    projects: dict[str, SyntheticProject], dir_name: str
+) -> None:
+    a, t = projects["proj_a"], projects["proj_t"]
+    target_id = _service(t).copy_images(a.source, [_source_id(a, "a_cat")]).items[0].target_image_id
+    assert target_id is not None
+
+    with pytest.raises(ValueError, match="フォルダ名"):
+        _build_service(t).build(
+            BuildVersionRequest(
+                dataset_name="d", version_name="v1", dir_name=dir_name, image_ids=[target_id]
+            )
+        )
+
+    assert table_counts(t, ("datasets", "dataset_versions", "dataset_folders")) == {
+        "datasets": 0,
+        "dataset_versions": 0,
+        "dataset_folders": 0,
+    }
+
+
+def test_build_version_file_stems_stay_unique_when_generated_stem_collides(
+    projects: dict[str, SyntheticProject],
+) -> None:
+    """`cat_<id>.png`、`cat.png`、`cat.png` を選んでも file_stem が重ならない。"""
+    t = projects["proj_t"]
+    first = add_image(t, "cat", 101, with_processed=False)
+    second_dir = t.root / "other"
+    second_dir.mkdir()
+    # 2 枚目の cat.png は別のディレクトリにある別の画像
+    second = add_image(t, "cat_dup", 102, with_processed=False)
+    with closing(sqlite3.connect(t.db_path)) as conn:
+        conn.execute(
+            "UPDATE images SET stored_image_path = ? WHERE id = ?",
+            ((second_dir / "cat.png").as_posix(), second),
+        )
+        conn.commit()
+    # 生成される `<stem>_<image_id>` と同じ名前の画像を先に選ぶ
+    colliding = add_image(t, f"cat_{second}", 103, with_processed=False)
+
+    plan = _build_service(t).propose(
+        BuildVersionRequest(
+            dataset_name="d", version_name="v1", dir_name="1_x", image_ids=[colliding, first, second]
+        )
+    )
+
+    stems = [image.file_stem for image in plan.images]
+    assert stems[:2] == [f"cat_{second}", "cat"]
+    assert len(set(stems)) == 3
+
+
+def test_copy_keeps_repeated_values_in_history_so_current_score_is_unchanged(
+    projects: dict[str, SyntheticProject],
+) -> None:
+    """同じモデルで 2 → 8 → 2 の履歴をコピーしても現在値は 2 のまま。2 回コピーしても行は増えない。"""
+    import datetime
+
+    from sqlalchemy import select
+
+    from lorairo.database.repository.image import ImageRepository
+    from lorairo.database.schema import Caption, Image, Model, Rating, Score, ScoreLabel
+
+    a, t = projects["proj_a"], projects["proj_t"]
+    source_id = _source_id(a, "a_dog")
+    times = [datetime.datetime(2026, 1, day, tzinfo=datetime.UTC) for day in (1, 2, 3)]
+    factory = a.session_factory()
+    with factory() as session:
+        model = Model(name="history", provider="local", litellm_model_id="local/history")
+        session.add(model)
+        session.flush()
+        for value, at in zip(("2", "8", "2"), times, strict=True):
+            session.add(
+                Score(
+                    image_id=source_id,
+                    model_id=model.id,
+                    score=float(value),
+                    is_edited_manually=True,
+                    created_at=at,
+                    updated_at=at,
+                )
+            )
+            session.add(
+                Caption(image_id=source_id, model_id=model.id, caption=value, created_at=at, updated_at=at)
+            )
+            session.add(
+                ScoreLabel(image_id=source_id, model_id=model.id, label=value, created_at=at, updated_at=at)
+            )
+            session.add(
+                Rating(
+                    image_id=source_id,
+                    model_id=model.id,
+                    raw_rating_value=value,
+                    normalized_rating=value,
+                    created_at=at,
+                    updated_at=at,
+                )
+            )
+        session.commit()
+        source_image = session.get(Image, source_id)
+        assert source_image is not None
+        assert ImageRepository._derive_manual_score(source_image) == 2.0
+
+    service = _service(t)
+    target_id = service.copy_images(a.source, [source_id]).items[0].target_image_id
+    assert target_id is not None
+    tables = ("scores", "captions", "score_labels", "ratings")
+    after_first = table_counts(t, tables)
+
+    with t.session_factory()() as session:
+        copied = session.get(Image, target_id)
+        assert copied is not None
+        assert ImageRepository._derive_manual_score(copied) == 2.0
+        assert len([s for s in copied.scores if s.model_id is not None and s.is_edited_manually]) == 3
+        history_model = session.execute(
+            select(Model).where(Model.litellm_model_id == "local/history")
+        ).scalar_one()
+        for rows in (copied.captions, copied.score_labels, copied.ratings):
+            assert len([row for row in rows if row.model_id == history_model.id]) == 3
+
+    again = service.copy_images(a.source, [source_id])
+
+    assert [item.annotations_added for item in again.items] == [0]
+    assert table_counts(t, tables) == after_first
