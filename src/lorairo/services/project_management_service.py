@@ -5,6 +5,7 @@ CLI/GUI双方から利用可能にする。Qt 依存なし。
 """
 
 import json
+import locale
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +20,29 @@ from lorairo.public_api.exceptions import (
 )
 from lorairo.public_api.types import ProjectInfo
 from lorairo.utils.config import DEFAULT_CONFIG_PATH, get_config, get_runtime_configuration
+
+
+def _read_metadata_text(metadata_file: Path) -> str:
+    """`.lorairo-project` を読む。UTF-8 で読めなければロケール既定のエンコーディングで読む。
+
+    以前は Windows (UTF-8 モード無効) で `create_project` がロケール既定 (例: cp932) で書いていた。
+    書き込みは UTF-8 に統一したが、既存のメタデータも引き続き読めるようにする。
+
+    Args:
+        metadata_file: メタデータファイルのパス。
+
+    Returns:
+        ファイルの内容。
+
+    Raises:
+        OSError: 読み込みに失敗した場合。
+        UnicodeDecodeError: どちらのエンコーディングでも読めない場合。
+    """
+    raw = metadata_file.read_bytes()
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode(locale.getpreferredencoding(False))
 
 
 class ProjectManagementService:
@@ -340,7 +364,7 @@ class ProjectManagementService:
             # メタデータファイルを更新
             metadata_file = project_dir / ".lorairo-project"
             if metadata_file.exists():
-                metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+                metadata = json.loads(_read_metadata_text(metadata_file))
                 metadata["description"] = description
                 metadata_file.write_text(
                     json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -401,7 +425,7 @@ class ProjectManagementService:
                 if not proj_dir.is_dir() or not metadata_file.exists():
                     continue
                 try:
-                    metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+                    metadata = json.loads(_read_metadata_text(metadata_file))
                 except (json.JSONDecodeError, OSError):
                     continue
                 # JSON として妥当でも dict でない場合 ([] / null 等) は候補にしない (Codex P2)
@@ -439,7 +463,7 @@ class ProjectManagementService:
 
                 # メタデータの name フィールドで正確にマッチ
                 try:
-                    metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+                    metadata = json.loads(_read_metadata_text(metadata_file))
                     if metadata.get("name") == name:
                         return proj_dir
                 except (json.JSONDecodeError, OSError):
@@ -468,7 +492,7 @@ class ProjectManagementService:
                 logger.debug(f"メタデータファイルが見つかりません: {metadata_file}")
                 return None
 
-            metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+            metadata = json.loads(_read_metadata_text(metadata_file))
 
             # 作成日時を datetime に変換
             created_str = metadata.get("created", "")

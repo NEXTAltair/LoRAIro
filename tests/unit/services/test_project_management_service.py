@@ -778,3 +778,23 @@ class TestProjectMetadataEncoding:
         raw = (project_dir / ".lorairo-project").read_bytes()
         assert json.loads(raw.decode("utf-8"))["name"] == "素材🎨_20261128_001"
         assert [p.name for p in service.list_projects()] == ["素材🎨_20261128_001"]
+
+    def test_reads_legacy_metadata_written_in_locale_encoding(
+        self, service: ProjectManagementService, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """以前 Windows のロケール既定 (cp932) で書かれたメタデータも一覧と名前検索で読める。"""
+        monkeypatch.setattr(
+            "lorairo.services.project_management_service.locale.getpreferredencoding",
+            lambda do_setlocale=True: "cp932",
+        )
+        project_dir = service.projects_base_dir / "素材_20260101_120000"
+        project_dir.mkdir(parents=True)
+        legacy = {"name": "素材", "created": "20260101_120000", "description": "日本語の説明"}
+        (project_dir / ".lorairo-project").write_bytes(
+            json.dumps(legacy, ensure_ascii=False).encode("cp932")
+        )
+
+        listed = service.list_projects()
+
+        assert [(p.name, p.description) for p in listed] == [("素材", "日本語の説明")]
+        assert service.get_project("素材").path == project_dir
