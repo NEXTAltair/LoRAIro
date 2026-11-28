@@ -43,9 +43,12 @@ from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QSplitter, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
+from ...database.db_core import get_current_project_root
 from ...database.db_manager import ImageDatabaseManager
 from ...database.repository.dataset import DatasetRepository
+from ...database.repository.image_origin import ImageOriginRepository
 from ...filesystem import FileSystemManager
+from ...services.dataset_version_build_service import DatasetVersionBuildService
 from ...services.model_selection_service import ModelSelectionService
 from ...services.refinement_service import RefinementService
 from ...services.service_container import SERVICE_WIRING_ERRORS, ServiceContainer
@@ -61,9 +64,13 @@ from ..services.worker_service import WorkerService
 from ..state.dataset_state import DatasetStateManager
 from ..state.staging_state import StagingStateManager
 from ..widgets.annotation_review_batch_widget import AnnotationReviewBatchWidget
+from ..widgets.cross_project_search_dialog import CrossProjectSearchDialog
 from ..widgets.dataset_usage_widget import DatasetUsageEntry
+from ..widgets.dataset_version_build_dialog import DatasetVersionBuildDialog
+from ..widgets.ds_button import DsButton
 from ..widgets.filter_search_panel import FilterSearchPanel
 from ..widgets.image_comparison_dialog import ImageComparisonLauncher
+from ..widgets.image_origin_widget import ImageOriginEntry
 from ..widgets.image_preview import ImagePreviewWidget
 from ..widgets.quick_tag_dialog import QuickTagDialog
 from ..widgets.selected_image_details_widget import SelectedImageDetailsWidget
@@ -179,6 +186,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         self._connect_details_widget_signals()
         self._connect_dataset_state_signals()
         self._connect_entry_signals()
+        self._setup_cross_project_actions()
 
         # #865: .ui を SSoT とする splitter orientation を初期適用する
         self.apply_designed_splitter_orientations()
@@ -215,6 +223,7 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         if self._db_manager is not None:
             self._selected_image_details_widget.set_db_manager(self._db_manager)
             self._wire_dataset_usage()
+            self._wire_image_origins()
         self.reload_annotation_review_service()
         # tag DB の初期化 (HF Hub 確認) は GUI スレッドで行わない (#1438)。起動時は準備済みの
         # reader だけを使い、未準備なら補完/翻訳なしで始めて on_tag_db_ready() で後から注入する。
@@ -511,6 +520,20 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             ]
 
         self._selected_image_details_widget.set_dataset_usage_provider(load_entries)
+
+    def _wire_image_origins(self) -> None:
+        """画像詳細の「由来」(別プロジェクトのコピー元) に取得手段を配線する (#1661)。"""
+        if self._db_manager is None:
+            return
+        repository = ImageOriginRepository(session_factory=self._db_manager.image_repo.session_factory)
+
+        def load_origins(image_id: int) -> list[ImageOriginEntry]:
+            return [
+                ImageOriginEntry(origin.source_project_name, origin.source_image_id)
+                for origin in repository.list_origins([image_id])[image_id]
+            ]
+
+        self._selected_image_details_widget.set_image_origin_provider(load_origins)
 
     def _setup_search_filter_integration(self) -> None:
         """filterSearchPanel に SearchFilterService / WorkerService / お気に入りフィルタを注入する。
@@ -876,6 +899,108 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
     def _on_export_clicked(self) -> None:
         """エクスポートボタン → MainWindow へエクスポートタブ遷移を要求する。"""
         self.export_requested.emit()
+
+    # -- プロジェクト横断の検索・コピー・版の作成 (#1661) -------------------
+
+    def _setup_cross_project_actions(self) -> None:
+        """アクションツールバーに「他のプロジェクトから探す」「選んだ画像から版を作る」を置く。"""
+        self.pushButtonCrossProjectSearch = DsButton(
+            "他のプロジェクトから探す…", kind="secondary", parent=self.frameActionToolbar
+        )
+        self.pushButtonCrossProjectSearch.setObjectName("pushButtonCrossProjectSearch")
+        self.pushButtonCrossProjectSearch.setToolTip(
+            "現在のフィルタ条件で他のプロジェクトを検索し、選んだ画像をこのプロジェクトへコピーします"
+        )
+        self.pushButtonBuildVersion = DsButton(
+            "選んだ画像から版を作る…", kind="secondary", parent=self.frameActionToolbar
+        )
+        self.pushButtonBuildVersion.setObjectName("pushButtonBuildVersion")
+        self.pushButtonBuildVersion.setToolTip("選択中の画像で、データセットの版 (1 フォルダ) を作ります")
+        self.horizontalLayout_actionToolbar.insertWidget(1, self.pushButtonCrossProjectSearch)
+        self.horizontalLayout_actionToolbar.insertWidget(2, self.pushButtonBuildVersion)
+        enabled = self._db_manager is not None
+        self.pushButtonCrossProjectSearch.setEnabled(enabled)
+        self.pushButtonBuildVersion.setEnabled(enabled)
+        self.pushButtonCrossProjectSearch.clicked.connect(self.open_cross_project_search)
+        self.pushButtonBuildVersion.clicked.connect(self.open_version_build)
+
+    def _current_project_root(self) -> Path:
+        """現在のプロジェクト (取り込み先) のディレクトリ。"""
+        return get_current_project_root().resolve()
+
+    def create_cross_project_search_dialog(self) -> CrossProjectSearchDialog | None:
+        """現在のフィルタ条件で、他のプロジェクトを探すダイアログを作る (開かない)。
+
+        Returns:
+            ダイアログ。DB 未接続、またはフィルタ条件が不正なら None。
+        """
+        if self._db_manager is None:
+            return None
+        query = self._filter_search_panel.build_cross_project_query()
+        if query is None:
+            self.status_message.emit("検索条件を確認してください (他のプロジェクトを検索できません)")
+            return None
+        criteria_factory, criteria_text = query
+        dialog = CrossProjectSearchDialog(
+            project_service=self._service_container.project_management_service,
+            target_root=self._current_project_root(),
+            target_session_factory=self._db_manager.image_repo.session_factory,
+            criteria_factory=criteria_factory,
+            criteria_text=criteria_text,
+            parent=self,
+        )
+        dialog.images_copied.connect(self._on_cross_project_images_copied)
+        return dialog
+
+    @Slot()
+    def open_cross_project_search(self) -> None:
+        """「他のプロジェクトから探す…」: 横断検索ダイアログを開く。"""
+        dialog = self.create_cross_project_search_dialog()
+        if dialog is not None:
+            dialog.exec()
+
+    @Slot(list)
+    def _on_cross_project_images_copied(self, image_ids: list[int]) -> None:
+        """他のプロジェクトから取り込んだら、現在のプロジェクトの検索結果を更新する。"""
+        self.status_message.emit(f"他のプロジェクトから {len(image_ids)} 枚を取り込みました")
+        self.load_images_from_db()
+
+    def create_version_build_dialog(self) -> DatasetVersionBuildDialog | None:
+        """選択中の画像から版を作るダイアログを作る (開かない)。
+
+        Returns:
+            ダイアログ。DB 未接続、または画像が選ばれていなければ None。
+        """
+        if self._db_manager is None:
+            return None
+        image_ids = (
+            list(self._dataset_state_manager.selected_image_ids)
+            if self._dataset_state_manager is not None
+            else []
+        )
+        if not image_ids:
+            self.status_message.emit("版に入れる画像を選んでください")
+            return None
+        session_factory = self._db_manager.image_repo.session_factory
+        service = DatasetVersionBuildService(
+            session_factory, DatasetRepository(session_factory=session_factory)
+        )
+        dialog = DatasetVersionBuildDialog(service, image_ids, parent=self)
+        dialog.version_built.connect(self._on_version_built)
+        return dialog
+
+    @Slot()
+    def open_version_build(self) -> None:
+        """「選んだ画像から版を作る…」: 版の作成ダイアログを開く。"""
+        dialog = self.create_version_build_dialog()
+        if dialog is not None:
+            dialog.exec()
+
+    @Slot(int)
+    def _on_version_built(self, version_id: int) -> None:
+        """版を作ったら、詳細の「学習に使ったデータセット」を取り直す。"""
+        self.status_message.emit(f"データセットの版を作成しました (版 ID {version_id})")
+        self._selected_image_details_widget.refresh_dataset_usage()
 
     # -- プロパティ (タブ内配線・テスト・pipeline 注入用) ----------------------
 
