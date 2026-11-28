@@ -512,9 +512,11 @@ def _latest_version_id(nodes: Sequence[_VersionNode]) -> int | None:
 
 
 def _first_root_id(nodes: Sequence[_VersionNode]) -> int | None:
-    """データセットの最初の版 (同じデータセットに parent が無い版のうち ID が最小のもの) の ID。"""
-    ids = {node.id for node in nodes}
-    roots = [node.id for node in nodes if node.parent_version_id not in ids]
+    """データセットの最初の版 (parent が無い版のうち ID が最小のもの) の ID。
+
+    別のデータセットの版を parent にしている版は、その親子関係を保つため最初の版にしない。
+    """
+    roots = [node.id for node in nodes if node.parent_version_id is None]
     return min(roots) if roots else None
 
 
@@ -986,9 +988,15 @@ def _plan_datasets(
             group.target_name,
         ),
     )
+    # parent は統合元のプロジェクトのすべての版から引く (別のデータセットの版を parent にできるため)
+    source_versions = {
+        (dataset.ref.project, version.node.id): (dataset.ref.dataset, version.node.name)
+        for dataset in source_datasets
+        for version in dataset.versions
+    }
     versions: list[PlannedVersion] = []
     for group in ordered:
-        group_versions = _plan_group_versions(group, mapping)
+        group_versions = _plan_group_versions(group, mapping, source_versions)
         versions.extend(group_versions)
         # データセットの名前が衝突している間は、版の名前の衝突は解消後に判定する
         if all(conflict.target_dataset != group.target_name for conflict in conflicts):
@@ -1010,8 +1018,19 @@ def _dataset_conflict(kind: ConflictKind, name: str, sources: tuple[str, ...]) -
     return MergeConflict(kind, name, None, sources, message)
 
 
-def _plan_group_versions(group: _DatasetGroup, mapping: MergeMapping) -> list[PlannedVersion]:
-    """統合先のデータセット 1 つに入る版の計画を、履歴の順に作る。"""
+def _plan_group_versions(
+    group: _DatasetGroup,
+    mapping: MergeMapping,
+    source_versions: Mapping[tuple[str, int], tuple[str, str]],
+) -> list[PlannedVersion]:
+    """統合先のデータセット 1 つに入る版の計画を、履歴の順に作る。
+
+    Args:
+        group: 統合先のデータセット 1 つにまとまる統合元のデータセット。
+        mapping: 名前の対応。
+        source_versions: (統合元のプロジェクト名, 統合元の版 ID) → (統合元のデータセット名, 版の名前)。
+            統合元のすべてのデータセットの版を含む。
+    """
     planned: list[PlannedVersion] = []
     previous: PlannedParent | None = None
     if group.existing is not None:
@@ -1034,13 +1053,10 @@ def _plan_group_versions(group: _DatasetGroup, mapping: MergeMapping) -> list[Pl
             joined_parent = False
             if node.id == root_id and previous is not None:
                 parent, joined_parent = previous, True
-            elif node.parent_version_id in names:
-                parent = PlannedParent(
-                    element.ref.project,
-                    element.ref.dataset,
-                    names[node.parent_version_id],
-                    node.parent_version_id,
-                )
+            elif node.parent_version_id is not None:
+                found = source_versions.get((element.ref.project, node.parent_version_id))
+                if found is not None:
+                    parent = PlannedParent(element.ref.project, found[0], found[1], node.parent_version_id)
             ref = SourceVersionRef(element.ref.project, element.ref.dataset, node.name)
             planned.append(
                 PlannedVersion(

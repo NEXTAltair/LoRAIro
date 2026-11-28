@@ -275,3 +275,47 @@ def test_rejects_target_as_source_and_bad_mapping(
     unknown = _merge(runner, "--into", "dst", "--map-dataset", "src_b:nothing=x")
     assert unknown.exit_code != 0
     assert _lines(unknown)[-1]["code"] == "INVALID_INPUT"
+
+
+def test_create_failure_disposes_target_engine_before_deleting(
+    runner: CliRunner,
+    projects: dict[str, SyntheticProject],
+    projects_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """作った統合先を消す時点で、その DB への接続 (SQLAlchemy の接続プール) が残っていない。
+
+    接続が開いたままだと Windows では削除が共有違反で失敗し、元のエラーも隠れる。
+    """
+    from sqlalchemy import Engine
+
+    from lorairo.cli.commands import project as project_commands
+    from lorairo.database import db_core
+
+    engines: list[Engine] = []
+    original_create_engine = db_core.create_db_engine
+
+    def recording_create_engine(database_url: str | None = None) -> Engine:
+        engine = original_create_engine(database_url)
+        if database_url is not None and "merged_" in database_url:
+            engines.append(engine)
+        return engine
+
+    monkeypatch.setattr(db_core, "create_db_engine", recording_create_engine)
+    open_at_delete: list[int] = []
+    original_delete = project_commands.api_delete_project
+
+    def recording_delete(name: str) -> None:
+        open_at_delete.extend(engine.pool.checkedin() + engine.pool.checkedout() for engine in engines)
+        original_delete(name)
+
+    monkeypatch.setattr(project_commands, "api_delete_project", recording_delete)
+
+    failed = _merge(runner, "--into", "merged", "--create", "--confirm")
+
+    assert failed.exit_code != 0
+    # 元のエラー (未解決の衝突) がそのまま出る
+    assert _lines(failed)[-1]["code"] == "INVALID_INPUT"
+    assert engines, "統合先の engine が作られていない"
+    assert open_at_delete and all(count == 0 for count in open_at_delete)
+    assert not any(path.name.startswith("merged_") for path in projects_dir.iterdir())
