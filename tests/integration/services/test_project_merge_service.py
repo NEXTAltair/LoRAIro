@@ -629,3 +629,44 @@ def test_parent_in_another_dataset_is_kept_with_joined_histories(
     assert _parent_of(target, "legacy", "s1") == ("legacy", "l1")
     assert _parent_of(target, "legacy", "s2") == ("chara", "v4")
     assert _parent_of(target, "chara", "v3") == ("chara", "v2")
+
+
+def test_join_that_would_make_a_cycle_is_a_conflict(projects: dict[str, SyntheticProject]) -> None:
+    """データセットをまたぐ parent と逆の順で履歴をまとめると循環するので、衝突にして確定しない。
+
+    A の extra/e1 の parent は A の chara/v2。extra → chara の順にまとめると、chara の最初の版 v1 の
+    parent が extra の最新版 e1 になり、v1 → e1 → v2 → v1 と循環する。
+    """
+    a = projects["proj_a"]
+    a_cat = int(str(_rows(a, "SELECT id FROM images WHERE filename = 'a_cat.png'")[0][0]))
+    add_version(
+        a,
+        "extra",
+        "e1",
+        "1_extra",
+        [(a_cat, "a_cat", {".txt": "extra"})],
+        parent_version_id=_source_version_id(a, "chara", "v2"),
+    )
+    target = projects["proj_t"]
+    before = table_counts(target, _TARGET_TABLES)
+    mapping = MergeMapping(
+        dataset_names={B_CHARA: "chara_b"},
+        joins={"chara": [SourceDatasetRef("proj_a", "extra"), A_CHARA]},
+    )
+
+    plan = _service(target).plan(_sources(projects), mapping)
+
+    assert [(c.kind, c.target_dataset) for c in plan.conflicts] == [("cyclic_history", "chara")]
+    conflict = plan.conflicts[0]
+    assert set(conflict.sources) == {"proj_a:chara/v1", "proj_a:extra/e1", "proj_a:chara/v2"}
+    assert "循環" in conflict.message
+    with pytest.raises(UnresolvedMergeConflictError):
+        _service(target).apply(_sources(projects), mapping)
+    assert table_counts(target, _TARGET_TABLES) == before
+
+    # 逆の順 (chara → extra) なら循環しない
+    ordered = MergeMapping(
+        dataset_names={B_CHARA: "chara_b"},
+        joins={"chara": [A_CHARA, SourceDatasetRef("proj_a", "extra")]},
+    )
+    assert _service(target).plan(_sources(projects), ordered).is_resolved

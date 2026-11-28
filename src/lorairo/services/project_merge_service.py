@@ -70,13 +70,16 @@ __all__ = [
 _STAGING_DIR_NAME = ".transfer_staging"
 _TARGET_LABEL = "(target)"
 
-ConflictKind = Literal["dataset_name", "dataset_exists", "version_name", "multiple_working_versions"]
+ConflictKind = Literal[
+    "dataset_name", "dataset_exists", "version_name", "multiple_working_versions", "cyclic_history"
+]
 """衝突の種類。
 
 - ``dataset_name``: 複数の統合元のデータセットが、履歴をまとめる指定なしに同じ名前になる
 - ``dataset_exists``: 統合先に同じ名前のデータセットが既にある (履歴をまとめる指定がない)
 - ``version_name``: 1 つのデータセットの中で、同じ名前の版が 2 つ以上になる
 - ``multiple_working_versions``: 1 つのデータセットの中で、作業中の版が 2 つ以上になる
+- ``cyclic_history``: 履歴をまとめる指定で付く parent と、データセットをまたぐ parent が循環する
 """
 
 
@@ -1001,7 +1004,48 @@ def _plan_datasets(
         # データセットの名前が衝突している間は、版の名前の衝突は解消後に判定する
         if all(conflict.target_dataset != group.target_name for conflict in conflicts):
             conflicts.extend(_version_conflicts(group, group_versions))
+    conflicts.extend(_cycle_conflicts(versions))
     return _DatasetPlan(groups=ordered, versions=versions, conflicts=conflicts)
+
+
+def _cycle_conflicts(versions: Sequence[PlannedVersion]) -> list[MergeConflict]:
+    """計画した parent のグラフに循環があれば、循環 1 つにつき衝突を 1 件返す。
+
+    統合先に既にある版は統合で足す版を parent にしないので、循環は統合で足す版の中だけで起きる。
+    循環は、履歴をまとめる指定で付いた parent と、データセットをまたぐ parent が逆向きに
+    組み合わさったときにできる。
+    """
+    by_key = {(version.source.project, version.source_version_id): version for version in versions}
+    parent_of: dict[tuple[str, int], tuple[str, int]] = {}
+    for key, version in by_key.items():
+        parent = version.parent
+        if parent is not None and parent.source_project is not None:
+            parent_of[key] = (parent.source_project, parent.version_id)
+    conflicts: list[MergeConflict] = []
+    done: set[tuple[str, int]] = set()
+    for start in by_key:
+        path: list[tuple[str, int]] = []
+        current: tuple[str, int] | None = start
+        while current is not None and current not in done and current not in path:
+            path.append(current)
+            current = parent_of.get(current)
+        if current is not None and current in path:
+            cycle = [by_key[key] for key in path[path.index(current) :] if key in by_key]
+            joined = next((version for version in cycle if version.joined_parent), cycle[0])
+            labels = tuple(version.source.label for version in cycle)
+            conflicts.append(
+                MergeConflict(
+                    "cyclic_history",
+                    joined.target_dataset,
+                    None,
+                    labels,
+                    f"履歴をまとめると版の親子関係が循環します ({' -> '.join(labels)})。"
+                    f"'{joined.source.label}' の parent が、まとめる順で前に置いた版になるためです。"
+                    "--join-dataset の順を入れ替えるか、履歴をまとめずに別のデータセットにしてください",
+                )
+            )
+        done.update(path)
+    return conflicts
 
 
 def _dataset_conflict(kind: ConflictKind, name: str, sources: tuple[str, ...]) -> MergeConflict:
