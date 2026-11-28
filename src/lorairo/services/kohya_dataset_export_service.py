@@ -33,10 +33,11 @@ _SECRET_KEY_SUFFIXES = ("_api_key", "_token")
 
 
 class MixedCaptionExtensionError(ValueError):
-    """同じフォルダに複数の学習テキスト拡張子 (`.txt` と `.caption` など) が混在する場合の例外。
+    """画像ごとに別の学習テキスト拡張子を持ち、共通する拡張子が無いフォルダの例外。
 
     仮定: 1 subset は 1 つの caption_extension しか持てず、同じ image_dir の重複 subset は
-    画像を二重に読むため、混在フォルダは書き出さず拒否する。
+    画像を二重に読むため、全画像に共通する拡張子が無いフォルダは書き出さず拒否する。
+    同じ画像が `.txt` と `.caption` の両方を持つ場合は共通する拡張子があるので拒否しない。
     """
 
 
@@ -93,7 +94,7 @@ class KohyaDatasetExportService:
             FileNotFoundError: 保存済み画像のファイルが無い場合。
             LookupError: 版・画像・学習設定が存在しない場合。
             ValueError: 版にフォルダが無い場合。
-            MixedCaptionExtensionError: 同じフォルダに複数の学習テキスト拡張子が混在する場合。
+            MixedCaptionExtensionError: フォルダ内に全画像共通の学習テキスト拡張子が無い場合。
         """
         # 何も書く前に出力先を判定する
         if output_dir.exists() and (not output_dir.is_dir() or any(output_dir.iterdir())):
@@ -193,18 +194,27 @@ class KohyaDatasetExportService:
 
     @staticmethod
     def _caption_extension(folder: FolderSnapshot) -> str:
-        """フォルダの学習テキスト拡張子を返す。無ければ `.txt`。
+        """フォルダの caption_extension を返す。学習テキストが無ければ `.txt`。
+
+        学習テキストを持つすべての画像に共通する拡張子があればそれを採用する。
+        共通する拡張子が複数あれば `.txt` を優先し、無ければ辞書順の先頭にする。
+        学習テキスト自体は拡張子ごとにすべて書き出されるため、採用されなかった拡張子の
+        ファイルもフォルダに残る (sd-scripts は caption_extension の 1 種類だけを読む)。
 
         Raises:
-            MixedCaptionExtensionError: 複数の拡張子が混在する場合。
+            MixedCaptionExtensionError: 画像ごとに別の拡張子を持ち、共通する拡張子が無い場合。
         """
-        extensions = sorted({text.extension for image in folder.images for text in image.texts})
-        if len(extensions) > 1:
-            raise MixedCaptionExtensionError(
-                f"フォルダに学習テキストの拡張子が混在しています: dir_name='{folder.dir_name}', "
-                f"extensions={extensions}"
-            )
-        return extensions[0] if extensions else _DEFAULT_CAPTION_EXTENSION
+        per_image = [{text.extension for text in image.texts} for image in folder.images if image.texts]
+        if not per_image:
+            return _DEFAULT_CAPTION_EXTENSION
+        common = set.intersection(*per_image)
+        if common:
+            return _DEFAULT_CAPTION_EXTENSION if _DEFAULT_CAPTION_EXTENSION in common else min(common)
+        extensions = sorted(set.union(*per_image))
+        raise MixedCaptionExtensionError(
+            f"フォルダに学習テキストの拡張子が混在しています: dir_name='{folder.dir_name}', "
+            f"extensions={extensions}"
+        )
 
     @staticmethod
     def _write_text(path: Path, text: LearningTextSnapshot) -> None:

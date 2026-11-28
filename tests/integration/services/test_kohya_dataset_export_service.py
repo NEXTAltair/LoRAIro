@@ -272,6 +272,70 @@ def test_mixed_caption_extensions_in_folder_is_rejected_before_writing(
     assert not out.exists()
 
 
+def test_images_with_both_txt_and_caption_export_both_with_txt_extension(
+    service: KohyaDatasetExportService,
+    repo: DatasetRepository,
+    session_factory: Callable[[], Session],
+    tmp_path: Path,
+) -> None:
+    """全画像が .txt と .caption の両方を持つフォルダは、両方を書き出し .txt を採用する (#1660)。"""
+    id1 = _make_image(session_factory, tmp_path, "img-b1", b"b1")
+    id2 = _make_image(session_factory, tmp_path, "img-b2", b"b2")
+    vid = repo.create_version(repo.ensure_dataset("dsb"), "v1")
+    repo.add_folder(
+        vid,
+        _folder("3_both", 3, 0),
+        [
+            FolderImageSpec(
+                image_id=id1, file_stem="a", texts=[_text("a-cap", ".caption"), _text("a-txt", ".txt")]
+            ),
+            FolderImageSpec(
+                image_id=id2, file_stem="b", texts=[_text("b-cap", ".caption"), _text("b-txt", ".txt")]
+            ),
+        ],
+    )
+
+    out = tmp_path / "out"
+    result = service.export_version(vid, out)
+
+    assert result.text_count == 4
+    for stem, cap, txt in (("a", "a-cap", "a-txt"), ("b", "b-cap", "b-txt")):
+        assert (out / "3_both" / f"{stem}.caption").read_text(encoding="utf-8") == cap
+        assert (out / "3_both" / f"{stem}.txt").read_text(encoding="utf-8") == txt
+    config = toml.loads(result.dataset_config_path.read_text(encoding="utf-8"))
+    assert config["general"]["caption_extension"] == ".txt"
+    assert config["datasets"][0]["subsets"][0]["caption_extension"] == ".txt"
+
+
+def test_common_extension_is_chosen_when_some_images_have_extra_extension(
+    service: KohyaDatasetExportService,
+    repo: DatasetRepository,
+    session_factory: Callable[[], Session],
+    tmp_path: Path,
+) -> None:
+    """全画像に共通する拡張子 (.caption) があれば、片方の画像だけが持つ .txt があっても採用する (#1660)。"""
+    id1 = _make_image(session_factory, tmp_path, "img-c1", b"c1")
+    id2 = _make_image(session_factory, tmp_path, "img-c2", b"c2")
+    vid = repo.create_version(repo.ensure_dataset("dsc"), "v1")
+    repo.add_folder(
+        vid,
+        _folder("2_common", 2, 0),
+        [
+            FolderImageSpec(
+                image_id=id1, file_stem="a", texts=[_text("a1", ".caption"), _text("a2", ".txt")]
+            ),
+            FolderImageSpec(image_id=id2, file_stem="b", texts=[_text("b1", ".caption")]),
+        ],
+    )
+
+    out = tmp_path / "out"
+    result = service.export_version(vid, out)
+
+    assert result.text_count == 3
+    config = toml.loads(result.dataset_config_path.read_text(encoding="utf-8"))
+    assert config["datasets"][0]["subsets"][0]["caption_extension"] == ".caption"
+
+
 def test_training_config_dataset_config_points_to_generated_file(
     service: KohyaDatasetExportService, repo: DatasetRepository, version_id: int, tmp_path: Path
 ) -> None:
