@@ -11,8 +11,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Qt, Signal, SignalInstance, Slot
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -40,6 +41,7 @@ from ...services.project_transfer_service import (
 )
 from ...utils.log import logger
 from ..message_box import show_information, show_warning
+from ..workers.base import LoRAIroWorkerBase
 from ..workers.cross_project_workers import (
     TOO_MANY_RESULTS_REASON,
     CrossProjectCopyOutcome,
@@ -48,6 +50,7 @@ from ..workers.cross_project_workers import (
     ProjectListWorker,
 )
 from ..workers.manager import WorkerManager
+from ..workers.terminal import WorkerOutcome, WorkerTerminalEvent
 from .ds_button import DsButton
 from .ds_card import DsCard
 from .ds_summary_stat import DsSummaryStat
@@ -171,6 +174,9 @@ class CrossProjectSearchDialog(QDialog):
         self._pending_groups: list[tuple[SourceProject, list[int]]] = []
         self._busy = False
         self._worker_manager = WorkerManager(self)
+        # worker_id → (成功時の signal, 失敗時の処理名)。終端は GUI スレッドで受ける
+        self._worker_routes: dict[str, tuple[SignalInstance, str]] = {}
+        self._worker_manager.worker_terminal.connect(self._on_worker_terminal)
 
         self._build_ui(criteria_text)
         self._projects_loaded.connect(self._on_projects_loaded)
@@ -205,7 +211,7 @@ class CrossProjectSearchDialog(QDialog):
         self.project_list = QListWidget(project_card)
         self.project_list.setObjectName("crossProjectProjectList")
         self.project_list.setMaximumHeight(140)
-        self.project_list.itemChanged.connect(lambda _item: self._update_buttons())
+        self.project_list.itemChanged.connect(self._on_project_item_changed)
         project_card.add_widget(self.project_list)
         root.addWidget(project_card)
 
@@ -239,6 +245,10 @@ class CrossProjectSearchDialog(QDialog):
         root.addLayout(bottom)
         self._update_buttons()
 
+    @Slot(QListWidgetItem)
+    def _on_project_item_changed(self, _item: QListWidgetItem) -> None:
+        self._update_buttons()
+
     def _update_buttons(self) -> None:
         self.search_button.setEnabled(not self._busy and bool(self.checked_project_names()))
         self.copy_button.setEnabled(not self._busy and bool(self.selected_hits()))
@@ -256,10 +266,7 @@ class CrossProjectSearchDialog(QDialog):
         """プロジェクトの一覧を背景で取得する。"""
         self._set_busy(True, "プロジェクトの一覧を読み込み中...")
         worker = ProjectListWorker(self._project_service)
-        # 以下の lambda は worker スレッドで走るが Signal を emit するだけ (スレッド安全)
-        worker.finished.connect(lambda result: self._projects_loaded.emit(result))
-        worker.error_occurred.connect(lambda message: self._task_failed.emit("list", str(message)))
-        self._worker_manager.start_worker("cross_project_list", worker)
+        self._start_worker("cross_project_list", worker, self._projects_loaded, "list")
 
     @Slot(object)
     def _on_projects_loaded(self, projects: object) -> None:
@@ -315,9 +322,7 @@ class CrossProjectSearchDialog(QDialog):
             return
         self._set_busy(True, f"{len(projects)} 件のプロジェクトを検索中...")
         worker = CrossProjectSearchWorker(projects, self._criteria_factory)
-        worker.finished.connect(lambda result: self._search_finished.emit(result))
-        worker.error_occurred.connect(lambda message: self._task_failed.emit("search", str(message)))
-        self._worker_manager.start_worker("cross_project_search", worker)
+        self._start_worker("cross_project_search", worker, self._search_finished, "search")
 
     @Slot(object)
     def _on_search_finished(self, results: object) -> None:
@@ -390,9 +395,7 @@ class CrossProjectSearchDialog(QDialog):
         self._pending_groups = groups
         self._set_busy(True, "コピーの計画を作成中...")
         worker = CrossProjectCopyWorker(self._transfer_service(), groups, dry_run=True)
-        worker.finished.connect(lambda result: self._copy_planned.emit(result))
-        worker.error_occurred.connect(lambda message: self._task_failed.emit("plan", str(message)))
-        self._worker_manager.start_worker("cross_project_copy_plan", worker)
+        self._start_worker("cross_project_copy_plan", worker, self._copy_planned, "plan")
 
     @Slot(object)
     def _on_copy_planned(self, outcome: object) -> None:
@@ -409,9 +412,7 @@ class CrossProjectSearchDialog(QDialog):
             return
         self._set_busy(True, "現在のプロジェクトへコピー中...")
         worker = CrossProjectCopyWorker(self._transfer_service(), groups, dry_run=False)
-        worker.finished.connect(lambda result: self._copy_finished.emit(result))
-        worker.error_occurred.connect(lambda message: self._task_failed.emit("copy", str(message)))
-        self._worker_manager.start_worker("cross_project_copy_apply", worker)
+        self._start_worker("cross_project_copy_apply", worker, self._copy_finished, "copy")
 
     @Slot(object)
     def _on_copy_finished(self, outcome: object) -> None:
@@ -439,6 +440,45 @@ class CrossProjectSearchDialog(QDialog):
             )
             return
         show_information(self, "コピー完了", f"「{self._target_name}」へ取り込みました。\n{summary}")
+
+    # --- worker の終端 ---
+
+    def _start_worker(
+        self, worker_id: str, worker: LoRAIroWorkerBase[Any], on_success: SignalInstance, task: str
+    ) -> None:
+        """worker を開始し、終端を `WorkerManager.worker_terminal` で受ける。
+
+        worker の signal へ lambda を直接つなぐと worker スレッドで実行され、GIL と
+        signalSlotLock の ABBA デッドロックを起こし得る (#1492 / #1497)。WorkerManager が
+        GUI スレッドで発行する終端 signal だけを受け、結果を GUI スレッドで ``on_success`` へ渡す。
+
+        Args:
+            worker_id: worker の ID。
+            worker: 開始する worker。
+            on_success: 成功時に結果を渡す (このダイアログの) signal。
+            task: 失敗時に ``_task_failed`` へ渡す処理名。
+        """
+        self._worker_routes[worker_id] = (on_success, task)
+        if not self._worker_manager.start_worker(worker_id, worker):
+            self._worker_routes.pop(worker_id, None)
+            self._set_busy(False)
+
+    @Slot(object)
+    def _on_worker_terminal(self, event: object) -> None:
+        """worker の終端 (GUI スレッド) を、開始時に決めた受け口へ振り分ける。"""
+        if not isinstance(event, WorkerTerminalEvent):
+            return
+        route = self._worker_routes.pop(event.worker_id, None)
+        if route is None:
+            return
+        on_success, task = route
+        if event.outcome is WorkerOutcome.SUCCEEDED:
+            on_success.emit(event.result)
+        elif event.outcome is WorkerOutcome.FAILED:
+            self._task_failed.emit(task, event.error or "")
+        else:
+            # 閉じるときの取り消し等。結果は使わない
+            self._set_busy(False)
 
     # --- 失敗・終了 ---
 

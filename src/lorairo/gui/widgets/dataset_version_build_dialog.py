@@ -10,8 +10,9 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
-from PySide6.QtCore import Signal, Slot
+from PySide6.QtCore import Signal, SignalInstance, Slot
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -35,8 +36,10 @@ from ...services.dataset_version_build_service import (
 )
 from ...utils.log import logger
 from ..message_box import show_information, show_warning
+from ..workers.base import LoRAIroWorkerBase
 from ..workers.cross_project_workers import DatasetVersionBuildWorker, DatasetVersionProposeWorker
 from ..workers.manager import WorkerManager
+from ..workers.terminal import WorkerOutcome, WorkerTerminalEvent
 from .ds_button import DsButton
 from .ds_summary_stat import DsSummaryStat
 from .image_origin_widget import ImageOriginEntry, format_origins
@@ -79,6 +82,9 @@ class DatasetVersionBuildDialog(QDialog):
         self._plan: BuildVersionPlan | None = None
         self._busy = False
         self._worker_manager = WorkerManager(self)
+        # worker_id → (成功時の signal, 失敗時の処理名)。終端は GUI スレッドで受ける
+        self._worker_routes: dict[str, tuple[SignalInstance, str]] = {}
+        self._worker_manager.worker_terminal.connect(self._on_worker_terminal)
         self._build_ui()
         self._plan_ready.connect(self._on_plan_ready)
         self._build_finished.connect(self._on_build_finished)
@@ -182,10 +188,7 @@ class DatasetVersionBuildDialog(QDialog):
             return
         self._set_busy(True, "計画を作成中...")
         worker = DatasetVersionProposeWorker(self._service, request)
-        # 以下の lambda は worker スレッドで走るが Signal を emit するだけ (スレッド安全)
-        worker.finished.connect(lambda result: self._plan_ready.emit(result))
-        worker.error_occurred.connect(lambda message: self._task_failed.emit("propose", str(message)))
-        self._worker_manager.start_worker("dataset_version_propose", worker)
+        self._start_worker("dataset_version_propose", worker, self._plan_ready, "propose")
 
     @Slot(object)
     def _on_plan_ready(self, plan: object) -> None:
@@ -220,9 +223,7 @@ class DatasetVersionBuildDialog(QDialog):
         request = self._plan.request
         self._set_busy(True, "版を作成中...")
         worker = DatasetVersionBuildWorker(self._service, request)
-        worker.finished.connect(lambda result: self._build_finished.emit(result))
-        worker.error_occurred.connect(lambda message: self._task_failed.emit("build", str(message)))
-        self._worker_manager.start_worker("dataset_version_build", worker)
+        self._start_worker("dataset_version_build", worker, self._build_finished, "build")
 
     @Slot(object)
     def _on_build_finished(self, result: object) -> None:
@@ -243,6 +244,45 @@ class DatasetVersionBuildDialog(QDialog):
             f"フォルダ: {request.dir_name}\n画像: {len(result.plan.images)} 枚",
         )
         self.accept()
+
+    # --- worker の終端 ---
+
+    def _start_worker(
+        self, worker_id: str, worker: LoRAIroWorkerBase[Any], on_success: SignalInstance, task: str
+    ) -> None:
+        """worker を開始し、終端を `WorkerManager.worker_terminal` で受ける。
+
+        worker の signal へ lambda を直接つなぐと worker スレッドで実行され、GIL と
+        signalSlotLock の ABBA デッドロックを起こし得る (#1492 / #1497)。WorkerManager が
+        GUI スレッドで発行する終端 signal だけを受け、結果を GUI スレッドで ``on_success`` へ渡す。
+
+        Args:
+            worker_id: worker の ID。
+            worker: 開始する worker。
+            on_success: 成功時に結果を渡す (このダイアログの) signal。
+            task: 失敗時に ``_task_failed`` へ渡す処理名。
+        """
+        self._worker_routes[worker_id] = (on_success, task)
+        if not self._worker_manager.start_worker(worker_id, worker):
+            self._worker_routes.pop(worker_id, None)
+            self._set_busy(False)
+
+    @Slot(object)
+    def _on_worker_terminal(self, event: object) -> None:
+        """worker の終端 (GUI スレッド) を、開始時に決めた受け口へ振り分ける。"""
+        if not isinstance(event, WorkerTerminalEvent):
+            return
+        route = self._worker_routes.pop(event.worker_id, None)
+        if route is None:
+            return
+        on_success, task = route
+        if event.outcome is WorkerOutcome.SUCCEEDED:
+            on_success.emit(event.result)
+        elif event.outcome is WorkerOutcome.FAILED:
+            self._task_failed.emit(task, event.error or "")
+        else:
+            # 閉じるときの取り消し等。結果は使わない
+            self._set_busy(False)
 
     # --- 失敗・終了 ---
 
