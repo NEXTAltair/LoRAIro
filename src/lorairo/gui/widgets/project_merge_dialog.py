@@ -71,6 +71,7 @@ _CONFLICT_KIND_LABELS = {
     "dataset_exists": "統合先に同名のデータセット",
     "version_name": "同名の版",
     "multiple_working_versions": "作業中の版が複数",
+    "cyclic_history": "版の親子関係が循環",
 }
 _TARGET_LABEL = "(統合先)"
 

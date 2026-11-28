@@ -309,6 +309,61 @@ def test_join_with_version_renames_chains_one_history(
     assert _versions(projects["proj_t"], "chara") == {"v1": None, "v2": "v1", "v3": "v2", "v4": "v3"}
 
 
+def _join(dialog: ProjectMergeDialog, name: str, labels: list[str]) -> None:
+    """まとめる指定を、labels の順に並べ替えてから足す。"""
+    dialog.join_name_edit.setText(name)
+    for position, label in enumerate(labels):
+        rows = [dialog.join_source_list.item(row).text() for row in range(dialog.join_source_list.count())]
+        dialog.join_source_list.setCurrentRow(rows.index(label))
+        while dialog.join_source_list.currentRow() > position:
+            dialog.join_up_button.click()
+    for row in range(dialog.join_source_list.count()):
+        item = dialog.join_source_list.item(row)
+        if item.text() in labels:
+            item.setCheckState(dialog_module.Qt.CheckState.Checked)
+    dialog.add_join_button.click()
+
+
+def test_cyclic_history_conflict_is_shown_and_blocks_confirm(
+    qtbot: QtBot, dialog: ProjectMergeDialog, projects: dict[str, SyntheticProject]
+) -> None:
+    """データセットをまたぐ parent と逆の順で履歴をまとめると循環し、衝突として表示する。
+
+    A の extra/e1 の parent は A の chara/v2。extra → chara の順にまとめると v1 → e1 → v2 → v1 と循環する。
+    """
+    a = projects["proj_a"]
+    with closing(sqlite3.connect(a.db_path)) as conn:
+        a_cat = int(conn.execute("SELECT id FROM images WHERE uuid = 'proj_a-a_cat'").fetchone()[0])
+        a_v2 = int(conn.execute("SELECT id FROM dataset_versions WHERE name = 'v2'").fetchone()[0])
+    add_version(a, "extra", "e1", "1_extra", [(a_cat, "a_cat", {".txt": "extra"})], parent_version_id=a_v2)
+
+    plan = _make_plan(qtbot, dialog)
+    # データセットをまたぐ parent はそのまま表示する
+    extra = next(v for v in plan.versions if v.source.label == "proj_a:extra/e1")
+    assert dialog_module._parent_text(extra) == "proj_a:chara/v2"
+    _edit_cell(dialog, "proj_b:chara/v1", dialog_module._COL_DATASET, "chara_b")
+    _wait_plan(qtbot, dialog)
+
+    _join(dialog, "chara", ["proj_a:extra", "proj_a:chara"])
+    plan = _wait_plan(qtbot, dialog)
+
+    assert [(c.kind, c.target_dataset) for c in plan.conflicts] == [("cyclic_history", "chara")]
+    kinds = [dialog.conflict_table.item(row, 0).text() for row in range(dialog.conflict_table.rowCount())]
+    assert kinds == ["版の親子関係が循環"]
+    assert "循環" in dialog.conflict_table.item(0, 4).text()
+    assert _stat_value(dialog, "projectMergeStatConflicts") == "1"
+    assert not dialog.confirm_button.isEnabled()
+
+    # 指定を外して逆の順 (chara → extra) でまとめ直すと循環しない
+    dialog.join_list.setCurrentRow(0)
+    dialog.remove_join_button.click()
+    _wait_plan(qtbot, dialog)
+    _join(dialog, "chara", ["proj_a:chara", "proj_a:extra"])
+    plan = _wait_plan(qtbot, dialog)
+    assert plan.is_resolved
+    assert dialog.confirm_button.isEnabled()
+
+
 def test_apply_failure_shows_error_and_leaves_target_unchanged(
     qtbot: QtBot,
     dialog: ProjectMergeDialog,
