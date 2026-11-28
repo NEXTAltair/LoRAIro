@@ -28,7 +28,7 @@ tags: [project, database, dataset, provenance, cli, merge]
 
 ### 3. 版は親子の連なりごと複製し、由来を記録する
 
-統合元の版は、統合元の版 ID の順に統合先へ作り、parent を統合先の ID に付け替える。作業中の版(`is_working=True`)は作業中のまま引き継ぐ。版ごとに `dataset_version_origins` へ、統合元のプロジェクト名・データセット名・版 ID・版名と、取り込んだ操作(`transfer_run_id`)を記録する。版の対応は `DatasetRepository.list_version_origins` で統合先から読む。
+統合元の版は、統合元の版 ID の順に統合先へ作り、parent を統合先の ID に付け替える。parent は統合元のプロジェクトにあるすべての版から引く。別のデータセットの版を parent にしている版(`dataset import --parent-version` で作れる)は、統合先でも対応する別のデータセットの版を parent にする。作業中の版(`is_working=True`)は作業中のまま引き継ぐ。版ごとに `dataset_version_origins` へ、統合元のプロジェクト名・データセット名・版 ID・版名と、取り込んだ操作(`transfer_run_id`)を記録する。版の対応は `DatasetRepository.list_version_origins` で統合先から読む。
 
 学習設定(`training_configs`)はデータセットと版の ID を付け替えて複製する。統合の最後に、足したデータセットごとに `KOHYA_DATASET` のタグを最新版へ同期する(ADR 0104)。
 
@@ -40,6 +40,7 @@ tags: [project, database, dataset, provenance, cli, merge]
 - `dataset_exists`: 統合先に同じ名前のデータセットが既にある(履歴をまとめる指定がない)
 - `version_name`: 1 つのデータセットの中で、同じ名前の版が 2 つ以上になる
 - `multiple_working_versions`: 1 つのデータセットの中で、作業中の版が 2 つ以上になる(ADR 0098 の「データセットごとに作業中の版は 1 つまで」を守る)
+- `cyclic_history`: 履歴をまとめる指定で付く parent と、データセットをまたぐ parent が逆向きに組み合わさり、版の親子関係が循環する(例: `b` の parent が別のデータセットの `a` のとき、`b` のデータセットを先にまとめると `a` の parent が `b` になる)。計画した parent のグラフ全体で循環が無いことを確かめる。循環があると最新版が決まらず、タグ同期(ADR 0104)が働かない
 
 衝突は自動で解消しない。利用者が名前の対応(`MergeMapping`)で、データセットの名前の付け替え、版の名前の付け替え、履歴をまとめる指定のいずれかをする。存在しない統合元・データセット・版を指す対応と、互いに矛盾する対応は不正な指定として拒否する。データセットの名前が衝突している間は、そのデータセットの版の衝突は判定しない(データセットの対応を決めてから判定する)。
 
@@ -48,7 +49,7 @@ tags: [project, database, dataset, provenance, cli, merge]
 同じデータセットの版を 1 つの履歴にまとめる指定では、統合元のデータセットを利用者が指定した順に連ねる。前の要素の最新版を、次の要素の最初の版の parent にする。
 
 - 最新版は `DatasetRepository._latest_version_ids` と同じ規則(確定済みの版のうち、他の確定済みの版の parent に指されていない版で ID が最大のもの)で決める
-- 最初の版は、同じデータセットに parent が無い版のうち ID が最小のもの。parent を付けるのはこの 1 つだけで、ほかの根の版はそのままにする
+- 最初の版は、parent が無い版のうち ID が最小のもの。parent を付けるのはこの 1 つだけで、ほかの根の版はそのままにする。別のデータセットの版を parent にしている版は最初の版にせず、その親子関係を保つ
 - 統合先に同じ名前のデータセットが既にあれば、その履歴を先頭にする(既存のデータセットへ続けて足す)
 - 確定済みの版が無い要素は飛ばし、その前の要素の最新版を次の要素に渡す
 

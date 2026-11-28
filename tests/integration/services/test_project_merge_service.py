@@ -547,3 +547,126 @@ def test_union_of_same_image_keeps_records_of_different_times(
         shared_id,
     )
     assert [(str(c), str(t)[:10]) for c, t in kept] == [("same", "2026-01-01"), ("same", "2026-02-01")]
+
+
+def _source_version_id(project: SyntheticProject, dataset: str, version: str) -> int:
+    rows = _rows(
+        project,
+        "SELECT v.id FROM dataset_versions v JOIN datasets d ON d.id = v.dataset_id "
+        "WHERE d.name = ? AND v.name = ?",
+        dataset,
+        version,
+    )
+    return int(str(rows[0][0]))
+
+
+def _parent_of(project: SyntheticProject, dataset: str, version: str) -> tuple[str, str] | None:
+    """統合先の版の parent を (データセット名, 版の名前) で返す。"""
+    rows = _rows(
+        project,
+        "SELECT pd.name, p.name FROM dataset_versions v JOIN datasets d ON d.id = v.dataset_id "
+        "LEFT JOIN dataset_versions p ON p.id = v.parent_version_id "
+        "LEFT JOIN datasets pd ON pd.id = p.dataset_id WHERE d.name = ? AND v.name = ?",
+        dataset,
+        version,
+    )
+    dataset_name, version_name = rows[0]
+    return None if version_name is None else (str(dataset_name), str(version_name))
+
+
+def test_parent_in_another_dataset_is_kept(projects: dict[str, SyntheticProject]) -> None:
+    """別のデータセットの版を parent にした版 (`dataset import --parent-version`) も親子関係を保つ。"""
+    b = projects["proj_b"]
+    b_dog = int(str(_rows(b, "SELECT id FROM images WHERE filename = 'b_dog.png'")[0][0]))
+    add_version(
+        b,
+        "style",
+        "s2",
+        "1_style",
+        [(b_dog, "b_dog", {".txt": "style, dog"})],
+        parent_version_id=_source_version_id(b, "chara", "v2"),
+    )
+    target = projects["proj_t"]
+
+    plan = _service(target).plan(_sources(projects), MergeMapping(dataset_names={B_CHARA: "chara_b"}))
+    s2 = next(v for v in plan.versions if v.source.label == "proj_b:style/s2")
+    assert s2.parent is not None
+    assert (s2.parent.source_project, s2.parent.dataset, s2.parent.version) == ("proj_b", "chara", "v2")
+    assert not s2.joined_parent
+
+    _service(target).apply(_sources(projects), MergeMapping(dataset_names={B_CHARA: "chara_b"}))
+
+    assert _parent_of(target, "style", "s2") == ("chara_b", "v2")
+    assert _parent_of(target, "style", "s1") is None
+
+
+def test_parent_in_another_dataset_is_kept_with_joined_histories(
+    projects: dict[str, SyntheticProject],
+) -> None:
+    """履歴をまとめても、別のデータセットにある parent は対応する統合先の版を指す。"""
+    b = projects["proj_b"]
+    b_dog = int(str(_rows(b, "SELECT id FROM images WHERE filename = 'b_dog.png'")[0][0]))
+    add_version(
+        b,
+        "style",
+        "s2",
+        "1_style",
+        [(b_dog, "b_dog", {".txt": "style, dog"})],
+        parent_version_id=_source_version_id(b, "chara", "v2"),
+    )
+    target = projects["proj_t"]
+    mapping = MergeMapping(
+        joins={"chara": [A_CHARA, B_CHARA], "legacy": [SourceDatasetRef("proj_b", "style")]},
+        version_names={
+            SourceVersionRef("proj_b", "chara", "v1"): "v3",
+            SourceVersionRef("proj_b", "chara", "v2"): "v4",
+        },
+    )
+
+    _service(target).apply(_sources(projects), mapping)
+
+    # style の最初の版 (s1) は既存の legacy の最新版に続き、s2 は B の chara/v2 (統合先の chara/v4) を指す
+    assert _parent_of(target, "legacy", "s1") == ("legacy", "l1")
+    assert _parent_of(target, "legacy", "s2") == ("chara", "v4")
+    assert _parent_of(target, "chara", "v3") == ("chara", "v2")
+
+
+def test_join_that_would_make_a_cycle_is_a_conflict(projects: dict[str, SyntheticProject]) -> None:
+    """データセットをまたぐ parent と逆の順で履歴をまとめると循環するので、衝突にして確定しない。
+
+    A の extra/e1 の parent は A の chara/v2。extra → chara の順にまとめると、chara の最初の版 v1 の
+    parent が extra の最新版 e1 になり、v1 → e1 → v2 → v1 と循環する。
+    """
+    a = projects["proj_a"]
+    a_cat = int(str(_rows(a, "SELECT id FROM images WHERE filename = 'a_cat.png'")[0][0]))
+    add_version(
+        a,
+        "extra",
+        "e1",
+        "1_extra",
+        [(a_cat, "a_cat", {".txt": "extra"})],
+        parent_version_id=_source_version_id(a, "chara", "v2"),
+    )
+    target = projects["proj_t"]
+    before = table_counts(target, _TARGET_TABLES)
+    mapping = MergeMapping(
+        dataset_names={B_CHARA: "chara_b"},
+        joins={"chara": [SourceDatasetRef("proj_a", "extra"), A_CHARA]},
+    )
+
+    plan = _service(target).plan(_sources(projects), mapping)
+
+    assert [(c.kind, c.target_dataset) for c in plan.conflicts] == [("cyclic_history", "chara")]
+    conflict = plan.conflicts[0]
+    assert set(conflict.sources) == {"proj_a:chara/v1", "proj_a:extra/e1", "proj_a:chara/v2"}
+    assert "循環" in conflict.message
+    with pytest.raises(UnresolvedMergeConflictError):
+        _service(target).apply(_sources(projects), mapping)
+    assert table_counts(target, _TARGET_TABLES) == before
+
+    # 逆の順 (chara → extra) なら循環しない
+    ordered = MergeMapping(
+        dataset_names={B_CHARA: "chara_b"},
+        joins={"chara": [A_CHARA, SourceDatasetRef("proj_a", "extra")]},
+    )
+    assert _service(target).plan(_sources(projects), ordered).is_resolved

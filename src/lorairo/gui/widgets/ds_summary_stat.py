@@ -108,3 +108,15 @@ class DsSummaryStat(QFrame):
         else:
             self._sub_widget.setVisible(False)
         layout.addWidget(self._sub_widget)
+
+    def set_value(self, value: str) -> None:
+        """value (主要数値・状態テキスト) を差し替える。
+
+        Args:
+            value: 新しい表示テキスト。
+        """
+        self._value_widget.setText(value)
+
+    def value(self) -> str:
+        """表示中の value テキスト。"""
+        return self._value_widget.text()

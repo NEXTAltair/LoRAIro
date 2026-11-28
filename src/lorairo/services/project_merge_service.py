@@ -70,13 +70,16 @@ __all__ = [
 _STAGING_DIR_NAME = ".transfer_staging"
 _TARGET_LABEL = "(target)"
 
-ConflictKind = Literal["dataset_name", "dataset_exists", "version_name", "multiple_working_versions"]
+ConflictKind = Literal[
+    "dataset_name", "dataset_exists", "version_name", "multiple_working_versions", "cyclic_history"
+]
 """衝突の種類。
 
 - ``dataset_name``: 複数の統合元のデータセットが、履歴をまとめる指定なしに同じ名前になる
 - ``dataset_exists``: 統合先に同じ名前のデータセットが既にある (履歴をまとめる指定がない)
 - ``version_name``: 1 つのデータセットの中で、同じ名前の版が 2 つ以上になる
 - ``multiple_working_versions``: 1 つのデータセットの中で、作業中の版が 2 つ以上になる
+- ``cyclic_history``: 履歴をまとめる指定で付く parent と、データセットをまたぐ parent が循環する
 """
 
 
@@ -512,9 +515,11 @@ def _latest_version_id(nodes: Sequence[_VersionNode]) -> int | None:
 
 
 def _first_root_id(nodes: Sequence[_VersionNode]) -> int | None:
-    """データセットの最初の版 (同じデータセットに parent が無い版のうち ID が最小のもの) の ID。"""
-    ids = {node.id for node in nodes}
-    roots = [node.id for node in nodes if node.parent_version_id not in ids]
+    """データセットの最初の版 (parent が無い版のうち ID が最小のもの) の ID。
+
+    別のデータセットの版を parent にしている版は、その親子関係を保つため最初の版にしない。
+    """
+    roots = [node.id for node in nodes if node.parent_version_id is None]
     return min(roots) if roots else None
 
 
@@ -986,14 +991,61 @@ def _plan_datasets(
             group.target_name,
         ),
     )
+    # parent は統合元のプロジェクトのすべての版から引く (別のデータセットの版を parent にできるため)
+    source_versions = {
+        (dataset.ref.project, version.node.id): (dataset.ref.dataset, version.node.name)
+        for dataset in source_datasets
+        for version in dataset.versions
+    }
     versions: list[PlannedVersion] = []
     for group in ordered:
-        group_versions = _plan_group_versions(group, mapping)
+        group_versions = _plan_group_versions(group, mapping, source_versions)
         versions.extend(group_versions)
         # データセットの名前が衝突している間は、版の名前の衝突は解消後に判定する
         if all(conflict.target_dataset != group.target_name for conflict in conflicts):
             conflicts.extend(_version_conflicts(group, group_versions))
+    conflicts.extend(_cycle_conflicts(versions))
     return _DatasetPlan(groups=ordered, versions=versions, conflicts=conflicts)
+
+
+def _cycle_conflicts(versions: Sequence[PlannedVersion]) -> list[MergeConflict]:
+    """計画した parent のグラフに循環があれば、循環 1 つにつき衝突を 1 件返す。
+
+    統合先に既にある版は統合で足す版を parent にしないので、循環は統合で足す版の中だけで起きる。
+    循環は、履歴をまとめる指定で付いた parent と、データセットをまたぐ parent が逆向きに
+    組み合わさったときにできる。
+    """
+    by_key = {(version.source.project, version.source_version_id): version for version in versions}
+    parent_of: dict[tuple[str, int], tuple[str, int]] = {}
+    for key, version in by_key.items():
+        parent = version.parent
+        if parent is not None and parent.source_project is not None:
+            parent_of[key] = (parent.source_project, parent.version_id)
+    conflicts: list[MergeConflict] = []
+    done: set[tuple[str, int]] = set()
+    for start in by_key:
+        path: list[tuple[str, int]] = []
+        current: tuple[str, int] | None = start
+        while current is not None and current not in done and current not in path:
+            path.append(current)
+            current = parent_of.get(current)
+        if current is not None and current in path:
+            cycle = [by_key[key] for key in path[path.index(current) :] if key in by_key]
+            joined = next((version for version in cycle if version.joined_parent), cycle[0])
+            labels = tuple(version.source.label for version in cycle)
+            conflicts.append(
+                MergeConflict(
+                    "cyclic_history",
+                    joined.target_dataset,
+                    None,
+                    labels,
+                    f"履歴をまとめると版の親子関係が循環します ({' -> '.join(labels)})。"
+                    f"'{joined.source.label}' の parent が、まとめる順で前に置いた版になるためです。"
+                    "--join-dataset の順を入れ替えるか、履歴をまとめずに別のデータセットにしてください",
+                )
+            )
+        done.update(path)
+    return conflicts
 
 
 def _dataset_conflict(kind: ConflictKind, name: str, sources: tuple[str, ...]) -> MergeConflict:
@@ -1010,8 +1062,19 @@ def _dataset_conflict(kind: ConflictKind, name: str, sources: tuple[str, ...]) -
     return MergeConflict(kind, name, None, sources, message)
 
 
-def _plan_group_versions(group: _DatasetGroup, mapping: MergeMapping) -> list[PlannedVersion]:
-    """統合先のデータセット 1 つに入る版の計画を、履歴の順に作る。"""
+def _plan_group_versions(
+    group: _DatasetGroup,
+    mapping: MergeMapping,
+    source_versions: Mapping[tuple[str, int], tuple[str, str]],
+) -> list[PlannedVersion]:
+    """統合先のデータセット 1 つに入る版の計画を、履歴の順に作る。
+
+    Args:
+        group: 統合先のデータセット 1 つにまとまる統合元のデータセット。
+        mapping: 名前の対応。
+        source_versions: (統合元のプロジェクト名, 統合元の版 ID) → (統合元のデータセット名, 版の名前)。
+            統合元のすべてのデータセットの版を含む。
+    """
     planned: list[PlannedVersion] = []
     previous: PlannedParent | None = None
     if group.existing is not None:
@@ -1034,13 +1097,10 @@ def _plan_group_versions(group: _DatasetGroup, mapping: MergeMapping) -> list[Pl
             joined_parent = False
             if node.id == root_id and previous is not None:
                 parent, joined_parent = previous, True
-            elif node.parent_version_id in names:
-                parent = PlannedParent(
-                    element.ref.project,
-                    element.ref.dataset,
-                    names[node.parent_version_id],
-                    node.parent_version_id,
-                )
+            elif node.parent_version_id is not None:
+                found = source_versions.get((element.ref.project, node.parent_version_id))
+                if found is not None:
+                    parent = PlannedParent(element.ref.project, found[0], found[1], node.parent_version_id)
             ref = SourceVersionRef(element.ref.project, element.ref.dataset, node.name)
             planned.append(
                 PlannedVersion(

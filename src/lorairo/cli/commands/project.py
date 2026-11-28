@@ -9,6 +9,8 @@ API層（lorairo.public_api）を経由してService層を利用する。
 """
 
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import typer
@@ -21,6 +23,7 @@ from lorairo.cli._glyphs import OK
 from lorairo.cli._help import PROJECT_OPTION_HELP, project_created_next_steps
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.database.repository.dataset import DatasetRepository
+from lorairo.public_api.exceptions import ProjectError
 from lorairo.public_api.project import (
     create_project as api_create_project,
 )
@@ -41,6 +44,7 @@ from lorairo.services.project_merge_service import (
     SourceVersionRef,
 )
 from lorairo.services.project_transfer_service import SourceProject
+from lorairo.utils.log import logger
 
 # サブコマンドアプリ定義
 app = typer.Typer(help="Project management commands")
@@ -401,7 +405,8 @@ def merge(
             if create:
                 plan = ProjectMergeService.plan_into_new_project(source_projects, mapping, project)
             else:
-                plan = _merge_service(project).plan(source_projects, mapping)
+                with _open_merge_target(project) as service:
+                    plan = service.plan(source_projects, mapping)
             _report_merge_plan(plan)
             return
 
@@ -409,12 +414,14 @@ def merge(
             api_create_project(ProjectCreateRequest(name=project, description=None))
         merged = False
         try:
-            result = _merge_service(project).apply(source_projects, mapping)
+            # 統合先の engine は with を抜けた時点で破棄される (作った統合先を消す前に接続を閉じる)
+            with _open_merge_target(project) as service:
+                result = service.apply(source_projects, mapping)
             merged = True
         finally:
             # 作った統合先は、統合が失敗したら消す (中途半端なプロジェクトを残さない)
             if create and not merged:
-                api_delete_project(project)
+                _delete_created_target(project)
         if is_json_mode():
             _emit_merge_plan(result.plan)
             emit_result(
@@ -437,13 +444,35 @@ def merge(
         )
 
 
-def _merge_service(project: str) -> ProjectMergeService:
-    from lorairo.services.service_container import get_service_container
+@contextmanager
+def _open_merge_target(project: str) -> Iterator[ProjectMergeService]:
+    """統合先の DB を専用の engine で開いて service を返し、抜けるときに engine を破棄する。
+
+    service container の singleton には載せない。統合が失敗して作った統合先を消すとき、
+    接続が開いたままだと Windows では削除が共有違反で失敗するため (Codex P2, PR #1671)。
+    """
+    from sqlalchemy import Engine
+
+    from lorairo.database.db_core import IMG_DB_FILENAME, create_project_session_factory
 
     target = _merge_source(project)
-    container = get_service_container()
-    container.set_active_project(project)
-    return ProjectMergeService(container.image_repository.session_factory, target.root, target.name)
+    factory = create_project_session_factory(target.root / IMG_DB_FILENAME)
+    try:
+        yield ProjectMergeService(factory, target.root, target.name)
+    finally:
+        engine = factory.kw.get("bind")
+        if isinstance(engine, Engine):
+            engine.dispose()
+
+
+def _delete_created_target(project: str) -> None:
+    """統合に失敗したとき、作った統合先を消す。消せなくても元のエラーを隠さない (ログに残す)。"""
+    try:
+        api_delete_project(project)
+    except (ProjectError, OSError):
+        logger.opt(exception=True).error(
+            f"統合に失敗した統合先のプロジェクトを削除できませんでした: {project}"
+        )
 
 
 def _report_merge_plan(plan: MergePlan) -> None:

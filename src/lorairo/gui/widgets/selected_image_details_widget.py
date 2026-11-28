@@ -56,6 +56,7 @@ from .annotation_data_display_widget import (
 from .annotation_review_widget import AnnotationReviewWidget
 from .dataset_usage_widget import DatasetUsageEntry, DatasetUsageWidget
 from .generation_metadata_display_widget import GenerationMetadataDisplayWidget
+from .image_origin_widget import ImageOriginEntry, ImageOriginWidget
 from .rating_score_edit_widget import RatingScoreEditWidget
 from .related_images_widget import RelatedImagesWidget
 from .tag_panel_widget import ACTION_TOOL_BUTTON_QSS
@@ -175,6 +176,8 @@ class SelectedImageDetailsWidget(QWidget):
         self._crop_relation_service: CropRelationService | None = None
         # 学習に使ったデータセットの取得 (#1647): set_dataset_usage_provider で配線。未配線なら非表示。
         self._dataset_usage_provider: Callable[[int], list[DatasetUsageEntry]] | None = None
+        # 由来 (別プロジェクトからのコピー元) の取得 (#1661): set_image_origin_provider で配線。
+        self._image_origin_provider: Callable[[int], list[ImageOriginEntry]] | None = None
 
         # shutdown 後に遅延起動 (QTimer.singleShot) が worker を再起動しないためのフラグ (#1206)
         self._closing: bool = False
@@ -349,6 +352,11 @@ class SelectedImageDetailsWidget(QWidget):
         self._dataset_usage_widget.highlight_changed.connect(self.annotation_display.set_tag_highlight)
         self._dataset_usage_widget.setVisible(False)
         layout.addWidget(self._dataset_usage_widget)
+
+        # 由来 (#1661)。別プロジェクトからコピーした画像のコピー元を出す。未配線なら非表示。
+        self._image_origin_widget = ImageOriginWidget(container)
+        self._image_origin_widget.setVisible(False)
+        layout.addWidget(self._image_origin_widget)
 
         # 生成メタデータ詳細表示 (#1483)
         self.generation_metadata_widget = GenerationMetadataDisplayWidget(container)
@@ -587,6 +595,37 @@ class SelectedImageDetailsWidget(QWidget):
             self._dataset_usage_widget.clear()
             return
         self._dataset_usage_widget.set_entries(entries)
+
+    def set_image_origin_provider(self, provider: Callable[[int], list[ImageOriginEntry]] | None) -> None:
+        """画像の由来 (別プロジェクトのコピー元) の取得手段を配線する (#1661)。
+
+        Args:
+            provider: ``images.id`` を受け取り由来を返す callable。None でセクションを隠す。
+        """
+        self._image_origin_provider = provider
+        self._image_origin_widget.setVisible(provider is not None)
+        self.refresh_image_origins()
+
+    def refresh_image_origins(self) -> None:
+        """現在表示中の画像の由来を取り直して表示する (#1661)。"""
+        provider = self._image_origin_provider
+        image_id = self.current_image_id
+        if provider is None or image_id is None:
+            self._image_origin_widget.clear()
+            return
+        try:
+            entries = provider(image_id)
+        except SQLAlchemyError:
+            # 付加情報なので、取得失敗でも詳細表示全体は落とさず空表示に留める。
+            logger.opt(exception=True).error(f"画像の由来の取得に失敗しました: image_id={image_id}")
+            self._image_origin_widget.clear()
+            return
+        self._image_origin_widget.set_entries(entries)
+
+    @property
+    def image_origin_widget(self) -> ImageOriginWidget:
+        """由来セクション (テスト・確認用)。"""
+        return self._image_origin_widget
 
     def set_annotation_review_service(self, service: "AnnotationReviewService") -> None:
         """Inject the explicit, read-only Clef review service into the details panel."""
@@ -1627,6 +1666,7 @@ class SelectedImageDetailsWidget(QWidget):
         if not same_image:
             self.refresh_related_images()
             self.refresh_dataset_usage()
+            self.refresh_image_origins()
             self._update_generation_metadata(image_id, image_data)
         # 翻訳/使用頻度/type を background で解決し、完了時に反映する (#1046)
         self._current_tags_list = new_tags_list
@@ -2093,6 +2133,8 @@ class SelectedImageDetailsWidget(QWidget):
         self._related_images_widget.clear()
         # 学習に使ったデータセットのクリア (#1647)
         self._dataset_usage_widget.clear()
+        # 由来のクリア (#1661)
+        self._image_origin_widget.clear()
         # 生成メタデータ表示のクリア (#1483)
         self.generation_metadata_widget.clear_display()
         if self._copy_details_button:
