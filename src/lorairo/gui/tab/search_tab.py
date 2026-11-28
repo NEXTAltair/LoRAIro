@@ -961,8 +961,20 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
 
     @Slot(list)
     def _on_cross_project_images_copied(self, image_ids: list[int]) -> None:
-        """他のプロジェクトから取り込んだら、現在のプロジェクトの検索結果を更新する。"""
+        """他のプロジェクトから取り込んだら、影響した画像を読み直して検索結果を更新する。
+
+        既存の画像への由来の追加 (link) では、画像 ID は変わらずアノテーションと由来だけが増える。
+        検索をやり直しても表示中の画像は同じ画像として扱われ由来を読み直さないため、明示的に読み直す。
+
+        Args:
+            image_ids: 取り込み先で複製・由来を追加した画像 ID。
+        """
         self.status_message.emit(f"他のプロジェクトから {len(image_ids)} 枚を取り込みました")
+        if self._dataset_state_manager is not None:
+            self._dataset_state_manager.invalidate_annotations(image_ids)
+        details = self._selected_image_details_widget
+        if details.current_image_id in image_ids:
+            details.refresh_image_origins()
         self.load_images_from_db()
 
     def create_version_build_dialog(self) -> DatasetVersionBuildDialog | None:
@@ -996,11 +1008,23 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
         if dialog is not None:
             dialog.exec()
 
-    @Slot(int)
-    def _on_version_built(self, version_id: int) -> None:
-        """版を作ったら、詳細の「学習に使ったデータセット」を取り直す。"""
+    @Slot(int, list)
+    def _on_version_built(self, version_id: int, image_ids: list[int]) -> None:
+        """版を作ったら、版の画像のアノテーションを無効化して検索をやり直す。
+
+        版の作成は ``KOHYA_DATASET`` の通常タグを最新版へ同期する (ADR 0104) ため、読み込み済みの
+        アノテーションと検索結果が古くなる。
+
+        Args:
+            version_id: 作った版の ID。
+            image_ids: 版に入れた画像 ID。
+        """
         self.status_message.emit(f"データセットの版を作成しました (版 ID {version_id})")
+        if self._dataset_state_manager is not None:
+            self._dataset_state_manager.invalidate_annotations(image_ids)
+        self.refresh_annotation_reviews(image_ids)
         self._selected_image_details_widget.refresh_dataset_usage()
+        self.load_images_from_db()
 
     # -- プロパティ (タブ内配線・テスト・pipeline 注入用) ----------------------
 

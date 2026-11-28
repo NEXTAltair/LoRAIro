@@ -1475,7 +1475,7 @@ def test_build_version_button_opens_dialog_with_selected_images(
     assert dialog.exec_calls == 1
     assert list(dialog.args[1]) == list(dataset_state_manager.selected_image_ids)
     (slot,) = dialog.version_built.connect.call_args.args
-    slot(12)
+    slot(12, [5, 3])
     refresh.assert_called_once_with()
 
 
@@ -1483,3 +1483,52 @@ def test_build_version_button_opens_dialog_with_selected_images(
 def test_details_panel_origin_section_is_wired(tab) -> None:
     """DB があれば詳細パネルの「由来」セクションを配線して表示する。"""
     assert tab.selected_image_details_widget.image_origin_widget.isHidden() is False
+
+
+@pytest.mark.gui
+def test_version_built_invalidates_annotations_and_reruns_search(
+    tab, dataset_state_manager, monkeypatch
+) -> None:
+    """版の作成は通常タグを同期するので、版の画像のアノテーションを無効化して検索をやり直す。"""
+    invalidate = Mock()
+    monkeypatch.setattr(dataset_state_manager, "invalidate_annotations", invalidate)
+    reload = Mock()
+    monkeypatch.setattr(tab, "load_images_from_db", reload)
+    monkeypatch.setattr(tab.selected_image_details_widget, "refresh_dataset_usage", Mock())
+
+    tab._on_version_built(12, [5, 3])
+
+    invalidate.assert_called_once_with([5, 3])
+    reload.assert_called_once_with()
+
+
+@pytest.mark.gui
+def test_copy_refreshes_origin_of_displayed_image(tab, dataset_state_manager, monkeypatch) -> None:
+    """表示中の画像がコピー (由来の追加) の対象なら、同じ画像 ID でも由来を読み直す。"""
+    details = tab.selected_image_details_widget
+    details.current_image_id = 7
+    refresh_origins = Mock()
+    monkeypatch.setattr(details, "refresh_image_origins", refresh_origins)
+    invalidate = Mock()
+    monkeypatch.setattr(dataset_state_manager, "invalidate_annotations", invalidate)
+    monkeypatch.setattr(tab, "load_images_from_db", Mock())
+
+    tab._on_cross_project_images_copied([7, 8])
+
+    refresh_origins.assert_called_once_with()
+    # link では既存の画像にアノテーションを足すので、キャッシュも無効化する
+    invalidate.assert_called_once_with([7, 8])
+
+
+@pytest.mark.gui
+def test_copy_does_not_refresh_origin_of_unaffected_image(tab, monkeypatch) -> None:
+    """表示中の画像がコピーの対象外なら由来を読み直さない。"""
+    details = tab.selected_image_details_widget
+    details.current_image_id = 99
+    refresh_origins = Mock()
+    monkeypatch.setattr(details, "refresh_image_origins", refresh_origins)
+    monkeypatch.setattr(tab, "load_images_from_db", Mock())
+
+    tab._on_cross_project_images_copied([7, 8])
+
+    refresh_origins.assert_not_called()

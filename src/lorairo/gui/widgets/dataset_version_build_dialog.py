@@ -51,10 +51,11 @@ class DatasetVersionBuildDialog(QDialog):
     """選んだ画像から版を作る。
 
     Signals:
-        version_built (int): 作った版の ID。
+        version_built (int, list): 作った版の ID と、版に入れた画像 ID。版の作成は通常タグを
+            同期する (ADR 0104) ので、受け手はこれらの画像のアノテーションを読み直す。
     """
 
-    version_built = Signal(int)
+    version_built = Signal(int, list)
 
     # worker スレッドから GUI スレッドへ結果を渡す (受け手はダイアログ = GUI スレッド)
     _plan_ready = Signal(object)
@@ -236,7 +237,7 @@ class DatasetVersionBuildDialog(QDialog):
             f"版を作成 (GUI): dataset='{request.dataset_name}', version='{request.version_name}', "
             f"version_id={result.version_id}, images={len(result.plan.images)}"
         )
-        self.version_built.emit(result.version_id)
+        self.version_built.emit(result.version_id, [image.image_id for image in result.plan.images])
         show_information(
             self,
             "版を作成しました",
