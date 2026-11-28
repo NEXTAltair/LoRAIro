@@ -988,6 +988,117 @@ class GenerationMetadata(Base):
 ImageGenerationMetadata = GenerationMetadata
 
 
+# --- プロジェクト横断の画像コピーと由来 (ADR 0112, Issue #1661) ---
+# 別プロジェクトの画像は参照せずコピーで取り込み、コピー元のプロジェクト名と画像 ID / uuid を
+# 由来として記録する。DB をまたぐ外部キーは作らない (コピー元の DB は別ファイル)。
+
+TRANSFER_KIND_COPY_IMAGES = "copy_images"
+TRANSFER_KIND_MERGE_PROJECT = "merge_project"
+
+
+class ProjectTransferRun(Base):
+    """別プロジェクトから画像を取り込んだ 1 回分の操作 (ADR 0112)。
+
+    コピー元 1 プロジェクトにつき 1 行。プロジェクトの統合 (#1660) は `merge_project` で記録する。
+    """
+
+    __tablename__ = "project_transfer_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    # コピー元のプロジェクト名と、取り込んだ時点のプロジェクトディレクトリ
+    source_project_name: Mapped[str] = mapped_column(String, nullable=False)
+    source_project_path: Mapped[str] = mapped_column(String, nullable=False)
+    # 新しい画像として複製した枚数と、同じ画像が既にあり由来だけを足した枚数
+    copied_images: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    linked_images: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('copy_images', 'merge_project')", name="ck_project_transfer_runs_kind"),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ProjectTransferRun(id={self.id}, kind='{self.kind}', source='{self.source_project_name}')>"
+        )
+
+
+class ImageOrigin(Base):
+    """画像の由来 (コピー元のプロジェクトと画像) (ADR 0112)。
+
+    1 画像に複数の由来を持てる (同じ画像を別のプロジェクトからも取り込んだ場合)。
+    コピー元の画像 ID はコピー元の DB の値で、この DB の `images.id` ではない。
+    """
+
+    __tablename__ = "image_origins"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    image_id: Mapped[int] = mapped_column(ForeignKey("images.id", ondelete="CASCADE"), nullable=False)
+    transfer_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("project_transfer_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    source_project_name: Mapped[str] = mapped_column(String, nullable=False)
+    source_image_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_image_uuid: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "image_id", "source_project_name", "source_image_uuid", name="uix_image_origins_image_source"
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ImageOrigin(id={self.id}, image_id={self.image_id}, "
+            f"source='{self.source_project_name}', source_image_id={self.source_image_id})>"
+        )
+
+
+class DatasetVersionOrigin(Base):
+    """データセットの版の由来 (コピー元のプロジェクトの版) (ADR 0112)。
+
+    プロジェクトの統合 (#1660) で別プロジェクトの版を取り込んだときに記録する。
+    """
+
+    __tablename__ = "dataset_version_origins"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    version_id: Mapped[int] = mapped_column(
+        ForeignKey("dataset_versions.id", ondelete="CASCADE"), nullable=False
+    )
+    transfer_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("project_transfer_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    source_project_name: Mapped[str] = mapped_column(String, nullable=False)
+    source_dataset_name: Mapped[str] = mapped_column(String, nullable=False)
+    source_version_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_version_name: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "version_id",
+            "source_project_name",
+            "source_version_id",
+            name="uix_dataset_version_origins_version_source",
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<DatasetVersionOrigin(id={self.id}, version_id={self.version_id}, "
+            f"source='{self.source_project_name}', source_version_id={self.source_version_id})>"
+        )
+
+
 class ProviderBatchJob(Base):
     """プロバイダ Batch API の永続 job 状態。"""
 

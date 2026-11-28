@@ -119,6 +119,7 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0109](0109-annotation-execution-admission-control.md) | アノテーション実行の受付・待機・停止はアプリが行い、ローカルモデルは 1 つずつ実行して即時保存する | 2026-11-11 | Accepted |
 | [0110](0110-detector-crop-rect-provider.md) | 物体検出器でクロップ矩形を決める images crop-detect を CropRectProvider として追加する | 2026-11-12 | Accepted |
 | [0111](0111-tag-provenance-pseudo-models.md) | model_id が空のタグ行に出所を持たせる (擬似モデル SIDECAR_IMPORT / IMAGE_PROCESSING) | 2026-11-19 | Accepted |
+| [0112](0112-cross-project-image-copy-and-origins.md) | プロジェクトを横断した画像の検索・コピーと由来の記録 | 2026-11-28 | Accepted |
 <!-- OKF-TABLE:END -->
 
 ## ADR テンプレート

@@ -320,6 +320,16 @@ Qt 依存のないビジネスロジックサービス群である。CLI、GUI�
 - **クラス**: `DatasetVersionDiffService`(関数: `diff_snapshots()`)
 - **目的**: 2 つの版のフォルダ、画像(追加・削除・差し替え)、学習テキスト(要素の追加・削除・並び替え)の差分を表示時に計算する(Qt-free、保存はしない)。CLI は `lorairo-cli dataset diff` に対応する
 
+#### CrossProjectSearchService / ProjectTransferService
+- **パス**: `src/lorairo/services/project_transfer_service.py`
+- **クラス**: `CrossProjectSearchService`、`ProjectTransferService`、`SourceProject`、`open_read_only_project()`
+- **目的**: 複数プロジェクトを読み取り専用で開いて画像を検索し(`ImageRepository.get_images_by_filter` を再利用)、選んだ画像を現在のプロジェクトへコピーする(Qt-free)。画像ファイル・処理済み画像・アノテーション・生成メタデータを複製し、コピー元のプロジェクトと画像 ID / uuid を `image_origins` に記録する。同じ画像(ADR 0061 の DUPLICATE)があれば複製せず由来を足し、アノテーションは和集合にする。取り込み先には 1 commit で書き、失敗時は行もファイルも残さない。由来の読み取りは `ImageOriginRepository`(`src/lorairo/database/repository/image_origin.py`)。CLI は `lorairo-cli images search-projects / copy / origins`(ADR 0112)
+
+#### DatasetVersionBuildService
+- **パス**: `src/lorairo/services/dataset_version_build_service.py`
+- **クラス**: `DatasetVersionBuildService`
+- **目的**: プロジェクト内の画像(別プロジェクトからコピーした画像を含む)から、採用中のタグを連結した学習テキスト付きのデータセットの版を作り、版の画像・学習テキスト・由来を返す(Qt-free)。版は作業中として作ってから確定する(取り込みと同じ方式)。CLI は `lorairo-cli dataset build-version / origins`(ADR 0112)
+
 #### ImageComparisonService(Qt-free)
 - **パス**: `src/lorairo/services/image_comparison.py`
 - **クラス・関数**: `ImageComparisonService`、`ComparisonSelection`、`diff_tags()`、`diff_caption()`、`snapshot_from_metadata()`

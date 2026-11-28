@@ -289,27 +289,41 @@ def resolve_stored_path(stored_path: str) -> Path:
     if cached is not None:
         return cached
 
+    resolved = resolve_stored_path_in_root(stored_path, project_root)
+    logger.trace(f"パス解決: {stored_path} -> {resolved}")
+    _resolve_cache[stored_path] = resolved
+    return resolved
+
+
+def resolve_stored_path_in_root(stored_path: str, project_root: Path) -> Path:
+    """DB内の stored_image_path を、指定したプロジェクトルート基準で実際のパスに解決する。
+
+    `resolve_stored_path` と同じ規則を、現在接続中のプロジェクト以外 (プロジェクト横断の
+    コピー元など, ADR 0112) にも使えるよう、ルートを引数で受け取る。キャッシュはしない。
+
+    Args:
+        stored_path: DB内のパス（相対パスまたは絶対パス）。
+        project_root: 相対パスの基準にするプロジェクトディレクトリ。
+
+    Returns:
+        解決済みの絶対パス。
+    """
+    # バックスラッシュをフォワードスラッシュに正規化（Windows/Linux互換）
+    path = Path(stored_path.replace("\\", "/"))
+    if path.is_absolute():
+        return path
+
     # 二重結合防止: stored_path にプロジェクトディレクトリ名が含まれている場合、
     # それ以降の部分のみをプロジェクトルートからの相対パスとして使用
     # (例: "lorairo_data/main_dataset_20250707_001/image_dataset/..." →
     #  "image_dataset/..." を抽出して project_root と結合)
     project_dir_name = project_root.name
-    try:
-        idx = path.parts.index(project_dir_name)
-        remainder_parts = path.parts[idx + 1 :]
+    if project_dir_name in path.parts:
+        remainder_parts = path.parts[path.parts.index(project_dir_name) + 1 :]
         if remainder_parts:
-            resolved = project_root.joinpath(*remainder_parts)
-            # per-item firehose のため TRACE (通常デバッグでは抑制、ADR 0047)
-            logger.trace(f"パス解決（プレフィックス正規化）: {stored_path} -> {resolved}")
-            _resolve_cache[stored_path] = resolved
-            return resolved
-    except ValueError:
-        pass
+            return project_root.joinpath(*remainder_parts)
 
-    resolved = project_root / path  # バックスラッシュ正規化済みの path を使う (Issue #707)
-    logger.trace(f"パス解決: {stored_path} -> {resolved}")
-    _resolve_cache[stored_path] = resolved
-    return resolved
+    return project_root / path  # バックスラッシュ正規化済みの path を使う (Issue #707)
 
 
 # --- Tag DB Path --- #
