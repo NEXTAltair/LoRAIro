@@ -54,6 +54,17 @@ def _walk_commands(group: TyperGroup, path: tuple[str, ...] = ()) -> Iterator[tu
             yield " ".join((*path, name)), sub
 
 
+@pytest.fixture(autouse=True)
+def disable_rich_color(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Rich/Typer のカラー出力を無効化する (tests/unit/cli/conftest.py と同じ)。
+
+    CI のようにカラーが強制される環境では `--dataset` が ANSI エスケープで分割され、
+    ヘルプ文字列の比較が失敗する。
+    """
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setenv("TERM", "dumb")
+
+
 @pytest.fixture
 def cli_runner() -> CliRunner:
     return CliRunner()
