@@ -15,6 +15,8 @@ import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from lorairo.database.db_manager import ImageDatabaseManager
 from lorairo.database.repository.dataset import (
     DatasetConflictError,
@@ -634,7 +636,9 @@ class DatasetImportService:
         """計画に従ってディレクトリを取り込み、新しい版を作る。
 
         書き込み前に計画の検証と設定 json の正規化を済ませ、版の作成で衝突した場合は
-        何も書かない。フォルダは 1 つずつ 1 トランザクションで追加する。
+        何も書かない。フォルダは 1 つずつ 1 トランザクションで追加するが、版は最後まで作業中
+        (`is_working=True`) にしておき、書き終えてから確定する。途中で失敗したら、この取り込みで
+        作った版・フォルダ・設定 json を削除する (登録した画像は残す)。
 
         Args:
             root: Kohya 形式のルートディレクトリ。
@@ -664,49 +668,65 @@ class DatasetImportService:
             f"version='{plan.version_name}', folders={len(targets)})"
         )
         dataset_id = self._repository.ensure_dataset(plan.dataset_name)
-        version_id = self._repository.create_version(dataset_id, plan.version_name, plan.parent_version_id)
+        # 版は作業中 (is_working=True) として作り、中身を書き終えるまで確定済みの版として見せない。
+        # 途中で失敗したら finally で版・フォルダ・設定 json を削除し、
+        # 同じ版名で取り込み直せるようにする (#1658)
+        version_id = self._repository.create_version(
+            dataset_id, plan.version_name, plan.parent_version_id, is_working=True
+        )
+        training_config_ids: list[int] = []
+        completed = False
+        try:
+            image_count = 0
+            skipped_images = 0
+            images_without_text = 0
+            for position, (folder_plan, scanned) in enumerate(targets):
+                images: list[FolderImageSpec] = []
+                for scanned_image in scanned.images:
+                    registered = self._db_manager.register_original_image(scanned_image.path, self._fsm)
+                    if registered is None:
+                        skipped_images += 1
+                        logger.debug(f"画像を登録できないため所属を記録しません: {scanned_image.path}")
+                        continue
+                    # 登録できた画像だけを数える (スキャン時の件数は計画の scan に載っている)
+                    if not scanned_image.texts:
+                        images_without_text += 1
+                    images.append(
+                        FolderImageSpec(
+                            image_id=registered[0],
+                            file_stem=scanned_image.file_stem,
+                            texts=[
+                                LearningTextSpec(text.extension, text.raw_text, list(text.elements))
+                                for text in scanned_image.texts
+                            ],
+                        )
+                    )
+                spec = FolderSpec(
+                    dir_name=folder_plan.dir_name,
+                    name=folder_plan.name,
+                    num_repeats=folder_plan.num_repeats,
+                    trigger_word=folder_plan.trigger_word,
+                    position=position,
+                )
+                self._repository.add_folder(version_id, spec, images)
+                image_count += len(images)
 
-        image_count = 0
-        skipped_images = 0
-        images_without_text = 0
-        for position, (folder_plan, scanned) in enumerate(targets):
-            images: list[FolderImageSpec] = []
-            for scanned_image in scanned.images:
-                registered = self._db_manager.register_original_image(scanned_image.path, self._fsm)
-                if registered is None:
-                    skipped_images += 1
-                    logger.debug(f"画像を登録できないため所属を記録しません: {scanned_image.path}")
-                    continue
-                # 登録できた画像だけを数える (スキャン時の件数は計画の scan に載っている)
-                if not scanned_image.texts:
-                    images_without_text += 1
-                images.append(
-                    FolderImageSpec(
-                        image_id=registered[0],
-                        file_stem=scanned_image.file_stem,
-                        texts=[
-                            LearningTextSpec(text.extension, text.raw_text, list(text.elements))
-                            for text in scanned_image.texts
-                        ],
+            # 途中で失敗したときに追加済みの設定だけを消せるよう、1 件ずつ ID を控える
+            for prepared in prepared_configs:
+                training_config_ids.append(
+                    self._repository.add_training_config(
+                        dataset_id, version_id, _to_training_config_spec(prepared)
                     )
                 )
-            spec = FolderSpec(
-                dir_name=folder_plan.dir_name,
-                name=folder_plan.name,
-                num_repeats=folder_plan.num_repeats,
-                trigger_word=folder_plan.trigger_word,
-                position=position,
-            )
-            self._repository.add_folder(version_id, spec, images)
-            image_count += len(images)
 
-        training_config_ids = [
-            self._repository.add_training_config(dataset_id, version_id, _to_training_config_spec(prepared))
-            for prepared in prepared_configs
-        ]
-
-        # 取り込んだ .txt を通常タグにも載せる。データセットごとの最新版の内容へ差分同期する (ADR 0104)
-        tag_sync = self._repository.sync_kohya_tags_for_dataset(dataset_id)
+            # 取り込んだ .txt を通常タグにも載せる。データセットごとの最新版の内容へ差分同期する (ADR 0104)。
+            # 同期は確定済みの版だけを見るので、中身を書き終えたここで版を確定してから行う
+            self._repository.finalize_imported_version(version_id)
+            tag_sync = self._repository.sync_kohya_tags_for_dataset(dataset_id)
+            completed = True
+        finally:
+            if not completed:
+                self._rollback_import(version_id, training_config_ids)
 
         logger.info(
             f"データセット取り込み完了: version_id={version_id}, folders={len(targets)}, "
@@ -725,3 +745,22 @@ class DatasetImportService:
             tags_added=tag_sync.tags_added,
             tags_removed=tag_sync.tags_removed,
         )
+
+    def _rollback_import(self, version_id: int, training_config_ids: list[int]) -> None:
+        """取り込みの途中で失敗した版・フォルダ・設定 json を削除する。
+
+        元の例外を隠さないため、後始末自体の失敗はログに残すだけにする。登録した画像は他の版や
+        再取り込みでも使うので消さない。
+
+        Args:
+            version_id: 取り込みで作った版の ID。
+            training_config_ids: 取り込みで追加済みの学習設定の ID。
+        """
+        try:
+            self._repository.delete_imported_version(version_id, training_config_ids)
+        except SQLAlchemyError:
+            logger.opt(exception=True).error(
+                f"取り込みの途中で失敗した版を削除できませんでした: version_id={version_id}"
+            )
+        else:
+            logger.warning(f"取り込みが失敗したため、作りかけの版を削除しました: version_id={version_id}")

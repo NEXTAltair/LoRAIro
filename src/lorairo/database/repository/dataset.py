@@ -398,13 +398,22 @@ class DatasetRepository(BaseRepository):
             logger.debug(f"データセットを作成: id={dataset_id}, name='{name}'")
             return dataset_id
 
-    def create_version(self, dataset_id: int, name: str, parent_version_id: int | None = None) -> int:
+    def create_version(
+        self,
+        dataset_id: int,
+        name: str,
+        parent_version_id: int | None = None,
+        *,
+        is_working: bool = False,
+    ) -> int:
         """データセットに版を作成する。
 
         Args:
             dataset_id: `datasets.id`。
             name: 版の名前。同じデータセット内で一意。
             parent_version_id: 派生元の版 ID。
+            is_working: True なら未確定の「作業中の版」として作る。取り込みが、中身を書き終えるまで
+                確定済みの版として見えないようにするために使う。
 
         Returns:
             `dataset_versions.id`。
@@ -413,7 +422,9 @@ class DatasetRepository(BaseRepository):
             DatasetConflictError: 同じデータセットに同名の版がある、または参照先が存在しない場合。
         """
         with self.session_factory() as session:
-            version = DatasetVersion(dataset_id=dataset_id, name=name, parent_version_id=parent_version_id)
+            version = DatasetVersion(
+                dataset_id=dataset_id, name=name, parent_version_id=parent_version_id, is_working=is_working
+            )
             session.add(version)
             try:
                 session.commit()
@@ -999,6 +1010,48 @@ class DatasetRepository(BaseRepository):
             loaded = self._load_detached_version(session, resolved_id)
             logger.debug(f"作業中の版を確定: id={loaded.id}, name='{loaded.name}'")
             return loaded
+
+    def finalize_imported_version(self, version_id: int) -> None:
+        """取り込みで作った作業中の版を、中身を読み戻さずに確定済み (`is_working=False`) にする。
+
+        `commit_working_version` と同じ確定だが、版全体を読み込んで返さない。取り込みの最後に使う。
+
+        Args:
+            version_id: 確定する作業中の版の ID。
+
+        Raises:
+            LookupError: 版が存在しない場合。
+            ValueError: 既に確定済みの版に対して呼んだ場合。
+        """
+        with self.session_factory() as session:
+            version = session.get(DatasetVersion, version_id)
+            if version is None:
+                raise LookupError(f"版が見つかりません: version_id={version_id}")
+            if not version.is_working:
+                raise ValueError(f"既に確定済みの版です: version_id={version_id}")
+            version.is_working = False
+            session.commit()
+            logger.debug(f"取り込んだ版を確定: id={version_id}")
+
+    def delete_imported_version(self, version_id: int, training_config_ids: list[int]) -> None:
+        """取り込みの途中で失敗した版を、確定済みかどうかによらず、フォルダ・学習設定ごと削除する。
+
+        取り込みの後始末専用。取り込みの最後の工程 (タグ同期) が失敗した場合は、版が既に確定済みなので
+        `discard_working_version` では消せない。版の削除でフォルダ・画像所属・学習テキストも消える。
+        学習設定は版の削除で `version_id` が NULL になるだけなので、渡された ID を明示的に削除する。
+
+        Args:
+            version_id: 削除する版の ID。無ければ何もしない。
+            training_config_ids: 同じ取り込みで追加した学習設定の ID。
+        """
+        with self.session_factory() as session:
+            if training_config_ids:
+                session.execute(delete(TrainingConfig).where(TrainingConfig.id.in_(training_config_ids)))
+            version = session.get(DatasetVersion, version_id)
+            if version is not None:
+                session.delete(version)
+            session.commit()
+            logger.debug(f"取り込みの途中の版を削除: id={version_id}, configs={len(training_config_ids)}")
 
     def discard_working_version(self, version_id: int | DatasetVersion) -> None:
         """作業中の版 (`is_working=True`) を破棄し、そのフォルダ・画像所属・学習テキストを削除する。
