@@ -58,6 +58,7 @@ __all__ = [
     "MergePlan",
     "MergeResult",
     "MergedDuplicate",
+    "PlannedDataset",
     "PlannedParent",
     "PlannedVersion",
     "ProjectMergeService",
@@ -257,6 +258,21 @@ class PlannedVersion:
 
 
 @dataclass(frozen=True)
+class PlannedDataset:
+    """統合元のデータセット 1 つの計画 (版を持たないデータセットも含む)。
+
+    Attributes:
+        source: 統合元のデータセット。
+        target_dataset: 統合先のデータセット名。
+        version_count: 統合する版の数 (版を持たないデータセットは 0)。
+    """
+
+    source: SourceDatasetRef
+    target_dataset: str
+    version_count: int
+
+
+@dataclass(frozen=True)
 class SourceImageSummary:
     """統合元 1 つ分の画像の扱いの集計。"""
 
@@ -298,6 +314,8 @@ class MergePlan:
         versions: 統合する版 (統合先のデータセットごと、履歴の順)。
         conflicts: 未解決の衝突。空なら確定できる。
         mapping: 計画に使った名前の対応。
+        datasets: 統合元のデータセットと統合先のデータセット名 (統合先のデータセットごと、
+            履歴の順)。版を持たないデータセットも含む。
     """
 
     target_project: str
@@ -307,6 +325,7 @@ class MergePlan:
     versions: tuple[PlannedVersion, ...]
     conflicts: tuple[MergeConflict, ...]
     mapping: MergeMapping
+    datasets: tuple[PlannedDataset, ...] = ()
 
     @property
     def is_resolved(self) -> bool:
@@ -1208,6 +1227,11 @@ def _build_plan(
         versions=tuple(dataset_plan.versions),
         conflicts=tuple(dataset_plan.conflicts),
         mapping=mapping,
+        datasets=tuple(
+            PlannedDataset(element.ref, group.target_name, len(element.versions))
+            for group in dataset_plan.groups
+            for element in group.elements
+        ),
     )
 
 

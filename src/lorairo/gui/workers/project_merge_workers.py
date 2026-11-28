@@ -12,12 +12,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from pydantic import ValidationError
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from ...database.db_core import IMG_DB_FILENAME, create_project_session_factory
 from ...public_api.exceptions import ProjectNotFoundError, ProjectOperationError
-from ...public_api.types import ProjectInfo
+from ...public_api.types import ProjectCreateRequest, ProjectInfo
 from ...services.project_management_service import ProjectManagementService
 from ...services.project_merge_service import MergeMapping, MergePlan, MergeResult, ProjectMergeService
 from ...services.project_transfer_service import SourceProject
@@ -49,6 +50,27 @@ class MergeApplyOutcome:
 
     result: MergeResult
     target_root: Path
+
+
+def validate_new_project_name(name: str) -> str:
+    """新しく作る統合先のプロジェクト名を、プロジェクト作成と同じ規則 (`ProjectCreateRequest`) で検証する。
+
+    区切り文字や `..` を含む名前はプロジェクトのディレクトリの外を指し得るため拒否する。
+
+    Args:
+        name: プロジェクト名。
+
+    Returns:
+        検証済みのプロジェクト名。
+
+    Raises:
+        ValueError: 名前が規則に合わない場合。
+    """
+    try:
+        return ProjectCreateRequest(name=name, description=None).name
+    except ValidationError as e:
+        reasons = "; ".join(str(error.get("msg", "")) for error in e.errors())
+        raise ValueError(f"新しいプロジェクト名 '{name}' は使えません: {reasons}") from e
 
 
 def _open_target(root: Path) -> sessionmaker[Session]:
@@ -105,14 +127,14 @@ class ProjectMergePlanWorker(LoRAIroWorkerBase[MergePlan]):
         """計画を返す。
 
         Raises:
-            ValueError: 統合元が空・重複する、統合先と同じ、または名前の対応が不正な場合。
+            ValueError: 統合元が空・重複する、統合先と同じ、名前の対応が不正、または新しい統合先の
+                プロジェクト名が不正な場合。
             ReadOnlyPreconditionError: 統合元の DB を開けない場合。
             FileNotFoundError: 統合元の画像ファイルが見つからない場合。
         """
         if self._target.root is None:
-            return ProjectMergeService.plan_into_new_project(
-                self._sources, self._mapping, self._target.name
-            )
+            name = validate_new_project_name(self._target.name)
+            return ProjectMergeService.plan_into_new_project(self._sources, self._mapping, name)
         factory = _open_target(self._target.root)
         try:
             service = ProjectMergeService(factory, self._target.root, self._target.name)
@@ -153,13 +175,15 @@ class ProjectMergeApplyWorker(LoRAIroWorkerBase[MergeApplyOutcome]):
         Raises:
             UnresolvedMergeConflictError: 未解決の衝突がある場合。
             ProjectAlreadyExistsError: 新しい統合先と同じ名前のプロジェクトが既にある場合。
+            ValueError: 新しい統合先のプロジェクト名が不正な場合 (何も作らない)。
             ValueError / ReadOnlyPreconditionError / FileNotFoundError: 計画と同じ。
             SQLAlchemyError / OSError: 統合先への書き込みに失敗した場合。
         """
         if self._target.root is not None:
             return MergeApplyOutcome(self._apply(self._target.root), self._target.root)
 
-        info = self._project_service.create_project(self._target.name)
+        # プロジェクトのディレクトリの外に作らないよう、作る前に名前を検証する
+        info = self._project_service.create_project(validate_new_project_name(self._target.name))
         merged = False
         try:
             result = self._apply(info.path)

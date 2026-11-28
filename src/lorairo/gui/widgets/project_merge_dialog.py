@@ -44,6 +44,7 @@ from ...services.project_merge_service import (
     MergeConflict,
     MergeMapping,
     MergePlan,
+    PlannedDataset,
     PlannedVersion,
     SourceDatasetRef,
 )
@@ -58,10 +59,12 @@ from ..workers.project_merge_workers import (
     ProjectMergeApplyWorker,
     ProjectMergeListWorker,
     ProjectMergePlanWorker,
+    validate_new_project_name,
 )
 from .ds_button import DsButton
 from .ds_summary_stat import DsSummaryStat, ToneLiteral
 
+_DATASET_HEADERS = ["統合元のデータセット", "統合先のデータセット", "版の数"]
 _VERSION_HEADERS = ["統合元の版", "統合先のデータセット", "統合先の版", "parent", "状態", "画像"]
 _COL_DATASET = 1
 _COL_VERSION = 2
@@ -244,6 +247,15 @@ class ProjectMergeDialog(QDialog):
         layout.addLayout(self._stats_row)
         self._set_stats(None)
 
+        # 版を持たないデータセットも名前を変えられるよう、データセットの表を版の表と別に持つ
+        self.dataset_table = QTableWidget(0, len(_DATASET_HEADERS), group)
+        self.dataset_table.setHorizontalHeaderLabels(_DATASET_HEADERS)
+        self.dataset_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.dataset_table.verticalHeader().setVisible(False)
+        self.dataset_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.dataset_table.itemChanged.connect(self._on_dataset_item_changed)
+        layout.addWidget(self.dataset_table, 1)
+
         self.version_table = QTableWidget(0, len(_VERSION_HEADERS), group)
         self.version_table.setHorizontalHeaderLabels(_VERSION_HEADERS)
         self.version_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -309,6 +321,10 @@ class ProjectMergeDialog(QDialog):
             name = self.new_target_edit.text().strip()
             if not name or any(project.name == name for project in self._projects):
                 return None
+            try:
+                validate_new_project_name(name)
+            except ValueError:
+                return None
             return MergeTarget(name=name, root=None)
         index = self.target_combo.currentIndex()
         if index < 0 or index >= len(self._projects):
@@ -331,6 +347,10 @@ class ProjectMergeDialog(QDialog):
             name = self.new_target_edit.text().strip()
             if not name:
                 return "新しいプロジェクトの名前を入力してください"
+            try:
+                validate_new_project_name(name)
+            except ValueError as e:
+                return str(e)
             if target is None:
                 return f"プロジェクト '{name}' は既にあります。別の名前にするか、既存のプロジェクトを選んでください"
         elif target is None:
@@ -401,6 +421,7 @@ class ProjectMergeDialog(QDialog):
         """表示中の計画 (無ければ空) で件数・版・衝突・まとめる指定を描き直す。"""
         plan = self._plan
         self._set_stats(plan)
+        self._render_datasets(plan.datasets if plan is not None else ())
         self._render_versions(plan.versions if plan is not None else ())
         self._render_conflicts(plan.conflicts if plan is not None else ())
         self._render_joins(plan)
@@ -474,12 +495,30 @@ class ProjectMergeDialog(QDialog):
             for column, value in enumerate(values):
                 table.setItem(row, column, QTableWidgetItem(value))
 
+    def _render_datasets(self, datasets: tuple[PlannedDataset, ...]) -> None:
+        table = self.dataset_table
+        table.blockSignals(True)
+        try:
+            table.setRowCount(len(datasets))
+            for row, dataset in enumerate(datasets):
+                values = [dataset.source.label, dataset.target_dataset, str(dataset.version_count)]
+                for column, value in enumerate(values):
+                    item = QTableWidgetItem(value)
+                    flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+                    if column == 1:
+                        flags |= Qt.ItemFlag.ItemIsEditable
+                    item.setFlags(flags)
+                    table.setItem(row, column, item)
+        finally:
+            table.blockSignals(False)
+
     def _render_joins(self, plan: MergePlan | None) -> None:
         self.join_source_list.clear()
         self._dataset_refs = {}
         if plan is not None:
-            for version in plan.versions:
-                ref = SourceDatasetRef(version.source.project, version.source.dataset)
+            # 版を持たないデータセットも含めて、統合元のデータセットを選択肢にする
+            for dataset in plan.datasets:
+                ref = dataset.source
                 if ref.label in self._dataset_refs:
                     continue
                 self._dataset_refs[ref.label] = ref
@@ -492,6 +531,20 @@ class ProjectMergeDialog(QDialog):
             item.setData(Qt.ItemDataRole.UserRole, name)
 
     # --- 名前の対応の指定 ---
+
+    @Slot(QTableWidgetItem)
+    def _on_dataset_item_changed(self, item: QTableWidgetItem) -> None:
+        """統合先のデータセット名の変更を名前の対応にして、計画を作り直す。"""
+        plan = self._plan
+        if plan is None or self._busy is not None or item.row() >= len(plan.datasets):
+            return
+        dataset = plan.datasets[item.row()]
+        text = item.text().strip()
+        if item.column() != 1 or not text or text == dataset.target_dataset:
+            # 空・変更なしは元の表示に戻す
+            self._render_datasets(plan.datasets)
+            return
+        self._request_plan(self._mapping.updated(MergeMapping(dataset_names={dataset.source: text})))
 
     @Slot(QTableWidgetItem)
     def _on_version_item_changed(self, item: QTableWidgetItem) -> None:
@@ -714,11 +767,13 @@ class ProjectMergeDialog(QDialog):
         self.plan_button.setEnabled(idle and not hint)
         has_plan = self._plan is not None
         editable = idle and has_plan
-        self.version_table.setEditTriggers(
+        triggers = (
             QAbstractItemView.EditTrigger.DoubleClicked | QAbstractItemView.EditTrigger.EditKeyPressed
             if editable
             else QAbstractItemView.EditTrigger.NoEditTriggers
         )
+        self.version_table.setEditTriggers(triggers)
+        self.dataset_table.setEditTriggers(triggers)
         for widget in (
             self.join_name_edit,
             self.join_source_list,

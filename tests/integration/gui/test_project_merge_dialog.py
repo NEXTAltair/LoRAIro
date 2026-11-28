@@ -32,7 +32,7 @@ from lorairo.gui.widgets import project_merge_dialog as dialog_module
 from lorairo.gui.widgets.project_merge_dialog import ProjectMergeDialog
 from lorairo.gui.workers import project_merge_workers
 from lorairo.services.project_management_service import ProjectManagementService
-from lorairo.services.project_merge_service import MergePlan
+from lorairo.services.project_merge_service import MergeMapping, MergePlan
 
 pytestmark = [pytest.mark.integration, pytest.mark.gui]
 
@@ -362,6 +362,63 @@ def test_cyclic_history_conflict_is_shown_and_blocks_confirm(
     plan = _wait_plan(qtbot, dialog)
     assert plan.is_resolved
     assert dialog.confirm_button.isEnabled()
+
+
+def test_dataset_without_versions_can_be_renamed_to_resolve_conflict(
+    qtbot: QtBot, dialog: ProjectMergeDialog, projects: dict[str, SyntheticProject]
+) -> None:
+    """版を持たないデータセットの名前の衝突も、ダイアログで名前を変えて解消できる。"""
+    for name in ("proj_a", "proj_b"):
+        factory = projects[name].session_factory()
+        DatasetRepository(session_factory=factory).ensure_dataset("empty")
+        factory.kw["bind"].dispose()
+
+    plan = _make_plan(qtbot, dialog)
+    assert ("dataset_name", "empty") in [(c.kind, c.target_dataset) for c in plan.conflicts]
+    table = dialog.dataset_table
+    rows = {table.item(row, 0).text(): row for row in range(table.rowCount())}
+    assert {"proj_a:empty", "proj_b:empty", "proj_a:chara", "proj_b:chara"} <= set(rows)
+    joinable = [dialog.join_source_list.item(row).text() for row in range(dialog.join_source_list.count())]
+    assert "proj_b:empty" in joinable
+
+    table.item(rows["proj_b:empty"], 1).setText("empty_b")
+    _wait_plan(qtbot, dialog)
+    rows = {table.item(row, 0).text(): row for row in range(table.rowCount())}
+    table.item(rows["proj_b:chara"], 1).setText("chara_b")
+    plan = _wait_plan(qtbot, dialog)
+
+    assert plan.is_resolved
+    assert dialog.confirm_button.isEnabled()
+
+
+@pytest.mark.parametrize("name", ["../merged", "a/b", "..", "a\\b"])
+def test_new_target_name_with_path_parts_is_rejected(
+    qtbot: QtBot, dialog: ProjectMergeDialog, projects_dir: Path, name: str
+) -> None:
+    dialog.new_target_radio.setChecked(True)
+    dialog.new_target_edit.setText(name)
+    _check_sources(dialog, "proj_a", "proj_b")
+
+    assert not dialog.plan_button.isEnabled()
+    assert "プロジェクト名" in dialog.selection_hint_label.text()
+
+
+@pytest.mark.parametrize("name", ["../merged", "a/b"])
+def test_workers_reject_new_target_name_outside_projects_dir(
+    projects_dir: Path, projects: dict[str, SyntheticProject], name: str
+) -> None:
+    sources = [projects["proj_a"].source]
+    target = project_merge_workers.MergeTarget(name=name, root=None)
+    service = ProjectManagementService(projects_base_dir=projects_dir)
+    entries_before = sorted(path.name for path in projects_dir.parent.iterdir())
+
+    with pytest.raises(ValueError, match="プロジェクト名"):
+        project_merge_workers.ProjectMergePlanWorker(sources, MergeMapping(), target).execute()
+    with pytest.raises(ValueError, match="プロジェクト名"):
+        project_merge_workers.ProjectMergeApplyWorker(sources, MergeMapping(), target, service).execute()
+
+    assert sorted(path.name for path in projects_dir.parent.iterdir()) == entries_before
+    assert sorted(path.name for path in projects_dir.iterdir()) == ["proj_a", "proj_b", "proj_t"]
 
 
 def test_apply_failure_shows_error_and_leaves_target_unchanged(
