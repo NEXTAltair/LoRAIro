@@ -4042,6 +4042,11 @@ INTROSPECTION_EXCLUSIONS = {
     "dataset copy-tags": "Kohya dataset command; ToolSpec catalog entry pending (Issue #1410).",
     "dataset revoke-tags": "Kohya dataset command; ToolSpec catalog entry pending (Issue #1410).",
     "dataset usage": "Kohya dataset command; ToolSpec catalog entry pending (Issue #1410).",
+    "dataset build-version": "Cross-project dataset command; ToolSpec catalog entry pending (Issue #1661).",
+    "dataset origins": "Cross-project dataset command; ToolSpec catalog entry pending (Issue #1661).",
+    "images search-projects": "Cross-project image command; ToolSpec catalog entry pending (Issue #1661).",
+    "images copy": "Cross-project image command; ToolSpec catalog entry pending (Issue #1661).",
+    "images origins": "Cross-project image command; ToolSpec catalog entry pending (Issue #1661).",
 }
 
 

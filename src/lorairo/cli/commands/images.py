@@ -33,6 +33,9 @@ from lorairo.cli._image_ids import (
     validate_image_ids_exist,
 )
 from lorairo.cli._output_mode import is_json_mode
+from lorairo.cli.commands.cross_project import copy_images as copy_images_command
+from lorairo.cli.commands.cross_project import search_projects as search_projects_command
+from lorairo.cli.commands.cross_project import show_image_origins as show_image_origins_command
 from lorairo.cli.commands.duplicates import report as report_duplicates_command
 from lorairo.cli.commands.processing import process as process_images_command
 from lorairo.database.access_policy import read_only_scope
@@ -1826,3 +1829,7 @@ def rate(
 
 app.command("process")(process_images_command)
 app.command("duplicates")(report_duplicates_command)
+# プロジェクト横断の検索・コピー・由来 (Issue #1661) は専用モジュールに置く
+app.command("search-projects")(search_projects_command)
+app.command("copy")(copy_images_command)
+app.command("origins")(show_image_origins_command)

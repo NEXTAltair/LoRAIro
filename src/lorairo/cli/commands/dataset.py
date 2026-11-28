@@ -16,6 +16,8 @@ from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._help import PROJECT_OPTION_HELP
 from lorairo.cli._output_mode import is_json_mode
+from lorairo.cli.commands.cross_project import build_version as build_version_command
+from lorairo.cli.commands.cross_project import show_version_origins as show_version_origins_command
 from lorairo.database.repository.dataset import DatasetRepository, ImageDatasetUsage
 from lorairo.public_api.project import get_project as api_get_project
 from lorairo.services.dataset_import_service import (
@@ -961,3 +963,8 @@ def usage_dataset(
             versions=len({u.version_id for u in usages}),
             folders=len({u.folder_id for u in usages}),
         )
+
+
+# 複数プロジェクト由来の画像から版を作るコマンド (Issue #1661) は専用モジュールに置く
+app.command("build-version")(build_version_command)
+app.command("origins")(show_version_origins_command)
