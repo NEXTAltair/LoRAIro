@@ -11,6 +11,7 @@ from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._errors import result_exit_code
+from lorairo.cli._help import PROJECT_OPTION_HELP
 from lorairo.cli._image_ids import MAX_IMAGE_IDS_FILE, parse_image_ids, parse_image_ids_file
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.public_api.review import ReviewSaveOutcome, review_annotations, review_crop_children
@@ -182,7 +183,7 @@ def _emit_no_targets(project: str, save_results: bool) -> None:
 
 @app.command("run")
 def run(
-    project: str = typer.Option(..., "--project", "-p", help="Existing project to review."),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     image_ids: str | None = typer.Option(
         None,
         "--image-ids",

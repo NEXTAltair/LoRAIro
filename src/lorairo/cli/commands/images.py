@@ -25,6 +25,7 @@ from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._errors import result_exit_code
 from lorairo.cli._glyphs import OK
+from lorairo.cli._help import PROJECT_OPTION_HELP, images_register_no_version_note
 from lorairo.cli._image_ids import (
     MAX_IMAGE_IDS,
     parse_image_ids,
@@ -340,7 +341,7 @@ def register(
         ...,
         "--project",
         "-p",
-        help="Project name",
+        help=PROJECT_OPTION_HELP,
     ),
     skip_duplicates: bool = typer.Option(
         True,
@@ -352,6 +353,10 @@ def register(
 
     画像ファイルまたはディレクトリからプロジェクトへ画像を登録します。
     pHashを計算して重複検出を行います。
+
+    This only adds images to the project library; it does not create a dataset version.
+    To keep a training dataset as a version, run `lorairo-cli dataset import <dir> -p PROJECT
+    --dataset NAME` on the existing project instead (do not create a new project per version).
 
     JSON item rows carry input_path/outcome/image_id/project/selected. Registered and variant IDs
     are selected once; --include-duplicates also selects existing duplicate IDs. Check terminal
@@ -388,7 +393,8 @@ def register(
         )
         if is_json_mode():
             emit_result(
-                f"Registered {result.successful} image(s) to project: {project}",
+                f"Registered {result.successful} image(s) to project: {project}. "
+                f"{images_register_no_version_note(project)}",
                 ok=not failed,
                 status=status,
                 project=project,
@@ -407,6 +413,7 @@ def register(
             if result.total == 0:
                 console.print(f"[yellow]Warning:[/yellow] No image files found in {path}")
             _print_registration_summary(result, project)
+            console.print(f"[dim]{images_register_no_version_note(project)}[/dim]", soft_wrap=True)
         if failed:
             raise typer.Exit(result_exit_code(status))
 
@@ -417,7 +424,7 @@ def list_images(
         ...,
         "--project",
         "-p",
-        help="Project name",
+        help=PROJECT_OPTION_HELP,
     ),
     fetch: bool = typer.Option(
         False,
@@ -510,7 +517,7 @@ def update(
         ...,
         "--project",
         "-p",
-        help="Project name",
+        help=PROJECT_OPTION_HELP,
     ),
     tags: str | None = typer.Option(
         None,
@@ -712,7 +719,7 @@ def _emit_all_matching_ids(container: object, criteria: ImageFilterCriteria) -> 
 
 @app.command("search")
 def search_images(
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     query_file: str | None = typer.Option(None, "--query-file", help="Path to JSON search schema file"),
     query: str | None = typer.Option(None, "--query", help="JSON search schema string or '-' for stdin"),
 ) -> None:
@@ -784,7 +791,7 @@ def show(
         metavar="[IMAGE_IDS]...",
         help="Image IDs (space or comma separated). Alternative to --image-ids.",
     ),
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     image_ids_csv: str | None = typer.Option(None, "--image-ids", help="Comma-separated image IDs"),
     include_rejected: bool = typer.Option(
         False,
@@ -879,7 +886,7 @@ def analyze_metadata(
         metavar="[IMAGE_IDS]...",
         help="Image IDs (space or comma separated). Omit to analyze images that have no result yet.",
     ),
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     image_ids_csv: str | None = typer.Option(None, "--image-ids", help="Comma-separated image IDs"),
     force: bool = typer.Option(
         False,
@@ -1001,7 +1008,7 @@ def tag_ai_generated(
         metavar="[IMAGE_IDS]...",
         help="Image IDs (space or comma separated). Omit to target all images in the project.",
     ),
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     image_ids_csv: str | None = typer.Option(None, "--image-ids", help="Comma-separated image IDs"),
     revoke: bool = typer.Option(
         False,
@@ -1074,7 +1081,7 @@ def crop(
         metavar="IMAGE_ID",
         help="Parent image ID to crop from.",
     ),
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     x: int = typer.Option(..., "--x", help="Crop rectangle left edge in parent pixels."),
     y: int = typer.Option(..., "--y", help="Crop rectangle top edge in parent pixels."),
     width: int = typer.Option(..., "--width", help="Crop rectangle width in parent pixels."),
@@ -1286,7 +1293,7 @@ def _report_crop_batch_summary(
 
 @app.command("crop-batch")
 def crop_batch(
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     rects: str = typer.Option(
         ...,
         "--rects",
@@ -1387,7 +1394,7 @@ def _validate_positive_iou(value: float) -> float:
 
 @app.command("crop-detect")
 def crop_detect(
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     class_name: CropDetectClass = typer.Option(
         ...,
         "--class",
@@ -1733,7 +1740,7 @@ def _execute_rate_chunks(
 
 @app.command("rate")
 def rate(
-    project: str = typer.Option(..., "--project", "-p", help="Target project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     rating: str = typer.Option(
         ...,
         "--rating",

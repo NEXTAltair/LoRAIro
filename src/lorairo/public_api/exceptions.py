@@ -46,6 +46,8 @@ class ProjectNotFoundError(ProjectError):
         config_path: 参照した設定ファイルパス (config/lorairo.toml 等)。
         config_found: 設定ファイルが存在したかどうか。
         hint: 対処ヒント文字列 (省略時は診断情報から自動生成)。
+        suggestions: 近い名前のプロジェクト (「もしかして」の候補)。
+        folder_matched_project: 渡された値がプロジェクトのフォルダ名だった場合、そのプロジェクトの ``name``。
     """
 
     def __init__(
@@ -56,9 +58,13 @@ class ProjectNotFoundError(ProjectError):
         config_path: Path | str | None = None,
         config_found: bool | None = None,
         hint: str | None = None,
+        suggestions: list[str] | None = None,
+        folder_matched_project: str | None = None,
     ) -> None:
         self.project_name = project_name
         self.available = list(available) if available is not None else []
+        self.suggestions = list(suggestions) if suggestions is not None else []
+        self.folder_matched_project = folder_matched_project
         self.projects_base_dir = str(projects_base_dir) if projects_base_dir is not None else None
         self.config_path = str(config_path) if config_path is not None else None
         self.config_found = config_found
@@ -107,6 +113,10 @@ class ProjectNotFoundError(ProjectError):
         details: dict[str, object] = {}
         if has_available_context or self.projects_base_dir is not None:
             details["available_projects"] = self.available
+        if self.suggestions:
+            details["suggestions"] = self.suggestions
+        if self.folder_matched_project is not None:
+            details["folder_matched_project"] = self.folder_matched_project
         if self.projects_base_dir is not None:
             details["projects_base_dir"] = self.projects_base_dir
         if self.config_path is not None:
@@ -117,6 +127,14 @@ class ProjectNotFoundError(ProjectError):
 
     def _build_hint(self, *, has_available_context: bool) -> str:
         parts: list[str] = []
+        if self.folder_matched_project is not None:
+            parts.append(
+                f"'{self.project_name}' はプロジェクトのフォルダ名です。"
+                f"--project にはフォルダ名ではなくプロジェクト名を指定します: "
+                f"-p {self.folder_matched_project}"
+            )
+        elif self.suggestions:
+            parts.append(f"もしかして: {', '.join(self.suggestions)}。")
         if self.available:
             parts.append(f"プロジェクト名を確認してください (利用可能: {', '.join(self.available)})。")
         elif has_available_context or self.projects_base_dir is not None:
@@ -125,6 +143,10 @@ class ProjectNotFoundError(ProjectError):
         else:
             parts.append("`lorairo-cli project list` で利用可能なプロジェクト名を確認してください。")
 
+        parts.append(
+            "--project にはプロジェクトのメタデータの name を指定します (フォルダ名ではありません)。"
+            "`lorairo-cli project list` で名前を確認できます。"
+        )
         if self.config_found is False:
             cfg = self.config_path or "config/lorairo.toml"
             parts.append(
@@ -150,6 +172,14 @@ class ProjectAlreadyExistsError(ProjectError):
     def __init__(self, project_name: str) -> None:
         self.project_name = project_name
         super().__init__(f"プロジェクト '{project_name}' は既に存在します")
+        # 版の追加のために同名で作り直そうとした利用者を dataset import へ案内する (Issue #1662)
+        self.hint = (
+            f"既存プロジェクト '{project_name}' に版を追加するには "
+            f"`lorairo-cli dataset import <dir> -p {project_name} --dataset <dataset name>` を使います "
+            "(版ごとに新しいプロジェクトは作りません)。"
+            f"画像だけを足す場合は `lorairo-cli images register <dir> -p {project_name}` ですが、"
+            "版は作られません。"
+        )
 
 
 class ProjectOperationError(ProjectError):

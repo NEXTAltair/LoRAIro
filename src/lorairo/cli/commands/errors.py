@@ -15,6 +15,7 @@ from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._errors import result_exit_code
+from lorairo.cli._help import PROJECT_OPTION_HELP
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.public_api.exceptions import ErrorRecordNotFoundError
 from lorairo.public_api.project import get_project as api_get_project
@@ -46,7 +47,7 @@ def _parse_ids(ids_csv: str) -> list[int]:
 
 @app.command("list")
 def list_errors(
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     operation: str | None = typer.Option(
         None, "--operation", help="Filter by operation_type (search/registration/annotation)"
     ),
@@ -137,7 +138,7 @@ def list_errors(
 @app.command("get")
 def get_error(
     error_id: int = typer.Argument(..., help="Error record ID to retrieve"),
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
 ) -> None:
     """Get a single error record by ID (full detail).
 
@@ -186,7 +187,7 @@ def get_error(
 
 @app.command("resolve")
 def resolve_errors(
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     ids: str | None = typer.Option(None, "--ids", help="Comma-separated error record IDs"),
     operation: str | None = typer.Option(None, "--operation", help="Bulk-resolve by operation_type"),
     error_type: str | None = typer.Option(None, "--error-type", help="Bulk-resolve by error_type"),

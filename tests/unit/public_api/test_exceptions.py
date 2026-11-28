@@ -36,6 +36,23 @@ class TestProjectExceptions:
         assert err.project_name == "dup_project"
         assert "dup_project" in str(err)
 
+    def test_project_already_exists_error_hint_points_to_dataset_import(self):
+        err = ProjectAlreadyExistsError("dup_project")
+        assert "dataset import <dir> -p dup_project --dataset" in err.hint
+
+    def test_project_not_found_error_hint_with_folder_match_and_suggestions(self):
+        folder = ProjectNotFoundError(
+            "alpha_20260101_000000", available=["alpha"], folder_matched_project="alpha"
+        )
+        assert "-p alpha" in folder.hint
+        assert folder.details["folder_matched_project"] == "alpha"
+        assert "project list" in folder.hint
+
+        typo = ProjectNotFoundError("alpah", available=["alpha"], suggestions=["alpha"])
+        assert "もしかして: alpha" in typo.hint
+        assert typo.details["suggestions"] == ["alpha"]
+        assert "folder_matched_project" not in typo.details
+
     def test_project_operation_error(self):
         err = ProjectOperationError("proj", "作成", "権限エラー")
         assert err.project_name == "proj"

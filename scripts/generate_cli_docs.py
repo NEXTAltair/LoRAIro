@@ -80,6 +80,47 @@ PARTIAL_FAILURE_MIGRATION = (
     "- 例外によって集計結果を返せない場合は、従来どおり `kind=error` と安定したエラーコードが"
     "出力されるため、こちらもあわせて処理する。"
 )
+PROJECT_AND_VERSION_GUIDE = (
+    "## プロジェクトとデータセットの版\n"
+    "\n"
+    "- **プロジェクト**は 1 つのライブラリ(データベースと画像の置き場)です。"
+    "`project create` は新しい空のプロジェクトを作ります。\n"
+    "- **データセットの版**は、プロジェクトの中に残す学習データセットのスナップショットです。"
+    "同じデータセットの新しい版は、新しいプロジェクトではなく**既存プロジェクト**へ "
+    "`dataset import` で追加します。\n"
+    "- `images register` は画像をライブラリへ登録するだけで、**データセットの版は作りません**。"
+    "版として残したい場合は `dataset import` を使います。\n"
+    "\n"
+    "```bash\n"
+    "# 1. 最初だけ: 新しいプロジェクトを作る\n"
+    "lorairo-cli project create my-project\n"
+    "\n"
+    "# 2. 版を追加する(2 版目以降も同じプロジェクトと同じ --dataset を指定する)\n"
+    "lorairo-cli dataset import ./v1 -p my-project --dataset my-dataset --version v1\n"
+    "lorairo-cli dataset import ./v2 -p my-project --dataset my-dataset --version v2 --parent-version 1\n"
+    "\n"
+    "# 画像だけを足す(版は作られない)\n"
+    "lorairo-cli images register ./images -p my-project\n"
+    "```\n"
+    "\n"
+    "既存のプロジェクト名で `project create` を実行すると `ALREADY_EXISTS` になり、"
+    "ヒントに `dataset import` の呼び出し例が表示されます。\n"
+    "\n"
+    "### `--project` / `-p` に指定する値\n"
+    "\n"
+    "`--project` には、プロジェクトの `.lorairo-project` メタデータにある `name` を指定します。"
+    "フォルダ名やパスではありません。\n"
+    "\n"
+    "- CLI の `project create NAME` で作ったプロジェクトは、入力した `NAME` が `name` になります"
+    "(フォルダ名は `NAME_日時` 形式です)。\n"
+    "- GUI で作成・オープンしたプロジェクトは、フォルダ名が `name` になります(#1659)。\n"
+    "- 使える名前は `lorairo-cli project list` で確認できます。\n"
+    "\n"
+    "指定した名前が見つからないと `NOT_FOUND` になります。ヒントには、近い名前の候補"
+    "(「もしかして」)と `project list` の案内が表示されます。フォルダ名を渡した場合は、"
+    "そのフォルダにあるプロジェクトの `name` を案内します。JSON 出力では `details` の "
+    "`available_projects`、`suggestions`、`folder_matched_project` で確認できます。"
+)
 OUTPUT_OPTION_MIGRATION = (
     "#### `--output` の移行 (#1310)\n"
     "\n"
@@ -202,6 +243,9 @@ def render() -> str:
         "lorairo-cli version",
         "lorairo-cli status",
         "```",
+        "",
+        # プロジェクトと版の違い (#1662): 手書きで足すと再生成で消えるため generator が emit する。
+        *PROJECT_AND_VERSION_GUIDE.splitlines(),
         "",
         # 運用ノート (#1164): 手書きで docs/cli.md に足すと再生成で消えるため、
         # generator が emit する固定 preamble として保持する。

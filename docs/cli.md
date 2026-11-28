@@ -28,6 +28,36 @@ lorairo-cli version
 lorairo-cli status
 ```
 
+## プロジェクトとデータセットの版
+
+- **プロジェクト**は 1 つのライブラリ(データベースと画像の置き場)です。`project create` は新しい空のプロジェクトを作ります。
+- **データセットの版**は、プロジェクトの中に残す学習データセットのスナップショットです。同じデータセットの新しい版は、新しいプロジェクトではなく**既存プロジェクト**へ `dataset import` で追加します。
+- `images register` は画像をライブラリへ登録するだけで、**データセットの版は作りません**。版として残したい場合は `dataset import` を使います。
+
+```bash
+# 1. 最初だけ: 新しいプロジェクトを作る
+lorairo-cli project create my-project
+
+# 2. 版を追加する(2 版目以降も同じプロジェクトと同じ --dataset を指定する)
+lorairo-cli dataset import ./v1 -p my-project --dataset my-dataset --version v1
+lorairo-cli dataset import ./v2 -p my-project --dataset my-dataset --version v2 --parent-version 1
+
+# 画像だけを足す(版は作られない)
+lorairo-cli images register ./images -p my-project
+```
+
+既存のプロジェクト名で `project create` を実行すると `ALREADY_EXISTS` になり、ヒントに `dataset import` の呼び出し例が表示されます。
+
+### `--project` / `-p` に指定する値
+
+`--project` には、プロジェクトの `.lorairo-project` メタデータにある `name` を指定します。フォルダ名やパスではありません。
+
+- CLI の `project create NAME` で作ったプロジェクトは、入力した `NAME` が `name` になります(フォルダ名は `NAME_日時` 形式です)。
+- GUI で作成・オープンしたプロジェクトは、フォルダ名が `name` になります(#1659)。
+- 使える名前は `lorairo-cli project list` で確認できます。
+
+指定した名前が見つからないと `NOT_FOUND` になります。ヒントには、近い名前の候補(「もしかして」)と `project list` の案内が表示されます。フォルダ名を渡した場合は、そのフォルダにあるプロジェクトの `name` を案内します。JSON 出力では `details` の `available_projects`、`suggestions`、`folder_matched_project` で確認できます。
+
 ## GUI との同時利用(DB ロックの制約)
 
 LoRAIro の画像データベースには SQLite を採用しています。SQLite は複数のプロセスから同時に読み取れますが、**同時に書き込めるのは 1 プロセスのみ**です(ADR 0067)。GUI を起動したまま CLI を併用する際は、次の点に注意してください。
@@ -150,7 +180,7 @@ lorairo-cli --json describe "annotate import-batch"
 **Input `AnnotateImportBatchInput`**
 
 - `jsonl_dir`: `str` (required) - JSONL files directory (OpenAI Batch API results) (CLI: `jsonl_dir`)
-- `project`: `str` (required) - Target project name / インポート先プロジェクト名 (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `dry_run`: `bool` (optional, default `False`) - Show match results without saving to DB / DB書き込みを行わず照合結果のみ表示 (CLI: `--dry-run`)
 - `model_name`: `str?` (optional, default `None`) - Override model name (ignores model field in JSONL) / モデル名を上書き（JSONL内のmodel名を無視） (CLI: `--model-name`)
 
@@ -215,7 +245,7 @@ lorairo-cli --json describe "annotate run"
 
 **Input `AnnotateRunInput`**
 
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `model`: `list[str]` (required) - LiteLLM model ID (e.g., openrouter/openai/gpt-4o, openai/gpt-4o, wd-vit-tagger-v3). Use `lorairo-cli models list` to see available IDs. Name-only input is accepted only when it uniquely matches a single row. (CLI: `--model`, `-m`)
 - `output`: `None` (optional, default `None`) - Unsupported/deprecated: any --output/-o value returns INVALID_INPUT (exit 2) before annotation. Omit it and use export create for files. (CLI: `--output`, `-o`)
 - `batch_size`: `int>=1` (optional, default `10`) - Batch size for processing (>=1; bounds memory per chunk) (CLI: `--batch-size`, `-b`)
@@ -304,7 +334,7 @@ lorairo-cli --json describe "batch cancel"
 **Input `BatchCancelInput`**
 
 - `job_id`: `int` (required) - Provider Batch job ID (CLI: `job_id`)
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 
 **Output `BatchJobResult`**
 
@@ -355,7 +385,7 @@ lorairo-cli --json describe "batch fetch"
 **Input `BatchFetchInput`**
 
 - `job_id`: `int` (required) - Provider Batch job ID (CLI: `job_id`)
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `output_dir`: `str?` (optional, default `None`) - Artifact output directory (CLI: `--output-dir`, `-o`)
 
 **Output `BatchFetchResult`**
@@ -403,7 +433,7 @@ lorairo-cli --json describe "batch import"
 **Input `BatchImportInput`**
 
 - `job_id`: `int` (required) - Provider Batch job ID (CLI: `job_id`)
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `output_dir`: `str?` (optional, default `None`) - Artifact output directory (CLI: `--output-dir`, `-o`)
 
 **Output `BatchImportResult`**
@@ -462,7 +492,7 @@ lorairo-cli --json describe "batch list"
 
 **Input `BatchListInput`**
 
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `provider`: `str?` (optional, default `None`) - Filter by provider (CLI: `--provider`)
 - `status`: `str?` (optional, default `None`) - Filter by common job status (CLI: `--status`)
 - `limit`: `int[1,1000]` (optional, default `100`) - Maximum rows (CLI: `--limit`)
@@ -528,7 +558,7 @@ lorairo-cli --json describe "batch status"
 **Input `BatchStatusInput`**
 
 - `job_id`: `int` (required) - Provider Batch job ID (CLI: `job_id`)
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `refresh`: `bool` (optional, default `True`) - Refresh provider status first (CLI: `--refresh`, `--no-refresh`)
 - `items`: `bool` (optional, default `False`) - Emit ProviderBatchItemRecord item rows before the result. Use to inspect per-image item state or detect duplicate submissions. (CLI: `--items`, `--no-items`)
 - `limit`: `int[1,500]` (optional, default `500`) - Page size for items query (only when --items is set). (CLI: `--limit`)
@@ -592,7 +622,7 @@ lorairo-cli --json describe "batch submit"
 
 **Input `BatchSubmitInput`**
 
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `model`: `str` (required) - LiteLLM model ID or unique display name (CLI: `--model`, `-m`)
 - `image_ids`: `str?` (optional, default `None`) - Comma-separated image IDs, exclusive with image_ids_file. (CLI: `--image-ids`)
 - `image_ids_file`: `str?` (optional, default `None`) - UTF-8 newline/comma IDs; max 100,000; exclusive with image_ids. Entire input validated before sending; jobs split at provider limit 500. (CLI: `--image-ids-file`)
@@ -661,7 +691,7 @@ lorairo-cli --json describe "errors get"
 **Input `ErrorsGetInput`**
 
 - `error_id`: `int` (required) - Error record ID to retrieve (positional). (CLI: `error_id`)
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 
 **Output `ErrorRecordDetailItem`**
 
@@ -716,7 +746,7 @@ lorairo-cli --json describe "errors list"
 
 **Input `ErrorsListInput`**
 
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `operation`: `str?` (optional, default `None`) - Filter by operation_type (search/registration/annotation) (CLI: `--operation`)
 - `error_type`: `str?` (optional, default `None`) - Filter by error_type (CLI: `--error-type`)
 - `message_contains`: `str?` (optional, default `None`) - Partial match on error_message (CLI: `--message-contains`)
@@ -774,7 +804,7 @@ lorairo-cli --json describe "errors resolve"
 
 **Input `ErrorsResolveInput`**
 
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `ids`: `str?` (optional, default `None`) - Comma-separated error record IDs (CLI: `--ids`)
 - `operation`: `str?` (optional, default `None`) - Bulk-resolve by operation_type (CLI: `--operation`)
 - `error_type`: `str?` (optional, default `None`) - Bulk-resolve by error_type (CLI: `--error-type`)
@@ -823,7 +853,7 @@ lorairo-cli --json describe "export create"
 
 **Input `ExportCreateInput`**
 
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `image_ids`: `str?` (optional, default `None`) - Comma-separated image IDs, max 500 (or use image_ids_file). Use images search to resolve IDs. (CLI: `--image-ids`)
 - `image_ids_file`: `str?` (optional, default `None`) - Path to a newline/comma-separated image ID list for bulk operations (chunked internally, max 100,000; mutually exclusive with image_ids, Issue #1216). For tags commands, bulk mode emits TagsBulkProgressItem chunk-progress rows instead of per-image TagsEditItem. (CLI: `--image-ids-file`)
 - `output`: `str` (required) - Output directory for exported dataset (CLI: `--output`, `-o`)
@@ -912,7 +942,7 @@ lorairo-cli --json describe "images analyze-metadata"
 **Input `ImagesAnalyzeMetadataInput`**
 
 - `image_ids`: `str?` (optional, default `None`) - Comma-separated image IDs, max 500. Omit to process images without an analysis result. (CLI: `image_ids_positional`, `--image-ids`)
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `force`: `bool` (optional, default `False`) - Replace existing results (needs IDs). (CLI: `--force`)
 - `limit`: `int[1,500]` (optional, default `500`) - Max unanalyzed images when IDs are omitted. (CLI: `--limit`)
 - `after_id`: `int>=0` (optional, default `0`) - Only unanalyzed images with a larger ID (pass next_after_id to continue). (CLI: `--after-id`)
@@ -970,7 +1000,7 @@ lorairo-cli --json describe "images crop"
 **Input `ImagesCropInput`**
 
 - `image_id`: `int` (required) - Parent image ID to crop from. (CLI: `image_id`)
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `x`: `int` (required) - Left edge in parent pixels. (CLI: `--x`)
 - `y`: `int` (required) - Top edge in parent pixels. (CLI: `--y`)
 - `width`: `int` (required) - Width in parent pixels; must be >= 1. (CLI: `--width`)
@@ -1033,7 +1063,7 @@ lorairo-cli --json describe "images crop-batch"
 
 **Input `ImagesCropBatchInput`**
 
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `rects`: `str` (required) - JSONL, one object per line: {"image_id": int, "x": int, "y": int, "width": int, "height": int, "origin"?: str, "score"?: float}. Unknown keys are rejected; max 500 non-blank rows (RESULT_SET_TOO_LARGE, exit 2). (CLI: `--rects`)
 - `origin`: `str` (optional, default `manual`) - Provenance for rows that omit origin. (CLI: `--origin`)
 - `dry_run`: `bool` (optional, default `False`) - Validate rectangles and report would_create without writing. (CLI: `--dry-run`)
@@ -1104,7 +1134,7 @@ lorairo-cli --json describe "images crop-detect"
 
 **Input `ImagesCropDetectInput`**
 
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `class`: `person | face | head | halfbody` (required) - Target class -> detector (origin) and default min_score: person -> person_detect_v1.3_s (0.324), face -> face_detect_v1.4_s (0.307), head -> head_detect_v2.0_s (0.413). halfbody is rejected with INVALID_INPUT (exit 2): its license terms are not reviewed. (CLI: `--class`)
 - `image_ids`: `str?` (optional, default `None`) - Comma-separated parent image IDs, max 500 (or use --image-ids-file). (CLI: `--image-ids`)
 - `image_ids_file`: `str?` (optional, default `None`) - Newline/comma-separated parent image ID list. More than 500 distinct IDs is rejected with RESULT_SET_TOO_LARGE (exit 2). (CLI: `--image-ids-file`)
@@ -1181,7 +1211,7 @@ lorairo-cli --json describe "images duplicates"
 
 **Input `DuplicateReportInput`**
 
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `max_distance`: `int[0,64]` (optional, default `4`) - Maximum Hamming distance of connecting pairs; cluster endpoints may exceed this threshold. (CLI: `--max-distance`)
 - `limit`: `int[1,500]?` (optional, default `None`) - Output cap for clusters and members; omitted means 100, and any explicit value is rejected with --representatives. Detection and counts cover the complete bounded project. (CLI: `--limit`)
 - `representatives`: `bool` (optional, default `False`) - Output only one representative for every cluster (largest width*height, ties by smallest image_id; singletons excluded). Plain mode prints one image ID per line for `review run --image-ids-file`; JSONL items use DuplicateRepresentativeItem. Reference only; not evidence for other images. (CLI: `--representatives`)
@@ -1294,7 +1324,7 @@ lorairo-cli --json describe "images list"
 
 **Input `ImagesListInput`**
 
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `fetch`: `bool` (optional, default `False`) - Fetch id+path rows instead of only the count. Succeeds only when total matches are <= 500; a larger result yields RESULT_SET_TOO_LARGE (narrow the filter). Omitted (default) returns the count only. (CLI: `--fetch`)
 - `limit`: `int[1,500]` (optional, default `500`) - Page size within a <= 500 match set (ADR 0060). Does NOT bypass the count-first gate: a total over 500 is rejected regardless of limit. (CLI: `--limit`, `-l`)
 - `offset`: `int>=0` (optional, default `0`) - Rows to skip within a <= 500 match set. Pagination is bounded to the working set; it is not a way to page through a result larger than 500. (CLI: `--offset`)
@@ -1350,7 +1380,7 @@ lorairo-cli --json describe "images process"
 
 **Input `ImagesProcessInput`**
 
-- `project`: `str` (required) - Target project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `image_ids`: `str?` (optional, default `None`) - Exact original IDs, max 500; exclusive with image_ids_file. (CLI: `--image-ids`)
 - `image_ids_file`: `str?` (optional, default `None`) - ID list file, max 100,000; exclusive with image_ids. (CLI: `--image-ids-file`)
 - `resolution`: `int[32,8192]` (optional, default `512`) - Long side, multiple of 32 from 32 to 8192; offline CPU resize. (CLI: `--resolution`, `-r`)
@@ -1416,7 +1446,7 @@ lorairo-cli --json describe "images rate"
 
 **Input `ImagesRateInput`**
 
-- `project`: `str` (required) - Target project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `rating`: `str` (required) - Manual rating value: PG, PG-13, R, X, XXX, or none to clear (case-insensitive). (CLI: `--rating`, `-r`)
 - `image_ids`: `str?` (optional, default `None`) - Comma-separated image IDs, max 500 (or use --image-ids-file). (CLI: `--image-ids`)
 - `image_ids_file`: `str?` (optional, default `None`) - Path to a newline/comma-separated image ID list for bulk operations (chunked internally, max 100,000; mutually exclusive with image_ids, Issue #1216). For tags commands, bulk mode emits TagsBulkProgressItem chunk-progress rows instead of per-image TagsEditItem. (CLI: `--image-ids-file`)
@@ -1484,7 +1514,7 @@ lorairo-cli --json describe "images register"
 **Input `ImagesRegisterInput`**
 
 - `path`: `str` (required) - Image file or directory path (CLI: `path`)
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `skip_duplicates`: `bool` (optional, default `True`) - Exclude duplicate IDs from downstream selection; --include-duplicates selects existing IDs once. (CLI: `--skip-duplicates`, `--include-duplicates`)
 
 **Output `ImagesRegisterItem`**
@@ -1549,7 +1579,7 @@ lorairo-cli --json describe "images search"
 
 Pass exactly one of --query or --query-file.
 
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `query_file`: `str?` (optional, default `None`) - Path to a JSON file containing the search schema. (CLI: `--query-file`)
 - `query`: `str?` (optional, default `None`) - JSON search schema string, or '-' to read from stdin. (CLI: `--query`)
 
@@ -1632,7 +1662,7 @@ lorairo-cli --json describe "images show"
 **Input `ImagesShowInput`**
 
 - `image_ids`: `str` (required) - Comma-separated image IDs, max 500. Positional form `images show 42 57` also works. (CLI: `image_ids_positional`, `--image-ids`)
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `include_rejected`: `bool` (optional, default `False`) - Include soft-rejected tags/captions in the output. (CLI: `--include-rejected`)
 
 **Output `ImagesShowItem`**
@@ -1688,7 +1718,7 @@ lorairo-cli --json describe "images tag-ai-generated"
 **Input `ImagesTagAiGeneratedInput`**
 
 - `image_ids`: `str?` (optional, default `None`) - Comma-separated image IDs, max 500. Omit to target all images in the project. (CLI: `image_ids_positional`, `--image-ids`)
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `revoke`: `bool` (optional, default `False`) - Delete ai generated tag rows added by GENERATION_METADATA instead of adding. (CLI: `--revoke`)
 - `dry_run`: `bool` (optional, default `False`) - Count tags that would be added or revoked without writing. (CLI: `--dry-run`)
 
@@ -1737,7 +1767,7 @@ lorairo-cli --json describe "images update"
 
 **Input `ImagesUpdateInput`**
 
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `tags`: `str?` (optional, default `None`) - Tags to add (comma-separated) (CLI: `--tags`)
 - `image_id`: `int?` (optional, default `None`) - Target specific image by ID (CLI: `--image-id`)
 
@@ -1787,7 +1817,7 @@ lorairo-cli --json describe "maintenance check"
 
 **Input `MaintenanceCheckInput`**
 
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `scope`: `list[str]?` (optional, default `None`) - Repeat for several scopes: batch, files, provider. Default runs batch and files. (CLI: `--scope`)
 - `limit`: `int[1,500]` (optional, default `100`) - Maximum IDs per check; counts cover the whole project. (CLI: `--limit`)
 
@@ -1912,7 +1942,7 @@ lorairo-cli --json describe "models refresh"
 
 **Input `ModelsRefreshInput`**
 
-- `project`: `str?` (optional, default `None`) - Project to sync model metadata into. Uses default DB when omitted. (CLI: `--project`, `-p`)
+- `project`: `str?` (optional, default `None`) - Project to sync model metadata into; the default DB is used when omitted. Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 
 **Output `ModelsRefreshResult`**
 
@@ -2086,7 +2116,7 @@ lorairo-cli --json describe "project prepare"
 
 **Input `ProjectPrepareInput`**
 
-- `project`: `str` (required) - Existing project to prepare for database access (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Existing project to prepare for database access. Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `tags`: `bool` (optional, default `False`) - Also initialize/download tag databases with write permission (CLI: `--tags`)
 
 **Output `ProjectPrepareResult`**
@@ -2129,7 +2159,7 @@ lorairo-cli --json describe "review run"
 
 **Input `ReviewRunInput`**
 
-- `project`: `str` (required) - Existing project to review. (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `image_ids`: `str?` (optional, default `None`) - Explicit positive image IDs in CSV; exactly one of image_ids/image_ids_file/crop_children_of/crop_children is required. Review max 500 unique images per run; larger selections fail with RESULT_SET_TOO_LARGE before opening the project or sending requests. CSV reader accepts up to 100,000 IDs; duplicates evaluated once. No implicit all-image review. (CLI: `--image-ids`)
 - `image_ids_file`: `str?` (optional, default `None`) - UTF-8 newline/comma IDs, exclusive with image_ids. Review max 500 unique images per run; larger selections fail with RESULT_SET_TOO_LARGE before opening the project or sending requests. File reader accepts up to 100,000 IDs; duplicates evaluated once. (CLI: `--image-ids-file`)
 - `crop_children_of`: `int?` (optional, default `None`) - Parent image ID; review only its crop children from crop_relations (parent excluded). Exclusive with other selections. Unknown parent fails with NOT_FOUND; zero children succeeds with image_count=0 (対象 0 件). Over 500 children fails with RESULT_SET_TOO_LARGE. Crop children are resolved inside the opened project, so the 500 cap is checked after opening it but before any Clef request or result save. With save_results the project is opened for writing even when 0 or over 500 children match: an old DB is migrated and missing standard project directories are created, but no review results are saved. (CLI: `--crop-children-of`)
@@ -2265,7 +2295,7 @@ lorairo-cli --json describe "tags add"
 
 **Input `TagsAddInput`**
 
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `image_ids`: `str?` (optional, default `None`) - Comma-separated image IDs, max 500 (or use image_ids_file). (CLI: `--image-ids`)
 - `image_ids_file`: `str?` (optional, default `None`) - Path to a newline/comma-separated image ID list for bulk operations (chunked internally, max 100,000; mutually exclusive with image_ids, Issue #1216). For tags commands, bulk mode emits TagsBulkProgressItem chunk-progress rows instead of per-image TagsEditItem. (CLI: `--image-ids-file`)
 - `tags`: `str` (required) - Comma-separated tags to add. (CLI: `--tags`)
@@ -2344,7 +2374,7 @@ lorairo-cli --json describe "tags alias"
 
 **Input `TagsAliasInput`**
 
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `from`: `str` (required) - Alias source (typo 等)。既存タグの付け替えは拒否。既に同じ preferred へ解決される場合は no-op。 (CLI: `--from`)
 - `to`: `str` (required) - 解決先 preferred タグ (tag DB に存在必須)。 (CLI: `--to`)
 - `apply`: `bool` (optional, default `False`) - Write to DB. Default is dry-run. (CLI: `--apply`)
@@ -2394,7 +2424,7 @@ lorairo-cli --json describe "tags health"
 
 **Input `TagHealthInput`**
 
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `expected_tag`: `list[str]?` (optional, default `None`) - Explicit tags expected on every image; repeat the option. No implicit expectations. (CLI: `--expected-tag`)
 - `limit`: `int[1,500]` (optional, default `100`) - Maximum rows per section and IDs per missing-tag sample; counts cover all images. (CLI: `--limit`)
 
@@ -2480,7 +2510,7 @@ lorairo-cli --json describe "tags remove"
 
 **Input `TagsRemoveInput`**
 
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `image_ids`: `str?` (optional, default `None`) - Comma-separated image IDs, max 500 (or use image_ids_file). (CLI: `--image-ids`)
 - `image_ids_file`: `str?` (optional, default `None`) - Path to a newline/comma-separated image ID list for bulk operations (chunked internally, max 100,000; mutually exclusive with image_ids, Issue #1216). For tags commands, bulk mode emits TagsBulkProgressItem chunk-progress rows instead of per-image TagsEditItem. (CLI: `--image-ids-file`)
 - `tags`: `str` (required) - Comma-separated tags to remove. (CLI: `--tags`)
@@ -2557,7 +2587,7 @@ lorairo-cli --json describe "tags replace"
 
 **Input `TagsReplaceInput`**
 
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `image_ids`: `str?` (optional, default `None`) - Comma-separated image IDs, max 500 (or use image_ids_file). (CLI: `--image-ids`)
 - `image_ids_file`: `str?` (optional, default `None`) - Path to a newline/comma-separated image ID list for bulk operations (chunked internally, max 100,000; mutually exclusive with image_ids, Issue #1216). For tags commands, bulk mode emits TagsBulkProgressItem chunk-progress rows instead of per-image TagsEditItem. (CLI: `--image-ids-file`)
 - `from_tag`: `str` (required) - Tag to replace. (CLI: `--from`)
@@ -2634,7 +2664,7 @@ lorairo-cli --json describe "tags translations add"
 
 **Input `TagsTranslationsAddInput`**
 
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `tag`: `str?` (optional, default `None`) - Target tag (--file と排他、単発時は --lang/--text と3点セット必須)。tag_id 解決は tags add (Issue #1174) と同経路: exact/alias は解決、真の新タグは --apply 時に user DB 登録、typo/曖昧候補は候補提示でエラー (先に tags alias で確定)。 (CLI: `--tag`)
 - `lang`: `str?` (optional, default `None`) - 書き込みは ja/en の一貫形。 (CLI: `--lang`)
 - `text`: `str?` (optional, default `None`) - Translation text (CLI: `--text`)
@@ -2711,7 +2741,7 @@ lorairo-cli --json describe "tags translations delete"
 - `tag`: `str` (required) - Target canonical tag (positional). (CLI: `tag`)
 - `lang`: `str` (required) - Positional. (CLI: `lang`)
 - `text`: `str` (required) - Exact translation text to delete (positional). (CLI: `text`)
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `apply`: `bool` (optional, default `False`) - Write to DB. Default is dry-run. (CLI: `--apply`)
 
 **Output `TagsTranslationsDeleteItem`**
@@ -2767,7 +2797,7 @@ lorairo-cli --json describe "tags translations show"
 
 **Input `TagsTranslationsShowInput`**
 
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `image_ids`: `str?` (optional, default `None`) - Show translation status of these images' tags. Mutually exclusive with --tags. (CLI: `--image-ids`)
 - `tags`: `str?` (optional, default `None`) - Tags to inspect, max 100. Mutually exclusive with --image-ids. (CLI: `--tags`)
 - `missing_only`: `bool` (optional, default `False`) - 未翻訳 (tag, lang) ペアだけを 1 行 1 件で出力する (Issue #1211)。出力行は text を埋めるだけで `translations add --file` に渡せる。 (CLI: `--missing-only`)
@@ -2845,7 +2875,7 @@ lorairo-cli --json describe "tags translations suppress"
 - `tag`: `str` (required) - Target canonical tag (positional). (CLI: `tag`)
 - `lang`: `str` (required) - Positional. (CLI: `lang`)
 - `text`: `str` (required) - Exact translation text to suppress (positional). (CLI: `text`)
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `apply`: `bool` (optional, default `False`) - Write to DB. Default is dry-run. (CLI: `--apply`)
 
 **Output `TagsTranslationsSuppressItem`**
@@ -2903,7 +2933,7 @@ lorairo-cli --json describe "tags translations unsuppress"
 - `tag`: `str` (required) - Target canonical tag (positional). (CLI: `tag`)
 - `lang`: `str` (required) - Positional. (CLI: `lang`)
 - `text`: `str` (required) - Exact translation text to unsuppress (positional). (CLI: `text`)
-- `project`: `str` (required) - Project name (CLI: `--project`, `-p`)
+- `project`: `str` (required) - Project name: the `name` in the project's .lorairo-project metadata, not a folder path. A GUI-created project uses its folder name; a CLI-created one uses the name given to `project create`. Run `lorairo-cli project list` to see the names. (CLI: `--project`, `-p`)
 - `apply`: `bool` (optional, default `False`) - Write to DB. Default is dry-run. (CLI: `--apply`)
 
 **Output `TagsTranslationsUnsuppressItem`**
