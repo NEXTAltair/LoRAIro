@@ -15,9 +15,10 @@ worker の signal を lambda で受けて GUI 側の signal を emit すると�
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -98,8 +99,25 @@ def _source_label(text: str) -> str:
     return _TARGET_LABEL if text == "(target)" else text
 
 
+@dataclass(frozen=True)
+class ProjectMergeOutcome:
+    """確定した統合 1 回分の、表示の更新に使う結果。
+
+    Attributes:
+        target_root: 統合先のプロジェクトのディレクトリ (resolve 済み)。
+        image_ids: 統合先で取り込んだ画像と、ハッシュ一致でまとめた先の既存の画像の ID (昇順、重複なし)。
+    """
+
+    target_root: Path
+    image_ids: tuple[int, ...]
+
+
 class ProjectMergeDialog(QDialog):
     """統合元・統合先の選択、計画の表示、名前の対応の指定、統合の確定を行うダイアログ。"""
+
+    # 統合が成功するたびに GUI スレッドで発行する (payload: ProjectMergeOutcome)。
+    # ダイアログを開いたまま何回統合しても、受け手は 1 回ごとに表示を更新できる
+    merge_succeeded = Signal(object)
 
     def __init__(
         self,
@@ -134,8 +152,6 @@ class ProjectMergeDialog(QDialog):
         self._current_worker_id: str | None = None
         self._dataset_refs: dict[str, SourceDatasetRef] = {}
         self._stat_tiles: list[DsSummaryStat] = []
-        self._merged_target_root: Path | None = None
-        self._merged_image_ids: list[int] = []
 
         self._worker_manager = WorkerManager(self)
         # GUI スレッドで発行される終端 signal を、このダイアログの Slot で受ける
@@ -163,16 +179,6 @@ class ProjectMergeDialog(QDialog):
     def is_busy(self) -> bool:
         """一覧の取得・計画の作成・統合のいずれかを実行中なら True。"""
         return self._busy is not None
-
-    @property
-    def merged_target_root(self) -> Path | None:
-        """統合を確定した統合先のディレクトリ。まだ確定していなければ None。"""
-        return self._merged_target_root
-
-    @property
-    def merged_image_ids(self) -> list[int]:
-        """確定した統合で、統合先に取り込んだ画像とハッシュ一致でまとめた先の画像の ID (重複なし)。"""
-        return list(self._merged_image_ids)
 
     def load_projects(self) -> None:
         """プロジェクトの一覧を worker で取得する。"""
@@ -641,9 +647,6 @@ class ProjectMergeDialog(QDialog):
 
     def _on_applied(self, outcome: MergeApplyOutcome) -> None:
         result = outcome.result
-        self._merged_target_root = outcome.target_root.resolve()
-        # まとめた画像は既存の画像 ID を指す (ID が変わらないので、呼び出し側が明示的に読み直す)
-        self._merged_image_ids = sorted(set(result.image_ids.values()))
         message = (
             f"{len(result.plan.source_projects)} 個のプロジェクトを '{result.plan.target_project}' へ統合しました: "
             f"画像 {result.plan.image_count:,} 枚 (ハッシュ一致でまとめた画像 {len(result.plan.duplicates):,} 枚)、"
@@ -656,6 +659,13 @@ class ProjectMergeDialog(QDialog):
         self._requested_mapping = MergeMapping()
         self._render_plan()
         self._set_status(message, tone="ok")
+        # まとめた画像は既存の画像 ID を指す (ID が変わらないので、受け手が明示的に読み直す)
+        self.merge_succeeded.emit(
+            ProjectMergeOutcome(
+                target_root=outcome.target_root.resolve(),
+                image_ids=tuple(sorted(set(result.image_ids.values()))),
+            )
+        )
         show_information(self, "プロジェクトを統合しました", message)
         if self._plan_target is not None and self._plan_target.is_new:
             # 作ったプロジェクトを一覧に出す

@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 
 from lorairo.database.repository.dataset import DatasetRepository
 from lorairo.gui.widgets import project_merge_dialog as dialog_module
-from lorairo.gui.widgets.project_merge_dialog import ProjectMergeDialog
+from lorairo.gui.widgets.project_merge_dialog import ProjectMergeDialog, ProjectMergeOutcome
 from lorairo.gui.workers import project_merge_workers
 from lorairo.services.project_management_service import ProjectManagementService
 from lorairo.services.project_merge_service import MergeMapping, MergePlan
@@ -130,6 +130,14 @@ def dialog(
     qtbot.waitUntil(lambda: not widget.is_busy, timeout=_TIMEOUT_MS)
 
 
+@pytest.fixture
+def merges(dialog: ProjectMergeDialog) -> list[ProjectMergeOutcome]:
+    """`merge_succeeded` で通知された統合の結果 (統合が成功するたびに 1 件)。"""
+    received: list[ProjectMergeOutcome] = []
+    dialog.merge_succeeded.connect(received.append)
+    return received
+
+
 def _check_sources(dialog: ProjectMergeDialog, *names: str) -> None:
     for row in range(dialog.source_list.count()):
         item = dialog.source_list.item(row)
@@ -206,6 +214,7 @@ def test_confirm_is_disabled_until_dataset_rename_resolves_conflict_then_merges(
     qtbot: QtBot,
     dialog: ProjectMergeDialog,
     projects: dict[str, SyntheticProject],
+    merges: list[ProjectMergeOutcome],
     messages: dict[str, list[str]],
 ) -> None:
     sources_before = {name: file_fingerprints(projects[name].root) for name in ("proj_a", "proj_b")}
@@ -232,18 +241,15 @@ def test_confirm_is_disabled_until_dataset_rename_resolves_conflict_then_merges(
     assert dialog.confirm_button.isEnabled()
 
     dialog.confirm_button.click()
-    qtbot.waitUntil(
-        lambda: dialog.merged_target_root is not None and not dialog.is_busy, timeout=_TIMEOUT_MS
-    )
+    qtbot.waitUntil(lambda: bool(merges) and not dialog.is_busy, timeout=_TIMEOUT_MS)
 
     target = projects["proj_t"]
-    assert dialog.merged_target_root == target.root.resolve()
-    # 統合先で取り込み・まとめた画像 ID (ハッシュ一致で既存の画像にまとめたものを含む)
+    # 統合先で取り込み・まとめた画像 ID (ハッシュ一致で既存の画像にまとめたものを含む) を 1 回通知する
     with closing(sqlite3.connect(target.db_path)) as conn:
-        target_ids = {
+        target_ids = sorted(
             int(row[0]) for row in conn.execute("SELECT id FROM images WHERE uuid != 'proj_t-t_own'")
-        }
-    assert set(dialog.merged_image_ids) == target_ids
+        )
+    assert merges == [ProjectMergeOutcome(target.root.resolve(), tuple(target_ids))]
     assert messages == {"information": ["プロジェクトを統合しました"], "critical": []}
     assert not dialog.confirm_button.isEnabled()
     # 画像は T の 1 枚 + A の 2 枚 + B の dog 1 枚 (B の shared は A の shared にまとめる)
@@ -274,6 +280,7 @@ def test_join_with_version_renames_chains_one_history(
     qtbot: QtBot,
     dialog: ProjectMergeDialog,
     projects: dict[str, SyntheticProject],
+    merges: list[ProjectMergeOutcome],
     messages: dict[str, list[str]],
 ) -> None:
     _make_plan(qtbot, dialog)
@@ -307,9 +314,7 @@ def test_join_with_version_renames_chains_one_history(
     assert dialog.confirm_button.isEnabled()
 
     dialog.confirm_button.click()
-    qtbot.waitUntil(
-        lambda: dialog.merged_target_root is not None and not dialog.is_busy, timeout=_TIMEOUT_MS
-    )
+    qtbot.waitUntil(lambda: bool(merges) and not dialog.is_busy, timeout=_TIMEOUT_MS)
 
     # 前の統合元の最新版 (A の v2) が次の統合元の最初の版 (B の v1 → v3) の parent になる
     assert _versions(projects["proj_t"], "chara") == {"v1": None, "v2": "v1", "v3": "v2", "v4": "v3"}
@@ -452,6 +457,7 @@ def test_apply_failure_shows_error_and_leaves_target_unchanged(
     qtbot: QtBot,
     dialog: ProjectMergeDialog,
     projects: dict[str, SyntheticProject],
+    merges: list[ProjectMergeOutcome],
     messages: dict[str, list[str]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -473,7 +479,7 @@ def test_apply_failure_shows_error_and_leaves_target_unchanged(
 
     assert messages["critical"] == ["プロジェクトを統合できませんでした"]
     assert "同期に失敗" in dialog.status_label.text()
-    assert dialog.merged_target_root is None
+    assert merges == []
     assert table_counts(target, _TARGET_TABLES) == before
     assert file_fingerprints(target.root / "image_dataset") == files_before
     assert not (target.root / "image_dataset" / ".transfer_staging").exists()
@@ -485,6 +491,7 @@ def test_new_target_project_is_created_and_removed_on_failure(
     qtbot: QtBot,
     dialog: ProjectMergeDialog,
     projects_dir: Path,
+    merges: list[ProjectMergeOutcome],
     messages: dict[str, list[str]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -510,12 +517,10 @@ def test_new_target_project_is_created_and_removed_on_failure(
     assert not any(path.name.startswith("merged_") for path in projects_dir.iterdir())
 
     dialog.confirm_button.click()
-    qtbot.waitUntil(
-        lambda: dialog.merged_target_root is not None and not dialog.is_busy, timeout=_TIMEOUT_MS
-    )
+    qtbot.waitUntil(lambda: bool(merges) and not dialog.is_busy, timeout=_TIMEOUT_MS)
     created = [path for path in projects_dir.iterdir() if path.name.startswith("merged_")]
     assert len(created) == 1
-    assert dialog.merged_target_root == created[0].resolve()
+    assert [merge.target_root for merge in merges] == [created[0].resolve()]
     merged = SyntheticProject(name="merged", root=created[0])
     assert table_counts(merged, ("images", "dataset_version_origins")) == {
         "images": 3,

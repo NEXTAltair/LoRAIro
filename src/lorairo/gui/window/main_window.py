@@ -1605,7 +1605,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """複数プロジェクトを版履歴ごと統合するダイアログを開く (#1660)。
 
         統合先が現在のプロジェクトになり得るため、実行中のジョブがある間は開かない。
-        統合を確定した統合先が現在のプロジェクトなら、閉じた後に表示を更新する。
+        表示の更新は、統合が成功するたびに `_on_project_merge_succeeded` で行う。
         """
         reason = MainWindow._project_switch_block_reason(self)
         if reason is not None:
@@ -1627,16 +1627,34 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             current_project_root=current_root,
             parent=self,
         )
+        # 統合が成功するたびに通知を受けて更新する (ダイアログを開いたまま何回統合しても漏らさない)
+        dialog.merge_succeeded.connect(self._on_project_merge_succeeded)
         dialog.exec()
-        merged_root = dialog.merged_target_root
-        merged_image_ids = dialog.merged_image_ids
         dialog.deleteLater()
-        if current_root is None or merged_root != current_root:
+
+    @Slot(object)
+    def _on_project_merge_succeeded(self, outcome: object) -> None:
+        """統合が 1 回成功するごとに、統合先が現在のプロジェクトなら表示を更新する (#1660)。
+
+        ハッシュ一致でまとめた画像は ID が変わらないため、検索タブの詳細 (由来・データセット利用状況)
+        も明示的に読み直す。
+
+        Args:
+            outcome: `ProjectMergeOutcome` (統合先のディレクトリと、取り込み・まとめた画像 ID)。
+        """
+        from ..widgets.project_merge_dialog import ProjectMergeOutcome
+
+        if not isinstance(outcome, ProjectMergeOutcome):
             return
-        # まとめた画像は ID が変わらないため、検索タブの詳細 (由来・データセット利用状況) も明示的に読み直す
+        try:
+            current_root = get_current_project_root().resolve()
+        except (OSError, RuntimeError):
+            return
+        if outcome.target_root != current_root:
+            return
         search_tab = getattr(self, "search_tab", None)
         if search_tab is not None:
-            search_tab.refresh_after_project_merge(merged_image_ids)
+            search_tab.refresh_after_project_merge(list(outcome.image_ids))
         tab_widget = getattr(self, "tabWidgetMainMode", None)
         current_tab = tab_widget.currentWidget() if tab_widget is not None else None
         if search_tab is None or current_tab not in (getattr(self, "tabWorkspace", None), search_tab):
