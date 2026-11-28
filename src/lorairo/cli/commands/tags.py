@@ -28,6 +28,7 @@ from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._errors import result_exit_code
 from lorairo.cli._glyphs import OK
+from lorairo.cli._help import PROJECT_OPTION_HELP
 from lorairo.cli._image_ids import (
     BULK_CHUNK_SIZE,
     MAX_IMAGE_IDS,
@@ -49,7 +50,7 @@ err_console = make_console(stderr=True)
 
 @app.command("health")
 def health(
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     expected_tag: list[str] | None = typer.Option(
         None,
         "--expected-tag",
@@ -258,7 +259,7 @@ def _bulk_add(
 
 @app.command("add")
 def add(
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     image_ids_csv: str | None = typer.Option(None, "--image-ids", help="Comma-separated image IDs"),
     image_ids_file: str | None = typer.Option(
         None,
@@ -440,7 +441,7 @@ def _bulk_remove(
 
 @app.command("remove")
 def remove(
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     image_ids_csv: str | None = typer.Option(None, "--image-ids", help="Comma-separated image IDs"),
     image_ids_file: str | None = typer.Option(
         None,
@@ -588,7 +589,7 @@ def _bulk_replace(
 
 @app.command("replace")
 def replace(
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     image_ids_csv: str | None = typer.Option(None, "--image-ids", help="Comma-separated image IDs"),
     image_ids_file: str | None = typer.Option(
         None,
@@ -715,7 +716,7 @@ def _translation_status_entries(
 
 @trans_app.command("show")
 def translations_show(
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     image_ids_csv: str | None = typer.Option(
         None, "--image-ids", help="Comma-separated image IDs (show translations of their tags)"
     ),
@@ -1141,7 +1142,7 @@ def _add_translations_batch(
 
 @trans_app.command("add")
 def translations_add(
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     tag: str | None = typer.Option(None, "--tag", help="Target tag (canonical or new)"),
     lang: str | None = typer.Option(None, "--lang", help="Language key: ja | en"),
     text: str | None = typer.Option(None, "--text", help="Translation text"),
@@ -1266,7 +1267,7 @@ def translations_delete(
     tag: str = typer.Argument(..., help="Target canonical tag"),
     lang: str = typer.Argument(..., help="Language key: ja | en"),
     text: str = typer.Argument(..., help="Translation text to delete"),
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     apply: bool = typer.Option(False, "--apply", help="Write to user DB (default: dry-run)"),
 ) -> None:
     """Delete a user DB overlay translation (dry-run by default, Issue #1237).
@@ -1323,7 +1324,7 @@ def translations_suppress(
     tag: str = typer.Argument(..., help="Target canonical tag"),
     lang: str = typer.Argument(..., help="Language key: ja | en"),
     text: str = typer.Argument(..., help="Translation text to suppress"),
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     apply: bool = typer.Option(False, "--apply", help="Write to user DB (default: dry-run)"),
 ) -> None:
     """Suppress a translation from merged display via tombstone (dry-run by default, Issue #1237).
@@ -1377,7 +1378,7 @@ def translations_unsuppress(
     tag: str = typer.Argument(..., help="Target canonical tag"),
     lang: str = typer.Argument(..., help="Language key: ja | en"),
     text: str = typer.Argument(..., help="Translation text to unsuppress"),
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     apply: bool = typer.Option(False, "--apply", help="Write to user DB (default: dry-run)"),
 ) -> None:
     """Remove a suppress tombstone (dry-run by default, Issue #1237).
@@ -1430,7 +1431,7 @@ def translations_unsuppress(
 
 @app.command("alias")
 def alias_tag(
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     from_tag: str = typer.Option(..., "--from", help="Alias source (e.g. typo spelling)"),
     to_tag: str = typer.Option(..., "--to", help="Preferred tag to resolve to (must exist)"),
     apply: bool = typer.Option(False, "--apply", help="Write to user DB (default: dry-run)"),

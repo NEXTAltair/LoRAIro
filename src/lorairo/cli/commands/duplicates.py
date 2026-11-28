@@ -7,6 +7,7 @@ import typer
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
+from lorairo.cli._help import PROJECT_OPTION_HELP
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.public_api.duplicate_report import report_duplicates
 from lorairo.public_api.review import MAX_REVIEW_IMAGES
@@ -73,7 +74,7 @@ def _emit_representatives(project: str, result: DuplicateReport) -> None:
 
 
 def report(
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     max_distance: int = typer.Option(
         DEFAULT_MAX_DISTANCE,
         "--max-distance",

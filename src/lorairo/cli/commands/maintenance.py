@@ -9,6 +9,7 @@ from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._errors import result_exit_code
+from lorairo.cli._help import PROJECT_OPTION_HELP
 from lorairo.cli._output_mode import is_json_mode
 
 app = typer.Typer(help="Read-only DB maintenance commands")
@@ -25,7 +26,7 @@ class MaintenanceScope(StrEnum):
 
 @app.command("check")
 def check(
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     scope: list[MaintenanceScope] | None = typer.Option(
         None,
         "--scope",

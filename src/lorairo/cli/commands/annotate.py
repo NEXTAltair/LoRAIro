@@ -32,6 +32,7 @@ from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._errors import result_exit_code
+from lorairo.cli._help import PROJECT_OPTION_HELP
 from lorairo.cli._image_guard import reject_original_image_records
 from lorairo.cli._image_ids import resolve_annotation_ids
 from lorairo.cli._output_mode import is_json_mode
@@ -955,7 +956,7 @@ def run(
         ...,
         "--project",
         "-p",
-        help="Project name",
+        help=PROJECT_OPTION_HELP,
     ),
     model: list[str] = typer.Option(
         ...,
@@ -1291,7 +1292,7 @@ def import_batch(
         ...,
         "--project",
         "-p",
-        help="Target project name / インポート先プロジェクト名",
+        help=PROJECT_OPTION_HELP,
     ),
     dry_run: bool = typer.Option(
         False,

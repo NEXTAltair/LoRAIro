@@ -4,6 +4,7 @@
 CLI/GUI双方から利用可能にする。Qt 依存なし。
 """
 
+import difflib
 import json
 import locale
 import shutil
@@ -391,13 +392,34 @@ class ProjectManagementService:
             if runtime is not None
             else DEFAULT_CONFIG_PATH
         )
+        by_folder = self._project_names_by_folder()
+        available = list(dict.fromkeys(by_folder.values()))
+        # フォルダ名 (またはそのパス) を渡された場合は、その name を持つプロジェクトを特に案内する
+        folder_matched = by_folder.get(name) or by_folder.get(Path(name).name)
         raise ProjectNotFoundError(
             name,
-            available=self._available_project_names(),
+            available=available,
             projects_base_dir=self.projects_base_dir,
             config_path=config_path,
             config_found=config_path.is_file(),
+            suggestions=[] if folder_matched else self._close_project_names(name, available),
+            folder_matched_project=folder_matched,
         )
+
+    @staticmethod
+    def _close_project_names(name: str, available: list[str]) -> list[str]:
+        """入力に近いプロジェクト名を返す (大文字小文字は区別しない)。
+
+        Args:
+            name: 見つからなかった名前。
+            available: 存在するプロジェクト名。
+
+        Returns:
+            類似度の高い順の候補 (最大 3 件)。
+        """
+        by_lower = {candidate.casefold(): candidate for candidate in available}
+        close = difflib.get_close_matches(name.casefold(), list(by_lower), n=3, cutoff=0.6)
+        return [by_lower[item] for item in close]
 
     def _project_exists(self, name: str) -> bool:
         """プロジェクトが存在するか確認。
@@ -410,13 +432,13 @@ class ProjectManagementService:
         """
         return self._find_project_directory(name) is not None
 
-    def _available_project_names(self) -> list[str]:
-        """メタデータを持つプロジェクト名の一覧を返す (NOT_FOUND エラーの候補提示用)。
+    def _project_names_by_folder(self) -> dict[str, str]:
+        """フォルダ名からメタデータの ``name`` への対応を返す。
 
         Returns:
-            list[str]: メタデータの ``name`` フィールド一覧 (列挙失敗時は空リスト)。
+            dict[str, str]: ``{フォルダ名: name}`` (フォルダ名の昇順、列挙失敗時は取得済みの分まで)。
         """
-        names: list[str] = []
+        names: dict[str, str] = {}
         try:
             if not self.projects_base_dir.exists():
                 return names
@@ -430,8 +452,8 @@ class ProjectManagementService:
                     continue
                 # JSON として妥当でも dict でない場合 ([] / null 等) は候補にしない (Codex P2)
                 name = metadata.get("name") if isinstance(metadata, dict) else None
-                if name and name not in names:
-                    names.append(name)
+                if name:
+                    names[proj_dir.name] = name
         except OSError:
             logger.debug("プロジェクト候補の列挙に失敗しました (候補なしで続行)")
         return names

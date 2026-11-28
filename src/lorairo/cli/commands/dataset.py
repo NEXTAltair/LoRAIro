@@ -14,6 +14,7 @@ import typer
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
+from lorairo.cli._help import PROJECT_OPTION_HELP
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.database.repository.dataset import DatasetRepository, ImageDatasetUsage
 from lorairo.public_api.project import get_project as api_get_project
@@ -377,7 +378,7 @@ def import_dataset(
             "subfolders (up to 4 levels deep) hold one root per version."
         ),
     ),
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     dataset: str = typer.Option(..., "--dataset", help="Dataset name"),
     version: str = typer.Option(
         "",
@@ -431,6 +432,12 @@ def import_dataset(
     ),
 ) -> None:
     """Import a Kohya-ss dataset directory as a new dataset version.
+
+    Use this to add a version to an existing project: pass the existing project with -p (its name
+    as shown by `lorairo-cli project list`) and the same --dataset name for each version, e.g.
+    `lorairo-cli dataset import ./v2 -p my-project --dataset my-dataset`. Do not run `project create`
+    for each version; that makes a separate, empty project. `images register` only adds images and
+    never creates a dataset version.
 
     The import plan is proposed from the scan result. Use --dry-run to review folders, image counts,
     images without learning text and trigger word candidates first; trigger words are stored only
@@ -522,7 +529,7 @@ def import_dataset(
 def export_dataset(
     version_id: int = typer.Argument(..., help="Dataset version ID"),
     out_dir: Path = typer.Argument(..., help="Output directory (must not exist or be empty)"),
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     config_id: int | None = typer.Option(None, "--config-id", help="Training config ID to write"),
 ) -> None:
     """Export a dataset version in Kohya-ss layout with its original learning texts."""
@@ -561,7 +568,7 @@ def export_dataset(
 @app.command("show")
 def show_dataset(
     version_id: int = typer.Argument(..., help="Dataset version ID"),
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
 ) -> None:
     """Show folders, repeat counts, image counts and trigger words of a version."""
     with command_boundary():
@@ -703,7 +710,7 @@ def _print_diff(diff: VersionDiff) -> None:
 def diff_dataset(
     base_version_id: int = typer.Argument(..., help="Base (older) dataset version ID"),
     target_version_id: int = typer.Argument(..., help="Target (newer) dataset version ID"),
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
 ) -> None:
     """Show added / removed / changed folders, images and learning texts between two versions.
 
@@ -791,7 +798,7 @@ def copy_tags(
         None,
         help="Dataset version ID (omit with --revoke to revoke all KOHYA_DATASET tags in the project)",
     ),
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     folder: list[str] | None = typer.Option(
         None,
         "--folder",
@@ -854,7 +861,7 @@ def revoke_tags(
         None,
         help="Dataset version ID (omit to revoke all KOHYA_DATASET tags in the project)",
     ),
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     folder: list[str] | None = typer.Option(
         None,
         "--folder",
@@ -931,7 +938,7 @@ def usage_dataset(
         None, metavar="[IMAGE_ID]", help="Image ID (alternative to --image-id)"
     ),
     image_id: int | None = typer.Option(None, "--image-id", help="Image ID"),
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
 ) -> None:
     """Show dataset versions, folders and learning texts where an image is used (Issue #1461).
 

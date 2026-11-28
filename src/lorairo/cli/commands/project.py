@@ -15,6 +15,7 @@ from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._glyphs import OK
+from lorairo.cli._help import PROJECT_OPTION_HELP, project_created_next_steps
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.public_api.project import (
     create_project as api_create_project,
@@ -39,19 +40,34 @@ def create(
     name: str = typer.Argument(..., help="Project name"),
     description: str = typer.Option("", "--description", "-d", help="Project description"),
 ) -> None:
-    """Create a new project."""
+    """Create a new project (an empty library). It is not how you add a dataset version.
+
+    A project holds one library (database and images); a dataset version is a snapshot of a
+    training dataset inside a project. To add a new version of an existing dataset, do not create
+    one project per version: import it into the existing project.
+
+    Add a version to an existing project: lorairo-cli dataset import ./v2 -p my-project --dataset my-dataset
+
+    Add images only (no dataset version is created): lorairo-cli images register ./images -p my-project
+
+    Creating a project whose name already exists fails with ALREADY_EXISTS and shows the
+    dataset import command to use instead. `--project` of other commands takes the name given
+    here; run `lorairo-cli project list` to see the names.
+    """
     with command_boundary():
         request = ProjectCreateRequest(name=name, description=description or None)
         project = api_create_project(request)
+        next_steps = project_created_next_steps(project.name)
         if is_json_mode():
             emit_result(
-                f"Project created: {project.name}",
+                f"Project created: {project.name}. {next_steps}",
                 name=project.name,
                 path=str(project.path),
             )
         else:
             console.print(f"[green]{OK}[/green] Project created: [bold]{project.name}[/bold]")
             console.print(f"[dim]Location: {project.path}[/dim]")
+            console.print(f"[dim]{next_steps}[/dim]", soft_wrap=True)
 
 
 @app.command("list")
@@ -135,7 +151,10 @@ def delete(
 @app.command("prepare")
 def prepare(
     project: str = typer.Option(
-        ..., "--project", "-p", help="Existing project to prepare for database access"
+        ...,
+        "--project",
+        "-p",
+        help=f"Existing project to prepare for database access. {PROJECT_OPTION_HELP}",
     ),
     tags: bool = typer.Option(
         False, "--tags", help="Also initialize/download tag databases with write permission"

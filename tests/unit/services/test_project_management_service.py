@@ -395,6 +395,31 @@ class TestProjectCrud:
         assert isinstance(exc_info.value.details["config_found"], bool)
         assert exc_info.value.hint is not None
 
+    def test_get_project_not_found_suggests_close_names_case_insensitively(
+        self, service: ProjectManagementService
+    ) -> None:
+        """get_project: 近い名前 (大文字小文字違い・綴り違い) を suggestions に入れ、無関係な名前は入れない (#1662)。"""
+        service.create_project("Alpha")
+        service.create_project("zzz-unrelated")
+
+        with pytest.raises(ProjectNotFoundError) as exc_info:
+            service.get_project("alpah")
+
+        assert exc_info.value.suggestions == ["Alpha"]
+        assert exc_info.value.folder_matched_project is None
+
+    def test_get_project_not_found_with_folder_name_reports_matching_project(
+        self, service: ProjectManagementService
+    ) -> None:
+        """get_project: フォルダ名 (またはそのパス) を渡すと、そのフォルダの name を folder_matched_project に入れる (#1662)。"""
+        info = service.create_project("alpha")
+
+        for given in (info.path.name, str(info.path)):
+            with pytest.raises(ProjectNotFoundError) as exc_info:
+                service.get_project(given)
+            assert exc_info.value.folder_matched_project == "alpha"
+            assert exc_info.value.suggestions == []
+
     def test_get_project_not_found_without_projects_has_plain_message(
         self, service: ProjectManagementService
     ) -> None:
