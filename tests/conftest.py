@@ -1084,6 +1084,37 @@ def reset_service_container_singleton() -> Iterator[None]:
     ServiceContainer.reset_for_testing()
 
 
+# =============================================================================
+# Issue #1657: GIL を握ったまま止まったテストも pytest-timeout の時間で失敗させる
+# =============================================================================
+# thread 方式の pytest-timeout は threading.Timer (Python のスレッド) で動くため、
+# メインスレッドが GIL を握ったまま Qt のロックを待つデッドロックでは発火しない。
+# CI では job の時間上限まで止まり続けた。faulthandler の dump_traceback_later は
+# C のスレッドで動き GIL を要らないので、pytest-timeout の時間に余裕を足した時点で
+# 全スレッドのスタックを出してプロセスを終了させる。--timeout の値は変えない。
+# faulthandler の予約は 1 つだけなので、pytest の faulthandler_timeout の予約は置き換わる
+# (pytest-timeout が発火できる場合は、そちらが先に全スレッドのスタックを出す)。
+_HANG_EXIT_MARGIN_SECONDS = 30.0
+
+
+@pytest.fixture(autouse=True)
+def _exit_process_when_hung_past_pytest_timeout(request: pytest.FixtureRequest) -> Iterator[None]:
+    """pytest-timeout の時間 + 余裕を過ぎても終わらないテストのプロセスを終了させる (#1657)。"""
+    import faulthandler
+
+    import pytest_timeout
+
+    timeout = pytest_timeout._get_item_settings(request.node).timeout
+    if not timeout or timeout <= 0:
+        yield
+        return
+    faulthandler.dump_traceback_later(timeout + _HANG_EXIT_MARGIN_SECONDS, exit=True, file=sys.__stderr__)
+    try:
+        yield
+    finally:
+        faulthandler.cancel_dump_traceback_later()
+
+
 @pytest.fixture(scope="module", autouse=True)
 def _collect_qt_wrappers_on_main_thread() -> Iterator[None]:
     """モジュール終端ごとにメインスレッドで gc.collect() を実行する (#1077/#1090)。"""
