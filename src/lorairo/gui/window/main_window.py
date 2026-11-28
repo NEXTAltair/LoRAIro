@@ -1360,6 +1360,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.actionNewProject.triggered.connect(self._create_new_project)
         menu_file.addAction(self.actionNewProject)
 
+        self.actionMergeProjects = QAction("プロジェクトを統合…", self)
+        self.actionMergeProjects.setObjectName("actionMergeProjects")
+        self.actionMergeProjects.triggered.connect(self._open_project_merge_dialog)
+        menu_file.addAction(self.actionMergeProjects)
+
         menu_file.addSeparator()
 
         self.actionRegisterImages = QAction("画像を登録…", self)
@@ -1594,6 +1599,39 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if MainWindow._activate_project_directory(self, new_dir, project_name=name) is None:
             return None
         return new_dir
+
+    @Slot()
+    def _open_project_merge_dialog(self) -> None:
+        """複数プロジェクトを版履歴ごと統合するダイアログを開く (#1660)。
+
+        統合先が現在のプロジェクトになり得るため、実行中のジョブがある間は開かない。
+        統合を確定した統合先が現在のプロジェクトなら、閉じた後に表示を更新する。
+        """
+        reason = MainWindow._project_switch_block_reason(self)
+        if reason is not None:
+            logger.warning(f"プロジェクトの統合を拒否: {reason}")
+            show_warning(
+                self,
+                "プロジェクトを統合できません",
+                f"{reason}\n完了またはキャンセルしてから再度お試しください。",
+            )
+            return
+        from ..widgets.project_merge_dialog import ProjectMergeDialog
+
+        try:
+            current_root: Path | None = get_current_project_root().resolve()
+        except (OSError, RuntimeError):
+            current_root = None
+        dialog = ProjectMergeDialog(
+            self.service_container.project_management_service,
+            current_project_root=current_root,
+            parent=self,
+        )
+        dialog.exec()
+        merged_root = dialog.merged_target_root
+        dialog.deleteLater()
+        if current_root is not None and merged_root == current_root:
+            MainWindow._refresh_active_tab(self)
 
     def _open_log_folder(self) -> None:
         """ログフォルダを OS のファイルマネージャで開く (#1550)。"""
