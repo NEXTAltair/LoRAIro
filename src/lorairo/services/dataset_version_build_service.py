@@ -113,6 +113,42 @@ class VersionImageOrigins:
     origins: list[ImageOriginSnapshot]
 
 
+def _validate_single_folder_name(dir_name: str) -> None:
+    """フォルダ名が 1 つのフォルダの名前だけであることを確かめる。
+
+    書き出し (`dataset export`) は `dir_name` を出力先の直下に結合するため、区切り文字・`..`・絶対パス・
+    ドライブ指定を含む値を保存すると、出力先の外へ書き出してしまう。Windows で末尾の `.` と空白は
+    取り除かれて別の名前になるため、それも拒否する。
+
+    Raises:
+        ValueError: 1 つのフォルダ名でない場合。
+    """
+    invalid = (
+        not dir_name
+        or any(separator in dir_name for separator in ("/", "\\", ":"))
+        or dir_name in (".", "..")
+        or dir_name != dir_name.strip()
+        or dir_name.endswith(".")
+        or any(ord(character) < 32 for character in dir_name)
+    )
+    if invalid:
+        raise ValueError(
+            f"フォルダ名は区切り文字や '..' を含まない 1 つのフォルダの名前にしてください: '{dir_name}'"
+        )
+
+
+def _unique_stem(stem: str, image_id: int, used_stems: set[str]) -> str:
+    """フォルダ内で重ならない file_stem を返す。重なれば `<stem>_<image_id>` (それも重なれば連番) にする。"""
+    if stem not in used_stems:
+        return stem
+    candidate = f"{stem}_{image_id}"
+    counter = 2
+    while candidate in used_stems:
+        candidate = f"{stem}_{image_id}_{counter}"
+        counter += 1
+    return candidate
+
+
 class DatasetVersionBuildService:
     """画像 ID の集まりからデータセットの版を作る service。"""
 
@@ -137,10 +173,12 @@ class DatasetVersionBuildService:
             フォルダの繰り返し数・名前と、画像ごとの学習テキスト・由来。
 
         Raises:
-            ValueError: フォルダ名が `<繰り返し数>_<名前>` でない、または画像 ID が空の場合。
+            ValueError: フォルダ名が 1 つのフォルダの名前でない、`<繰り返し数>_<名前>` でない、
+                または画像 ID が空の場合。
             LookupError: 存在しない画像 ID がある場合。
             DatasetConflictError: 同じデータセットに同名の版が既にある場合。
         """
+        _validate_single_folder_name(request.dir_name)
         parsed = parse_folder_name(request.dir_name)
         if parsed is None:
             raise ValueError(f"フォルダ名は <繰り返し数>_<名前> の形にしてください: '{request.dir_name}'")
@@ -158,9 +196,7 @@ class DatasetVersionBuildService:
         used_stems: set[str] = set()
         images: list[PlannedVersionImage] = []
         for image_id in image_ids:
-            stem = Path(stored_paths[image_id].replace("\\", "/")).stem
-            if stem in used_stems:
-                stem = f"{stem}_{image_id}"
+            stem = _unique_stem(Path(stored_paths[image_id].replace("\\", "/")).stem, image_id, used_stems)
             used_stems.add(stem)
             elements = tags.get(image_id, [])
             if trigger:
