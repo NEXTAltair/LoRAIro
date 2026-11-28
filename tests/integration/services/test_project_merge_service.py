@@ -517,3 +517,33 @@ def test_plan_into_new_project_writes_nothing(
     assert [p for p in after if not p.endswith(("-shm", "-wal"))] == [
         p for p in before if not p.endswith(("-shm", "-wal"))
     ]
+
+
+def test_union_of_same_image_keeps_records_of_different_times(
+    projects: dict[str, SyntheticProject],
+) -> None:
+    """同じ画像のキャプションは値と created_at で重複を除き、時点の違う同じ値の記録は残す (ADR 0112)。"""
+    rows = {
+        "proj_a": [("same", "2026-01-01 00:00:00")],
+        "proj_b": [("same", "2026-01-01 00:00:00"), ("same", "2026-02-01 00:00:00")],
+    }
+    for name, captions in rows.items():
+        with closing(sqlite3.connect(projects[name].db_path)) as conn:
+            for caption, created in captions:
+                conn.execute(
+                    "INSERT INTO captions (image_id, model_id, caption, existing, created_at, updated_at) "
+                    "VALUES (2, NULL, ?, 0, ?, ?)",
+                    (caption, created, created),
+                )
+            conn.commit()
+
+    target = projects["proj_t"]
+    result = _service(target).apply(_sources(projects), MergeMapping(dataset_names={B_CHARA: "chara_b"}))
+
+    shared_id = result.image_ids[("proj_a", 2)]
+    kept = _rows(
+        target,
+        "SELECT caption, created_at FROM captions WHERE image_id = ? ORDER BY created_at",
+        shared_id,
+    )
+    assert [(str(c), str(t)[:10]) for c, t in kept] == [("same", "2026-01-01"), ("same", "2026-02-01")]
