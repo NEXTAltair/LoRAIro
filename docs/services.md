@@ -330,6 +330,11 @@ Qt 依存のないビジネスロジックサービス群である。CLI、GUI�
 - **クラス**: `DatasetVersionBuildService`
 - **目的**: プロジェクト内の画像(別プロジェクトからコピーした画像を含む)から、採用中のタグを連結した学習テキスト付きのデータセットの版を作り、版の画像・学習テキスト・由来を返す(Qt-free)。版は作業中として作ってから確定する(取り込みと同じ方式)。CLI は `lorairo-cli dataset build-version / origins`(ADR 0112)
 
+#### ProjectMergeService
+- **パス**: `src/lorairo/services/project_merge_service.py`
+- **クラス**: `ProjectMergeService`、`MergeMapping`、`MergePlan`、`MergeResult`、`UnresolvedMergeConflictError`
+- **目的**: 複数プロジェクト(統合元)を、画像・アノテーション・データセット・版履歴ごと 1 つのプロジェクト(統合先、既存または新規)へ統合する(Qt-free)。画像は `ProjectTransferService.stage_images` で取り込み、同じ画像は 1 枚にまとめる。版は親子の連なりごと複製し、由来を `dataset_version_origins` に記録する(読み取りは `DatasetRepository.list_version_origins`)。同名のデータセット・版と、作業中の版が 2 つ以上になるデータセットは衝突として計画に示し、名前の対応(`MergeMapping`)で解消するまで確定しない。履歴をまとめる指定では前の要素の最新版を次の要素の最初の版の parent にする。統合先には 1 commit で書き、失敗時は行もファイルも残さない。CLI は `lorairo-cli project merge / merge-show`(ADR 0113)
+
 #### ImageComparisonService(Qt-free)
 - **パス**: `src/lorairo/services/image_comparison.py`
 - **クラス・関数**: `ImageComparisonService`、`ComparisonSelection`、`diff_tags()`、`diff_caption()`、`snapshot_from_metadata()`

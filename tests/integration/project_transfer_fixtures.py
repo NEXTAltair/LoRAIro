@@ -209,3 +209,53 @@ def file_fingerprints(root: Path) -> dict[str, tuple[str, int]]:
 def table_counts(project: SyntheticProject, tables: tuple[str, ...]) -> dict[str, int]:
     with closing(sqlite3.connect(project.db_path)) as conn:
         return {table: conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0] for table in tables}
+
+
+def add_version(
+    project: SyntheticProject,
+    dataset: str,
+    version: str,
+    dir_name: str,
+    images: list[tuple[int, str, dict[str, str]]],
+    *,
+    parent_version_id: int | None = None,
+    is_working: bool = False,
+) -> int:
+    """プロジェクトにデータセットの版を 1 つ作る (Issue #1660)。
+
+    `images` は (画像 ID, file_stem, {拡張子: 学習テキスト}) の並び。確定した版は、取り込みと同じく
+    `KOHYA_DATASET` のタグを最新版へ同期する。
+    """
+    from lorairo.database.repository.dataset import (
+        DatasetRepository,
+        FolderImageSpec,
+        FolderSpec,
+        LearningTextSpec,
+    )
+
+    factory = project.session_factory()
+    repository = DatasetRepository(session_factory=factory)
+    dataset_id = repository.ensure_dataset(dataset)
+    version_id = repository.create_version(dataset_id, version, parent_version_id, is_working=is_working)
+    repeats, _, name = dir_name.partition("_")
+    repository.add_folder(
+        version_id,
+        FolderSpec(dir_name=dir_name, name=name, num_repeats=int(repeats), trigger_word=None, position=0),
+        [
+            FolderImageSpec(
+                image_id=image_id,
+                file_stem=stem,
+                texts=[
+                    LearningTextSpec(
+                        extension, raw, [part.strip() for part in raw.split(",") if part.strip()]
+                    )
+                    for extension, raw in texts.items()
+                ],
+            )
+            for image_id, stem, texts in images
+        ],
+    )
+    if not is_working:
+        repository.sync_kohya_tags_for_dataset(dataset_id)
+    factory.kw["bind"].dispose()
+    return version_id

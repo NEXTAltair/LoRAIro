@@ -110,3 +110,4 @@
 * [物体検出器でクロップ矩形を決める images crop-detect を CropRectProvider として追加する](0110-detector-crop-rect-provider.md)
 * [model_id が空のタグ行に出所を持たせる (擬似モデル SIDECAR_IMPORT / IMAGE_PROCESSING)](0111-tag-provenance-pseudo-models.md)
 * [プロジェクトを横断した画像の検索・コピーと由来の記録](0112-cross-project-image-copy-and-origins.md)
+* [複数プロジェクトを画像・タグ・データセットの版履歴ごと統合する](0113-project-merge-with-version-history.md)

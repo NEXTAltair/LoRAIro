@@ -30,6 +30,7 @@ from ..schema import (
     DatasetImage,
     DatasetLearningText,
     DatasetVersion,
+    DatasetVersionOrigin,
     Model,
     Tag,
     TrainingConfig,
@@ -52,6 +53,7 @@ __all__ = [
     "TagSyncResult",
     "TrainingConfigSnapshot",
     "TrainingConfigSpec",
+    "VersionOriginSnapshot",
     "VersionSnapshot",
     "VersionSummary",
 ]
@@ -147,6 +149,35 @@ class VersionSummary:
     folder_count: int
     image_count: int
     is_working: bool = False
+
+
+@dataclass(frozen=True)
+class VersionOriginSnapshot:
+    """統合先の版 1 つと、その由来 (統合元のプロジェクトの版) 1 件 (ADR 0113, Issue #1660)。
+
+    Attributes:
+        version_id: この DB の `dataset_versions.id`。
+        dataset_name: この DB のデータセット名。
+        version_name: この DB の版の名前。
+        parent_version_id: この DB の派生元の版 ID。
+        is_working: 作業中の版か。
+        source_project_name: 統合元のプロジェクト名。
+        source_dataset_name: 統合元のデータセット名。
+        source_version_id: 統合元の DB での版 ID。
+        source_version_name: 統合元での版の名前。
+        transfer_run_id: 取り込んだ操作 (`project_transfer_runs.id`)。
+    """
+
+    version_id: int
+    dataset_name: str
+    version_name: str
+    parent_version_id: int | None
+    is_working: bool
+    source_project_name: str
+    source_dataset_name: str
+    source_version_id: int
+    source_version_name: str
+    transfer_run_id: int | None
 
 
 @dataclass(frozen=True)
@@ -1254,71 +1285,93 @@ class DatasetRepository(BaseRepository):
         Raises:
             LookupError: データセットが存在しない場合。
         """
-        normalized_ext = _normalize_extension(extension)
         with self.session_factory() as session:
-            if session.get(Dataset, dataset_id) is None:
-                raise LookupError(f"データセットが見つかりません: dataset_id={dataset_id}")
-            image_ids = sorted(
-                session.execute(
-                    select(DatasetFolderImage.image_id)
-                    .join(DatasetFolder, DatasetFolder.id == DatasetFolderImage.folder_id)
-                    .join(DatasetVersion, DatasetVersion.id == DatasetFolder.version_id)
-                    .where(DatasetVersion.dataset_id == dataset_id)
-                    .distinct()
-                )
-                .scalars()
-                .all()
-            )
-            if not image_ids:
-                return TagSyncResult(images=0, tags_added=0, tags_removed=0)
-
-            latest_ids = self._latest_version_ids(session)
-            desired = self._collect_latest_elements(session, latest_ids, image_ids, normalized_ext)
-
-            model_id = ModelRepository.get_or_create_kohya_dataset_model(session)
-            existing: dict[tuple[int, str], list[int]] = {}
-            for offset in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
-                chunk = image_ids[offset : offset + self.BATCH_CHUNK_SIZE]
-                rows = session.execute(
-                    select(Tag.id, Tag.image_id, Tag.tag).where(
-                        Tag.model_id == model_id, Tag.image_id.in_(chunk)
-                    )
-                ).all()
-                for row in rows:
-                    if row.image_id is not None:
-                        existing.setdefault((row.image_id, row.tag), []).append(row.id)
-
-            wanted = {(image_id, element) for image_id, elements in desired.items() for element in elements}
-            remove_ids = [
-                tag_id for key, tag_ids in existing.items() if key not in wanted for tag_id in tag_ids
-            ]
-            new_tags = [
-                Tag(
-                    image_id=image_id,
-                    model_id=model_id,
-                    tag=element,
-                    tag_id=None,
-                    confidence_score=None,
-                    existing=True,
-                    is_edited_manually=False,
-                )
-                for image_id, elements in desired.items()
-                for element in elements
-                if (image_id, element) not in existing
-            ]
-            for offset in range(0, len(remove_ids), self.BATCH_CHUNK_SIZE):
-                chunk = remove_ids[offset : offset + self.BATCH_CHUNK_SIZE]
-                session.execute(delete(Tag).where(Tag.id.in_(chunk)))
-            session.add_all(new_tags)
+            result = self.sync_kohya_tags_in_session(session, dataset_id, extension)
             session.commit()
-            result = TagSyncResult(
-                images=len(image_ids), tags_added=len(new_tags), tags_removed=len(remove_ids)
-            )
-            logger.debug(
-                f"KOHYA_DATASET の Tag を最新版へ同期: dataset_id={dataset_id}, images={result.images}, "
-                f"added={result.tags_added}, removed={result.tags_removed}"
-            )
             return result
+
+    def sync_kohya_tags_in_session(
+        self, session: Session, dataset_id: int, extension: str = ".txt"
+    ) -> TagSyncResult:
+        """`sync_kohya_tags_for_dataset` と同じ同期を、呼び出し元のセッションで行う。commit はしない。
+
+        プロジェクトの統合 (#1660) が、版の取り込みと同じトランザクションでタグを同期するために使う。
+
+        Args:
+            session: 書き込み先のセッション。
+            dataset_id: `datasets.id`。
+            extension: 写す学習テキストの拡張子 (例: `.txt`)。
+
+        Returns:
+            同期した画像数と、追加・削除した行数。
+
+        Raises:
+            LookupError: データセットが存在しない場合。
+        """
+        normalized_ext = _normalize_extension(extension)
+        if session.get(Dataset, dataset_id) is None:
+            raise LookupError(f"データセットが見つかりません: dataset_id={dataset_id}")
+        image_ids = sorted(
+            session.execute(
+                select(DatasetFolderImage.image_id)
+                .join(DatasetFolder, DatasetFolder.id == DatasetFolderImage.folder_id)
+                .join(DatasetVersion, DatasetVersion.id == DatasetFolder.version_id)
+                .where(DatasetVersion.dataset_id == dataset_id)
+                .distinct()
+            )
+            .scalars()
+            .all()
+        )
+        if not image_ids:
+            return TagSyncResult(images=0, tags_added=0, tags_removed=0)
+
+        latest_ids = self._latest_version_ids(session)
+        desired = self._collect_latest_elements(session, latest_ids, image_ids, normalized_ext)
+
+        model_id = ModelRepository.get_or_create_kohya_dataset_model(session)
+        existing: dict[tuple[int, str], list[int]] = {}
+        for offset in range(0, len(image_ids), self.BATCH_CHUNK_SIZE):
+            chunk = image_ids[offset : offset + self.BATCH_CHUNK_SIZE]
+            rows = session.execute(
+                select(Tag.id, Tag.image_id, Tag.tag).where(
+                    Tag.model_id == model_id, Tag.image_id.in_(chunk)
+                )
+            ).all()
+            for row in rows:
+                if row.image_id is not None:
+                    existing.setdefault((row.image_id, row.tag), []).append(row.id)
+
+        wanted = {(image_id, element) for image_id, elements in desired.items() for element in elements}
+        remove_ids = [
+            tag_id for key, tag_ids in existing.items() if key not in wanted for tag_id in tag_ids
+        ]
+        new_tags = [
+            Tag(
+                image_id=image_id,
+                model_id=model_id,
+                tag=element,
+                tag_id=None,
+                confidence_score=None,
+                existing=True,
+                is_edited_manually=False,
+            )
+            for image_id, elements in desired.items()
+            for element in elements
+            if (image_id, element) not in existing
+        ]
+        for offset in range(0, len(remove_ids), self.BATCH_CHUNK_SIZE):
+            chunk = remove_ids[offset : offset + self.BATCH_CHUNK_SIZE]
+            session.execute(delete(Tag).where(Tag.id.in_(chunk)))
+        session.add_all(new_tags)
+        session.flush()
+        result = TagSyncResult(
+            images=len(image_ids), tags_added=len(new_tags), tags_removed=len(remove_ids)
+        )
+        logger.debug(
+            f"KOHYA_DATASET の Tag を最新版へ同期: dataset_id={dataset_id}, images={result.images}, "
+            f"added={result.tags_added}, removed={result.tags_removed}"
+        )
+        return result
 
     @staticmethod
     def _latest_version_ids(session: Session) -> list[int]:
@@ -1613,4 +1666,35 @@ class DatasetRepository(BaseRepository):
                     ],
                 )
                 for folder_image, folder, version, dataset in rows
+            ]
+
+    def list_version_origins(self) -> list[VersionOriginSnapshot]:
+        """由来 (`dataset_version_origins`) を持つ版の一覧を返す (ADR 0113, Issue #1660)。
+
+        プロジェクトの統合で取り込んだ版ごとに、統合元のプロジェクト・データセット・版 ID・版名を示す。
+
+        Returns:
+            データセット名、版 ID、由来の記録順に並べた一覧。無ければ空。
+        """
+        with self.session_factory() as session:
+            stmt = (
+                select(DatasetVersionOrigin, DatasetVersion, Dataset)
+                .join(DatasetVersion, DatasetVersion.id == DatasetVersionOrigin.version_id)
+                .join(Dataset, Dataset.id == DatasetVersion.dataset_id)
+                .order_by(Dataset.name, DatasetVersion.id, DatasetVersionOrigin.id)
+            )
+            return [
+                VersionOriginSnapshot(
+                    version_id=version.id,
+                    dataset_name=dataset.name,
+                    version_name=version.name,
+                    parent_version_id=version.parent_version_id,
+                    is_working=version.is_working,
+                    source_project_name=origin.source_project_name,
+                    source_dataset_name=origin.source_dataset_name,
+                    source_version_id=origin.source_version_id,
+                    source_version_name=origin.source_version_name,
+                    transfer_run_id=origin.transfer_run_id,
+                )
+                for origin, version, dataset in session.execute(stmt).all()
             ]

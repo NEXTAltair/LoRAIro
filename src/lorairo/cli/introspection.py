@@ -4047,6 +4047,8 @@ INTROSPECTION_EXCLUSIONS = {
     "images search-projects": "Cross-project image command; ToolSpec catalog entry pending (Issue #1661).",
     "images copy": "Cross-project image command; ToolSpec catalog entry pending (Issue #1661).",
     "images origins": "Cross-project image command; ToolSpec catalog entry pending (Issue #1661).",
+    "project merge": "Project merge command; ToolSpec catalog entry pending (Issue #1660).",
+    "project merge-show": "Project merge command; ToolSpec catalog entry pending (Issue #1660).",
 }
 
 
