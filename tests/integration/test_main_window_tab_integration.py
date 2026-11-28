@@ -4,10 +4,12 @@ Phase 2.5で導入されたトップレベルタブ機能の統合テスト。
 MainWindow初期化、タブ切り替え、ウィジェット統合を検証。
 """
 
+import gc
 from unittest.mock import Mock
 
 import pytest
-from PySide6.QtCore import QCoreApplication, QEvent
+import shiboken6
+from PySide6.QtCore import QCoreApplication, QEvent, QObject
 from PySide6.QtWidgets import QTabWidget, QWidget
 
 from lorairo.gui.widgets.errors_triage_widget import ErrorsTriageWidget
@@ -23,13 +25,59 @@ def main_window_with_tabs(qapp, monkeypatch):
     # コピー可能ダイアログのヘルパー (message_box) 経由の critical も抑止する (#1160)。
     monkeypatch.setattr("lorairo.gui.message_box.build_message_box", lambda *a, **k: Mock())
 
-    window = MainWindow()
+    window = _create_main_window()
     yield window
+    _dispose_main_window(window)
+
+
+def _create_main_window() -> MainWindow:
+    """前のテストが残した Qt オブジェクトをメインスレッドで回収してから MainWindow を作る。
+
+    親を持たない WorkerManager / 状態マネージャ / QTimer などは、MainWindow を破棄しても
+    循環参照に残り、次に GC を走らせたスレッドで C++ デストラクタが実行される。
+    MainWindow は構築中に SearchFacetsWorker を起動するため、その worker スレッド上で
+    回収されると、GIL を握って Qt オブジェクトを生成中のメインスレッドと
+    GIL × signalSlotLock のデッドロックになる (#1657)。worker を起動する前に回収しきる。
+    fixture の teardown 中は pytest が fixture の値を参照しているため、回収はここで行う。
+    """
+    gc.collect()
+    return MainWindow()
+
+
+def _dispose_main_window(window: MainWindow) -> None:
     window.close()
     # close() だけでは C++ 側の MainWindow がモジュール終端の gc まで残り、テストごとに
     # 約 15 MB ずつ RSS が積み上がる。メインスレッドでその場で破棄する。
     window.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
+def _live_qobjects_in_cyclic_garbage() -> list[str]:
+    """循環ゴミのうち、C++ 実体が生きている QObject の型名を返す (回収はしない)。"""
+    gc.set_debug(gc.DEBUG_SAVEALL)
+    try:
+        gc.collect()
+        return sorted(
+            type(obj).__name__ for obj in gc.garbage if isinstance(obj, QObject) and shiboken6.isValid(obj)
+        )
+    finally:
+        gc.set_debug(0)
+        gc.garbage.clear()
+
+
+def test_previous_window_qobjects_are_collected_before_next_window(qapp, monkeypatch):
+    """次の MainWindow を作る時点で、前の MainWindow の Qt オブジェクトが循環ゴミに残らない (#1657)"""
+    monkeypatch.setattr("PySide6.QtWidgets.QMessageBox.critical", lambda *args: None)
+    monkeypatch.setattr("lorairo.gui.message_box.build_message_box", lambda *a, **k: Mock())
+    previous = _create_main_window()
+    _dispose_main_window(previous)
+    del previous
+
+    current = _create_main_window()
+    try:
+        assert _live_qobjects_in_cyclic_garbage() == []
+    finally:
+        _dispose_main_window(current)
 
 
 class TestMainWindowTabInitialization:
