@@ -13,6 +13,7 @@ from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_error, emit_item, emit_result
 from lorairo.cli._errors import ErrorCode
+from lorairo.cli._help import PROJECT_OPTION_HELP
 from lorairo.cli._output_mode import is_json_mode
 
 if TYPE_CHECKING:
@@ -64,7 +65,7 @@ def refresh(
         None,
         "--project",
         "-p",
-        help="Project to sync model metadata into. Uses default DB when omitted.",
+        help=f"Project to sync model metadata into; the default DB is used when omitted. {PROJECT_OPTION_HELP}",
     ),
 ) -> None:
     """Refresh available WebAPI models."""

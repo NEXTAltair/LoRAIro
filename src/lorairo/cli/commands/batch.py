@@ -19,6 +19,7 @@ from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
 from lorairo.cli._errors import result_exit_code
+from lorairo.cli._help import PROJECT_OPTION_HELP
 from lorairo.cli._image_ids import BULK_CHUNK_SIZE, parse_image_ids_file
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.services.service_container import get_service_container
@@ -385,7 +386,7 @@ def _resolve_processed_image_paths(
 
 @app.command("submit")
 def submit(
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     model: str = typer.Option(..., "--model", "-m", help="LiteLLM model ID or unique display name"),
     image_ids_csv: str | None = typer.Option(
         None,
@@ -473,7 +474,7 @@ def submit(
 
 @app.command("list")
 def list_jobs(
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     provider: str | None = typer.Option(None, "--provider", help="Filter by provider"),
     status: str | None = typer.Option(None, "--status", help="Filter by common job status"),
     limit: int = typer.Option(100, "--limit", min=1, max=1000, help="Maximum rows"),
@@ -499,7 +500,7 @@ def list_jobs(
 @app.command("status")
 def status(
     job_id: int = typer.Argument(..., help="Provider Batch job ID"),
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     refresh: bool = typer.Option(True, "--refresh/--no-refresh", help="Refresh provider status first"),
     show_items: bool = typer.Option(
         False,
@@ -562,7 +563,7 @@ def status(
 @app.command("cancel")
 def cancel(
     job_id: int = typer.Argument(..., help="Provider Batch job ID"),
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
 ) -> None:
     """Cancel a Provider Batch job."""
     with command_boundary():
@@ -582,7 +583,7 @@ def cancel(
 @app.command("fetch")
 def fetch(
     job_id: int = typer.Argument(..., help="Provider Batch job ID"),
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     output_dir: Path | None = typer.Option(None, "--output-dir", "-o", help="Artifact output directory"),
 ) -> None:
     """Fetch normalized Provider Batch results and artifacts."""
@@ -668,7 +669,7 @@ def _print_rating_breakdown(breakdown: dict[str, int], total: int) -> None:
 @app.command("import")
 def import_results(
     job_id: int = typer.Argument(..., help="Provider Batch job ID"),
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     output_dir: Path | None = typer.Option(None, "--output-dir", "-o", help="Artifact output directory"),
 ) -> None:
     """Fetch and import Provider Batch results into annotations.
