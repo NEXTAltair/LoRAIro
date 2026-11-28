@@ -77,7 +77,23 @@ def test_upgrade_creates_tables_with_constraints(tmp_path: Path) -> None:
         for fk in inspector.get_foreign_keys("dataset_version_origins")
     }
     run_columns = {column["name"] for column in inspector.get_columns("project_transfer_runs")}
+    indexes = {
+        (table, index["name"], tuple(index["column_names"]))
+        for table in ("image_origins", "dataset_version_origins")
+        for index in inspector.get_indexes(table)
+    }
     engine.dispose()
+
+    assert indexes >= {
+        ("image_origins", "ix_image_origins_source", ("source_project_name", "source_image_uuid")),
+        ("image_origins", "ix_image_origins_transfer_run_id", ("transfer_run_id",)),
+        (
+            "dataset_version_origins",
+            "ix_dataset_version_origins_source",
+            ("source_project_name", "source_version_id"),
+        ),
+        ("dataset_version_origins", "ix_dataset_version_origins_transfer_run_id", ("transfer_run_id",)),
+    }
 
     assert set(origin_columns) == {
         "id",
@@ -135,6 +151,29 @@ def test_upgrade_enforces_kind_and_unique_origin(tmp_path: Path) -> None:
                 "source_image_uuid) VALUES (1, 1, 'a', 10, 'src-uuid')"
             )
     assert counts == (0, 0)
+
+
+def test_migration_indexes_match_orm_metadata(tmp_path: Path) -> None:
+    """migration の index は ORM (`__table_args__`) の定義と同じ (`create_all` で作る新規 DB と揃う)。"""
+    db_path = tmp_path / "transfer_orm.db"
+    cfg = _previous_revision_db(db_path)
+    command.upgrade(cfg, REVISION)
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    inspector = inspect(engine)
+    migrated = {
+        table: {(index["name"], tuple(index["column_names"])) for index in inspector.get_indexes(table)}
+        for table in NEW_TABLES
+    }
+    engine.dispose()
+    expected = {
+        table: {
+            (index.name, tuple(column.name for column in index.columns))
+            for index in Base.metadata.tables[table].indexes
+        }
+        for table in NEW_TABLES
+    }
+    assert migrated == expected
 
 
 def test_downgrade_drops_only_new_tables_and_upgrade_again(tmp_path: Path) -> None:

@@ -1051,6 +1051,9 @@ class ImageOrigin(Base):
         UniqueConstraint(
             "image_id", "source_project_name", "source_image_uuid", name="uix_image_origins_image_source"
         ),
+        # コピー元の画像から取り込み先の画像を引く (#1660 の統合・再実行の判定)
+        Index("ix_image_origins_source", "source_project_name", "source_image_uuid"),
+        Index("ix_image_origins_transfer_run_id", "transfer_run_id"),
     )
 
     def __repr__(self) -> str:
@@ -1090,6 +1093,8 @@ class DatasetVersionOrigin(Base):
             "source_version_id",
             name="uix_dataset_version_origins_version_source",
         ),
+        Index("ix_dataset_version_origins_source", "source_project_name", "source_version_id"),
+        Index("ix_dataset_version_origins_transfer_run_id", "transfer_run_id"),
     )
 
     def __repr__(self) -> str:

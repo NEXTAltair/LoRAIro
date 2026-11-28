@@ -39,6 +39,8 @@ Alembic migration `c1d2e3f4a5b6` で次の表を追加する。
 
 注釈の行ごとの由来表は作らない。注釈の出所は従来どおり `model_id`(AI モデル・擬似モデル)で表す。
 
+由来のコピー元はプロジェクト名(`.lorairo-project` メタデータの `name`)で識別する。プロジェクトの格納先(`lorairo_data/`)の中で `name` が一意であることを前提にする。コピー元の検索(`source_project_name` + `source_image_uuid` / `source_version_id`)と、取り込みの記録ごとの参照(`transfer_run_id`)のために、両方の由来表に index を付ける。
+
 ### 3. 同じ画像は複製せず、由来を足して注釈を和集合にする
 
 取り込み先に同じ画像があるかは、ADR 0061 の分類(pHash 完全一致の候補を属性で比べる `classify_phash_candidate`)で判定する。DUPLICATE なら画像を複製せず、既存の画像に由来を足し、注釈を次の規則で和集合にする。同じ実行の中で先に複製した画像も候補に含める。

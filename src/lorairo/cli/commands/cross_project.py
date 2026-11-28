@@ -12,6 +12,7 @@ import typer
 from lorairo.cli._boundary import command_boundary
 from lorairo.cli._console import make_console
 from lorairo.cli._emit import emit_item, emit_result
+from lorairo.cli._help import PROJECT_OPTION_HELP
 from lorairo.cli._image_ids import MAX_IMAGE_IDS, parse_image_ids, validate_image_ids_exist
 from lorairo.cli._output_mode import is_json_mode
 from lorairo.database.repository.dataset import DatasetRepository
@@ -84,7 +85,9 @@ def _activate_target(project: str) -> tuple[ServiceContainer, SourceProject]:
 
 def search_projects(
     projects: list[str] | None = typer.Option(
-        None, "--projects", help="Projects to search (comma separated or repeated)."
+        None,
+        "--projects",
+        help=f"Projects to search (comma separated or repeated). {PROJECT_OPTION_HELP}",
     ),
     all_projects: bool = typer.Option(False, "--all-projects", help="Search every project."),
     query_file: str | None = typer.Option(None, "--query-file", help="Path to JSON search schema file"),
@@ -208,8 +211,10 @@ def copy_images(
     image_ids_positional: list[str] | None = typer.Argument(
         None, metavar="[IMAGE_IDS]...", help="Image IDs in the source project (space or comma separated)."
     ),
-    project: str = typer.Option(..., "--project", "-p", help="Project to copy the images into"),
-    from_project: str = typer.Option(..., "--from-project", help="Project to copy the images from"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
+    from_project: str = typer.Option(
+        ..., "--from-project", help=f"Project to copy the images from. {PROJECT_OPTION_HELP}"
+    ),
     image_ids_csv: str | None = typer.Option(None, "--image-ids", help="Comma-separated source image IDs"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show the plan without copying."),
     confirm: bool = typer.Option(
@@ -243,7 +248,7 @@ def show_image_origins(
     image_ids_positional: list[str] | None = typer.Argument(
         None, metavar="[IMAGE_IDS]...", help="Image IDs (space or comma separated)."
     ),
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     image_ids_csv: str | None = typer.Option(None, "--image-ids", help="Comma-separated image IDs"),
 ) -> None:
     """Show where images were copied from (source project and image ID). Read-only."""
@@ -299,7 +304,7 @@ def _print_build_plan(plan: BuildVersionPlan) -> None:
 
 
 def build_version(
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
     dataset: str = typer.Option(..., "--dataset", help="Dataset name (created when missing)"),
     version: str = typer.Option(..., "--version", help="Version name"),
     folder: str = typer.Option(..., "--folder", help="Folder name as <repeats>_<name> (e.g. 10_mychar)"),
@@ -356,7 +361,7 @@ def build_version(
 
 def show_version_origins(
     version_id: int = typer.Argument(..., help="Dataset version ID"),
-    project: str = typer.Option(..., "--project", "-p", help="Project name"),
+    project: str = typer.Option(..., "--project", "-p", help=PROJECT_OPTION_HELP),
 ) -> None:
     """Show the images of a version with their learning text and source projects. Read-only."""
     with command_boundary():

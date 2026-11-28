@@ -30,6 +30,28 @@ def _created_at() -> sa.Column[datetime.datetime]:
     )
 
 
+# 由来の表に付ける index (表名, index 名, 列)。コピー元からの逆引きと、取り込みの記録ごとの参照に使う
+_INDEXES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("image_origins", "ix_image_origins_source", ("source_project_name", "source_image_uuid")),
+    ("image_origins", "ix_image_origins_transfer_run_id", ("transfer_run_id",)),
+    (
+        "dataset_version_origins",
+        "ix_dataset_version_origins_source",
+        ("source_project_name", "source_version_id"),
+    ),
+    ("dataset_version_origins", "ix_dataset_version_origins_transfer_run_id", ("transfer_run_id",)),
+)
+
+
+def _create_missing_indexes() -> None:
+    """`_INDEXES` のうち、まだ無い index を作る。"""
+    inspector = sa.inspect(op.get_bind())
+    for table, name, columns in _INDEXES:
+        existing = {index["name"] for index in inspector.get_indexes(table)}
+        if name not in existing:
+            op.create_index(name, table, list(columns))
+
+
 def upgrade() -> None:
     """Upgrade: 3 つの表を作る (既にある表は作らない)。"""
     tables = set(sa.inspect(op.get_bind()).get_table_names())
@@ -102,6 +124,8 @@ def upgrade() -> None:
                 name="uix_dataset_version_origins_version_source",
             ),
         )
+
+    _create_missing_indexes()
 
 
 def downgrade() -> None:
