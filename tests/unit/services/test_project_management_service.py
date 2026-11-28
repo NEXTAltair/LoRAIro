@@ -697,3 +697,47 @@ def test_create_preserves_preexisting_timestamp_destination(
         info = service.create_project("same")
     assert info.path.name == "same_20260906_100000_1"
     assert protected.read_bytes() == b"keep"
+
+
+@pytest.mark.unit
+class TestEnsureProjectMetadata:
+    """ensure_project_metadata: GUI が作成・オープンしたフォルダのメタデータ補完 (#1659)。"""
+
+    def test_writes_metadata_with_folder_name_for_folder_without_metadata(
+        self, service: ProjectManagementService
+    ) -> None:
+        """メタデータの無いフォルダにフォルダ名を name とする .lorairo-project を書き、一覧に出る。"""
+        project_dir = service.projects_base_dir / "otogi-lora_20261126_001"
+        project_dir.mkdir(parents=True)
+
+        written = service.ensure_project_metadata(project_dir)
+
+        assert written is True
+        metadata = json.loads((project_dir / ".lorairo-project").read_text(encoding="utf-8"))
+        assert metadata["name"] == "otogi-lora_20261126_001"
+        assert metadata["description"] == ""
+        assert metadata["created"]
+        assert not (project_dir / ".lorairo-project.pending").exists()
+        listed = service.list_projects()
+        assert [p.name for p in listed] == ["otogi-lora_20261126_001"]
+        assert service.get_project("otogi-lora_20261126_001").path == project_dir
+
+    def test_does_not_overwrite_existing_metadata(self, service: ProjectManagementService) -> None:
+        """CLI が作った既存メタデータの name は変えない。"""
+        info = service.create_project("cli_project", description="from cli")
+        before = (info.path / ".lorairo-project").read_text(encoding="utf-8")
+
+        written = service.ensure_project_metadata(info.path)
+
+        assert written is False
+        assert (info.path / ".lorairo-project").read_text(encoding="utf-8") == before
+        assert [p.name for p in service.list_projects()] == ["cli_project"]
+
+    def test_does_not_overwrite_unreadable_metadata(self, service: ProjectManagementService) -> None:
+        """壊れたメタデータも上書きしない (ユーザーのファイルを勝手に消さない)。"""
+        project_dir = service.projects_base_dir / "broken_20261126_001"
+        project_dir.mkdir(parents=True)
+        (project_dir / ".lorairo-project").write_text("not json", encoding="utf-8")
+
+        assert service.ensure_project_metadata(project_dir) is False
+        assert (project_dir / ".lorairo-project").read_text(encoding="utf-8") == "not json"

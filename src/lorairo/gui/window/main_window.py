@@ -1489,6 +1489,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 f"プロジェクトのデータベースを開けませんでした: {resolved_path.name}",
             )
             return None
+        # CLI (project list / -p) から見つけられるよう、メタデータの無いフォルダには .lorairo-project を書く (#1659)
+        try:
+            self.service_container.project_management_service.ensure_project_metadata(resolved_path)
+        except OSError:
+            # 補完に失敗してもプロジェクトは開ける。CLI から見えないだけなので警告に留める
+            logger.opt(exception=True).warning(
+                f".lorairo-project を書けませんでした (CLI からは見えません): {resolved_path}"
+            )
         # 新ウィンドウの ConfigurationService が切替先を読むよう、生成前に永続化する
         MainWindow._persist_active_project_dir(self, resolved_path, project_name=project_name)
         return MainWindow._replace_with_project_window(self)

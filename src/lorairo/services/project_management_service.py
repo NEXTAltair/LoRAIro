@@ -154,6 +154,39 @@ class ProjectManagementService:
                 },
             ) from e
 
+    def ensure_project_metadata(self, project_dir: Path) -> bool:
+        """メタデータの無いプロジェクトフォルダに ``.lorairo-project`` を書く (#1659)。
+
+        GUI が新規作成・オープンしたフォルダを CLI の ``project list`` / ``-p`` から
+        見つけられるようにする。``name`` はフォルダ名とし、メタデータが無いときの
+        論理名 (``ImageDatabaseManager._get_current_project_id`` が使うフォルダ名) と一致させる。
+        既にメタデータファイルがある場合 (読めない場合を含む) は何も変更しない。
+
+        Args:
+            project_dir: プロジェクトディレクトリ (存在すること)。
+
+        Returns:
+            bool: メタデータを新規に書いた場合 True。既にあり変更しなかった場合 False。
+
+        Raises:
+            OSError: メタデータの書き込みに失敗した場合。
+        """
+        metadata_file = project_dir / ".lorairo-project"
+        if metadata_file.exists():
+            return False
+
+        metadata = {
+            "name": project_dir.name,
+            "created": datetime.now().strftime("%Y%m%d_%H%M%S"),
+            "description": "",
+        }
+        # create_project と同じく pending に書いてから公開し、書きかけを一覧に出さない
+        pending_file = project_dir / ".lorairo-project.pending"
+        pending_file.write_text(json.dumps(metadata, indent=2, ensure_ascii=False))
+        pending_file.replace(metadata_file)
+        logger.debug(f"プロジェクトメタデータを補完しました: {project_dir}")
+        return True
+
     def _create_base_directories(self, created_parents: list[Path]) -> None:
         """Create missing parents and record ownership for empty-directory rollback."""
         missing_parents = []
