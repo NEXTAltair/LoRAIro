@@ -323,6 +323,20 @@ class _StageContext:
     reserved: set[Path] = field(default_factory=set)
 
 
+def _timestamps(row: object, *, updated: bool = True) -> dict[str, datetime]:
+    """コピー元の行の `created_at` / `updated_at` を、値があるものだけ返す。
+
+    値が無い (NULL の) 列は渡さず、取り込み先の既定値 (現在時刻) に任せる。
+    """
+    names = ("created_at", "updated_at") if updated else ("created_at",)
+    values: dict[str, datetime] = {}
+    for name in names:
+        value = getattr(row, name, None)
+        if isinstance(value, datetime):
+            values[name] = value
+    return values
+
+
 def _copy_file(source: Path, destination: Path) -> None:
     """ファイルを内容と更新日時ごとコピーする。コピー元は読むだけ。"""
     shutil.copy2(source, destination)
@@ -648,6 +662,7 @@ class ProjectTransferService:
             colorfulness_score=image.colorfulness_score,
             project_id=context.project_id,
             reviewed_at=image.reviewed_at,
+            **_timestamps(image),
         )
         session.add(new_image)
         session.flush()
@@ -675,6 +690,7 @@ class ProjectTransferService:
                     color_space=processed.color_space,
                     icc_profile=processed.icc_profile,
                     upscaler_used=processed.upscaler_used,
+                    **_timestamps(processed),
                 )
             )
         return new_image.id
@@ -749,6 +765,9 @@ class ProjectTransferService:
     ) -> int:
         """アノテーションを和集合で足し、足した行数を返す。
 
+        行の `created_at` / `updated_at` はコピー元の値を引き継ぐ。「現在の値」を最新の `created_at` で
+        選ぶ処理 (`ImageRepository._derive_manual_score` 等) が、コピーで選ぶ行を変えないようにするため。
+
         タグは (モデル, タグ) が既にあれば既存を優先する。キャプション・スコア・スコアラベル・
         レーティングは値が完全に一致する行があれば足さない。
         """
@@ -782,6 +801,7 @@ class ProjectTransferService:
                     confidence_score=tag.confidence_score,
                     rejected_at=tag.rejected_at,
                     reject_reason=tag.reject_reason,
+                    **_timestamps(tag),
                 )
             )
             added += 1
@@ -811,6 +831,7 @@ class ProjectTransferService:
                     is_edited_manually=caption.is_edited_manually,
                     rejected_at=caption.rejected_at,
                     reject_reason=caption.reject_reason,
+                    **_timestamps(caption),
                 )
             )
             added += 1
@@ -836,6 +857,7 @@ class ProjectTransferService:
                     score=score.score,
                     display_score=score.display_score,
                     is_edited_manually=score.is_edited_manually,
+                    **_timestamps(score),
                 )
             )
             added += 1
@@ -862,6 +884,7 @@ class ProjectTransferService:
                     model_id=label_model_id,
                     label=label.label,
                     is_edited_manually=label.is_edited_manually,
+                    **_timestamps(label),
                 )
             )
             added += 1
@@ -890,6 +913,7 @@ class ProjectTransferService:
                     raw_rating_value=rating.raw_rating_value,
                     normalized_rating=rating.normalized_rating,
                     confidence_score=rating.confidence_score,
+                    **_timestamps(rating),
                 )
             )
             added += 1
@@ -952,6 +976,7 @@ class ProjectTransferService:
                     raw_text=source_row.raw_text,
                     raw_bytes=source_row.raw_bytes,
                     sha256=source_row.sha256,
+                    **_timestamps(source_row, updated=False),
                 )
             )
 
