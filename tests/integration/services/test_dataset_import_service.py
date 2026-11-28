@@ -10,17 +10,25 @@ from __future__ import annotations
 
 import json
 import random
+import sqlite3
 from collections.abc import Callable, Iterator
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from PIL import Image as PILImage
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from lorairo.database.db_manager import ImageDatabaseManager
-from lorairo.database.repository.dataset import DatasetConflictError, DatasetRepository
+from lorairo.database.repository.dataset import (
+    DatasetConflictError,
+    DatasetRepository,
+    FolderImageSpec,
+    FolderSpec,
+    TagSyncResult,
+    TrainingConfigSpec,
+)
 from lorairo.database.schema import KOHYA_DATASET_LITELLM_ID, Base
 from lorairo.filesystem import FileSystemManager
 from lorairo.services.configuration_service import ConfigurationService
@@ -108,6 +116,12 @@ def kohya_root(tmp_path: Path) -> Path:
 @pytest.fixture
 def engine(tmp_path: Path) -> Iterator[Engine]:
     eng = create_engine(f"sqlite:///{tmp_path / 'import.db'}")
+
+    # 本番の接続 (db_core) と同じく外部キーを有効にし、版の削除が ON DELETE CASCADE で子へ及ぶようにする
+    @event.listens_for(eng, "connect")
+    def _enable_foreign_keys(dbapi_connection: sqlite3.Connection, _record: object) -> None:
+        dbapi_connection.execute("PRAGMA foreign_keys=ON")
+
     Base.metadata.create_all(eng)
     yield eng
     eng.dispose()
@@ -267,6 +281,123 @@ def test_duplicate_import_into_same_version_raises_conflict_and_leaves_no_rows(
         service.import_directory(kohya_root, plan)
 
     assert _counts(engine) == before
+
+
+def _folder_dir_names(repository: DatasetRepository, version_name: str) -> list[str]:
+    summary = next(v for v in repository.list_versions() if v.version_name == version_name)
+    return [folder.dir_name for folder in repository.get_version_snapshot(summary.version_id).folders]
+
+
+def test_add_folder_failure_on_second_folder_leaves_no_committed_version(
+    service: DatasetImportService,
+    repository: DatasetRepository,
+    engine: Engine,
+    kohya_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """2 つ目のフォルダの追加で失敗しても、その取り込みの版・フォルダ・設定は残らず、取り込み直せる (#1658)。"""
+    plan = _plan(kohya_root, config_files=[kohya_root / "config.json"])
+    before = _counts(engine)
+    original_add_folder = repository.add_folder
+    calls: list[bool] = []
+
+    def failing_add_folder(version_id: int, spec: FolderSpec, images: list[FolderImageSpec]) -> int:
+        # 取り込みの最中は、版が作業中 (未確定) のまま見えない
+        calls.append(all(v.is_working for v in repository.list_versions() if v.version_id == version_id))
+        if len(calls) == 2:
+            raise RuntimeError("2 つ目のフォルダで失敗")
+        return original_add_folder(version_id, spec, images)
+
+    monkeypatch.setattr(repository, "add_folder", failing_add_folder)
+
+    with pytest.raises(RuntimeError, match="2 つ目のフォルダ"):
+        service.import_directory(kohya_root, plan)
+
+    assert calls == [True, True]
+    assert repository.list_versions() == []
+    assert _count(engine, "dataset_versions") == before["dataset_versions"]
+    assert _count(engine, "dataset_folders") == before["dataset_folders"]
+    assert _count(engine, "dataset_folder_images") == before["dataset_folder_images"]
+    assert _count(engine, "dataset_learning_texts") == before["dataset_learning_texts"]
+    assert _count(engine, "training_configs") == before["training_configs"]
+
+    # 同じ版名で取り込み直せる
+    monkeypatch.setattr(repository, "add_folder", original_add_folder)
+    result = service.import_directory(kohya_root, plan)
+    assert result.folder_count == 2
+    assert _folder_dir_names(repository, "v1") == ["10_a", "5_b"]
+    assert [v.is_working for v in repository.list_versions()] == [False]
+
+
+def test_training_config_failure_leaves_no_committed_version(
+    service: DatasetImportService,
+    repository: DatasetRepository,
+    engine: Engine,
+    kohya_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """設定 JSON の追加で失敗しても、版・フォルダは残らず、取り込み直せる (#1658)。"""
+    plan = _plan(kohya_root, config_files=[kohya_root / "config.json"])
+    before = _counts(engine)
+    original_add_config = repository.add_training_config
+
+    def failing_add_config(dataset_id: int, version_id: int | None, spec: TrainingConfigSpec) -> int:
+        raise RuntimeError("設定の追加で失敗")
+
+    monkeypatch.setattr(repository, "add_training_config", failing_add_config)
+
+    with pytest.raises(RuntimeError, match="設定の追加"):
+        service.import_directory(kohya_root, plan)
+
+    for table in ("dataset_versions", "dataset_folders", "dataset_folder_images", "training_configs"):
+        assert _count(engine, table) == before[table]
+
+    monkeypatch.setattr(repository, "add_training_config", original_add_config)
+    result = service.import_directory(kohya_root, plan)
+    assert len(result.training_config_ids) == 1
+
+
+def test_tag_sync_failure_leaves_no_version_and_retry_syncs_latest_texts(
+    service: DatasetImportService,
+    repository: DatasetRepository,
+    engine: Engine,
+    kohya_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """タグ同期で失敗したら 2 版目を残さず、同じ版名で取り込み直すと KOHYA_DATASET が最新版になる (#1658)。"""
+    first = service.import_directory(kohya_root, _plan(kohya_root))
+    shared_id = next(
+        image.image_id
+        for image in repository.get_version_snapshot(first.version_id).folders[0].images
+        if image.file_stem == "shared"
+    )
+    assert _tags_by_image(engine)[shared_id] == _kohya("trig_a", "red hair", "trig_b", "blue eyes")
+    before = _counts(engine)
+
+    (kohya_root / "10_a" / "shared.txt").write_text("trig_a, green hair", encoding="utf-8")
+    plan_v2 = replace(_plan(kohya_root, config_files=[kohya_root / "config.json"]), version_name="v2")
+    plan_v2 = replace(plan_v2, parent_version_id=first.version_id)
+
+    def failing_sync(dataset_id: int, extension: str = ".txt") -> TagSyncResult:
+        raise RuntimeError("タグ同期で失敗")
+
+    original_sync = repository.sync_kohya_tags_for_dataset
+    monkeypatch.setattr(repository, "sync_kohya_tags_for_dataset", failing_sync)
+
+    with pytest.raises(RuntimeError, match="タグ同期"):
+        service.import_directory(kohya_root, plan_v2)
+
+    assert [v.version_name for v in repository.list_versions()] == ["v1"]
+    assert _tags_by_image(engine)[shared_id] == _kohya("trig_a", "red hair", "trig_b", "blue eyes")
+    for table in ("dataset_versions", "dataset_folders", "dataset_folder_images", "training_configs"):
+        assert _count(engine, table) == before[table]
+
+    # 同じ版名で取り込み直すと、KOHYA_DATASET は最新版 (v2) の内容になる
+    monkeypatch.setattr(repository, "sync_kohya_tags_for_dataset", original_sync)
+    second = service.import_directory(kohya_root, plan_v2)
+    assert [v.version_name for v in repository.list_versions()] == ["v1", "v2"]
+    assert second.version_id != first.version_id
+    assert _tags_by_image(engine)[shared_id] == _kohya("trig_a", "green hair", "trig_b", "blue eyes")
 
 
 def test_duplicate_folder_in_plan_raises_conflict_and_leaves_no_rows(
