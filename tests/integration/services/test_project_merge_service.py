@@ -670,3 +670,47 @@ def test_join_that_would_make_a_cycle_is_a_conflict(projects: dict[str, Syntheti
         joins={"chara": [A_CHARA, SourceDatasetRef("proj_a", "extra")]},
     )
     assert _service(target).plan(_sources(projects), ordered).is_resolved
+
+
+def test_plan_lists_datasets_without_versions(projects: dict[str, SyntheticProject]) -> None:
+    """版を持たないデータセットも `MergePlan.datasets` に出る (名前の衝突を解消する対象になる)。"""
+    for name in ("proj_a", "proj_b"):
+        factory = projects[name].session_factory()
+        DatasetRepository(session_factory=factory).ensure_dataset("empty")
+        factory.kw["bind"].dispose()
+
+    plan = _service(projects["proj_t"]).plan(_sources(projects))
+
+    assert [(d.source.label, d.target_dataset, d.version_count) for d in plan.datasets] == [
+        ("proj_a:chara", "chara", 2),
+        ("proj_b:chara", "chara", 2),
+        ("proj_a:empty", "empty", 0),
+        ("proj_b:empty", "empty", 0),
+        ("proj_b:style", "style", 1),
+    ]
+    assert ("dataset_name", "empty") in [(c.kind, c.target_dataset) for c in plan.conflicts]
+
+
+def test_plan_lists_dataset_left_out_of_a_join(projects: dict[str, SyntheticProject]) -> None:
+    """A の chara だけを join にまとめたとき、同名の B の chara も `datasets` に出る (衝突の解消の対象)。"""
+    plan = _service(projects["proj_t"]).plan(_sources(projects), MergeMapping(joins={"chara": [A_CHARA]}))
+
+    assert ("dataset_name", "chara") in [(c.kind, c.target_dataset) for c in plan.conflicts]
+    assert {(d.source.label, d.target_dataset) for d in plan.datasets} == {
+        ("proj_a:chara", "chara"),
+        ("proj_b:chara", "chara"),
+        ("proj_b:style", "style"),
+    }
+
+
+def test_mapping_template_includes_datasets_without_versions(projects: dict[str, SyntheticProject]) -> None:
+    """版を持たないデータセットも名前の対応のひな形に出る (CLI の mapping ファイルで名前を変えられる)。"""
+    factory = projects["proj_a"].session_factory()
+    DatasetRepository(session_factory=factory).ensure_dataset("empty")
+    factory.kw["bind"].dispose()
+
+    template = _service(projects["proj_t"]).plan(_sources(projects)).mapping_template()
+
+    assert {"source_project": "proj_a", "source_dataset": "empty", "target_dataset": "empty"} in template[
+        "datasets"
+    ]

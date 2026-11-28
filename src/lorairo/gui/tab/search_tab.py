@@ -970,6 +970,24 @@ class SearchTabWidget(QWidget, Ui_SearchTab):
             image_ids: 取り込み先で複製・由来を追加した画像 ID。
         """
         self.status_message.emit(f"他のプロジェクトから {len(image_ids)} 枚を取り込みました")
+        self._reload_changed_images(image_ids)
+
+    def refresh_after_project_merge(self, image_ids: list[int]) -> None:
+        """このプロジェクトへ他のプロジェクトを統合した後に、影響した画像を読み直す (#1660)。
+
+        ハッシュ一致で既存の画像にまとめた場合、画像 ID は変わらずアノテーション・由来・
+        データセットの所属が増える。コピーの完了時と同じく明示的に読み直し、統合で版が増えるので
+        データセット利用状況も読み直す。
+
+        Args:
+            image_ids: 統合先で取り込んだ画像と、まとめた先の画像の ID。
+        """
+        self.status_message.emit(f"プロジェクトを統合しました ({len(image_ids)} 枚)")
+        self._selected_image_details_widget.refresh_dataset_usage()
+        self._reload_changed_images(image_ids)
+
+    def _reload_changed_images(self, image_ids: list[int]) -> None:
+        """アノテーションのキャッシュを捨て、表示中の画像の由来を読み直して、検索をやり直す。"""
         if self._dataset_state_manager is not None:
             self._dataset_state_manager.invalidate_annotations(image_ids)
         details = self._selected_image_details_widget

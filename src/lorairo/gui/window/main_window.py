@@ -1360,6 +1360,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.actionNewProject.triggered.connect(self._create_new_project)
         menu_file.addAction(self.actionNewProject)
 
+        self.actionMergeProjects = QAction("プロジェクトを統合…", self)
+        self.actionMergeProjects.setObjectName("actionMergeProjects")
+        self.actionMergeProjects.triggered.connect(self._open_project_merge_dialog)
+        menu_file.addAction(self.actionMergeProjects)
+
         menu_file.addSeparator()
 
         self.actionRegisterImages = QAction("画像を登録…", self)
@@ -1594,6 +1599,66 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if MainWindow._activate_project_directory(self, new_dir, project_name=name) is None:
             return None
         return new_dir
+
+    @Slot()
+    def _open_project_merge_dialog(self) -> None:
+        """複数プロジェクトを版履歴ごと統合するダイアログを開く (#1660)。
+
+        統合先が現在のプロジェクトになり得るため、実行中のジョブがある間は開かない。
+        表示の更新は、統合が成功するたびに `_on_project_merge_succeeded` で行う。
+        """
+        reason = MainWindow._project_switch_block_reason(self)
+        if reason is not None:
+            logger.warning(f"プロジェクトの統合を拒否: {reason}")
+            show_warning(
+                self,
+                "プロジェクトを統合できません",
+                f"{reason}\n完了またはキャンセルしてから再度お試しください。",
+            )
+            return
+        from ..widgets.project_merge_dialog import ProjectMergeDialog
+
+        try:
+            current_root: Path | None = get_current_project_root().resolve()
+        except (OSError, RuntimeError):
+            current_root = None
+        dialog = ProjectMergeDialog(
+            self.service_container.project_management_service,
+            current_project_root=current_root,
+            parent=self,
+        )
+        # 統合が成功するたびに通知を受けて更新する (ダイアログを開いたまま何回統合しても漏らさない)
+        dialog.merge_succeeded.connect(self._on_project_merge_succeeded)
+        dialog.exec()
+        dialog.deleteLater()
+
+    @Slot(object)
+    def _on_project_merge_succeeded(self, outcome: object) -> None:
+        """統合が 1 回成功するごとに、統合先が現在のプロジェクトなら表示を更新する (#1660)。
+
+        ハッシュ一致でまとめた画像は ID が変わらないため、検索タブの詳細 (由来・データセット利用状況)
+        も明示的に読み直す。
+
+        Args:
+            outcome: `ProjectMergeOutcome` (統合先のディレクトリと、取り込み・まとめた画像 ID)。
+        """
+        from ..widgets.project_merge_dialog import ProjectMergeOutcome
+
+        if not isinstance(outcome, ProjectMergeOutcome):
+            return
+        try:
+            current_root = get_current_project_root().resolve()
+        except (OSError, RuntimeError):
+            return
+        if outcome.target_root != current_root:
+            return
+        search_tab = getattr(self, "search_tab", None)
+        if search_tab is not None:
+            search_tab.refresh_after_project_merge(list(outcome.image_ids))
+        tab_widget = getattr(self, "tabWidgetMainMode", None)
+        current_tab = tab_widget.currentWidget() if tab_widget is not None else None
+        if search_tab is None or current_tab not in (getattr(self, "tabWorkspace", None), search_tab):
+            MainWindow._refresh_active_tab(self)
 
     def _open_log_folder(self) -> None:
         """ログフォルダを OS のファイルマネージャで開く (#1550)。"""
