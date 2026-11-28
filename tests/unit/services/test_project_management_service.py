@@ -741,3 +741,40 @@ class TestEnsureProjectMetadata:
 
         assert service.ensure_project_metadata(project_dir) is False
         assert (project_dir / ".lorairo-project").read_text(encoding="utf-8") == "not json"
+
+
+class TestProjectMetadataEncoding:
+    """メタデータの読み書きをロケールに依存させない (#1659 PR #1664 Codex P2)。"""
+
+    def test_metadata_round_trips_non_locale_characters_under_cp932_locale(
+        self, service: ProjectManagementService, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """既定のエンコーディングが cp932 の環境でも、絵文字を含むフォルダ名を書いて一覧に出せる。"""
+        original_write = Path.write_text
+        original_read = Path.read_text
+
+        def write_with_locale_default(
+            self: Path,
+            data: str,
+            encoding: str | None = None,
+            errors: str | None = None,
+            newline: str | None = None,
+        ) -> int:
+            # encoding 未指定時は Windows (UTF-8 モード無効) のロケール既定 cp932 を模擬する
+            return original_write(self, data, encoding or "cp932", errors, newline)
+
+        def read_with_locale_default(
+            self: Path, encoding: str | None = None, errors: str | None = None, newline: str | None = None
+        ) -> str:
+            return original_read(self, encoding or "cp932", errors, newline)
+
+        monkeypatch.setattr(Path, "write_text", write_with_locale_default)
+        monkeypatch.setattr(Path, "read_text", read_with_locale_default)
+        project_dir = service.projects_base_dir / "素材🎨_20261128_001"
+        project_dir.mkdir(parents=True)
+
+        assert service.ensure_project_metadata(project_dir) is True
+
+        raw = (project_dir / ".lorairo-project").read_bytes()
+        assert json.loads(raw.decode("utf-8"))["name"] == "素材🎨_20261128_001"
+        assert [p.name for p in service.list_projects()] == ["素材🎨_20261128_001"]

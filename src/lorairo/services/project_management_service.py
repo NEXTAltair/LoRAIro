@@ -108,7 +108,7 @@ class ProjectManagementService:
                 "description": description,
             }
             metadata_file = project_dir / ".lorairo-project.pending"
-            metadata_file.write_text(json.dumps(metadata, indent=2, ensure_ascii=False))
+            metadata_file.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
 
             # 初期データベースファイル作成（ダミー）
             # 実際のDB初期化は ImageDatabaseManager で行われる
@@ -182,7 +182,7 @@ class ProjectManagementService:
         }
         # create_project と同じく pending に書いてから公開し、書きかけを一覧に出さない
         pending_file = project_dir / ".lorairo-project.pending"
-        pending_file.write_text(json.dumps(metadata, indent=2, ensure_ascii=False))
+        pending_file.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
         pending_file.replace(metadata_file)
         logger.debug(f"プロジェクトメタデータを補完しました: {project_dir}")
         return True
@@ -340,9 +340,11 @@ class ProjectManagementService:
             # メタデータファイルを更新
             metadata_file = project_dir / ".lorairo-project"
             if metadata_file.exists():
-                metadata = json.loads(metadata_file.read_text())
+                metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
                 metadata["description"] = description
-                metadata_file.write_text(json.dumps(metadata, indent=2, ensure_ascii=False))
+                metadata_file.write_text(
+                    json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8"
+                )
 
             logger.info(f"プロジェクト更新: {name}")
 
@@ -399,7 +401,7 @@ class ProjectManagementService:
                 if not proj_dir.is_dir() or not metadata_file.exists():
                     continue
                 try:
-                    metadata = json.loads(metadata_file.read_text())
+                    metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
                 except (json.JSONDecodeError, OSError):
                     continue
                 # JSON として妥当でも dict でない場合 ([] / null 等) は候補にしない (Codex P2)
@@ -437,7 +439,7 @@ class ProjectManagementService:
 
                 # メタデータの name フィールドで正確にマッチ
                 try:
-                    metadata = json.loads(metadata_file.read_text())
+                    metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
                     if metadata.get("name") == name:
                         return proj_dir
                 except (json.JSONDecodeError, OSError):
@@ -466,7 +468,7 @@ class ProjectManagementService:
                 logger.debug(f"メタデータファイルが見つかりません: {metadata_file}")
                 return None
 
-            metadata = json.loads(metadata_file.read_text())
+            metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
 
             # 作成日時を datetime に変換
             created_str = metadata.get("created", "")
