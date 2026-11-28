@@ -120,6 +120,7 @@ ADR は OKF (Open Knowledge Format) バンドルとして管理する。各 ADR 
 | [0110](0110-detector-crop-rect-provider.md) | 物体検出器でクロップ矩形を決める images crop-detect を CropRectProvider として追加する | 2026-11-12 | Accepted |
 | [0111](0111-tag-provenance-pseudo-models.md) | model_id が空のタグ行に出所を持たせる (擬似モデル SIDECAR_IMPORT / IMAGE_PROCESSING) | 2026-11-19 | Accepted |
 | [0112](0112-cross-project-image-copy-and-origins.md) | プロジェクトを横断した画像の検索・コピーと由来の記録 | 2026-11-28 | Accepted |
+| [0113](0113-project-merge-with-version-history.md) | 複数プロジェクトを画像・タグ・データセットの版履歴ごと統合する | 2026-11-28 | Accepted |
 <!-- OKF-TABLE:END -->
 
 ## ADR テンプレート
