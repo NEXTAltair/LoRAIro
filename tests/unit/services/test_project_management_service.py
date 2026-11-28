@@ -697,3 +697,104 @@ def test_create_preserves_preexisting_timestamp_destination(
         info = service.create_project("same")
     assert info.path.name == "same_20260906_100000_1"
     assert protected.read_bytes() == b"keep"
+
+
+@pytest.mark.unit
+class TestEnsureProjectMetadata:
+    """ensure_project_metadata: GUI が作成・オープンしたフォルダのメタデータ補完 (#1659)。"""
+
+    def test_writes_metadata_with_folder_name_for_folder_without_metadata(
+        self, service: ProjectManagementService
+    ) -> None:
+        """メタデータの無いフォルダにフォルダ名を name とする .lorairo-project を書き、一覧に出る。"""
+        project_dir = service.projects_base_dir / "otogi-lora_20261126_001"
+        project_dir.mkdir(parents=True)
+
+        written = service.ensure_project_metadata(project_dir)
+
+        assert written is True
+        metadata = json.loads((project_dir / ".lorairo-project").read_text(encoding="utf-8"))
+        assert metadata["name"] == "otogi-lora_20261126_001"
+        assert metadata["description"] == ""
+        assert metadata["created"]
+        assert not (project_dir / ".lorairo-project.pending").exists()
+        listed = service.list_projects()
+        assert [p.name for p in listed] == ["otogi-lora_20261126_001"]
+        assert service.get_project("otogi-lora_20261126_001").path == project_dir
+
+    def test_does_not_overwrite_existing_metadata(self, service: ProjectManagementService) -> None:
+        """CLI が作った既存メタデータの name は変えない。"""
+        info = service.create_project("cli_project", description="from cli")
+        before = (info.path / ".lorairo-project").read_text(encoding="utf-8")
+
+        written = service.ensure_project_metadata(info.path)
+
+        assert written is False
+        assert (info.path / ".lorairo-project").read_text(encoding="utf-8") == before
+        assert [p.name for p in service.list_projects()] == ["cli_project"]
+
+    def test_does_not_overwrite_unreadable_metadata(self, service: ProjectManagementService) -> None:
+        """壊れたメタデータも上書きしない (ユーザーのファイルを勝手に消さない)。"""
+        project_dir = service.projects_base_dir / "broken_20261126_001"
+        project_dir.mkdir(parents=True)
+        (project_dir / ".lorairo-project").write_text("not json", encoding="utf-8")
+
+        assert service.ensure_project_metadata(project_dir) is False
+        assert (project_dir / ".lorairo-project").read_text(encoding="utf-8") == "not json"
+
+
+class TestProjectMetadataEncoding:
+    """メタデータの読み書きをロケールに依存させない (#1659 PR #1664 Codex P2)。"""
+
+    def test_metadata_round_trips_non_locale_characters_under_cp932_locale(
+        self, service: ProjectManagementService, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """既定のエンコーディングが cp932 の環境でも、絵文字を含むフォルダ名を書いて一覧に出せる。"""
+        original_write = Path.write_text
+        original_read = Path.read_text
+
+        def write_with_locale_default(
+            self: Path,
+            data: str,
+            encoding: str | None = None,
+            errors: str | None = None,
+            newline: str | None = None,
+        ) -> int:
+            # encoding 未指定時は Windows (UTF-8 モード無効) のロケール既定 cp932 を模擬する
+            return original_write(self, data, encoding or "cp932", errors, newline)
+
+        def read_with_locale_default(
+            self: Path, encoding: str | None = None, errors: str | None = None, newline: str | None = None
+        ) -> str:
+            return original_read(self, encoding or "cp932", errors, newline)
+
+        monkeypatch.setattr(Path, "write_text", write_with_locale_default)
+        monkeypatch.setattr(Path, "read_text", read_with_locale_default)
+        project_dir = service.projects_base_dir / "素材🎨_20261128_001"
+        project_dir.mkdir(parents=True)
+
+        assert service.ensure_project_metadata(project_dir) is True
+
+        raw = (project_dir / ".lorairo-project").read_bytes()
+        assert json.loads(raw.decode("utf-8"))["name"] == "素材🎨_20261128_001"
+        assert [p.name for p in service.list_projects()] == ["素材🎨_20261128_001"]
+
+    def test_reads_legacy_metadata_written_in_locale_encoding(
+        self, service: ProjectManagementService, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """以前 Windows のロケール既定 (cp932) で書かれたメタデータも一覧と名前検索で読める。"""
+        monkeypatch.setattr(
+            "lorairo.services.project_management_service.locale.getpreferredencoding",
+            lambda do_setlocale=True: "cp932",
+        )
+        project_dir = service.projects_base_dir / "素材_20260101_120000"
+        project_dir.mkdir(parents=True)
+        legacy = {"name": "素材", "created": "20260101_120000", "description": "日本語の説明"}
+        (project_dir / ".lorairo-project").write_bytes(
+            json.dumps(legacy, ensure_ascii=False).encode("cp932")
+        )
+
+        listed = service.list_projects()
+
+        assert [(p.name, p.description) for p in listed] == [("素材", "日本語の説明")]
+        assert service.get_project("素材").path == project_dir

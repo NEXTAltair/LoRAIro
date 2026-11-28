@@ -894,6 +894,147 @@ class TestMainWindowWave5Features:
         )
         mock_replace.assert_called_once_with(window)
 
+    def test_create_new_project_writes_metadata_listed_by_project_service(self, tmp_path):
+        """GUI 新規作成のあと .lorairo-project があり list_projects が返す (#1659)。"""
+        import json
+
+        from lorairo.gui.window.main_window import MainWindow
+        from lorairo.services.project_management_service import ProjectManagementService
+
+        base = tmp_path / "lorairo_data"
+        new_dir = base / "otogi-lora_20261126_001"
+        service = ProjectManagementService(projects_base_dir=base)
+        window = Mock()
+        window.config_service.get_setting.side_effect = lambda _s, _k, default: default
+        window.service_container.project_management_service = service
+        window.service_container.set_active_project_directory.side_effect = lambda _p: _p.mkdir(
+            parents=True, exist_ok=True
+        )
+        with (
+            patch.object(MainWindow, "_project_switch_block_reason", return_value=None),
+            patch.object(MainWindow, "_replace_with_project_window", return_value=Mock()),
+            patch("lorairo.gui.window.main_window.get_project_dir", return_value=new_dir),
+            patch("lorairo.gui.window.main_window.QSettings"),
+        ):
+            result = MainWindow._create_new_project(window, "otogi-lora")
+
+        assert result == new_dir.resolve()
+        metadata = json.loads((new_dir / ".lorairo-project").read_text(encoding="utf-8"))
+        assert metadata["name"] == "otogi-lora_20261126_001"
+        assert [p.name for p in service.list_projects()] == ["otogi-lora_20261126_001"]
+
+    def test_open_project_writes_metadata_for_folder_without_metadata(self, tmp_path):
+        """メタデータの無い既存フォルダを GUI で開くと .lorairo-project が書かれ一覧に出る (#1659)。"""
+        from lorairo.gui.window.main_window import MainWindow
+        from lorairo.services.project_management_service import ProjectManagementService
+
+        base = tmp_path / "lorairo_data"
+        proj_dir = base / "legacy_20260101_001"
+        proj_dir.mkdir(parents=True)
+        service = ProjectManagementService(projects_base_dir=base)
+        window = Mock()
+        window.service_container.project_management_service = service
+        with (
+            patch.object(MainWindow, "_project_switch_block_reason", return_value=None),
+            patch.object(MainWindow, "_replace_with_project_window", return_value=Mock()),
+            patch("lorairo.gui.window.main_window.QSettings"),
+        ):
+            selected = MainWindow._open_project(window, proj_dir)
+
+        assert selected == proj_dir.resolve()
+        assert (proj_dir / ".lorairo-project").is_file()
+        assert [p.name for p in service.list_projects()] == ["legacy_20260101_001"]
+
+    def test_open_project_keeps_existing_cli_metadata_name(self, tmp_path):
+        """CLI で作成済みのプロジェクトを開いても name を書き換えない (#1659)。"""
+        import json
+
+        from lorairo.gui.window.main_window import MainWindow
+        from lorairo.services.project_management_service import ProjectManagementService
+
+        service = ProjectManagementService(projects_base_dir=tmp_path / "lorairo_data")
+        info = service.create_project("lolita_v5")
+        window = Mock()
+        window.service_container.project_management_service = service
+        with (
+            patch.object(MainWindow, "_project_switch_block_reason", return_value=None),
+            patch.object(MainWindow, "_replace_with_project_window", return_value=Mock()),
+            patch("lorairo.gui.window.main_window.QSettings"),
+        ):
+            MainWindow._open_project(window, info.path)
+
+        metadata = json.loads((info.path / ".lorairo-project").read_text(encoding="utf-8"))
+        assert metadata["name"] == "lolita_v5"
+
+    def test_metadata_failure_does_not_block_project_switch(self, tmp_path):
+        """メタデータを書けなくてもプロジェクトの切替自体は続行する (#1659)。"""
+        from lorairo.gui.window.main_window import MainWindow
+
+        window = Mock()
+        window.service_container.project_management_service.ensure_project_metadata.side_effect = OSError(
+            "read-only"
+        )
+        with (
+            patch.object(MainWindow, "_replace_with_project_window", return_value=Mock()) as mock_replace,
+            patch("lorairo.gui.window.main_window.QSettings"),
+        ):
+            result = MainWindow._activate_project_directory(window, tmp_path)
+
+        assert result is not None
+        mock_replace.assert_called_once_with(window)
+
+    def test_gui_open_does_not_create_second_projects_row(self, tmp_path):
+        """GUI でメタデータを補完しても projects テーブルに同じプロジェクトが 2 行できない (#1659)。"""
+        from sqlalchemy import create_engine, func, select
+        from sqlalchemy.orm import sessionmaker
+
+        from lorairo.database.db_manager import ImageDatabaseManager
+        from lorairo.database.repository.project import ProjectRepository
+        from lorairo.database.schema import Base, Project
+        from lorairo.gui.window.main_window import MainWindow
+        from lorairo.services.project_management_service import ProjectManagementService
+
+        base = tmp_path / "lorairo_data"
+        proj_dir = base / "legacy_20260101_001"
+        proj_dir.mkdir(parents=True)
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(engine)
+        project_repo = ProjectRepository(session_factory=session_factory)
+
+        def make_manager() -> ImageDatabaseManager:
+            return ImageDatabaseManager(
+                config_service=Mock(),
+                fsm=None,
+                model_repo=Mock(),
+                project_repo=project_repo,
+                error_record_repo=Mock(),
+                image_repo=Mock(),
+                annotation_repo=Mock(),
+                provider_batch_repo=Mock(),
+            )
+
+        window = Mock()
+        window.service_container.project_management_service = ProjectManagementService(
+            projects_base_dir=base
+        )
+        with patch("lorairo.database.db_core.get_current_project_root", return_value=proj_dir):
+            # GUI で開く前に画像登録済み (メタデータ無し → 論理名はフォルダ名)
+            id_before = make_manager()._get_current_project_id()
+            with (
+                patch.object(MainWindow, "_project_switch_block_reason", return_value=None),
+                patch.object(MainWindow, "_replace_with_project_window", return_value=Mock()),
+                patch("lorairo.gui.window.main_window.QSettings"),
+            ):
+                MainWindow._open_project(window, proj_dir)
+            # 開いた後に別の接続 (新しい db_manager) が登録しても同じ行を使う
+            id_after = make_manager()._get_current_project_id()
+
+        with session_factory() as session:
+            count = session.execute(select(func.count()).select_from(Project)).scalar_one()
+        assert id_before == id_after
+        assert count == 1
+
     def test_activate_project_directory_aborts_when_database_cannot_open(self, tmp_path):
         """DB を開けない場合は切替を中断し、設定保存もウィンドウ再生成もしない (#1547)。"""
         from sqlalchemy.exc import OperationalError
